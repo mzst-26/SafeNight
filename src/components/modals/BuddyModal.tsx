@@ -91,13 +91,15 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
     clearError,
     refresh,
     liveContacts,
-  } = useContacts(true);
+  } = useContacts(!!userId);
 
   const currentUsername = username || initialUsername;
 
-  // Refresh contacts every time the modal opens
+  // Refresh contacts + reset tab every time the modal opens
   useEffect(() => {
     if (visible) {
+      setTab('qr');
+      setHasScanned(false);
       refresh();
     }
   }, [visible, refresh]);
