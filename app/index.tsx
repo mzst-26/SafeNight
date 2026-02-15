@@ -277,12 +277,12 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* ── Report hazard button (below friend toggle) ── */}
-        {!h.isNavActive && auth.isLoggedIn && (
+        {/* ── Report hazard button (only during navigation) ── */}
+        {h.isNavActive && auth.isLoggedIn && (
           <View style={{
             position: 'absolute',
-            top: insets.top + (contacts.length > 0 ? 350 : 295),
-            right: 12,
+            bottom: insets.bottom + 100,
+            right: 16,
             zIndex: 100,
           }}>
             <Pressable

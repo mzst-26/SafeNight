@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -64,6 +65,11 @@ export function ReportModal({ visible, location, onClose, onSubmitted }: Props) 
         category: selected,
         description: description.trim(),
       });
+      Alert.alert(
+        'Report Submitted',
+        'Thank you for helping keep others safe. Your report has been recorded.',
+        [{ text: 'OK' }],
+      );
       onSubmitted(selected);
       // Reset state
       setSelected(null);
@@ -71,6 +77,11 @@ export function ReportModal({ visible, location, onClose, onSubmitted }: Props) 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to submit report';
       setError(msg);
+      Alert.alert(
+        'Submission Failed',
+        `Your report could not be submitted. ${msg}`,
+        [{ text: 'OK' }],
+      );
     } finally {
       setSubmitting(false);
     }

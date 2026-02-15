@@ -71,6 +71,18 @@ router.post('/', requireAuth, checkFeatureLimit('safety_reports'), async (req, r
       return res.status(500).json({ error: 'Failed to submit report' });
     }
 
+    // Log a usage event for the report submission
+    await supabase
+      .from('usage_events')
+      .insert({
+        user_id: req.user.id,
+        event_type: 'safety_report',
+        value_text: category,
+      })
+      .then(({ error: evtErr }) => {
+        if (evtErr) console.error('[reports] Usage event insert error:', evtErr.message);
+      });
+
     res.status(201).json(data);
   } catch (err) {
     next(err);
