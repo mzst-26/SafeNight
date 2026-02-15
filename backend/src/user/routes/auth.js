@@ -10,7 +10,7 @@
  */
 
 const express = require('express');
-const { supabase } = require('../lib/supabase');
+const { supabase, supabaseAuth } = require('../lib/supabase');
 const { requireAuth } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -119,7 +119,7 @@ router.post('/magic-link', authSensitiveLimit, async (req, res, next) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = typeof name === 'string' ? name.trim().slice(0, MAX_NAME) : '';
 
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabaseAuth.auth.signInWithOtp({
       email: cleanEmail,
       options: {
         data: { name: cleanName },
@@ -153,7 +153,7 @@ router.post('/verify', authSensitiveLimit, async (req, res, next) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    const { data, error } = await supabase.auth.verifyOtp({
+    const { data, error } = await supabaseAuth.auth.verifyOtp({
       email: cleanEmail,
       token,
       type: 'email',
@@ -199,7 +199,7 @@ router.post('/refresh', async (req, res, next) => {
       return res.status(400).json({ error: 'Refresh token is required' });
     }
 
-    const { data, error } = await supabase.auth.refreshSession({
+    const { data, error } = await supabaseAuth.auth.refreshSession({
       refresh_token,
     });
 
@@ -364,7 +364,7 @@ router.post('/update-profile', requireAuth, async (req, res, next) => {
 router.post('/logout', requireAuth, async (req, res, next) => {
   try {
     // Server-side sign out — invalidates the user's session
-    const { error } = await supabase.auth.admin.signOut(req.user.id);
+    const { error } = await supabaseAuth.auth.admin.signOut(req.user.id);
 
     if (error) {
       console.error('[auth] Logout error:', error.message);

@@ -1,8 +1,19 @@
 /**
- * supabase.js — Server-side Supabase client.
+ * supabase.js — Server-side Supabase clients.
  *
- * Uses SERVICE_ROLE key so the server can bypass RLS for admin ops.
- * NEVER expose this key to the client.
+ * TWO separate clients to prevent session contamination:
+ *
+ *   supabase     — For DB operations (insert, select, update, delete).
+ *                  Never call auth methods on this client.
+ *                  Uses SERVICE_ROLE key → bypasses RLS.
+ *
+ *   supabaseAuth — For auth operations (signInWithOtp, verifyOtp,
+ *                  refreshSession, getUser, admin.signOut).
+ *                  Auth methods set session state internally, which would
+ *                  override the Authorization header and break RLS bypass
+ *                  if done on the data client.
+ *
+ * NEVER expose these keys to the client.
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -15,6 +26,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
+// Data client — for .from() queries. Never use .auth on this.
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: {
     autoRefreshToken: false,
@@ -22,4 +34,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   },
 });
 
-module.exports = { supabase };
+// Auth client — for .auth methods (signInWithOtp, verifyOtp, etc.)
+// Separate instance so session state doesn't contaminate the data client.
+const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});
+
+module.exports = { supabase, supabaseAuth };

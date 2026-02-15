@@ -5,7 +5,7 @@
  * verifies it with Supabase, and attaches user to req.
  */
 
-const { supabase } = require('../lib/supabase');
+const { supabaseAuth } = require('../lib/supabase');
 
 async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -17,7 +17,7 @@ async function requireAuth(req, res, next) {
   const token = authHeader.slice(7);
 
   try {
-    const { data, error } = await supabase.auth.getUser(token);
+    const { data, error } = await supabaseAuth.auth.getUser(token);
 
     if (error || !data?.user) {
       return res.status(401).json({ error: 'Invalid or expired token' });
