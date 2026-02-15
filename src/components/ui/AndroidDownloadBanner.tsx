@@ -4,17 +4,17 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 const APK_URL = 'https://github.com/Jrtowers-prog/PlymHack2026New/releases/download/latest/SafeNightHome.apk';
 
-export function AndroidDownloadBanner() {
+export function AndroidDownloadBanner({ embedded }: { embedded?: boolean } = {}) {
   const [dismissed, setDismissed] = useState(false);
 
   if (Platform.OS !== 'web' || dismissed) return null;
 
   return (
-    <View style={styles.banner}>
+    <View style={[styles.banner, embedded && styles.bannerEmbedded]}>
       <Pressable
         style={styles.content}
         onPress={() => window.open(APK_URL, '_blank', 'noopener,noreferrer')}
@@ -44,6 +44,9 @@ const styles = StyleSheet.create({
     elevation: 200,
     height: 32,
   },
+  bannerEmbedded: {
+    position: 'relative',
+  } as any,
   content: {
     flex: 1,
     flexDirection: 'row',

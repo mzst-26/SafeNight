@@ -12,13 +12,15 @@ interface SafetyPanelProps {
   selectedSafeRoute: SafeRoute;
   /** Called when user taps a grid card — category is the marker kind */
   onCategoryPress?: (category: string) => void;
+  /** When true, skip the side-by-side web layout (used inside WebSidebar) */
+  inSidebar?: boolean;
 }
 
-export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress }: SafetyPanelProps) {
+export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, inSidebar }: SafetyPanelProps) {
   const stats = selectedSafeRoute.routeStats;
 
   return (
-    <View style={[styles.column, Platform.OS === 'web' && styles.columnWeb]}>
+    <View style={[styles.column, Platform.OS === 'web' && !inSidebar && styles.columnWeb]}>
       {/* Hero Score */}
       <View style={[styles.heroCard, { borderColor: safetyResult.safetyColor + '44' }]}>
         <CircleProgress

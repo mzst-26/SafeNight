@@ -10,15 +10,18 @@ interface RouteListProps {
   routes: SafeRoute[];
   selectedRouteId: string | null;
   onSelectRoute: (id: string) => void;
+  /** When true, skip the side-by-side web layout (used inside WebSidebar) */
+  inSidebar?: boolean;
 }
 
 export function RouteList({
   routes,
   selectedRouteId,
   onSelectRoute,
+  inSidebar,
 }: RouteListProps) {
   return (
-    <View style={[styles.column, Platform.OS === 'web' && styles.columnWeb]}>
+    <View style={[styles.column, Platform.OS === 'web' && !inSidebar && styles.columnWeb]}>
       {routes.slice(0, 5).map((route, index) => (
         <RouteCard
           key={route.id}

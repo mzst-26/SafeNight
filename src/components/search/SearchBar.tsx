@@ -52,6 +52,8 @@ export interface SearchBarProps {
   onSwap: () => void;
   /** If provided, tapping any input fires this instead of allowing typing (web guest mode) */
   onGuestTap?: () => void;
+  /** When true, renders inline (no absolute positioning) — used inside WebSidebar */
+  embedded?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -73,6 +75,7 @@ export function SearchBar({
   onClearRoute,
   onSwap,
   onGuestTap,
+  embedded,
 }: SearchBarProps) {
   const originInputRef = useRef<TextInput>(null);
   const destInputRef = useRef<TextInput>(null);
@@ -155,12 +158,15 @@ export function SearchBar({
 
   return (
     <ScrollView
-      style={[styles.container, { top: topInset + 8, pointerEvents: 'box-none' }]}
-      contentContainerStyle={styles.content}
+      style={[
+        embedded ? styles.containerEmbedded : styles.container,
+        !embedded && { top: topInset + 8, pointerEvents: 'box-none' },
+      ]}
+      contentContainerStyle={embedded ? styles.contentEmbedded : styles.content}
       keyboardShouldPersistTaps="always"
       scrollEnabled={false}
     >
-      <View style={styles.card}>
+      <View style={[styles.card, embedded && styles.cardEmbedded]}>
         {/* Origin Input */}
         <View style={styles.inputRow}>
           <View style={styles.inputIconWrap}>
@@ -317,7 +323,7 @@ export function SearchBar({
 
       {/* Predictions Dropdown */}
       {activePredictions.length > 0 && (
-        <View style={styles.predictionsDropdown}>
+        <View style={[styles.predictionsDropdown, embedded && { maxWidth: '100%' as any }]}>
           {activePredictions.map((pred, idx) => (
             <Pressable
               key={pred.placeId}
@@ -373,9 +379,15 @@ const styles = StyleSheet.create({
     zIndex: 10,
     elevation: 10,
   },
+  containerEmbedded: {
+    // No absolute positioning — flows inline inside parent
+  },
   content: {
     alignItems: 'center',
     paddingHorizontal: 10,
+  },
+  contentEmbedded: {
+    paddingHorizontal: 0,
   },
   card: {
     backgroundColor: '#ffffff',
@@ -395,6 +407,13 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'web' ? 8 : 10,
     paddingBottom: Platform.OS === 'web' ? 8 : 10,
   },
+  cardEmbedded: {
+    maxWidth: '100%' as any,
+    borderRadius: 0,
+    boxShadow: 'none',
+    elevation: 0,
+    overflow: 'visible',
+  } as any,
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
