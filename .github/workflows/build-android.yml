@@ -41,6 +41,10 @@ jobs:
           java-version: 17
           cache: gradle
 
+      - name: Generate build number
+        id: buildnum
+        run: echo "value=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+
       - name: Create .env for build
         run: |
           cat <<EOF > .env
@@ -50,6 +54,7 @@ jobs:
           EXPO_PUBLIC_OSM_USER_AGENT=${{ secrets.EXPO_PUBLIC_OSM_USER_AGENT }}
           EXPO_PUBLIC_OSM_EMAIL=${{ secrets.EXPO_PUBLIC_OSM_EMAIL }}
           EXPO_PUBLIC_BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EXPO_PUBLIC_BUILD_NUMBER=${{ steps.buildnum.outputs.value }}
           EOF
 
       - name: Generate native Android project
@@ -77,13 +82,20 @@ jobs:
         id: sha
         run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Create / update release
+      - name: Delete old release so published_at resets
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: "Latest Build (${{ steps.sha.outputs.short }})"
           body: |
             Automatically built from commit `${{ github.sha }}`.
+            BUILD_NUMBER=${{ steps.buildnum.outputs.value }}
 
             **Download:**
             - [SafeNightHome.apk](https://github.com/Jrtowers-prog/PlymHack2026New/releases/download/latest/SafeNightHome.apk) (Android)
