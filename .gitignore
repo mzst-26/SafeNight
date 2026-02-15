@@ -70,3 +70,4 @@ app-example
 android_build_log.txt
 test_map.png
 .env.production
+backend/src/user/migration_fix_rls.sql
