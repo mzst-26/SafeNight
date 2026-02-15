@@ -342,14 +342,16 @@ export function useAuth() {
     });
   }, []);
 
-  const updateName = useCallback(async (name: string) => {
+  const updateName = useCallback(async (name: string): Promise<boolean> => {
     try {
       await authApi.updateProfile({ name });
       setState((s) =>
         s.user ? { ...s, user: { ...s.user, name } } : s,
       );
-    } catch {
-      // Silent fail
+      return true;
+    } catch (err) {
+      console.error('[auth] updateName error:', err);
+      return false;
     }
   }, []);
 

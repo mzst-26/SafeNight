@@ -34,7 +34,7 @@ interface Props {
   userName: string;
   currentUsername: string | null;
   onSetUsername: (username: string) => Promise<boolean>;
-  onSetName: (name: string) => Promise<void>;
+  onSetName: (name: string) => Promise<boolean>;
   onAcceptLocation: () => void;
   hasLocationPermission: boolean;
 }
@@ -105,16 +105,27 @@ export default function WelcomeModal({
     setUsernameError(null);
     setNameError(null);
 
-    // Save name first
-    await onSetName(cleanName);
+    try {
+      // Save name first
+      const nameOk = await onSetName(cleanName);
+      if (!nameOk) {
+        setSaving(false);
+        setNameError('Could not save your name. Please check your connection and try again.');
+        return;
+      }
 
-    // Then set username
-    const ok = await onSetUsername(cleanUsername);
-    setSaving(false);
-    if (ok) {
-      setStep('location');
-    } else {
-      setUsernameError('Username taken. Try another one.');
+      // Then set username
+      const usernameOk = await onSetUsername(cleanUsername);
+      setSaving(false);
+      if (usernameOk) {
+        setStep('location');
+      } else {
+        setUsernameError('Username taken. Try another one.');
+      }
+    } catch (err) {
+      setSaving(false);
+      setNameError('Something went wrong. Please check your connection and try again.');
+      console.error('[WelcomeModal] handleSaveProfile error:', err);
     }
   }, [displayName, username, onSetName, onSetUsername]);
 
