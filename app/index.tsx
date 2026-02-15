@@ -50,15 +50,29 @@ export default function HomeScreen() {
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
 
   // Only load contacts when logged in
-  const { contacts, liveContacts } = useContacts(auth.isLoggedIn);
+  const { contacts, liveContacts, refresh: refreshContacts } = useContacts(auth.isLoggedIn);
 
   // Friend locations — poll when the toggle is on and user has contacts
   const { friends: friendMarkers, checkNow: checkFriendLocations } = useFriendLocations(
-    showFriendsOnMap && contacts.length > 0,
+    showFriendsOnMap && auth.isLoggedIn,
   );
+
+  // Callback when contacts change in BuddyModal — refresh parent state
+  const handleContactsChanged = useCallback(() => {
+    refreshContacts();
+  }, [refreshContacts]);
 
   // Toggle friend locations with immediate check + toast
   const handleFriendToggle = useCallback(async () => {
+    if (contacts.length === 0) {
+      setToast({
+        message: 'Add contacts in Safety Circle first to see friend locations',
+        icon: 'people-outline',
+        iconColor: '#F59E0B',
+        duration: 3500,
+      });
+      return;
+    }
     const next = !showFriendsOnMap;
     setShowFriendsOnMap(next);
 
@@ -84,7 +98,7 @@ export default function HomeScreen() {
     } else {
       setToast({ message: 'Friend locations hidden', icon: 'eye-off-outline', iconColor: '#6B7280', duration: 2000 });
     }
-  }, [showFriendsOnMap, checkFriendLocations]);
+  }, [showFriendsOnMap, checkFriendLocations, contacts.length]);
 
   // Report category labels for toast
   const reportLabels: Record<string, string> = {
@@ -111,7 +125,7 @@ export default function HomeScreen() {
 
   // Auto-start live tracking when navigation begins (if logged in with contacts)
   useEffect(() => {
-    if (h.nav.state === 'navigating' && auth.isLoggedIn && liveContacts.length > 0 && !liveStarted.current) {
+    if (h.nav.state === 'navigating' && auth.isLoggedIn && contacts.length > 0 && !liveStarted.current) {
       liveStarted.current = true;
       const dest = h.effectiveDestination;
       live.startTracking({
@@ -120,7 +134,7 @@ export default function HomeScreen() {
         destination_name: h.destSearch?.place?.name ?? 'Unknown destination',
       });
     }
-  }, [h.nav.state, auth.isLoggedIn, liveContacts.length, h.effectiveDestination, h.destSearch?.place?.name, live]);
+  }, [h.nav.state, auth.isLoggedIn, contacts.length, h.effectiveDestination, h.destSearch?.place?.name, live]);
 
   // Auto-stop live tracking when navigation ends
   useEffect(() => {
@@ -252,12 +266,13 @@ export default function HomeScreen() {
               username={auth.user?.username ?? null}
               userId={auth.user?.id ?? null}
               hasLiveContacts={liveContacts.length > 0}
+              onContactsChanged={handleContactsChanged}
             />
           </View>
         )}
 
         {/* ── Show Friends on Map toggle (below Safety Circle) ── */}
-        {!h.isNavActive && auth.isLoggedIn && contacts.length > 0 && (
+        {!h.isNavActive && auth.isLoggedIn && (
           <View style={{ position: 'absolute', top: insets.top + 295, right: 12, zIndex: 100 }}>
             <Pressable
               onPress={handleFriendToggle}

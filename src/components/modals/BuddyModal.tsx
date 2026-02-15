@@ -37,11 +37,12 @@ interface Props {
   onClose: () => void;
   username: string | null;
   userId: string | null;
+  onContactsChanged?: () => void;
 }
 
 type Tab = 'qr' | 'scan' | 'contacts';
 
-export default function BuddyModal({ visible, onClose, username: initialUsername, userId }: Props) {
+export default function BuddyModal({ visible, onClose, username: initialUsername, userId, onContactsChanged }: Props) {
   const [tab, setTab] = useState<Tab>('qr');
   const [hasScanned, setHasScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -151,6 +152,7 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
       const doAdd = async () => {
         const ok = await invite(user.id, user.name);
         if (ok) {
+          onContactsChanged?.();
           showAlert('Sent!', 'Contact request sent.', {
             icon: 'checkmark-circle',
             iconColor: '#10B981',
@@ -174,7 +176,7 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
         },
       );
     },
-    [hasScanned, lookupUser, invite, showAlert],
+    [hasScanned, lookupUser, invite, showAlert, onContactsChanged],
   );
 
   // ─── Handle contact response ──────────────────────────────────────────
@@ -186,6 +188,7 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
         const ok = await respond(id, resp);
         setRespondingToId(null);
         if (ok) {
+          onContactsChanged?.();
           showAlert('Success', `Contact request ${resp}.`, {
             icon: resp === 'accepted' ? 'checkmark-circle' : 'close-circle',
             iconColor: resp === 'accepted' ? '#10B981' : '#94A3B8',
@@ -206,7 +209,7 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
         });
       }
     },
-    [respond, showAlert],
+    [respond, showAlert, onContactsChanged],
   );
 
   const handleRespond = useCallback(
@@ -237,6 +240,7 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
           console.log(`[BuddyModal] Removing contact ${id}`);
           const ok = await removeContact(id);
           if (ok) {
+            onContactsChanged?.();
             showAlert('Removed', 'Contact removed.', {
               icon: 'checkmark-circle',
               iconColor: '#10B981',
@@ -266,7 +270,7 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
         ],
       });
     },
-    [removeContact, showAlert],
+    [removeContact, showAlert, onContactsChanged],
   );
 
   // ─── Web download prompt (replaces QR/Scan on web) ────────────────────
