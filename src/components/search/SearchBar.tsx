@@ -50,6 +50,8 @@ export interface SearchBarProps {
   onClearRoute: () => void;
   /** Swap origin and destination */
   onSwap: () => void;
+  /** If provided, tapping any input fires this instead of allowing typing (web guest mode) */
+  onGuestTap?: () => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -70,6 +72,7 @@ export function SearchBar({
   onPanTo,
   onClearRoute,
   onSwap,
+  onGuestTap,
 }: SearchBarProps) {
   const originInputRef = useRef<TextInput>(null);
   const destInputRef = useRef<TextInput>(null);
@@ -166,13 +169,14 @@ export function SearchBar({
           <Pressable
             style={[styles.inputFieldWrap, focusedField === 'origin' && styles.inputFieldWrapFocused]}
             onPress={() => {
+              if (onGuestTap) { onGuestTap(); return; }
               if (!isUsingCurrentLocation) originInputRef.current?.focus();
             }}
           >
             {isUsingCurrentLocation ? (
               <Pressable
                 style={[styles.inputField, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-                onPress={() => setIsUsingCurrentLocation(false)}
+                onPress={() => { if (onGuestTap) { onGuestTap(); return; } setIsUsingCurrentLocation(false); }}
                 accessibilityRole="button"
               >
                 <Ionicons name={location ? 'navigate' : 'hourglass-outline'} size={16} color="#1570ef" />
@@ -185,6 +189,7 @@ export function SearchBar({
                 ref={originInputRef}
                 value={manualOrigin ? (manualOrigin.name ?? 'Dropped pin') : originSearch.query}
                 onChangeText={(t: string) => {
+                  if (onGuestTap) return;
                   setManualOrigin(null);
                   originSearch.setQuery(t);
                   onClearRoute();
@@ -193,8 +198,9 @@ export function SearchBar({
                 placeholderTextColor="#98a2b3"
                 accessibilityLabel="Starting point"
                 autoCorrect={false}
+                editable={!onGuestTap}
                 style={styles.inputField}
-                onFocus={() => { cancelBlurTimer(); setFocusedFieldState('origin'); }}
+                onFocus={() => { if (onGuestTap) { originInputRef.current?.blur(); onGuestTap(); return; } cancelBlurTimer(); setFocusedFieldState('origin'); }}
                 onBlur={handleBlur}
               />
             )}
@@ -257,12 +263,13 @@ export function SearchBar({
           </View>
           <Pressable
             style={[styles.inputFieldWrap, focusedField === 'destination' && styles.inputFieldWrapFocused]}
-            onPress={() => destInputRef.current?.focus()}
+            onPress={() => { if (onGuestTap) { onGuestTap(); return; } destInputRef.current?.focus(); }}
           >
             <TextInput
               ref={destInputRef}
               value={manualDest ? (manualDest.name ?? 'Dropped pin') : destSearch.query}
               onChangeText={(text: string) => {
+                if (onGuestTap) return;
                 setManualDest(null);
                 destSearch.setQuery(text);
                 onClearRoute();
@@ -271,8 +278,9 @@ export function SearchBar({
               placeholderTextColor="#98a2b3"
               accessibilityLabel="Destination"
               autoCorrect={false}
+              editable={!onGuestTap}
               style={styles.inputField}
-              onFocus={() => { cancelBlurTimer(); setFocusedFieldState('destination'); }}
+              onFocus={() => { if (onGuestTap) { destInputRef.current?.blur(); onGuestTap(); return; } cancelBlurTimer(); setFocusedFieldState('destination'); }}
               onBlur={handleBlur}
             />
             <View style={[styles.inputActions, { pointerEvents: 'box-none' }]}>
