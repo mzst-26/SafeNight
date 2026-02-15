@@ -6,7 +6,7 @@
  * the returned state — zero business logic in the JSX tree.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, Keyboard } from 'react-native';
+import { Animated, Dimensions, Keyboard, Platform } from 'react-native';
 
 import type { MapType } from '@/src/components/maps/RouteMap.types';
 import { SHEET_DEFAULT } from '@/src/components/sheets/DraggableSheet';
@@ -35,16 +35,25 @@ export function useHomeScreen() {
   const subscriptionTier = user?.subscription ?? 'free';
   const routeDistanceKm = user?.routeDistanceKm;
 
+  // ── Web guest detection (must be before onboarding effect) ──
+  const isWebGuest = Platform.OS === 'web' && !user;
+
+  // Auto-accept onboarding for web guests (no modal needed)
   useEffect(() => {
+    if (isWebGuest && onboardingStatus === 'ready' && !hasAccepted) {
+      accept();
+      return;
+    }
     if (onboardingStatus === 'ready' && !hasAccepted) setShowOnboarding(true);
-  }, [onboardingStatus, hasAccepted]);
+  }, [onboardingStatus, hasAccepted, isWebGuest, accept]);
 
   // ── Location ──
+  // On web for guests, enable location immediately (onboarding is auto-accepted)
   const {
     location,
     error: locationError,
     refresh: refreshLocation,
-  } = useCurrentLocation({ enabled: hasAccepted });
+  } = useCurrentLocation({ enabled: hasAccepted || isWebGuest });
 
   // ── Origin ──
   const [isUsingCurrentLocation, setIsUsingCurrentLocation] = useState(true);
@@ -76,6 +85,9 @@ export function useHomeScreen() {
     : manualOrigin?.location ?? originSearch.place?.location ?? null;
   const effectiveDestination = manualDest?.location ?? destSearch.place?.location ?? null;
 
+  // For web guests, don't pass destination to safe routes API (no real fetch)
+  const routingDestination = isWebGuest ? null : effectiveDestination;
+
   // ── Safe routes ──
   const {
     status: safeRoutesStatus,
@@ -85,7 +97,7 @@ export function useHomeScreen() {
     outOfRange,
     outOfRangeMessage,
     meta: safeRoutesMeta,
-  } = useSafeRoutes(effectiveOrigin, effectiveDestination, subscriptionTier, routeDistanceKm);
+  } = useSafeRoutes(effectiveOrigin, routingDestination, subscriptionTier, routeDistanceKm);
 
   const routes: DirectionsRoute[] = safeRoutes;
   const directionsStatus = safeRoutesStatus;
@@ -453,5 +465,8 @@ export function useHomeScreen() {
     ai,
     showAIModal,
     setShowAIModal,
+
+    // Web guest
+    isWebGuest,
   };
 }
