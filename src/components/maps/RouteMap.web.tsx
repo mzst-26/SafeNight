@@ -58,6 +58,11 @@ html,body{width:100%;height:100%;overflow:hidden}
 .recenter-btn:hover{background:#e4e7ec}
 .road-label{background:rgba(0,0,0,.7);color:#fff;padding:2px 8px;border-radius:9px;
   font-size:9px;font-weight:600;white-space:nowrap;border:none;box-shadow:none}
+.friend-marker{display:flex;align-items:center;gap:4px;background:#7C3AED;color:#fff;padding:3px 8px 3px 3px;
+  border-radius:16px;font-size:11px;font-weight:600;white-space:nowrap;border:2px solid #fff;
+  box-shadow:0 2px 8px rgba(124,58,237,.4);line-height:1.2}
+.friend-dot{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.25);
+  display:flex;align-items:center;justify-content:center;font-size:12px}
 </style>
 </head><body>
 <div id="viewport">
@@ -202,6 +207,17 @@ function updateMap(d){
     }).addTo(map);
   }
 
+  /* Friend markers */
+  (d.friendMarkers||[]).forEach(function(f){
+    var initial=(f.name||'?').charAt(0).toUpperCase();
+    var label=f.name||(f.destinationName?'Friend':'Friend');
+    var tooltip=f.destinationName?label+' \u2192 '+f.destinationName:label;
+    var ic=L.divIcon({className:'',
+      html:'<div class="friend-marker"><div class="friend-dot">'+initial+'</div>'+label+'</div>',
+      iconSize:null,iconAnchor:[14,14]});
+    markers.push(L.marker([f.lat,f.lng],{icon:ic,zIndexOffset:500}).bindTooltip(tooltip).addTo(map));
+  });
+
   /* Navigation arrow + 3D nav view */
   if(navMarker){map.removeLayer(navMarker);navMarker=null;}
   if(d.navLocation){var h=d.navHeading||0;
@@ -239,6 +255,7 @@ export const RouteMap = ({
   mapType = 'roadmap',
   highlightCategory,
   maxDistanceKm,
+  friendMarkers = [],
   onSelectRoute,
   onLongPress,
   onMapPress,
@@ -330,6 +347,12 @@ export const RouteMap = ({
       navHeading: navigationHeading,
       highlightCategory: highlightCategory || null,
       maxDistanceKm: maxDistanceKm || null,
+      friendMarkers: friendMarkers.map((f) => ({
+        name: f.name,
+        lat: f.lat,
+        lng: f.lng,
+        destinationName: f.destinationName || null,
+      })),
     };
 
     try {
@@ -343,7 +366,7 @@ export const RouteMap = ({
     origin, destination, routes, selectedRouteId,
     safetyMarkers, routeSegments, roadLabels, panTo,
     isNavigating, navigationLocation, navigationHeading,
-    highlightCategory, maxDistanceKm,
+    highlightCategory, maxDistanceKm, friendMarkers,
   ]);
 
   // Switch tile layer on mapType change
