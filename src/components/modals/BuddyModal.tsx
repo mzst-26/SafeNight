@@ -337,12 +337,20 @@ export default function BuddyModal({ visible, onClose, username: initialUsername
               <Text style={styles.usernameText}>@{currentUsername}</Text>
             </View>
           </>
+        ) : isLoading ? (
+          <View style={styles.usernameSetup}>
+            <ActivityIndicator size="large" color="#6366F1" />
+            <Text style={styles.subtitle}>Fetching your profile…</Text>
+            <Text style={styles.hint}>
+              Just a moment while we grab your details.
+            </Text>
+          </View>
         ) : (
           <View style={styles.usernameSetup}>
             <Ionicons name="alert-circle" size={40} color="#F59E0B" />
             <Text style={styles.subtitle}>No username set</Text>
             <Text style={styles.hint}>
-              Your username should have been set during onboarding. Please log out and log back in to complete setup.
+              Your username is your unique handle — friends use it to find and add you to their Safety Circle via QR code. Please log out and log back in to complete setup.
             </Text>
           </View>
         )}
