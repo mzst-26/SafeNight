@@ -78,7 +78,8 @@ export default function RootLayout() {
   }, []);
 
   // Show login modal after splash if not authenticated
-  const showLoginGate = !splashVisible && !auth.isLoggedIn;
+  // On web, allow guests to browse the map — login is prompted contextually
+  const showLoginGate = !splashVisible && !auth.isLoggedIn && Platform.OS !== 'web';
 
   // Show disclaimer if logged in but hasn't accepted yet
   const needsDisclaimer =
@@ -129,8 +130,8 @@ export default function RootLayout() {
         </View>
       )}
 
-      {/* Web: Opaque backdrop when login gate is active */}
-      {Platform.OS === 'web' && showLoginGate && (
+      {/* Web: Opaque backdrop when login gate is active (native only now) */}
+      {Platform.OS !== 'web' && showLoginGate && (
         <View style={styles.webBackdrop} />
       )}
 
