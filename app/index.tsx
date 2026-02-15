@@ -18,6 +18,7 @@ import { AndroidOverlayHost } from '@/src/components/android/AndroidOverlayHost'
 import RouteMap from '@/src/components/maps/RouteMap';
 import { AIExplanationModal } from '@/src/components/modals/AIExplanationModal';
 import { DownloadAppModal } from '@/src/components/modals/DownloadAppModal';
+import LoginModal from '@/src/components/modals/LoginModal';
 import { OnboardingModal } from '@/src/components/modals/OnboardingModal';
 import { ReportModal } from '@/src/components/modals/ReportModal';
 import { NavigationOverlay } from '@/src/components/navigation/NavigationOverlay';
@@ -31,6 +32,7 @@ import { BuddyButton } from '@/src/components/ui/BuddyButton';
 import { JailLoadingAnimation } from '@/src/components/ui/JailLoadingAnimation';
 import { MapToast, type ToastConfig } from '@/src/components/ui/MapToast';
 import { ProfileMenu } from '@/src/components/ui/ProfileMenu';
+import { WebLoginButton } from '@/src/components/ui/WebLoginButton';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useContacts } from '@/src/hooks/useContacts';
 import { useFriendLocations } from '@/src/hooks/useFriendLocations';
@@ -45,9 +47,28 @@ export default function HomeScreen() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showFriendsOnMap, setShowFriendsOnMap] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [toast, setToast] = useState<ToastConfig | null>(null);
   const subscriptionTier = auth.user?.subscription ?? 'free';
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
+
+  // Web guest detection (also exposed from useHomeScreen)
+  const isWebGuest = Platform.OS === 'web' && !auth.isLoggedIn;
+
+  // Extra top offset on web to clear the AndroidDownloadBanner (32px + 4px gap)
+  const webBannerOffset = Platform.OS === 'web' ? 36 : 0;
+
+  // Open the login modal (dismissable) for web guests
+  const promptLogin = useCallback(() => {
+    setShowLoginPrompt(true);
+  }, []);
+
+  // Auto-dismiss login prompt when user logs in
+  useEffect(() => {
+    if (auth.isLoggedIn) {
+      setShowLoginPrompt(false);
+    }
+  }, [auth.isLoggedIn]);
 
   // Only load contacts when logged in
   const { contacts, liveContacts, refresh: refreshContacts } = useContacts(auth.isLoggedIn);
@@ -148,7 +169,8 @@ export default function HomeScreen() {
   const durationLabel = h.selectedRoute ? formatDuration(h.selectedRoute.durationSeconds) : '--';
   const showSafety = Boolean(h.selectedRoute);
   const hasError = h.directionsStatus === 'error';
-  const sheetVisible = (h.routes.length > 0 || h.directionsStatus === 'loading' || hasError) && !h.isNavActive;
+  const sheetVisible =
+    (h.routes.length > 0 || h.directionsStatus === 'loading' || hasError) && !h.isNavActive;
 
   // Category label map for the highlight banner
   const categoryLabels: Record<string, string> = {
@@ -184,11 +206,11 @@ export default function HomeScreen() {
       <RouteMap
         origin={h.effectiveOrigin}
         destination={h.effectiveDestination}
-        routes={h.routes}
-        selectedRouteId={h.selectedRouteId}
-        safetyMarkers={h.poiMarkers as any}
-        routeSegments={h.routeSegments}
-        roadLabels={h.roadLabels}
+        routes={isWebGuest ? [] : h.routes}
+        selectedRouteId={isWebGuest ? null : h.selectedRouteId}
+        safetyMarkers={isWebGuest ? [] : (h.poiMarkers as any)}
+        routeSegments={isWebGuest ? [] : h.routeSegments}
+        roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
         isNavigating={h.isNavActive}
         navigationLocation={h.nav.userLocation}
@@ -198,8 +220,8 @@ export default function HomeScreen() {
         maxDistanceKm={maxDistanceKm}
         friendMarkers={friendMarkers}
         onSelectRoute={h.setSelectedRouteId}
-        onLongPress={h.handleMapLongPress}
-        onMapPress={h.handleMapPress}
+        onLongPress={isWebGuest ? undefined : h.handleMapLongPress}
+        onMapPress={isWebGuest ? undefined : h.handleMapPress}
       />
 
       {/*
@@ -230,7 +252,7 @@ export default function HomeScreen() {
         {/* ── Search bar ── */}
         {!h.isNavActive && (
           <SearchBar
-            topInset={insets.top}
+            topInset={insets.top + webBannerOffset}
             location={h.location}
             isUsingCurrentLocation={h.isUsingCurrentLocation}
             setIsUsingCurrentLocation={h.setIsUsingCurrentLocation}
@@ -245,12 +267,13 @@ export default function HomeScreen() {
             onPanTo={h.handlePanTo}
             onClearRoute={h.clearSelectedRoute}
             onSwap={h.swapOriginAndDest}
+            onGuestTap={isWebGuest ? promptLogin : undefined}
           />
         )}
 
-        {/* ── Profile / Logout button ── */}
+        {/* ── Profile / Logout button (logged in) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + 190, right: 12, zIndex: 110 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 190, right: 12, zIndex: 110 }}>
             <ProfileMenu
               name={auth.user?.name ?? auth.user?.username ?? null}
               email={auth.user?.email ?? null}
@@ -259,9 +282,16 @@ export default function HomeScreen() {
           </View>
         )}
 
+        {/* ── Web guest: Login button (under search bar) ── */}
+        {!h.isNavActive && isWebGuest && (
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 180, left: 0, right: 0, zIndex: 110, alignItems: 'center', paddingHorizontal: 10 }}>
+            <WebLoginButton onPress={promptLogin} />
+          </View>
+        )}
+
         {/* ── Safety Circle button (right under profile button) ── */}
-        {!h.isNavActive && (
-          <View style={{ position: 'absolute', top: insets.top + 240, right: 12, zIndex: 100 }}>
+        {!h.isNavActive && auth.isLoggedIn && (
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 240, right: 12, zIndex: 100 }}>
             <BuddyButton
               username={auth.user?.username ?? null}
               userId={auth.user?.id ?? null}
@@ -328,8 +358,8 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* ── AI floating button ── */}
-        {h.safetyResult && !h.isNavActive && h.routes.length > 0 && (
+        {/* ── AI floating button (logged in only) ── */}
+        {h.safetyResult && !h.isNavActive && h.routes.length > 0 && auth.isLoggedIn && (
           <Animated.View
             style={[styles.aiWrap, { bottom: Animated.add(h.sheetHeight, 12), pointerEvents: 'box-none' }]}
           >
@@ -524,6 +554,16 @@ export default function HomeScreen() {
           location={h.location}
           onClose={() => setShowReportModal(false)}
           onSubmitted={handleReportSubmitted}
+        />
+
+        {/* ── Web guest login prompt (dismissable) ── */}
+        <LoginModal
+          visible={showLoginPrompt}
+          onClose={() => setShowLoginPrompt(false)}
+          onSendMagicLink={auth.sendMagicLink}
+          onVerify={auth.verify}
+          error={auth.error}
+          dismissable={true}
         />
       </AndroidOverlayHost>
     </View>
