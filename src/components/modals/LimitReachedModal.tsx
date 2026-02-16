@@ -104,9 +104,11 @@ interface Props {
   visible: boolean;
   limitInfo: LimitInfo | null;
   onClose: () => void;
+  /** Called when user taps "Upgrade Now" */
+  onUpgrade?: () => void;
 }
 
-export function LimitReachedModal({ visible, limitInfo, onClose }: Props) {
+export function LimitReachedModal({ visible, limitInfo, onClose, onUpgrade }: Props) {
   if (!limitInfo) return null;
 
   const meta = getFeatureMeta(limitInfo.feature);
@@ -195,10 +197,29 @@ export function LimitReachedModal({ visible, limitInfo, onClose }: Props) {
             </Text>
           </View>
 
-          {/* Dismiss button */}
-          <Pressable style={styles.dismissButton} onPress={onClose}>
-            <Text style={styles.dismissButtonText}>Got it</Text>
-          </Pressable>
+          {/* Action buttons */}
+          <View style={styles.buttonRow}>
+            {onUpgrade && (
+              <Pressable
+                style={styles.upgradeButton}
+                onPress={() => {
+                  onClose();
+                  onUpgrade();
+                }}
+              >
+                <Ionicons name="arrow-up-circle" size={18} color="#fff" />
+                <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={[styles.dismissButton, onUpgrade && styles.dismissButtonSecondary]}
+              onPress={onClose}
+            >
+              <Text style={[styles.dismissButtonText, onUpgrade && styles.dismissButtonTextSecondary]}>
+                {onUpgrade ? 'Not Now' : 'Got it'}
+              </Text>
+            </Pressable>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -328,6 +349,26 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 18,
   },
+  buttonRow: {
+    flexDirection: 'column',
+    gap: 8,
+    width: '100%',
+  },
+  upgradeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#7C3AED',
+    borderRadius: 12,
+    paddingVertical: 13,
+    width: '100%',
+  },
+  upgradeButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   dismissButton: {
     backgroundColor: '#1570EF',
     borderRadius: 12,
@@ -336,9 +377,15 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
+  dismissButtonSecondary: {
+    backgroundColor: '#F3F4F6',
+  },
   dismissButtonText: {
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '700',
+  },
+  dismissButtonTextSecondary: {
+    color: '#374151',
   },
 });

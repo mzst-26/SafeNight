@@ -22,6 +22,7 @@ import { LimitReachedModal } from '@/src/components/modals/LimitReachedModal';
 import LoginModal from '@/src/components/modals/LoginModal';
 import { OnboardingModal } from '@/src/components/modals/OnboardingModal';
 import { ReportModal } from '@/src/components/modals/ReportModal';
+import { SubscriptionModal } from '@/src/components/modals/SubscriptionModal';
 import { NavigationOverlay } from '@/src/components/navigation/NavigationOverlay';
 import { RouteList } from '@/src/components/routes/RouteList';
 import { RoadTypeBreakdown, SafetyPanel } from '@/src/components/safety/SafetyPanel';
@@ -52,6 +53,7 @@ export default function HomeScreen() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [limitModal, setLimitModal] = useState<LimitInfo | null>(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [toast, setToast] = useState<ToastConfig | null>(null);
   const subscriptionTier = auth.user?.subscription ?? 'free';
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
@@ -454,7 +456,9 @@ export default function HomeScreen() {
             <ProfileMenu
               name={auth.user?.name ?? auth.user?.username ?? null}
               email={auth.user?.email ?? null}
+              subscriptionTier={subscriptionTier}
               onLogout={auth.logout}
+              onManageSubscription={() => setShowSubscriptionModal(true)}
             />
           </View>
         )}
@@ -750,6 +754,15 @@ export default function HomeScreen() {
           visible={limitModal !== null}
           limitInfo={limitModal}
           onClose={() => setLimitModal(null)}
+          onUpgrade={() => setShowSubscriptionModal(true)}
+        />
+
+        {/* ── Subscription upgrade / manage modal ── */}
+        <SubscriptionModal
+          visible={showSubscriptionModal}
+          currentTier={subscriptionTier}
+          onClose={() => setShowSubscriptionModal(false)}
+          onSubscriptionChanged={() => auth.refreshProfile?.()}
         />
       </AndroidOverlayHost>
     </View>

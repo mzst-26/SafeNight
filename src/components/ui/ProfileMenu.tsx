@@ -20,10 +20,12 @@ import {
 interface Props {
   name: string | null;
   email: string | null;
+  subscriptionTier?: string;
   onLogout: () => void;
+  onManageSubscription?: () => void;
 }
 
-export function ProfileMenu({ name, email, onLogout }: Props) {
+export function ProfileMenu({ name, email, subscriptionTier, onLogout, onManageSubscription }: Props) {
   const [open, setOpen] = useState(false);
 
   const handleLogout = useCallback(() => {
@@ -68,6 +70,33 @@ export function ProfileMenu({ name, email, onLogout }: Props) {
                 )}
               </View>
             </View>
+
+            <View style={styles.divider} />
+
+            {/* Subscription */}
+            {onManageSubscription && (
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setOpen(false);
+                  onManageSubscription();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Manage subscription"
+              >
+                <Ionicons name="diamond-outline" size={20} color="#7C3AED" />
+                <Text style={styles.subscriptionText}>
+                  {subscriptionTier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
+                </Text>
+                {subscriptionTier && subscriptionTier !== 'free' && (
+                  <View style={styles.tierBadge}>
+                    <Text style={styles.tierBadgeText}>
+                      {subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            )}
 
             <View style={styles.divider} />
 
@@ -159,5 +188,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: '#DC2626',
+  },
+  subscriptionText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#7C3AED',
+    flex: 1,
+  },
+  tierBadge: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  tierBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#7C3AED',
   },
 });

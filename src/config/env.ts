@@ -28,6 +28,15 @@ const userApiUrl =
     ? rawUserApiUrl.replace('localhost', '10.0.2.2').replace('127.0.0.1', '10.0.2.2')
     : rawUserApiUrl;
 
+// Subscription / Stripe service URL — checkout, portal, webhook
+// In production, set EXPO_PUBLIC_SUBSCRIPTION_API_URL to your deployed subscription service
+const rawSubscriptionApiUrl = process.env.EXPO_PUBLIC_SUBSCRIPTION_API_URL ?? 'http://localhost:3004';
+const isLocalSubscription = rawSubscriptionApiUrl.includes('localhost') || rawSubscriptionApiUrl.includes('127.0.0.1');
+const subscriptionApiUrl =
+  Platform.OS === 'android' && isLocalSubscription
+    ? rawSubscriptionApiUrl.replace('localhost', '10.0.2.2').replace('127.0.0.1', '10.0.2.2')
+    : rawSubscriptionApiUrl;
+
 // TODO: Set EXPO_PUBLIC_OS_MAPS_API_KEY in .env / EAS env vars.
 const osMapsApiKey = process.env.EXPO_PUBLIC_OS_MAPS_API_KEY ?? '';
 const osMapsLayer = process.env.EXPO_PUBLIC_OS_MAPS_LAYER ?? 'Road_3857';
@@ -50,6 +59,7 @@ export const env = {
   apiBaseUrl,
   safetyApiUrl,
   userApiUrl,
+  subscriptionApiUrl,
   osMapsApiKey,
   osMapsLayer,
   osMapsBaseUrl,
