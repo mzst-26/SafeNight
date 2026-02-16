@@ -3,18 +3,18 @@
  *
  * Simplified version of DraggableSheet optimised for phone-size web:
  * - Three snap points: peek (120px), half (45%), full (85%)
- * - Drag handle at top for resizing
- * - ScrollView for content — scrolls only when sheet is at full height
- * - Uses native pointer/touch events for reliable web dragging
+ * - Drag handle at top for resizing (uses PanResponder for reliability)
+ * - ScrollView for content — always scrollable
  * - Auto-appears when results arrive, hides when cleared
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Dimensions,
-    ScrollView,
-    StyleSheet,
-    View,
+  Animated,
+  Dimensions,
+  PanResponder,
+  ScrollView,
+  StyleSheet,
+  View,
 } from 'react-native';
 
 function getScreenHeight() {
@@ -38,17 +38,10 @@ export function MobileWebSheet({ children, visible }: MobileWebSheetProps) {
   const heightRef = useRef(SHEET_PEEK);
   const [currentSnap, setCurrentSnap] = useState(SHEET_PEEK);
 
-  // Drag state
-  const dragStartY = useRef(0);
-  const dragStartHeight = useRef(0);
-  const isDragging = useRef(false);
-
   // Scroll state
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffset = useRef(0);
-
-  // Whether the sheet is at full height (allow content scrolling)
-  const isAtFull = currentSnap >= getSheetFull() - 10;
+  const isAtTopRef = useRef(true);
 
   const snapTo = useCallback((target: number) => {
     heightRef.current = target;
@@ -91,142 +84,63 @@ export function MobileWebSheet({ children, visible }: MobileWebSheetProps) {
     }
   }, [visible, snapTo]);
 
-  // ── Drag handle handler using native DOM events ──
-  const dragHandleRef = useRef<View>(null);
-
-  useEffect(() => {
-    const el = (dragHandleRef.current as any)?._nativeTag
-      ? undefined
-      : (dragHandleRef.current as any);
-
-    // On web, View refs resolve to DOM elements
-    const domEl: HTMLElement | null =
-      el instanceof HTMLElement ? el : (el as any)?.getNode?.() ?? null;
-
-    if (!domEl) return;
-
-    let startY = 0;
-    let startH = 0;
-    let active = false;
-    let lastTimestamp = 0;
-    let lastY = 0;
-
-    const onDown = (e: PointerEvent | TouchEvent) => {
-      active = true;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      startY = clientY;
-      lastY = clientY;
-      startH = heightRef.current;
-      lastTimestamp = Date.now();
-      if ('setPointerCapture' in e.target! && 'pointerId' in e) {
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      }
-      e.preventDefault();
-    };
-
-    const onMove = (e: PointerEvent | TouchEvent) => {
-      if (!active) return;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      const dy = startY - clientY; // positive = dragging up
-      const next = Math.min(getSheetFull(), Math.max(SHEET_PEEK, startH + dy));
-      heightRef.current = next;
-      animatedHeight.setValue(next);
-      lastY = clientY;
-      lastTimestamp = Date.now();
-      e.preventDefault();
-    };
-
-    const onUp = (e: PointerEvent | TouchEvent) => {
-      if (!active) return;
-      active = false;
-      const clientY = 'changedTouches' in e ? e.changedTouches[0].clientY : ('clientY' in e ? e.clientY : lastY);
-      const dy = startY - clientY;
-      const finalH = Math.min(getSheetFull(), Math.max(SHEET_PEEK, startH + dy));
-      // Determine direction velocity
-      const dirVelocity = dy > 30 ? -0.6 : dy < -30 ? 0.6 : 0;
-      snapToNearest(finalH, dirVelocity);
-    };
-
-    domEl.addEventListener('pointerdown', onDown, { passive: false });
-    domEl.addEventListener('pointermove', onMove, { passive: false });
-    domEl.addEventListener('pointerup', onUp);
-    domEl.addEventListener('pointercancel', onUp);
-    domEl.addEventListener('touchstart', onDown, { passive: false });
-    domEl.addEventListener('touchmove', onMove, { passive: false });
-    domEl.addEventListener('touchend', onUp);
-
-    return () => {
-      domEl.removeEventListener('pointerdown', onDown);
-      domEl.removeEventListener('pointermove', onMove);
-      domEl.removeEventListener('pointerup', onUp);
-      domEl.removeEventListener('pointercancel', onUp);
-      domEl.removeEventListener('touchstart', onDown);
-      domEl.removeEventListener('touchmove', onMove);
-      domEl.removeEventListener('touchend', onUp);
-    };
-  }, [animatedHeight, snapToNearest]);
-
-  // ── Scroll-edge detection → allow scroll-to-drag for the content area ──
-  const contentRef = useRef<View>(null);
-
-  useEffect(() => {
-    const el = (contentRef.current as any);
-    const domEl: HTMLElement | null =
-      el instanceof HTMLElement ? el : (el as any)?.getNode?.() ?? null;
-
-    if (!domEl) return;
-
-    let startY = 0;
-    let startH = 0;
-    let active = false;
-
-    const onTouchStart = (e: TouchEvent) => {
-      startY = e.touches[0].clientY;
-      active = false;
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      const clientY = e.touches[0].clientY;
-      const dy = startY - clientY; // positive = finger moving up
-
-      // If at top of scroll and dragging down → resize sheet instead
-      if (scrollOffset.current <= 1 && dy < -8 && !active) {
-        active = true;
-        startH = heightRef.current;
-        startY = clientY;
-      }
-
-      if (active) {
-        e.preventDefault();
-        const sheetDy = startY - clientY;
-        const next = Math.min(getSheetFull(), Math.max(SHEET_PEEK, startH + sheetDy));
-        heightRef.current = next;
+  // ── Drag handle — PanResponder (reliable on all platforms including web) ──
+  const handlePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        animatedHeight.stopAnimation((v: number) => {
+          heightRef.current = v;
+        });
+      },
+      onPanResponderMove: (_, g) => {
+        const next = Math.min(
+          getSheetFull(),
+          Math.max(SHEET_PEEK, heightRef.current - g.dy),
+        );
         animatedHeight.setValue(next);
-      }
-    };
+      },
+      onPanResponderRelease: (_, g) => {
+        const current = heightRef.current - g.dy;
+        snapToNearest(current, g.vy);
+      },
+    }),
+  ).current;
 
-    const onTouchEnd = () => {
-      if (active) {
-        active = false;
-        const dirVelocity = heightRef.current < startH ? 0.6 : -0.6;
-        snapToNearest(heightRef.current, dirVelocity);
-      }
-    };
-
-    domEl.addEventListener('touchstart', onTouchStart, { passive: true });
-    domEl.addEventListener('touchmove', onTouchMove, { passive: false });
-    domEl.addEventListener('touchend', onTouchEnd);
-
-    return () => {
-      domEl.removeEventListener('touchstart', onTouchStart);
-      domEl.removeEventListener('touchmove', onTouchMove);
-      domEl.removeEventListener('touchend', onTouchEnd);
-    };
-  }, [animatedHeight, snapToNearest]);
+  // ── Body pan — captures only when scrolled to top and swiping down ──
+  const bodyPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) => {
+        if (Math.abs(g.dy) < 4) return false;
+        // Only capture if swiping down while at top of scroll
+        if (g.dy > 0 && isAtTopRef.current) return true;
+        return false;
+      },
+      onPanResponderGrant: () => {
+        animatedHeight.stopAnimation((v: number) => {
+          heightRef.current = v;
+        });
+      },
+      onPanResponderMove: (_, g) => {
+        const next = Math.min(
+          getSheetFull(),
+          Math.max(SHEET_PEEK, heightRef.current - g.dy),
+        );
+        animatedHeight.setValue(next);
+      },
+      onPanResponderRelease: (_, g) => {
+        const current = heightRef.current - g.dy;
+        snapToNearest(current, g.vy);
+      },
+    }),
+  ).current;
 
   const handleScroll = useCallback((e: any) => {
     const { contentOffset } = e.nativeEvent;
     scrollOffset.current = contentOffset.y;
+    isAtTopRef.current = contentOffset.y <= 1;
   }, []);
 
   if (!visible) return null;
@@ -234,18 +148,18 @@ export function MobileWebSheet({ children, visible }: MobileWebSheetProps) {
   return (
     <Animated.View style={[styles.sheet, { height: animatedHeight }]}>
       {/* Drag handle */}
-      <View ref={dragHandleRef} style={styles.dragZone}>
+      <View {...handlePanResponder.panHandlers} style={styles.dragZone}>
         <View style={styles.handle} />
       </View>
 
       {/* Content */}
-      <View ref={contentRef} style={styles.scrollWrap}>
+      <View style={styles.scrollWrap}>
         <ScrollView
+          {...bodyPanResponder.panHandlers}
           ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          scrollEnabled={isAtFull}
           scrollEventThrottle={16}
           onScroll={handleScroll}
           bounces={false}
@@ -272,6 +186,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     userSelect: 'none',
     cursor: 'default',
+    touchAction: 'none',
   } as any,
   dragZone: {
     alignItems: 'center',
@@ -288,7 +203,8 @@ const styles = StyleSheet.create({
   },
   scrollWrap: {
     flex: 1,
-  },
+    touchAction: 'pan-y',
+  } as any,
   scroll: {
     flex: 1,
   },
