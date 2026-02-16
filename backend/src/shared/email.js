@@ -53,6 +53,7 @@ async function sendEmail({ to, subject, html, text }) {
 
 /**
  * Send a gift subscription notification email.
+ * Uses table-based layout for maximum client compatibility and deliverability.
  */
 async function sendGiftNotification({ to, name, giftEndDate }) {
   const formattedDate = new Date(giftEndDate).toLocaleDateString('en-GB', {
@@ -62,100 +63,127 @@ async function sendGiftNotification({ to, name, giftEndDate }) {
     day: 'numeric',
   });
 
-  const subject = '🎁 You\'ve been gifted a SafeNight Guarded subscription!';
+  const subject = 'You\'ve been gifted a SafeNight Guarded subscription!';
 
-  const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px;">
-      <div style="text-align: center; margin-bottom: 32px;">
-        <h1 style="color: #7C3AED; font-size: 28px; margin: 0;">🛡️ SafeNight</h1>
-      </div>
-      
-      <h2 style="color: #1F2937; font-size: 22px;">Hi${name ? ` ${name}` : ''},</h2>
-      
-      <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-        Great news! You have been gifted our <strong style="color: #7C3AED;">Guarded</strong> subscription 
-        for being one of the first users of SafeNight. 🎉
-      </p>
-      
-      <div style="background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); border-radius: 12px; padding: 24px; margin: 24px 0; color: white;">
-        <h3 style="margin: 0 0 8px 0; font-size: 18px;">🎁 Your Gift Details</h3>
-        <p style="margin: 0; font-size: 16px; opacity: 0.95;">
-          <strong>Plan:</strong> Guarded (Pro)<br/>
-          <strong>Gift ends:</strong> ${formattedDate}
-        </p>
-      </div>
-      
-      <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-        With the Guarded plan, you get access to:
-      </p>
-      
-      <ul style="color: #374151; font-size: 15px; line-height: 1.8;">
-        <li>🔍 Unlimited route searches</li>
-        <li>📏 Up to 10km walking routes</li>
-        <li>🚶 Unlimited navigation sessions</li>
-        <li>👥 Up to 10 emergency contacts</li>
-        <li>📡 Up to 5 live tracking sessions</li>
-        <li>🤖 AI safety explanations</li>
-        <li>📊 Full usage statistics</li>
-      </ul>
-      
-      <p style="color: #6B7280; font-size: 14px; margin-top: 32px; border-top: 1px solid #E5E7EB; padding-top: 16px;">
-        Thank you for being an early supporter of SafeNight. Stay safe! 💜
-      </p>
-    </div>
-  `;
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F1F5F9;padding:40px 20px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#FFFFFF;border-radius:16px;overflow:hidden;">
+        <!-- Header -->
+        <tr><td style="background-color:#6366F1;padding:32px 40px;text-align:center;">
+          <h1 style="margin:0;color:#FFFFFF;font-size:24px;font-weight:700;letter-spacing:0.5px;">SafeNight</h1>
+          <p style="margin:8px 0 0;color:#C7D2FE;font-size:14px;">Walk safe. Stay connected.</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#1E293B;">Hi${name ? ` ${name}` : ' there'},</p>
+          <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.6;">
+            Great news! You have been gifted our <strong style="color:#6366F1;">Guarded</strong> subscription
+            for being one of the first users of SafeNight.
+          </p>
+          <!-- Gift details box -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td align="center" style="padding:20px;background-color:#F8FAFC;border:2px dashed #E2E8F0;border-radius:12px;">
+              <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:1px;">Your gift</p>
+              <p style="margin:0;font-size:22px;font-weight:800;color:#6366F1;">Guarded (Pro)</p>
+              <p style="margin:8px 0 0;font-size:14px;color:#475569;">Valid until <strong>${formattedDate}</strong></p>
+            </td></tr>
+          </table>
+          <!-- Benefits -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 0;">
+            <tr><td style="padding:20px;background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;">
+              <p style="margin:0 0 12px;font-size:13px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:1px;">What you get</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#475569;line-height:2;">
+                <tr><td>Unlimited route searches</td></tr>
+                <tr><td>Up to 10 km walking routes</td></tr>
+                <tr><td>Unlimited navigation sessions</td></tr>
+                <tr><td>Up to 10 emergency contacts</td></tr>
+                <tr><td>Up to 5 live tracking sessions</td></tr>
+                <tr><td>AI safety explanations</td></tr>
+                <tr><td>Full usage statistics</td></tr>
+              </table>
+            </td></tr>
+          </table>
+          <p style="margin:24px 0 0;font-size:13px;color:#94A3B8;line-height:1.5;">Thank you for being an early supporter of SafeNight. Stay safe!</p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="padding:20px 40px;background-color:#F8FAFC;border-top:1px solid #E2E8F0;text-align:center;">
+          <p style="margin:0;font-size:12px;color:#94A3B8;line-height:1.5;">&copy; 2026 SafeNight. All rights reserved.<br>This is an automated message &mdash; please do not reply.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 
-  const text = `Hi${name ? ` ${name}` : ''},\n\nGreat news! You have been gifted our Guarded subscription for being one of the first users of SafeNight.\n\nPlan: Guarded (Pro)\nGift ends: ${formattedDate}\n\nThank you for being an early supporter. Stay safe!`;
+  const text = `Hi${name ? ` ${name}` : ' there'},\n\nGreat news! You have been gifted our Guarded subscription for being one of the first users of SafeNight.\n\nPlan: Guarded (Pro)\nGift ends: ${formattedDate}\n\nWhat you get:\n- Unlimited route searches\n- Up to 10 km walking routes\n- Unlimited navigation sessions\n- Up to 10 emergency contacts\n- Up to 5 live tracking sessions\n- AI safety explanations\n- Full usage statistics\n\nThank you for being an early supporter. Stay safe!\n\n© 2026 SafeNight. All rights reserved.`;
 
   return sendEmail({ to, subject, html, text });
 }
 
 /**
  * Send a Family Pack invitation email.
- * Used when a pack owner adds a member or creates a new pack.
+ * Uses table-based layout for maximum client compatibility and deliverability.
  */
 async function sendFamilyInvite({ to, ownerName, memberName }) {
-  const subject = `🛡️ ${ownerName || 'Someone'} invited you to their SafeNight Family Pack`;
+  const subject = `${ownerName || 'Someone'} invited you to their SafeNight Family Pack`;
 
-  const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px;">
-      <div style="text-align: center; margin-bottom: 32px;">
-        <h1 style="color: #7C3AED; font-size: 28px; margin: 0;">🛡️ SafeNight</h1>
-      </div>
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F1F5F9;padding:40px 20px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#FFFFFF;border-radius:16px;overflow:hidden;">
+        <!-- Header -->
+        <tr><td style="background-color:#6366F1;padding:32px 40px;text-align:center;">
+          <h1 style="margin:0;color:#FFFFFF;font-size:24px;font-weight:700;letter-spacing:0.5px;">SafeNight</h1>
+          <p style="margin:8px 0 0;color:#C7D2FE;font-size:14px;">Walk safe. Stay connected.</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#1E293B;">Hi${memberName ? ` ${memberName}` : ' there'},</p>
+          <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.6;">
+            <strong style="color:#6366F1;">${ownerName || 'Someone'}</strong> has added you to their SafeNight Family Pack.
+            You now have access to the <strong style="color:#6366F1;">Guarded (Pro)</strong> plan at no extra cost.
+          </p>
+          <!-- Benefits box -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding:20px;background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;">
+              <p style="margin:0 0 12px;font-size:13px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:1px;">Your Family Pack Benefits</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#475569;line-height:2;">
+                <tr><td>Unlimited route searches</td></tr>
+                <tr><td>Up to 10 km walking routes</td></tr>
+                <tr><td>Unlimited navigation sessions</td></tr>
+                <tr><td>5 emergency contacts</td></tr>
+                <tr><td>AI-powered safety explanations</td></tr>
+                <tr><td>Unlimited live location sharing</td></tr>
+              </table>
+            </td></tr>
+          </table>
+          <!-- CTA -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0;">
+            <tr><td align="center">
+              <p style="margin:0 0 16px;font-size:15px;color:#475569;line-height:1.6;">Log in with <strong style="color:#1E293B;">${to}</strong> to activate your benefits.</p>
+              <a href="https://safenight.app" style="display:inline-block;padding:12px 32px;background-color:#6366F1;color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">Open SafeNight</a>
+            </td></tr>
+          </table>
+          <p style="margin:24px 0 0;font-size:13px;color:#94A3B8;line-height:1.5;">If you weren't expecting this invitation, you can safely ignore this email.</p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="padding:20px 40px;background-color:#F8FAFC;border-top:1px solid #E2E8F0;text-align:center;">
+          <p style="margin:0;font-size:12px;color:#94A3B8;line-height:1.5;">&copy; 2026 SafeNight. All rights reserved.<br>This is an automated message &mdash; please do not reply.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 
-      <h2 style="color: #1F2937; font-size: 22px;">Hi${memberName ? ` ${memberName}` : ''},</h2>
-
-      <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-        <strong style="color: #7C3AED;">${ownerName || 'Someone'}</strong> has added you to their
-        SafeNight Family Pack. You now have access to our
-        <strong style="color: #7C3AED;">Guarded (Pro)</strong> plan at no extra cost! 🎉
-      </p>
-
-      <div style="background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); border-radius: 12px; padding: 24px; margin: 24px 0; color: white;">
-        <h3 style="margin: 0 0 12px 0; font-size: 18px;">👨‍👩‍👧‍👦 Your Family Pack Benefits</h3>
-        <ul style="margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.8; opacity: 0.95;">
-          <li>🔍 Unlimited route searches</li>
-          <li>📏 Up to 10km walking routes</li>
-          <li>🚶 Unlimited navigation sessions</li>
-          <li>👥 5 emergency contacts</li>
-          <li>🤖 AI-powered safety explanations</li>
-          <li>📡 Unlimited live location sharing</li>
-        </ul>
-      </div>
-
-      <div style="text-align: center; margin: 28px 0;">
-        <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-          Just <strong>log in with this email address</strong> (${to}) to activate your benefits.
-        </p>
-      </div>
-
-      <p style="color: #6B7280; font-size: 14px; margin-top: 32px; border-top: 1px solid #E5E7EB; padding-top: 16px;">
-        SafeNight — Walk Safe, Stay Connected 💜
-      </p>
-    </div>
-  `;
-
-  const text = `Hi${memberName ? ` ${memberName}` : ''},\n\n${ownerName || 'Someone'} has added you to their SafeNight Family Pack. You now have access to our Guarded (Pro) plan!\n\nBenefits include:\n- Unlimited route searches\n- Up to 10km walking routes\n- Unlimited navigation sessions\n- 5 emergency contacts\n- AI-powered safety explanations\n- Unlimited live location sharing\n\nJust log in with this email address (${to}) to activate your benefits.\n\nSafeNight — Walk Safe, Stay Connected`;
+  const text = `Hi${memberName ? ` ${memberName}` : ' there'},\n\n${ownerName || 'Someone'} has added you to their SafeNight Family Pack. You now have access to the Guarded (Pro) plan at no extra cost.\n\nYour benefits:\n- Unlimited route searches\n- Up to 10 km walking routes\n- Unlimited navigation sessions\n- 5 emergency contacts\n- AI-powered safety explanations\n- Unlimited live location sharing\n\nLog in with ${to} to activate your benefits.\n\nIf you weren't expecting this invitation, you can safely ignore this email.\n\n© 2026 SafeNight. All rights reserved.`;
 
   return sendEmail({ to, subject, html, text });
 }

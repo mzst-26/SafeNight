@@ -16,7 +16,6 @@
 const express = require('express');
 const { supabase } = require('../lib/supabase');
 const { requireAuth } = require('../middleware/authMiddleware');
-const { sendFamilyInvite } = require('../../shared/email');
 
 const router = express.Router();
 
@@ -143,26 +142,25 @@ router.post('/create', requireAuth, async (req, res, next) => {
       return res.status(500).json({ error: 'Failed to add members' });
     }
 
-    // Send invitation emails to all members and track results
+    // Send Supabase invite emails to all members and track results
     const emailResults = [];
     for (const m of members) {
       const email = m.email.trim().toLowerCase();
       try {
-        const result = await sendFamilyInvite({
-          to: email,
-          ownerName: ownerProfile.name,
-          memberName: m.name || null,
+        const { data, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
+          data: { invited_by: ownerProfile.name, family_pack_id: pack.id },
+          redirectTo: `${process.env.FRONTEND_URL || 'safenight://'}`,
         });
-        const sent = result?.success === true;
+        // "User already registered" is fine — they already have an account
+        const sent = !inviteError || inviteError.message?.includes('already registered');
         emailResults.push({ email, sent });
-        // Update invite_sent status on the member record
         await supabase
           .from('family_pack_members')
           .update({ invite_sent: sent })
           .eq('pack_id', pack.id)
           .eq('email', email);
       } catch (err) {
-        console.error(`[family] Invite email to ${email} failed:`, err.message);
+        console.error(`[family] Invite to ${email} failed:`, err.message);
         emailResults.push({ email, sent: false });
         await supabase
           .from('family_pack_members')
@@ -378,14 +376,13 @@ router.post('/add-member', requireAuth, async (req, res, next) => {
 
     let emailSent = false;
     try {
-      const result = await sendFamilyInvite({
-        to: cleanEmail,
-        ownerName: ownerProfile?.name,
-        memberName: name || null,
+      const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(cleanEmail, {
+        data: { invited_by: ownerProfile?.name, family_pack_id: pack.id },
+        redirectTo: `${process.env.FRONTEND_URL || 'safenight://'}`,
       });
-      emailSent = result?.success === true;
+      emailSent = !inviteError || inviteError.message?.includes('already registered');
     } catch (err) {
-      console.error('[family] Email send error:', err.message);
+      console.error('[family] Invite error:', err.message);
     }
 
     // Update invite_sent status on the member record
@@ -655,7 +652,7 @@ router.post('/update-member-email', requireAuth, async (req, res, next) => {
       })
       .eq('id', member_id);
 
-    // Resend invitation email and track result
+    // Resend invitation email via Supabase and track result
     const { data: ownerProfile } = await supabase
       .from('profiles')
       .select('name')
@@ -664,14 +661,13 @@ router.post('/update-member-email', requireAuth, async (req, res, next) => {
 
     let emailSent = false;
     try {
-      const result = await sendFamilyInvite({
-        to: cleanEmail,
-        ownerName: ownerProfile?.name,
-        memberName: null,
+      const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(cleanEmail, {
+        data: { invited_by: ownerProfile?.name, family_pack_id: pack.id },
+        redirectTo: `${process.env.FRONTEND_URL || 'safenight://'}`,
       });
-      emailSent = result?.success === true;
+      emailSent = !inviteError || inviteError.message?.includes('already registered');
     } catch (err) {
-      console.error('[family] Email send error:', err.message);
+      console.error('[family] Invite error:', err.message);
     }
 
     await supabase
@@ -741,12 +737,11 @@ router.post('/resend-invite', requireAuth, async (req, res, next) => {
 
     let emailSent = false;
     try {
-      const result = await sendFamilyInvite({
-        to: member.email,
-        ownerName: ownerProfile?.name,
-        memberName: member.name || null,
+      const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(member.email, {
+        data: { invited_by: ownerProfile?.name, family_pack_id: pack.id },
+        redirectTo: `${process.env.FRONTEND_URL || 'safenight://'}`,
       });
-      emailSent = result?.success === true;
+      emailSent = !inviteError || inviteError.message?.includes('already registered');
     } catch (err) {
       console.error('[family] Resend invite error:', err.message);
     }
