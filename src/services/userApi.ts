@@ -10,6 +10,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { env } from '../config/env';
+import { emitLimitReached, LimitError, parseLimitResponse } from '../types/limitError';
 
 const BASE = env.userApiUrl;
 
@@ -409,6 +410,14 @@ export const reportsApi = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Submit failed' }));
+      // Check for subscription limit error
+      if (res.status === 403) {
+        const limitInfo = parseLimitResponse(err);
+        if (limitInfo) {
+          emitLimitReached(limitInfo);
+          throw new LimitError(limitInfo);
+        }
+      }
       throw new Error(err.error || 'Failed to submit report');
     }
     return res.json();
@@ -576,6 +585,14 @@ export const contactsApi = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed' }));
+      // Check for subscription limit error
+      if (res.status === 403) {
+        const limitInfo = parseLimitResponse(err);
+        if (limitInfo) {
+          emitLimitReached(limitInfo);
+          throw new LimitError(limitInfo);
+        }
+      }
       throw new Error(err.error || 'Failed to send request');
     }
   },
@@ -662,6 +679,14 @@ export const liveApi = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed' }));
+      // Check for subscription limit error
+      if (res.status === 403) {
+        const limitInfo = parseLimitResponse(err);
+        if (limitInfo) {
+          emitLimitReached(limitInfo);
+          throw new LimitError(limitInfo);
+        }
+      }
       throw new Error(err.error || 'Failed to start live session');
     }
     return res.json();
@@ -711,5 +736,36 @@ export const liveApi = {
     } catch {
       // Silently fail
     }
+  },
+};
+
+// ─── Subscription / Feature Check API ────────────────────────────────────────
+
+export interface FeatureCheckResult {
+  feature: string;
+  tier: string;
+  allowed: boolean;
+  limit: number;
+  used: number;
+  remaining: number;
+  unlimited?: boolean;
+  per?: string | null;
+  resets_at?: string | null;
+  reason?: string;
+  description?: string;
+}
+
+export const subscriptionApi = {
+  /**
+   * Check whether a specific feature action is allowed before performing it.
+   * Returns the limit status. Throws on network/auth errors.
+   */
+  async checkFeature(feature: string): Promise<FeatureCheckResult> {
+    const res = await authFetch(`/api/subscriptions/check/${encodeURIComponent(feature)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Check failed' }));
+      throw new Error(err.error || 'Failed to check feature limit');
+    }
+    return res.json();
   },
 };

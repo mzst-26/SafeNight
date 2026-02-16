@@ -10,6 +10,7 @@
 import { env } from '@/src/config/env';
 import { AppError } from '@/src/types/errors';
 import type { DirectionsRoute, LatLng, RouteSegment } from '@/src/types/google';
+import { emitLimitReached, LimitError, parseLimitResponse } from '@/src/types/limitError';
 import { decodePolyline } from '@/src/utils/polyline';
 
 const BACKEND_BASE = env.safetyApiUrl;
@@ -253,6 +254,15 @@ export async function fetchSafeRoutes(
     console.log(`[safeRoutes] ✅ Parsed JSON - routes: ${raw.routes?.length || 0}`);
 
     if (!resp.ok) {
+      // Check for subscription limit error (403)
+      if (resp.status === 403) {
+        const limitInfo = parseLimitResponse(raw as any);
+        if (limitInfo) {
+          emitLimitReached(limitInfo);
+          throw new LimitError(limitInfo);
+        }
+      }
+
       // Collect all extra fields from the backend into a details object
       const details: Record<string, unknown> = {};
       if (raw.detail) details.detail = raw.detail;

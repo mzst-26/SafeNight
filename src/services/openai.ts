@@ -7,6 +7,7 @@
  */
 
 import { env } from '@/src/config/env';
+import { emitLimitReached, LimitError, parseLimitResponse } from '@/src/types/limitError';
 
 /** Safety factor breakdown scores (0-100 each) */
 export interface SafetyBreakdownCompact {
@@ -80,6 +81,19 @@ export const fetchAIExplanation = async (input: AIExplanationInput): Promise<str
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     console.error(`[OpenAI] ❌ Backend error ${response.status}`);
+    // Check for subscription limit error
+    if (response.status === 403) {
+      try {
+        const parsed = JSON.parse(body);
+        const limitInfo = parseLimitResponse(parsed);
+        if (limitInfo) {
+          emitLimitReached(limitInfo);
+          throw new LimitError(limitInfo);
+        }
+      } catch (e) {
+        if (e instanceof LimitError) throw e;
+      }
+    }
     throw new Error(`Backend error ${response.status}: ${body}`);
   }
 
