@@ -1,24 +1,27 @@
 {
   "name": "safe-night-home-backend",
   "version": "2.0.0",
-  "description": "SafeNight — 3-service backend (API Gateway + Safety Compute + User Data)",
+  "description": "SafeNight — 4-service backend (API Gateway + Safety Compute + User Data + Subscription)",
   "scripts": {
     "start:gateway": "PORT=3001 node src/gateway/server.js",
     "start:safety": "PORT=3002 node src/safety/server.js",
     "start:user": "PORT=3003 node src/user/server.js",
+    "start:subscription": "PORT=3004 node src/subscription/server.js",
     "dev:gateway": "PORT=3001 node --watch src/gateway/server.js",
     "dev:safety": "PORT=3002 node --watch src/safety/server.js",
     "dev:user": "PORT=3003 node --watch src/user/server.js",
-    "dev": "PORT=3001 node --watch src/gateway/server.js & PORT=3002 node --watch src/safety/server.js & PORT=3003 node --watch src/user/server.js",
+    "dev:subscription": "PORT=3004 node --watch src/subscription/server.js",
+    "dev": "PORT=3001 node --watch src/gateway/server.js & PORT=3002 node --watch src/safety/server.js & PORT=3003 node --watch src/user/server.js & PORT=3004 node --watch src/subscription/server.js",
     "start": "PORT=3001 node src/gateway/server.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "opening_hours": "^3.11.0",
-    "@supabase/supabase-js": "^2.49.1"
+    "stripe": "^20.3.1"
   }
 }

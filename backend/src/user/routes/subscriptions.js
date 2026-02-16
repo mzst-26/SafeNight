@@ -145,64 +145,23 @@ router.get('/check/:feature', requireAuth, attachSubscription, async (req, res, 
 });
 
 // ─── POST /api/subscriptions/upgrade ─────────────────────────────────────────
-// Upgrade the user's subscription tier.
-// In production, this would verify payment with Stripe/RevenueCat first.
-// For now, accepts a tier + payment_ref and upgrades immediately.
+// Redirects to the subscription service (port 3004) for Stripe Checkout.
+// The frontend should call the subscription service directly for new checkouts,
+// but this route is kept for backwards compatibility.
 router.post('/upgrade', requireAuth, async (req, res, next) => {
   try {
-    const { tier, payment_ref } = req.body;
+    const { tier } = req.body;
 
     if (!tier || !['pro', 'premium'].includes(tier)) {
       return res.status(400).json({ error: 'Tier must be "pro" or "premium"' });
     }
 
-    // Expire current active subscription
-    await supabase
-      .from('subscriptions')
-      .update({
-        status: 'expired',
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq('user_id', req.user.id)
-      .eq('status', 'active');
-
-    // Calculate expiry (30 days from now for monthly)
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
-
-    // Create new subscription
-    const { data: newSub, error } = await supabase
-      .from('subscriptions')
-      .insert({
-        user_id: req.user.id,
-        tier,
-        status: 'active',
-        started_at: new Date().toISOString(),
-        expires_at: expiresAt.toISOString(),
-        payment_ref: payment_ref || null,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Update denormalized field on profile
-    await supabase
-      .from('profiles')
-      .update({ subscription: tier })
-      .eq('id', req.user.id);
-
-    // Log upgrade event
-    await supabase.from('usage_events').insert({
-      user_id: req.user.id,
-      event_type: 'subscription_upgrade',
-      value_text: tier,
-    });
-
+    // Direct the frontend to the subscription service
+    const subscriptionServiceUrl = process.env.SUBSCRIPTION_SERVICE_URL || 'http://localhost:3004';
     res.json({
-      message: `Upgraded to ${tier}`,
-      subscription: newSub,
-      features: getTierFeatures(tier),
+      message: 'Use the subscription service to upgrade via Stripe',
+      checkoutUrl: `${subscriptionServiceUrl}/api/stripe/create-checkout`,
+      tier,
     });
   } catch (err) {
     next(err);
@@ -210,9 +169,26 @@ router.post('/upgrade', requireAuth, async (req, res, next) => {
 });
 
 // ─── POST /api/subscriptions/cancel ──────────────────────────────────────────
-// Cancel the active subscription. Reverts to free at end of billing period.
+// Cancel the active subscription. Directs to Stripe Customer Portal for
+// proper cancellation flow, or does immediate cancellation for non-Stripe subs.
 router.post('/cancel', requireAuth, async (req, res, next) => {
   try {
+    // Check if user has a Stripe customer — redirect to portal
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', req.user.id)
+      .single();
+
+    if (profile?.stripe_customer_id) {
+      const subscriptionServiceUrl = process.env.SUBSCRIPTION_SERVICE_URL || 'http://localhost:3004';
+      return res.json({
+        message: 'Use the subscription service to manage your subscription via Stripe',
+        portalUrl: `${subscriptionServiceUrl}/api/stripe/create-portal`,
+      });
+    }
+
+    // Non-Stripe subscription — cancel immediately (legacy/manual subs)
     const { data: activeSub } = await supabase
       .from('subscriptions')
       .select('id, tier, expires_at')
@@ -225,7 +201,6 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'No active paid subscription to cancel' });
     }
 
-    // Mark as cancelled (still active until expires_at)
     await supabase
       .from('subscriptions')
       .update({
@@ -234,14 +209,11 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
       })
       .eq('id', activeSub.id);
 
-    // Revert to free immediately (or at expiry — your choice)
-    // For now: revert immediately
     await supabase
       .from('profiles')
       .update({ subscription: 'free' })
       .eq('id', req.user.id);
 
-    // Create a new free subscription
     await supabase.from('subscriptions').insert({
       user_id: req.user.id,
       tier: 'free',
@@ -262,22 +234,13 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
 });
 
 // ─── POST /api/subscriptions/webhook ─────────────────────────────────────────
-// Payment provider webhook (Stripe / RevenueCat).
-// Placeholder — implement verification + signature checking for your provider.
-router.post('/webhook', async (req, res, next) => {
-  try {
-    // TODO: Verify webhook signature from payment provider
-    // TODO: Handle events: payment_succeeded, subscription_renewed,
-    //       subscription_expired, payment_failed, refund
-    const { event, user_id, tier, payment_ref } = req.body;
-
-    console.log(`[subscriptions] Webhook received: ${event} for user ${user_id}`);
-
-    // For now, just acknowledge
-    res.json({ received: true });
-  } catch (err) {
-    next(err);
-  }
+// Deprecated — webhooks are now handled by the subscription service (port 3004).
+// This route is kept for backwards compatibility but just redirects.
+router.post('/webhook', async (_req, res) => {
+  res.status(301).json({
+    error: 'Webhooks are now handled by the subscription service',
+    webhook_url: '/api/stripe/webhook',
+  });
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
