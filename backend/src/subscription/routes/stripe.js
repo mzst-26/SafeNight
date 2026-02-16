@@ -83,15 +83,15 @@ router.get('/plans', (_req, res) => {
 });
 
 // ─── POST /api/stripe/create-checkout ────────────────────────────────────────
-// Creates a Stripe Checkout Session for upgrading to pro or premium.
+// Creates a Stripe Checkout Session for upgrading to Guarded (pro).
 // Returns the session URL for the frontend to redirect to.
 router.post('/create-checkout', requireAuth, async (req, res, next) => {
   try {
     const { tier } = req.body;
 
-    if (!tier || !['pro', 'premium'].includes(tier)) {
+    if (!tier || !['pro'].includes(tier)) {
       return res.status(400).json({
-        error: 'Invalid tier. Must be "pro" or "premium".',
+        error: 'Invalid tier. Must be "pro".',
       });
     }
 

@@ -23,23 +23,16 @@ const TIERS = {
     currency: 'GBP',
   },
   pro: {
-    name: 'Pro',
+    name: 'Guarded',
     description: 'Full safety suite for regular walkers',
     price: 4.99,
     currency: 'GBP',
     billingPeriod: 'month',
   },
-  premium: {
-    name: 'Premium',
-    description: 'Everything — unlimited, priority, early access',
-    price: 9.99,
-    currency: 'GBP',
-    billingPeriod: 'month',
-  },
 };
 
-// Rank for >= comparisons: free < pro < premium
-const TIER_RANK = { free: 0, pro: 1, premium: 2 };
+// Rank for >= comparisons: free < pro (Guarded)
+const TIER_RANK = { free: 0, pro: 1 };
 
 // ─── Feature limits per tier ─────────────────────────────────────────────────
 // Each feature has a key and per-tier config.
@@ -52,7 +45,6 @@ const FEATURE_LIMITS = {
     description: 'Route safety searches',
     free:    { limit: 10, per: 'day' },
     pro:     { limit: -1 },
-    premium: { limit: -1 },
     // event_type used to count usage
     usage_event: 'route_search',
   },
@@ -62,7 +54,6 @@ const FEATURE_LIMITS = {
     description: 'Maximum walking route distance (km)',
     free:    { limit: 1 },
     pro:     { limit: 10 },
-    premium: { limit: 20 },
     // Not counted — used as a cap, checked by the safe-routes endpoint
   },
 
@@ -71,7 +62,6 @@ const FEATURE_LIMITS = {
     description: 'Turn-by-turn navigation sessions',
     free:    { limit: 5, per: 'day' },
     pro:     { limit: -1 },
-    premium: { limit: -1 },
     usage_event: 'navigation_start',
   },
 
@@ -80,7 +70,6 @@ const FEATURE_LIMITS = {
     description: 'Emergency contacts (Safety Circle)',
     free:    { limit: 2 },
     pro:     { limit: 5 },
-    premium: { limit: -1 },
     // counted via emergency_contacts table, not usage_events
     count_table: 'emergency_contacts',
   },
@@ -90,7 +79,6 @@ const FEATURE_LIMITS = {
     description: 'Live location sharing sessions',
     free:    { limit: 2, per: 'month' },
     pro:     { limit: -1 },
-    premium: { limit: -1 },
     usage_event: 'live_session',
     count_table: 'live_sessions',
   },
@@ -100,7 +88,6 @@ const FEATURE_LIMITS = {
     description: 'AI-powered route safety explanations',
     free:    { limit: 2, per: 'day' },
     pro:     { limit: 10, per: 'day' },
-    premium: { limit: -1 },
   },
 
   // ── Safety reports ───────────────────────────────────────────────────────
@@ -108,7 +95,6 @@ const FEATURE_LIMITS = {
     description: 'Safety hazard reports',
     free:    { limit: -1 },
     pro:     { limit: -1 },
-    premium: { limit: -1 },
     count_table: 'safety_reports',
   },
 
@@ -117,7 +103,6 @@ const FEATURE_LIMITS = {
     description: 'Personal usage analytics',
     free:    { limit: -1 },
     pro:     { limit: -1 },
-    premium: { limit: -1 },
   },
 
   // ── Push notifications (contact alerts) ──────────────────────────────────
@@ -125,7 +110,6 @@ const FEATURE_LIMITS = {
     description: 'Push notifications for contact activity',
     free:    { limit: -1 },   // basic push for everyone
     pro:     { limit: -1 },
-    premium: { limit: -1 },
   },
 };
 

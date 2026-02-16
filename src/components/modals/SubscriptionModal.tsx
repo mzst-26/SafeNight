@@ -34,14 +34,12 @@ interface Props {
 
 const TIER_COLORS: Record<string, string> = {
   free: '#6B7280',
-  pro: '#3B82F6',
-  premium: '#8B5CF6',
+  pro: '#7C3AED',
 };
 
 const TIER_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   free: 'shield-outline',
   pro: 'shield-checkmark',
-  premium: 'diamond',
 };
 
 const FEATURE_HIGHLIGHTS: Record<string, string[]> = {
@@ -52,14 +50,6 @@ const FEATURE_HIGHLIGHTS: Record<string, string[]> = {
     '5 emergency contacts',
     '10 AI explanations/day',
     'Unlimited live sharing',
-  ],
-  premium: [
-    'Everything in Pro',
-    'Up to 20km walking routes',
-    'Unlimited emergency contacts',
-    'Unlimited AI explanations',
-    'Priority support',
-    'Early access to new features',
   ],
 };
 
@@ -96,7 +86,7 @@ export function SubscriptionModal({ visible, currentTier, onClose, onSubscriptio
   }, []);
 
   const handleUpgrade = useCallback(
-    async (tier: 'pro' | 'premium') => {
+    async (tier: 'pro') => {
       setActionLoading(tier);
       setError(null);
 
@@ -135,7 +125,7 @@ export function SubscriptionModal({ visible, currentTier, onClose, onSubscriptio
     }
   }, [openUrl, onClose, onSubscriptionChanged]);
 
-  const isPaid = currentTier === 'pro' || currentTier === 'premium';
+  const isPaid = currentTier === 'pro';
   const stripeSub = status?.stripeSubscription;
 
   return (
@@ -176,7 +166,7 @@ export function SubscriptionModal({ visible, currentTier, onClose, onSubscriptio
                   color={TIER_COLORS[currentTier]}
                 />
                 <Text style={[styles.currentPlanText, { color: TIER_COLORS[currentTier] }]}>
-                  Current plan: {currentTier.charAt(0).toUpperCase() + currentTier.slice(1)}
+                  Current plan: {currentTier === 'pro' ? 'Guarded' : 'Free'}
                 </Text>
               </View>
 
@@ -265,7 +255,7 @@ export function SubscriptionModal({ visible, currentTier, onClose, onSubscriptio
                         { backgroundColor: TIER_COLORS[plan.tier] },
                         !plan.available && styles.disabledButton,
                       ]}
-                      onPress={() => handleUpgrade(plan.tier as 'pro' | 'premium')}
+                      onPress={() => handleUpgrade(plan.tier as 'pro')}
                       disabled={!plan.available || actionLoading === plan.tier}
                     >
                       {actionLoading === plan.tier ? (

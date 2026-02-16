@@ -93,7 +93,7 @@ export const stripeApi = {
    * Returns a URL to redirect the user to.
    */
   async createCheckout(
-    tier: 'pro' | 'premium',
+    tier: 'pro',
     returnUrl?: string,
   ): Promise<CheckoutResult> {
     const res = await authFetch('/api/stripe/create-checkout', {

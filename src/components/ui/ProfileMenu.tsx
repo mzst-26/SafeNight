@@ -91,7 +91,7 @@ export function ProfileMenu({ name, email, subscriptionTier, onLogout, onManageS
                 {subscriptionTier && subscriptionTier !== 'free' && (
                   <View style={styles.tierBadge}>
                     <Text style={styles.tierBadgeText}>
-                      {subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)}
+                      {subscriptionTier === 'pro' ? 'Guarded' : subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)}
                     </Text>
                   </View>
                 )}

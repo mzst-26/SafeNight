@@ -2,32 +2,25 @@
  * plans.js — Stripe price/product mapping.
  *
  * Maps internal tier names to Stripe Price IDs.
- * Set these env vars to your actual Stripe Price IDs:
+ * Set this env var to your actual Stripe Price ID:
  *
  *   STRIPE_PRICE_PRO=price_xxx
- *   STRIPE_PRICE_PREMIUM=price_yyy
  *
  * Each plan also carries metadata for fallback display.
  */
 
 const PLANS = {
   pro: {
-    name: 'Pro',
+    name: 'Guarded',
     description: 'Full safety suite for regular walkers',
     priceGBP: 4.99,
     stripePriceId: process.env.STRIPE_PRICE_PRO || null,
-  },
-  premium: {
-    name: 'Premium',
-    description: 'Everything — unlimited, priority, early access',
-    priceGBP: 9.99,
-    stripePriceId: process.env.STRIPE_PRICE_PREMIUM || null,
   },
 };
 
 /**
  * Look up a plan by tier name.
- * @param {string} tier - 'pro' or 'premium'
+ * @param {string} tier - 'pro'
  * @returns {{ name: string, priceGBP: number, stripePriceId: string | null } | null}
  */
 function getPlan(tier) {
