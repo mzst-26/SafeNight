@@ -28,7 +28,9 @@ import { RouteList } from '@/src/components/routes/RouteList';
 import { RoadTypeBreakdown, SafetyPanel } from '@/src/components/safety/SafetyPanel';
 import { SafetyProfileChart } from '@/src/components/safety/SafetyProfileChart';
 import { SearchBar } from '@/src/components/search/SearchBar';
+import { MobileWebSearchBar } from '@/src/components/search/MobileWebSearchBar';
 import { DraggableSheet, SHEET_DEFAULT, SHEET_MIN } from '@/src/components/sheets/DraggableSheet';
+import { MobileWebSheet } from '@/src/components/sheets/MobileWebSheet';
 import { WebSidebar } from '@/src/components/sheets/WebSidebar';
 import { AndroidDownloadBanner } from '@/src/components/ui/AndroidDownloadBanner';
 import { BuddyButton } from '@/src/components/ui/BuddyButton';
@@ -41,6 +43,7 @@ import { useContacts } from '@/src/hooks/useContacts';
 import { useFriendLocations } from '@/src/hooks/useFriendLocations';
 import { useHomeScreen } from '@/src/hooks/useHomeScreen';
 import { useLiveTracking } from '@/src/hooks/useLiveTracking';
+import { useWebBreakpoint } from '@/src/hooks/useWebBreakpoint';
 import { onLimitReached, type LimitInfo } from '@/src/types/limitError';
 import { formatDistance, formatDuration } from '@/src/utils/format';
 
@@ -57,6 +60,10 @@ export default function HomeScreen() {
   const [toast, setToast] = useState<ToastConfig | null>(null);
   const subscriptionTier = auth.user?.subscription ?? 'free';
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
+
+  // Responsive breakpoint — phone-size web gets a different layout
+  const breakpoint = useWebBreakpoint();
+  const isPhoneWeb = breakpoint === 'phone';
 
   // Web guest detection (also exposed from useHomeScreen)
   const isWebGuest = Platform.OS === 'web' && !auth.isLoggedIn;
@@ -248,9 +255,9 @@ export default function HomeScreen() {
        */}
       <AndroidOverlayHost>
         {/* ══════════════════════════════════════════════════════════════
-         * WEB LAYOUT — Google Maps-style left sidebar
+         * WEB LAYOUT — Google Maps-style left sidebar (tablet/desktop only)
          * ══════════════════════════════════════════════════════════════ */}
-        {isWeb && !h.isNavActive && (
+        {isWeb && !isPhoneWeb && !h.isNavActive && (
           <WebSidebar
             hasResults={h.routes.length > 0}
             isLoading={h.directionsStatus === 'loading'}
@@ -407,6 +414,170 @@ export default function HomeScreen() {
         )}
 
         {/* ══════════════════════════════════════════════════════════════
+         * PHONE WEB LAYOUT — Google Maps-style top pill + bottom sheet
+         * Only for web viewports < 768px. Android/iOS unaffected.
+         * ══════════════════════════════════════════════════════════════ */}
+        {isPhoneWeb && !h.isNavActive && (
+          <>
+            {/* Download banner */}
+            <AndroidDownloadBanner />
+
+            {/* MobileWebSearchBar — collapsible pill */}
+            <MobileWebSearchBar
+              location={h.location}
+              isUsingCurrentLocation={h.isUsingCurrentLocation}
+              setIsUsingCurrentLocation={h.setIsUsingCurrentLocation}
+              originSearch={h.originSearch}
+              manualOrigin={h.manualOrigin}
+              setManualOrigin={h.setManualOrigin}
+              destSearch={h.destSearch}
+              manualDest={h.manualDest}
+              setManualDest={h.setManualDest}
+              pinMode={h.pinMode}
+              setPinMode={h.setPinMode}
+              onPanTo={h.handlePanTo}
+              onClearRoute={h.clearSelectedRoute}
+              onSwap={h.swapOriginAndDest}
+              onGuestTap={isWebGuest ? promptLogin : undefined}
+              hasResults={h.routes.length > 0}
+            />
+
+            {/* Login button for guest */}
+            {isWebGuest && (
+              <View style={{ position: 'absolute', top: 76, left: 12, right: 12, zIndex: 45, alignItems: 'center' }}>
+                <WebLoginButton onPress={promptLogin} />
+              </View>
+            )}
+
+            {/* Phone web bottom sheet */}
+            <MobileWebSheet visible={sheetVisible}>
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>{hasError && h.routes.length === 0 ? 'Oops!!' : 'Routes'}</Text>
+                {!hasError && <Text style={styles.sheetMeta}>{distanceLabel} · {durationLabel}</Text>}
+                {h.routes.length > 0 && (
+                  <Pressable onPress={h.clearSelectedRoute} hitSlop={8} style={{ marginLeft: 8 }}>
+                    <Ionicons name="close" size={18} color="#667085" />
+                  </Pressable>
+                )}
+              </View>
+
+              {h.directionsStatus === 'loading' && <JailLoadingAnimation />}
+
+              {h.outOfRange && (
+                <View style={styles.warningBanner}>
+                  <Ionicons name="ban-outline" size={20} color="#dc2626" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.warningTitle}>Destination out of range</Text>
+                    <Text style={styles.warningText}>
+                      {h.outOfRangeMessage || 'Destination is too far away (max 10 km walking distance).'}
+                    </Text>
+                    {h.directionsError?.details?.detail ? (
+                      <Text style={styles.warningDetail}>{String(h.directionsError.details.detail)}</Text>
+                    ) : null}
+                    <Text style={styles.warningHint}>💡 Try selecting a closer destination, or split your journey into shorter legs.</Text>
+                  </View>
+                </View>
+              )}
+
+              {h.directionsError && !h.outOfRange && (
+                <View style={[
+                  styles.warningBanner,
+                  h.directionsError.code === 'INTERNAL_ERROR' && { backgroundColor: '#fffbeb' },
+                ]}>
+                  <Ionicons
+                    name={
+                      h.directionsError.code === 'NO_ROUTE_FOUND' ? 'git-branch-outline'
+                      : h.directionsError.code === 'NO_NEARBY_ROAD' ? 'location-outline'
+                      : h.directionsError.code === 'NO_WALKING_NETWORK' ? 'walk-outline'
+                      : h.directionsError.code === 'safe_routes_timeout' ? 'time-outline'
+                      : h.directionsError.code === 'INTERNAL_ERROR' ? 'cloud-offline-outline'
+                      : 'alert-circle'
+                    }
+                    size={20}
+                    color={
+                      h.directionsError.code === 'safe_routes_timeout' || h.directionsError.code === 'INTERNAL_ERROR'
+                        ? '#d97706' : '#dc2626'
+                    }
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.warningTitle}>
+                      {h.directionsError.code === 'NO_ROUTE_FOUND' ? 'No route found'
+                      : h.directionsError.code === 'NO_NEARBY_ROAD' ? 'No road nearby'
+                      : h.directionsError.code === 'NO_WALKING_NETWORK' ? 'No walkable roads'
+                      : h.directionsError.code === 'safe_routes_timeout' ? 'Request timed out'
+                      : h.directionsError.code === 'INTERNAL_ERROR' ? 'Something went wrong'
+                      : 'Route error'}
+                    </Text>
+                    <Text style={styles.warningText}>{h.directionsError.message}</Text>
+                    {h.directionsError.details?.detail ? (
+                      <Text style={styles.warningDetail}>{String(h.directionsError.details.detail)}</Text>
+                    ) : null}
+                    <Text style={styles.warningHint}>
+                      {h.directionsError.code === 'NO_ROUTE_FOUND'
+                        ? '💡 The two points are probably on separate road networks — try a destination on the same side of any rivers, motorways, or railways.'
+                        : h.directionsError.code === 'NO_NEARBY_ROAD'
+                          ? '💡 Move the pin closer to a visible street or footpath on the map.'
+                          : h.directionsError.code === 'NO_WALKING_NETWORK'
+                            ? '💡 This area only has motorways or private roads. Pick a more residential destination.'
+                            : h.directionsError.code === 'safe_routes_timeout'
+                              ? '💡 Shorter routes compute faster. Try somewhere within 5 km.'
+                              : h.directionsError.code === 'INTERNAL_ERROR'
+                                ? '💡 This is usually temporary — wait a moment and try again.'
+                                : '💡 Try again, or pick a different destination.'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              <RouteList
+                routes={h.safeRoutes}
+                selectedRouteId={h.selectedRouteId}
+                onSelectRoute={h.setSelectedRouteId}
+                inSidebar
+              />
+
+              {showSafety && h.safetyResult && h.selectedSafeRoute && (
+                <SafetyPanel
+                  safetyResult={h.safetyResult}
+                  selectedSafeRoute={h.selectedSafeRoute}
+                  onCategoryPress={handleCategoryPress}
+                  inSidebar
+                />
+              )}
+
+              {h.selectedRouteId && h.nav.state === 'idle' && (
+                <Pressable
+                  style={styles.startNavButton}
+                  onPress={() => setShowDownloadModal(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Start navigation"
+                >
+                  <Ionicons name="navigate" size={20} color="#ffffff" />
+                  <Text style={styles.startNavButtonText}>Start Navigation</Text>
+                </Pressable>
+              )}
+
+              {showSafety &&
+                h.selectedSafeRoute &&
+                Object.keys(h.selectedSafeRoute.safety.roadTypes).length > 0 && (
+                  <RoadTypeBreakdown roadTypes={h.selectedSafeRoute.safety.roadTypes} />
+                )}
+
+              {showSafety &&
+                h.selectedSafeRoute?.enrichedSegments &&
+                h.selectedSafeRoute.enrichedSegments.length > 1 && (
+                  <SafetyProfileChart
+                    segments={h.routeSegments}
+                    enrichedSegments={h.selectedSafeRoute.enrichedSegments}
+                    roadNameChanges={h.selectedSafeRoute.routeStats?.roadNameChanges ?? []}
+                    totalDistance={h.selectedSafeRoute.distanceMeters}
+                  />
+                )}
+            </MobileWebSheet>
+          </>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
          * MOBILE LAYOUT — Original centered search + bottom sheet
          * ══════════════════════════════════════════════════════════════ */}
 
@@ -452,7 +623,7 @@ export default function HomeScreen() {
 
         {/* ── Profile / Logout button (logged in) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 190, right: 12, zIndex: 110 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 80 : 190), right: 12, zIndex: 110 }}>
             <ProfileMenu
               name={auth.user?.name ?? auth.user?.username ?? null}
               email={auth.user?.email ?? null}
@@ -472,7 +643,7 @@ export default function HomeScreen() {
 
         {/* ── Safety Circle button (right under profile button) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 240 + (isWeb ? 50 : 0), right: 12, zIndex: 100 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 130 : 240 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
             <BuddyButton
               username={auth.user?.username ?? null}
               userId={auth.user?.id ?? null}
@@ -484,7 +655,7 @@ export default function HomeScreen() {
 
         {/* ── Show Friends on Map toggle (below Safety Circle) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 295 + (isWeb ? 50 : 0), right: 12, zIndex: 100 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 185 : 295 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
             <Pressable
               onPress={handleFriendToggle}
               style={[

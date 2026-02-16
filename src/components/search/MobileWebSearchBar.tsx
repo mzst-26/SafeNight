@@ -1,0 +1,555 @@
+/**
+ * MobileWebSearchBar — Google Maps-style collapsible search for phone-size web.
+ *
+ * Behaviour:
+ *   - Default: single "Where to?" pill at the top
+ *   - Tap pill → expands to dual origin/destination inputs with predictions
+ *   - Search performed → collapses back to single pill showing destination name
+ *   - Tap pill again → re-expands to dual inputs (does NOT edit destination inline)
+ *
+ * This component is ONLY rendered on web when viewport < 768px.
+ * Android/iOS native always uses the original SearchBar.
+ */
+import { Ionicons } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+
+import type { UseAutoPlaceSearchReturn } from '@/src/hooks/useAutoPlaceSearch';
+import type { LatLng, PlaceDetails, PlacePrediction } from '@/src/types/google';
+
+// ── Props ────────────────────────────────────────────────────────────────────
+
+export interface MobileWebSearchBarProps {
+  location: LatLng | null;
+  isUsingCurrentLocation: boolean;
+  setIsUsingCurrentLocation: (v: boolean) => void;
+  originSearch: UseAutoPlaceSearchReturn;
+  manualOrigin: PlaceDetails | null;
+  setManualOrigin: (v: PlaceDetails | null) => void;
+  destSearch: UseAutoPlaceSearchReturn;
+  manualDest: PlaceDetails | null;
+  setManualDest: (v: PlaceDetails | null) => void;
+  pinMode: 'origin' | 'destination' | null;
+  setPinMode: (v: 'origin' | 'destination' | null) => void;
+  onPanTo: (location: LatLng) => void;
+  onClearRoute: () => void;
+  onSwap: () => void;
+  onGuestTap?: () => void;
+  /** Whether route results are currently showing */
+  hasResults: boolean;
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+
+export function MobileWebSearchBar({
+  location,
+  isUsingCurrentLocation,
+  setIsUsingCurrentLocation,
+  originSearch,
+  manualOrigin,
+  setManualOrigin,
+  destSearch,
+  manualDest,
+  setManualDest,
+  pinMode,
+  setPinMode,
+  onPanTo,
+  onClearRoute,
+  onSwap,
+  onGuestTap,
+  hasResults,
+}: MobileWebSearchBarProps) {
+  const [expanded, setExpanded] = useState(false);
+  const expandAnim = useRef(new Animated.Value(0)).current;
+  const originRef = useRef<TextInput>(null);
+  const destRef = useRef<TextInput>(null);
+
+  // Focus management
+  const [focusedField, setFocusedField] = useState<'origin' | 'destination' | null>(null);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFocused = useRef<'origin' | 'destination' | null>(null);
+  const suppressBlur = useRef(false);
+
+  const cancelBlur = useCallback(() => {
+    if (blurTimer.current) { clearTimeout(blurTimer.current); blurTimer.current = null; }
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    if (suppressBlur.current) { suppressBlur.current = false; return; }
+    blurTimer.current = setTimeout(() => setFocusedField(null), 200);
+  }, []);
+
+  useEffect(() => {
+    if (focusedField) lastFocused.current = focusedField;
+  }, [focusedField]);
+
+  // Auto-collapse when results appear
+  useEffect(() => {
+    if (hasResults && expanded) {
+      collapse();
+    }
+  }, [hasResults]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Expand/collapse animation
+  const expand = useCallback(() => {
+    setExpanded(true);
+    Animated.spring(expandAnim, {
+      toValue: 1,
+      useNativeDriver: false,
+      bounciness: 4,
+      speed: 14,
+    }).start(() => {
+      // Auto-focus destination input after expand
+      setTimeout(() => destRef.current?.focus(), 100);
+    });
+  }, [expandAnim]);
+
+  const collapse = useCallback(() => {
+    originRef.current?.blur();
+    destRef.current?.blur();
+    setFocusedField(null);
+    Animated.spring(expandAnim, {
+      toValue: 0,
+      useNativeDriver: false,
+      bounciness: 4,
+      speed: 14,
+    }).start(() => setExpanded(false));
+  }, [expandAnim]);
+
+  // When user taps the collapsed pill
+  const handlePillPress = useCallback(() => {
+    if (onGuestTap) { onGuestTap(); return; }
+    expand();
+  }, [onGuestTap, expand]);
+
+  // Prediction logic
+  const activePredictions =
+    focusedField === 'origin' && !manualOrigin && !originSearch.place
+      ? originSearch.predictions
+      : focusedField === 'destination' && !manualDest && !destSearch.place
+        ? destSearch.predictions
+        : [];
+
+  const handlePredictionSelect = useCallback(
+    (pred: PlacePrediction) => {
+      cancelBlur();
+      suppressBlur.current = false;
+      const field = focusedField ?? lastFocused.current;
+      if (field === 'origin') {
+        originSearch.selectPrediction(pred);
+        setManualOrigin(null);
+        setIsUsingCurrentLocation(false);
+        if (pred.location) onPanTo(pred.location);
+      } else {
+        destSearch.selectPrediction(pred);
+        setManualDest(null);
+        if (pred.location) onPanTo(pred.location);
+      }
+      onClearRoute();
+      originRef.current?.blur();
+      destRef.current?.blur();
+      setFocusedField(null);
+    },
+    [focusedField, originSearch, destSearch, setManualOrigin, setManualDest, setIsUsingCurrentLocation, onPanTo, onClearRoute, cancelBlur],
+  );
+
+  // Display text for collapsed pill
+  const destDisplayText = manualDest
+    ? (manualDest.name ?? 'Dropped pin')
+    : destSearch.place
+      ? (destSearch.place.name ?? destSearch.query)
+      : destSearch.query || null;
+
+  // Interpolated heights for expand/collapse
+  const containerHeight = expandAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [56, 160],
+  });
+
+  const dualOpacity = expandAnim.interpolate({
+    inputRange: [0, 0.4, 1],
+    outputRange: [0, 0, 1],
+  });
+
+  const pillOpacity = expandAnim.interpolate({
+    inputRange: [0, 0.3],
+    outputRange: [1, 0],
+  });
+
+  return (
+    <View style={styles.wrapper}>
+      <Animated.View style={[styles.container, { height: containerHeight }]}>
+        {/* ── Collapsed single pill ── */}
+        {!expanded && (
+          <Animated.View style={[styles.pill, { opacity: pillOpacity }]}>
+            <Pressable
+              style={styles.pillInner}
+              onPress={handlePillPress}
+              accessibilityRole="button"
+              accessibilityLabel="Search for a destination"
+            >
+              <Ionicons name="search" size={18} color="#667085" />
+              <Text
+                style={[styles.pillText, destDisplayText ? styles.pillTextActive : null]}
+                numberOfLines={1}
+              >
+                {destDisplayText || 'Where to?'}
+              </Text>
+              {destDisplayText && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    destSearch.clear();
+                    setManualDest(null);
+                    onClearRoute();
+                  }}
+                  style={styles.pillClear}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={16} color="#98a2b3" />
+                </Pressable>
+              )}
+            </Pressable>
+          </Animated.View>
+        )}
+
+        {/* ── Expanded dual inputs ── */}
+        {expanded && (
+          <Animated.View style={[styles.expandedCard, { opacity: dualOpacity }]}>
+            {/* Back / collapse button */}
+            <View style={styles.expandedHeader}>
+              <Pressable onPress={collapse} style={styles.backButton} hitSlop={8}>
+                <Ionicons name="arrow-back" size={22} color="#374151" />
+              </Pressable>
+              <Text style={styles.expandedTitle}>Plan your route</Text>
+              <Pressable
+                onPress={() => { onSwap(); onClearRoute(); }}
+                style={styles.swapBtn}
+                hitSlop={8}
+                accessibilityLabel="Swap origin and destination"
+              >
+                <Ionicons name="swap-vertical" size={18} color="#667085" />
+              </Pressable>
+            </View>
+
+            {/* Origin */}
+            <View style={styles.inputRow}>
+              <View style={[styles.dot, { backgroundColor: '#1570ef' }]} />
+              {isUsingCurrentLocation ? (
+                <Pressable
+                  style={[styles.inputField, focusedField === 'origin' && styles.inputFieldFocused]}
+                  onPress={() => {
+                    if (onGuestTap) { onGuestTap(); return; }
+                    setIsUsingCurrentLocation(false);
+                  }}
+                >
+                  <Ionicons name={location ? 'navigate' : 'hourglass-outline'} size={14} color="#1570ef" />
+                  <Text style={styles.locationText}>
+                    {location ? 'Your location' : 'Getting location...'}
+                  </Text>
+                </Pressable>
+              ) : (
+                <View style={[styles.inputField, focusedField === 'origin' && styles.inputFieldFocused]}>
+                  <TextInput
+                    ref={originRef}
+                    value={manualOrigin ? (manualOrigin.name ?? 'Dropped pin') : originSearch.query}
+                    onChangeText={(t) => {
+                      if (onGuestTap) return;
+                      setManualOrigin(null);
+                      originSearch.setQuery(t);
+                      onClearRoute();
+                    }}
+                    placeholder="Starting point"
+                    placeholderTextColor="#98a2b3"
+                    style={styles.textInput}
+                    onFocus={() => { if (onGuestTap) { originRef.current?.blur(); onGuestTap(); return; } cancelBlur(); setFocusedField('origin'); }}
+                    onBlur={handleBlur}
+                  />
+                  {originSearch.status === 'searching' && <ActivityIndicator size="small" color="#1570ef" />}
+                  {(originSearch.status === 'found' || manualOrigin) && (
+                    <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
+                  )}
+                  {!isUsingCurrentLocation && (
+                    <Pressable
+                      onPress={() => {
+                        setIsUsingCurrentLocation(true);
+                        setManualOrigin(null);
+                        originSearch.clear();
+                        if (location) onPanTo(location);
+                      }}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="locate-outline" size={14} color="#98a2b3" />
+                    </Pressable>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Destination */}
+            <View style={styles.inputRow}>
+              <View style={[styles.dot, { backgroundColor: '#d92d20' }]} />
+              <View style={[styles.inputField, focusedField === 'destination' && styles.inputFieldFocused]}>
+                <TextInput
+                  ref={destRef}
+                  value={manualDest ? (manualDest.name ?? 'Dropped pin') : destSearch.query}
+                  onChangeText={(t) => {
+                    if (onGuestTap) return;
+                    setManualDest(null);
+                    destSearch.setQuery(t);
+                    onClearRoute();
+                  }}
+                  placeholder="Where to?"
+                  placeholderTextColor="#98a2b3"
+                  style={styles.textInput}
+                  onFocus={() => { if (onGuestTap) { destRef.current?.blur(); onGuestTap(); return; } cancelBlur(); setFocusedField('destination'); }}
+                  onBlur={handleBlur}
+                />
+                {destSearch.status === 'searching' && <ActivityIndicator size="small" color="#1570ef" />}
+                {(destSearch.status === 'found' || manualDest) && (
+                  <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
+                )}
+                {(destSearch.place || manualDest) && (
+                  <Pressable
+                    onPress={() => { destSearch.clear(); setManualDest(null); onClearRoute(); }}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="close-circle-outline" size={14} color="#98a2b3" />
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </Animated.View>
+        )}
+      </Animated.View>
+
+      {/* ── Predictions dropdown (only in expanded mode) ── */}
+      {expanded && activePredictions.length > 0 && (
+        <View style={styles.predictions}>
+          <ScrollView keyboardShouldPersistTaps="always" bounces={false}>
+            {activePredictions.map((pred, idx) => (
+              <Pressable
+                key={pred.placeId}
+                style={({ pressed }) => [
+                  styles.predItem,
+                  idx === activePredictions.length - 1 && styles.predItemLast,
+                  pressed && styles.predItemPressed,
+                ]}
+                onPressIn={() => { suppressBlur.current = true; cancelBlur(); }}
+                onPress={() => handlePredictionSelect(pred)}
+              >
+                <View style={styles.predIcon}>
+                  <Ionicons name="location-outline" size={16} color="#667085" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.predPrimary} numberOfLines={1}>{pred.primaryText}</Text>
+                  {pred.secondaryText ? (
+                    <Text style={styles.predSecondary} numberOfLines={1}>{pred.secondaryText}</Text>
+                  ) : null}
+                </View>
+                {idx === 0 && (
+                  <View style={styles.predBadge}>
+                    <Text style={styles.predBadgeText}>Top</Text>
+                  </View>
+                )}
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ── Styles ──────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  wrapper: {
+    position: 'absolute',
+    top: 12,
+    left: 0,
+    right: 0,
+    zIndex: 50,
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  container: {
+    width: '100%',
+    maxWidth: 480,
+    overflow: 'visible',
+  },
+
+  // ── Collapsed pill ──
+  pill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  pillInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 28,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
+    boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
+  } as any,
+  pillText: {
+    flex: 1,
+    fontSize: 15,
+    color: '#98a2b3',
+    fontWeight: '400',
+  },
+  pillTextActive: {
+    color: '#101828',
+    fontWeight: '500',
+  },
+  pillClear: {
+    padding: 2,
+  },
+
+  // ── Expanded card ──
+  expandedCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 12,
+    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+    gap: 8,
+  } as any,
+  expandedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  backButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandedTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  swapBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // ── Input rows ──
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  inputField: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  inputFieldFocused: {
+    borderColor: '#1570ef',
+    backgroundColor: '#ffffff',
+    boxShadow: '0 0 0 2px rgba(21, 112, 239, 0.15)',
+  } as any,
+  textInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#101828',
+    outlineStyle: 'none',
+    borderWidth: 0,
+  } as any,
+  locationText: {
+    fontSize: 14,
+    color: '#1570ef',
+    fontWeight: '500',
+  },
+
+  // ── Predictions ──
+  predictions: {
+    marginTop: 6,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+    overflow: 'hidden',
+    maxHeight: 280,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  } as any,
+  predItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2f4f7',
+    gap: 10,
+  },
+  predItemLast: {
+    borderBottomWidth: 0,
+  },
+  predItemPressed: {
+    backgroundColor: '#f0f6ff',
+  },
+  predIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: '#f2f4f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  predPrimary: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#101828',
+  },
+  predSecondary: {
+    fontSize: 12,
+    color: '#667085',
+    marginTop: 1,
+  },
+  predBadge: {
+    backgroundColor: '#ecfdf3',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  predBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#027a48',
+  },
+});
