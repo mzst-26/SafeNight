@@ -298,20 +298,17 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                       style={[
                         styles.upgradeButton,
                         { backgroundColor: TIER_COLORS[plan.tier] },
-                        !plan.available && styles.disabledButton,
                       ]}
                       onPress={() => handleUpgrade(plan.tier as 'pro')}
-                      disabled={!plan.available || actionLoading === plan.tier}
+                      disabled={actionLoading === plan.tier}
                     >
                       {actionLoading === plan.tier ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
                         <Text style={styles.upgradeButtonText}>
-                          {!plan.available
-                            ? 'Coming Soon'
-                            : isPaid
-                              ? `Switch to ${plan.name}`
-                              : `Upgrade to ${plan.name}`}
+                          {isPaid
+                            ? `Switch to ${plan.name}`
+                            : `Upgrade to ${plan.name}`}
                         </Text>
                       )}
                     </Pressable>
@@ -567,9 +564,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',
-  },
-  disabledButton: {
-    opacity: 0.5,
   },
   cancelButton: {
     paddingVertical: 12,

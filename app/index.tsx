@@ -93,6 +93,33 @@ export default function HomeScreen() {
     return unsub;
   }, []);
 
+  // Handle Stripe checkout redirect (?subscription=success or ?subscription=cancelled)
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const params = new URLSearchParams(window.location.search);
+    const subResult = params.get('subscription');
+    if (subResult === 'success') {
+      setToast({
+        message: 'Subscription activated! Welcome to Guarded.',
+        icon: 'shield-checkmark',
+        iconColor: '#7C3AED',
+        duration: 5000,
+      });
+      // Refresh user data to pick up new tier
+      auth.refreshProfile?.();
+      // Clean up URL params
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (subResult === 'cancelled') {
+      setToast({
+        message: 'Subscription checkout was cancelled.',
+        icon: 'close-circle-outline',
+        iconColor: '#6B7280',
+        duration: 4000,
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Only load contacts when logged in
   const { contacts, liveContacts, refresh: refreshContacts } = useContacts(auth.isLoggedIn);
 
