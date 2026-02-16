@@ -27,8 +27,8 @@ import { NavigationOverlay } from '@/src/components/navigation/NavigationOverlay
 import { RouteList } from '@/src/components/routes/RouteList';
 import { RoadTypeBreakdown, SafetyPanel } from '@/src/components/safety/SafetyPanel';
 import { SafetyProfileChart } from '@/src/components/safety/SafetyProfileChart';
-import { SearchBar } from '@/src/components/search/SearchBar';
 import { MobileWebSearchBar } from '@/src/components/search/MobileWebSearchBar';
+import { SearchBar } from '@/src/components/search/SearchBar';
 import { DraggableSheet, SHEET_DEFAULT, SHEET_MIN } from '@/src/components/sheets/DraggableSheet';
 import { MobileWebSheet } from '@/src/components/sheets/MobileWebSheet';
 import { WebSidebar } from '@/src/components/sheets/WebSidebar';
@@ -623,11 +623,13 @@ export default function HomeScreen() {
 
         {/* ── Profile / Logout button (logged in) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 80 : 190), right: 12, zIndex: 110 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 180 : 190), right: 12, zIndex: 110 }}>
             <ProfileMenu
               name={auth.user?.name ?? auth.user?.username ?? null}
               email={auth.user?.email ?? null}
               subscriptionTier={subscriptionTier}
+              isGift={auth.user?.isGift}
+              subscriptionEndsAt={auth.user?.subscriptionEndsAt}
               onLogout={auth.logout}
               onManageSubscription={() => setShowSubscriptionModal(true)}
             />
@@ -643,7 +645,7 @@ export default function HomeScreen() {
 
         {/* ── Safety Circle button (right under profile button) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 130 : 240 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 230 : 240 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
             <BuddyButton
               username={auth.user?.username ?? null}
               userId={auth.user?.id ?? null}
@@ -655,7 +657,7 @@ export default function HomeScreen() {
 
         {/* ── Show Friends on Map toggle (below Safety Circle) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 185 : 295 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 285 : 295 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
             <Pressable
               onPress={handleFriendToggle}
               style={[
@@ -932,6 +934,8 @@ export default function HomeScreen() {
         <SubscriptionModal
           visible={showSubscriptionModal}
           currentTier={subscriptionTier}
+          isGift={auth.user?.isGift}
+          subscriptionEndsAt={auth.user?.subscriptionEndsAt}
           onClose={() => setShowSubscriptionModal(false)}
           onSubscriptionChanged={() => auth.refreshProfile?.()}
         />

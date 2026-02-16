@@ -1,0 +1,113 @@
+/**
+ * email.js — Email utility using Resend.
+ *
+ * Provides a simple interface for sending transactional emails.
+ * Used for gift subscription notifications, etc.
+ *
+ * Requires RESEND_API_KEY in .env
+ * Get a free API key at https://resend.com
+ */
+
+const { Resend } = require('resend');
+
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
+
+const FROM_EMAIL = process.env.FROM_EMAIL || 'SafeNight <onboarding@resend.dev>';
+
+/**
+ * Send an email via Resend.
+ * Falls back to console logging if RESEND_API_KEY is not configured.
+ */
+async function sendEmail({ to, subject, html, text }) {
+  if (!resend) {
+    console.warn('[email] RESEND_API_KEY not set — logging email instead:');
+    console.log(`[email] To: ${to}`);
+    console.log(`[email] Subject: ${subject}`);
+    console.log(`[email] Body: ${text || html}`);
+    return { success: true, fallback: true };
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+      ...(text ? { text } : {}),
+    });
+
+    if (error) {
+      console.error('[email] Send failed:', error);
+      return { success: false, error };
+    }
+
+    console.log(`[email] Sent to ${to} — ID: ${data?.id}`);
+    return { success: true, id: data?.id };
+  } catch (err) {
+    console.error('[email] Send error:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Send a gift subscription notification email.
+ */
+async function sendGiftNotification({ to, name, giftEndDate }) {
+  const formattedDate = new Date(giftEndDate).toLocaleDateString('en-GB', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const subject = '🎁 You\'ve been gifted a SafeNight Guarded subscription!';
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <h1 style="color: #7C3AED; font-size: 28px; margin: 0;">🛡️ SafeNight</h1>
+      </div>
+      
+      <h2 style="color: #1F2937; font-size: 22px;">Hi${name ? ` ${name}` : ''},</h2>
+      
+      <p style="color: #374151; font-size: 16px; line-height: 1.6;">
+        Great news! You have been gifted our <strong style="color: #7C3AED;">Guarded</strong> subscription 
+        for being one of the first users of SafeNight. 🎉
+      </p>
+      
+      <div style="background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); border-radius: 12px; padding: 24px; margin: 24px 0; color: white;">
+        <h3 style="margin: 0 0 8px 0; font-size: 18px;">🎁 Your Gift Details</h3>
+        <p style="margin: 0; font-size: 16px; opacity: 0.95;">
+          <strong>Plan:</strong> Guarded (Pro)<br/>
+          <strong>Gift ends:</strong> ${formattedDate}
+        </p>
+      </div>
+      
+      <p style="color: #374151; font-size: 16px; line-height: 1.6;">
+        With the Guarded plan, you get access to:
+      </p>
+      
+      <ul style="color: #374151; font-size: 15px; line-height: 1.8;">
+        <li>🔍 Unlimited route searches</li>
+        <li>📏 Up to 10km walking routes</li>
+        <li>🚶 Unlimited navigation sessions</li>
+        <li>👥 Up to 10 emergency contacts</li>
+        <li>📡 Up to 5 live tracking sessions</li>
+        <li>🤖 AI safety explanations</li>
+        <li>📊 Full usage statistics</li>
+      </ul>
+      
+      <p style="color: #6B7280; font-size: 14px; margin-top: 32px; border-top: 1px solid #E5E7EB; padding-top: 16px;">
+        Thank you for being an early supporter of SafeNight. Stay safe! 💜
+      </p>
+    </div>
+  `;
+
+  const text = `Hi${name ? ` ${name}` : ''},\n\nGreat news! You have been gifted our Guarded subscription for being one of the first users of SafeNight.\n\nPlan: Guarded (Pro)\nGift ends: ${formattedDate}\n\nThank you for being an early supporter. Stay safe!`;
+
+  return sendEmail({ to, subject, html, text });
+}
+
+module.exports = { sendEmail, sendGiftNotification };

@@ -11,16 +11,16 @@
  * Android/iOS native always uses the original SearchBar.
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Animated,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from 'react-native';
 
 import type { UseAutoPlaceSearchReturn } from '@/src/hooks/useAutoPlaceSearch';
@@ -256,6 +256,14 @@ export function MobileWebSearchBar({
                   <Text style={styles.locationText}>
                     {location ? 'Your location' : 'Getting location...'}
                   </Text>
+                  <Pressable
+                    style={[styles.pinButton, pinMode === 'origin' && styles.pinButtonActive]}
+                    onPress={() => setPinMode(pinMode === 'origin' ? null : 'origin')}
+                    hitSlop={4}
+                    accessibilityLabel="Pick origin on map"
+                  >
+                    <Ionicons name={pinMode === 'origin' ? 'pin' : 'pin-outline'} size={14} color="#ffffff" />
+                  </Pressable>
                 </Pressable>
               ) : (
                 <View style={[styles.inputField, focusedField === 'origin' && styles.inputFieldFocused]}>
@@ -278,6 +286,14 @@ export function MobileWebSearchBar({
                   {(originSearch.status === 'found' || manualOrigin) && (
                     <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
                   )}
+                  <Pressable
+                    style={[styles.pinButton, pinMode === 'origin' && styles.pinButtonActive]}
+                    onPress={() => setPinMode(pinMode === 'origin' ? null : 'origin')}
+                    hitSlop={4}
+                    accessibilityLabel="Pick origin on map"
+                  >
+                    <Ionicons name={pinMode === 'origin' ? 'pin' : 'pin-outline'} size={14} color="#ffffff" />
+                  </Pressable>
                   {!isUsingCurrentLocation && (
                     <Pressable
                       onPress={() => {
@@ -318,6 +334,14 @@ export function MobileWebSearchBar({
                 {(destSearch.status === 'found' || manualDest) && (
                   <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
                 )}
+                <Pressable
+                  style={[styles.pinButton, pinMode === 'destination' && styles.pinButtonActive]}
+                  onPress={() => setPinMode(pinMode === 'destination' ? null : 'destination')}
+                  hitSlop={4}
+                  accessibilityLabel="Pick destination on map"
+                >
+                  <Ionicons name={pinMode === 'destination' ? 'pin' : 'pin-outline'} size={14} color="#ffffff" />
+                </Pressable>
                 {(destSearch.place || manualDest) && (
                   <Pressable
                     onPress={() => { destSearch.clear(); setManualDest(null); onClearRoute(); }}
@@ -375,7 +399,7 @@ export function MobileWebSearchBar({
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    top: 12,
+    top: 32,
     left: 0,
     right: 0,
     zIndex: 50,
@@ -495,6 +519,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1570ef',
     fontWeight: '500',
+    flex: 1,
+  },
+  pinButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#1F2937',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinButtonActive: {
+    backgroundColor: '#1570ef',
   },
 
   // ── Predictions ──

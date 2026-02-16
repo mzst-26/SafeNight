@@ -22,6 +22,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "opening_hours": "^3.11.0",
+    "resend": "^6.9.2",
     "stripe": "^20.3.1"
   }
 }

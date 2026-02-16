@@ -56,7 +56,7 @@ async function attachSubscription(req, res, next) {
     // Validate against subscriptions table (check not expired)
     const { data: sub } = await supabase
       .from('subscriptions')
-      .select('tier, status, expires_at')
+      .select('tier, status, expires_at, is_gift, gift_start_date, gift_end_date')
       .eq('user_id', req.user.id)
       .eq('status', 'active')
       .order('started_at', { ascending: false })
@@ -65,9 +65,19 @@ async function attachSubscription(req, res, next) {
 
     // If active sub exists and isn't expired, use its tier
     let effectiveTier = 'free';
+    let isGift = false;
+    let giftEndDate = null;
+    let expiresAt = null;
+
     if (sub && sub.status === 'active') {
-      if (!sub.expires_at || new Date(sub.expires_at) > new Date()) {
+      // For gift subscriptions, check gift_end_date; otherwise check expires_at
+      const expiryDate = sub.is_gift ? sub.gift_end_date : sub.expires_at;
+      
+      if (!expiryDate || new Date(expiryDate) > new Date()) {
         effectiveTier = sub.tier;
+        isGift = sub.is_gift || false;
+        giftEndDate = sub.gift_end_date || null;
+        expiresAt = sub.expires_at || null;
       } else {
         // Subscription expired — mark it and fall back to free
         await supabase
@@ -76,6 +86,15 @@ async function attachSubscription(req, res, next) {
           .eq('user_id', req.user.id)
           .eq('status', 'active')
           .lt('expires_at', new Date().toISOString());
+
+        // Also expire gift subs past their gift_end_date
+        await supabase
+          .from('subscriptions')
+          .update({ status: 'expired' })
+          .eq('user_id', req.user.id)
+          .eq('status', 'active')
+          .eq('is_gift', true)
+          .lt('gift_end_date', new Date().toISOString());
 
         // Update denormalized field
         await supabase
@@ -97,6 +116,9 @@ async function attachSubscription(req, res, next) {
       tier: effectiveTier,
       rank: TIER_RANK[effectiveTier] ?? 0,
       sub: sub || null,
+      isGift,
+      giftEndDate,
+      expiresAt,
     };
 
     next();

@@ -71,3 +71,8 @@ android_build_log.txt
 test_map.png
 .env.production
 backend/src/user/migration_fix_rls.sql
+
+# SQL migration files — run manually, do not commit
+backend/src/subscription/migrations/*.sql
+backend/src/user/migrations/*.sql
+backend/src/subscription/migrations/002_add_gift_columns.sql

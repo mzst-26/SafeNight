@@ -21,11 +21,13 @@ interface Props {
   name: string | null;
   email: string | null;
   subscriptionTier?: string;
+  isGift?: boolean;
+  subscriptionEndsAt?: string | null;
   onLogout: () => void;
   onManageSubscription?: () => void;
 }
 
-export function ProfileMenu({ name, email, subscriptionTier, onLogout, onManageSubscription }: Props) {
+export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptionEndsAt, onLogout, onManageSubscription }: Props) {
   const [open, setOpen] = useState(false);
 
   const handleLogout = useCallback(() => {
@@ -75,27 +77,38 @@ export function ProfileMenu({ name, email, subscriptionTier, onLogout, onManageS
 
             {/* Subscription */}
             {onManageSubscription && (
-              <Pressable
-                style={styles.menuItem}
-                onPress={() => {
-                  setOpen(false);
-                  onManageSubscription();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Manage subscription"
-              >
-                <Ionicons name="diamond-outline" size={20} color="#7C3AED" />
-                <Text style={styles.subscriptionText}>
-                  {subscriptionTier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
-                </Text>
-                {subscriptionTier && subscriptionTier !== 'free' && (
-                  <View style={styles.tierBadge}>
-                    <Text style={styles.tierBadgeText}>
-                      {subscriptionTier === 'pro' ? 'Guarded' : subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)}
+              <>
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => {
+                    setOpen(false);
+                    onManageSubscription();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Manage subscription"
+                >
+                  <Ionicons name="diamond-outline" size={20} color="#7C3AED" />
+                  <Text style={styles.subscriptionText}>
+                    {subscriptionTier === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
+                  </Text>
+                  {subscriptionTier && subscriptionTier !== 'free' && (
+                    <View style={styles.tierBadge}>
+                      <Text style={styles.tierBadgeText}>
+                        {isGift ? '🎁 Gift' : (subscriptionTier === 'pro' ? 'Guarded' : subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1))}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+                {subscriptionEndsAt && subscriptionTier !== 'free' && (
+                  <View style={styles.endDateRow}>
+                    <Ionicons name="calendar-outline" size={14} color="#6B7280" />
+                    <Text style={styles.endDateText}>
+                      {isGift ? 'Gift ends: ' : 'Renews: '}
+                      {new Date(subscriptionEndsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </Text>
                   </View>
                 )}
-              </Pressable>
+              </>
             )}
 
             <View style={styles.divider} />
@@ -205,5 +218,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#7C3AED',
+  },
+  endDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    paddingTop: 0,
+    gap: 6,
+  },
+  endDateText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
   },
 });

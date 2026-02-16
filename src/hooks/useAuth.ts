@@ -64,8 +64,11 @@ interface AuthState {
     platform: string;
     app_version: string;
     disclaimer_accepted_at: string | null;
-    subscription: string; // free, pro, premium
+    subscription: string; // free, pro
     routeDistanceKm: number; // DB-driven max route distance
+    isGift: boolean; // whether subscription is a gift
+    giftEndDate: string | null; // ISO date when gift expires
+    subscriptionEndsAt: string | null; // ISO date when subscription ends (gift or paid)
   } | null;
   error: string | null;
 }
@@ -109,6 +112,9 @@ async function _loadSessionOnce(
           disclaimer_accepted_at: null,
           subscription: 'free',
           routeDistanceKm: 1,
+          isGift: false,
+          giftEndDate: null,
+          subscriptionEndsAt: null,
         },
         error: null,
       };
@@ -140,6 +146,9 @@ async function _loadSessionOnce(
       disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
       subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
       routeDistanceKm: profile.route_distance_km ?? 1, // DB-driven, fallback to free tier
+      isGift: profile.is_gift ?? false,
+      giftEndDate: profile.gift_end_date ?? null,
+      subscriptionEndsAt: profile.subscription_ends_at ?? null,
     },
     error: null,
   };
@@ -296,6 +305,9 @@ export function useAuth() {
               disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
               subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
               routeDistanceKm: profile.route_distance_km ?? 1,
+              isGift: profile.is_gift ?? false,
+              giftEndDate: profile.gift_end_date ?? null,
+              subscriptionEndsAt: profile.subscription_ends_at ?? null,
             }
           : {
               id: data.user.id,
@@ -307,6 +319,9 @@ export function useAuth() {
               disclaimer_accepted_at: null,
               subscription: 'free',
               routeDistanceKm: 1,
+              isGift: false,
+              giftEndDate: null,
+              subscriptionEndsAt: null,
             },
         error: null,
       });
@@ -404,6 +419,9 @@ export function useAuth() {
           disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
           subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
           routeDistanceKm: profile.route_distance_km ?? 1,
+          isGift: profile.is_gift ?? false,
+          giftEndDate: profile.gift_end_date ?? null,
+          subscriptionEndsAt: profile.subscription_ends_at ?? null,
         },
       }));
     } catch {

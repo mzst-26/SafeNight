@@ -27,6 +27,8 @@ import { stripeApi, type StripePlan, type SubscriptionStatus } from '@/src/servi
 interface Props {
   visible: boolean;
   currentTier: string;
+  isGift?: boolean;
+  subscriptionEndsAt?: string | null;
   onClose: () => void;
   /** Called after a successful action so the parent can refresh user data */
   onSubscriptionChanged?: () => void;
@@ -53,7 +55,7 @@ const FEATURE_HIGHLIGHTS: Record<string, string[]> = {
   ],
 };
 
-export function SubscriptionModal({ visible, currentTier, onClose, onSubscriptionChanged }: Props) {
+export function SubscriptionModal({ visible, currentTier, isGift, subscriptionEndsAt, onClose, onSubscriptionChanged }: Props) {
   const [plans, setPlans] = useState<StripePlan[]>([]);
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -167,8 +169,47 @@ export function SubscriptionModal({ visible, currentTier, onClose, onSubscriptio
                 />
                 <Text style={[styles.currentPlanText, { color: TIER_COLORS[currentTier] }]}>
                   Current plan: {currentTier === 'pro' ? 'Guarded' : 'Free'}
+                  {isGift ? ' (Gift)' : ''}
                 </Text>
               </View>
+
+              {/* Gift subscription info */}
+              {isGift && subscriptionEndsAt && currentTier === 'pro' && (
+                <View style={styles.giftInfoCard}>
+                  <View style={styles.giftInfoHeader}>
+                    <Text style={styles.giftInfoEmoji}>🎁</Text>
+                    <Text style={styles.giftInfoTitle}>Gifted Subscription</Text>
+                  </View>
+                  <Text style={styles.giftInfoText}>
+                    You were gifted a Guarded subscription for being one of our first users!
+                  </Text>
+                  <View style={styles.giftInfoDateRow}>
+                    <Ionicons name="calendar-outline" size={16} color="#7C3AED" />
+                    <Text style={styles.giftInfoDate}>
+                      Gift ends: {new Date(subscriptionEndsAt).toLocaleDateString('en-GB', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Subscription end date (non-gift, paid) */}
+              {!isGift && subscriptionEndsAt && currentTier === 'pro' && !stripeSub && (
+                <View style={styles.endDateCard}>
+                  <Ionicons name="time-outline" size={18} color="#6B7280" />
+                  <Text style={styles.endDateCardText}>
+                    Subscription ends: {new Date(subscriptionEndsAt).toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                </View>
+              )}
 
               {/* Active Stripe subscription info */}
               {stripeSub && (
@@ -522,5 +563,56 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 16,
     marginTop: 4,
+  },
+  giftInfoCard: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 14,
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  giftInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  giftInfoEmoji: {
+    fontSize: 20,
+  },
+  giftInfoTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
+  giftInfoText: {
+    fontSize: 13,
+    color: '#6D28D9',
+    lineHeight: 18,
+  },
+  giftInfoDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  giftInfoDate: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#7C3AED',
+  },
+  endDateCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  endDateCardText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6B7280',
   },
 });
