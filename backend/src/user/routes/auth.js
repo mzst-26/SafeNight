@@ -80,6 +80,66 @@ async function ensureUserRecords(userId, email, name) {
       });
     }
 
+    // 4. Auto-link Family Pack membership if this email is a pending member
+    if (email) {
+      const cleanEmail = email.trim().toLowerCase();
+      const { data: pendingMember } = await supabase
+        .from('family_pack_members')
+        .select('id, pack_id, user_id, status')
+        .eq('email', cleanEmail)
+        .eq('status', 'pending')
+        .is('user_id', null)
+        .maybeSingle();
+
+      if (pendingMember) {
+        // Check that the pack itself is active
+        const { data: pack } = await supabase
+          .from('family_packs')
+          .select('id, status')
+          .eq('id', pendingMember.pack_id)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        if (pack) {
+          // Link the member record to this user
+          await supabase
+            .from('family_pack_members')
+            .update({
+              user_id: userId,
+              status: 'active',
+              joined_at: new Date().toISOString(),
+            })
+            .eq('id', pendingMember.id);
+
+          // Cancel any existing active subscriptions
+          await supabase
+            .from('subscriptions')
+            .update({ status: 'replaced', cancelled_at: new Date().toISOString() })
+            .eq('user_id', userId)
+            .eq('status', 'active');
+
+          // Create family-linked pro subscription
+          await supabase.from('subscriptions').insert({
+            user_id: userId,
+            tier: 'pro',
+            status: 'active',
+            started_at: new Date().toISOString(),
+            is_gift: false,
+            is_family_pack: true,
+            family_pack_id: pack.id,
+          });
+
+          // Update denormalized tier on profile
+          await supabase
+            .from('profiles')
+            .update({ subscription: 'pro' })
+            .eq('id', userId);
+
+          console.log(`[auth] Auto-linked family pack member ${cleanEmail} → pack ${pack.id}`);
+        }
+      }
+    }
+
     console.log(`[auth] ensureUserRecords OK for ${userId}`);
   } catch (err) {
     // Non-fatal — log but don't block login
