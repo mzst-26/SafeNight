@@ -166,7 +166,7 @@ export default function PrivacyPolicyModal({ visible, onClose }: Props) {
           <Text style={styles.body}>
             If you have questions about this Privacy Policy or wish to exercise your data rights,
             please contact us at:{'\n\n'}
-            Email: privacy@safenight.app
+            Email: mzst.26.x@gmail.com
           </Text>
         </ScrollView>
       </View>

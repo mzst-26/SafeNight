@@ -143,13 +143,33 @@ router.post('/create', requireAuth, async (req, res, next) => {
       return res.status(500).json({ error: 'Failed to add members' });
     }
 
-    // Send invitation emails to all members (fire and forget)
+    // Send invitation emails to all members and track results
+    const emailResults = [];
     for (const m of members) {
-      sendFamilyInvite({
-        to: m.email.trim().toLowerCase(),
-        ownerName: ownerProfile.name,
-        memberName: m.name || null,
-      }).catch((err) => console.error(`[family] Invite email to ${m.email} failed:`, err.message));
+      const email = m.email.trim().toLowerCase();
+      try {
+        const result = await sendFamilyInvite({
+          to: email,
+          ownerName: ownerProfile.name,
+          memberName: m.name || null,
+        });
+        const sent = result?.success === true;
+        emailResults.push({ email, sent });
+        // Update invite_sent status on the member record
+        await supabase
+          .from('family_pack_members')
+          .update({ invite_sent: sent })
+          .eq('pack_id', pack.id)
+          .eq('email', email);
+      } catch (err) {
+        console.error(`[family] Invite email to ${email} failed:`, err.message);
+        emailResults.push({ email, sent: false });
+        await supabase
+          .from('family_pack_members')
+          .update({ invite_sent: false })
+          .eq('pack_id', pack.id)
+          .eq('email', email);
+      }
     }
 
     res.json({
@@ -161,6 +181,7 @@ router.post('/create', requireAuth, async (req, res, next) => {
         totalMonthly: totalPrice,
         status: pack.status,
       },
+      emailResults,
       message: `Family Pack created with ${totalMembers} members. Total: £${totalPrice.toFixed(2)}/month.`,
     });
   } catch (err) {
@@ -222,10 +243,10 @@ router.get('/my-pack', requireAuth, async (req, res, next) => {
       return res.json({ pack: null });
     }
 
-    // Fetch all members
+    // Fetch all members (include invite_sent for email status tracking)
     const { data: members } = await supabase
       .from('family_pack_members')
-      .select('id, email, name, role, status, joined_at, user_id')
+      .select('id, email, name, role, status, joined_at, user_id, invite_sent')
       .eq('pack_id', pack.id)
       .neq('status', 'removed')
       .order('role', { ascending: true }) // owner first
@@ -348,21 +369,35 @@ router.post('/add-member', requireAuth, async (req, res, next) => {
         .eq('id', pack.id);
     }
 
-    // Send invitation email (fire and forget)
+    // Send invitation email and track result
     const { data: ownerProfile } = await supabase
       .from('profiles')
       .select('name')
       .eq('id', req.user.id)
       .single();
 
-    sendFamilyInvite({
-      to: cleanEmail,
-      ownerName: ownerProfile?.name,
-      memberName: name || null,
-    }).catch((err) => console.error('[family] Email send error:', err.message));
+    let emailSent = false;
+    try {
+      const result = await sendFamilyInvite({
+        to: cleanEmail,
+        ownerName: ownerProfile?.name,
+        memberName: name || null,
+      });
+      emailSent = result?.success === true;
+    } catch (err) {
+      console.error('[family] Email send error:', err.message);
+    }
+
+    // Update invite_sent status on the member record
+    await supabase
+      .from('family_pack_members')
+      .update({ invite_sent: emailSent })
+      .eq('pack_id', pack.id)
+      .eq('email', cleanEmail);
 
     res.json({
       message: `${cleanEmail} added to your Family Pack`,
+      emailSent,
       newTotal,
       newMonthly: newTotal * PRICE_PER_USER,
     });
@@ -620,21 +655,117 @@ router.post('/update-member-email', requireAuth, async (req, res, next) => {
       })
       .eq('id', member_id);
 
-    // Resend invitation email
+    // Resend invitation email and track result
     const { data: ownerProfile } = await supabase
       .from('profiles')
       .select('name')
       .eq('id', req.user.id)
       .single();
 
-    sendFamilyInvite({
-      to: cleanEmail,
-      ownerName: ownerProfile?.name,
-      memberName: null,
-    }).catch((err) => console.error('[family] Email send error:', err.message));
+    let emailSent = false;
+    try {
+      const result = await sendFamilyInvite({
+        to: cleanEmail,
+        ownerName: ownerProfile?.name,
+        memberName: null,
+      });
+      emailSent = result?.success === true;
+    } catch (err) {
+      console.error('[family] Email send error:', err.message);
+    }
+
+    await supabase
+      .from('family_pack_members')
+      .update({ invite_sent: emailSent })
+      .eq('pack_id', pack.id)
+      .eq('email', cleanEmail);
 
     res.json({
       message: `Email updated to ${cleanEmail} and invitation resent`,
+      emailSent,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/family/resend-invite ──────────────────────────────────────────
+// Resend invitation email to a pending member. Only the pack owner can do this.
+// Body: { member_id }
+router.post('/resend-invite', requireAuth, async (req, res, next) => {
+  try {
+    const { member_id } = req.body;
+
+    if (!member_id) {
+      return res.status(400).json({ error: 'member_id is required' });
+    }
+
+    // Find owner's pack (active or pending)
+    const { data: pack } = await supabase
+      .from('family_packs')
+      .select('id')
+      .eq('owner_id', req.user.id)
+      .in('status', ['active', 'pending'])
+      .maybeSingle();
+
+    if (!pack) {
+      return res.status(404).json({ error: 'You do not have an active Family Pack' });
+    }
+
+    // Find the member
+    const { data: member } = await supabase
+      .from('family_pack_members')
+      .select('id, email, name, role, status')
+      .eq('id', member_id)
+      .eq('pack_id', pack.id)
+      .single();
+
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found in your pack' });
+    }
+
+    if (member.role === 'owner') {
+      return res.status(400).json({ error: 'Cannot resend invite to the owner' });
+    }
+
+    if (member.status !== 'pending') {
+      return res.status(400).json({ error: 'Can only resend invites to pending members' });
+    }
+
+    // Get owner name for the email
+    const { data: ownerProfile } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', req.user.id)
+      .single();
+
+    let emailSent = false;
+    try {
+      const result = await sendFamilyInvite({
+        to: member.email,
+        ownerName: ownerProfile?.name,
+        memberName: member.name || null,
+      });
+      emailSent = result?.success === true;
+    } catch (err) {
+      console.error('[family] Resend invite error:', err.message);
+    }
+
+    await supabase
+      .from('family_pack_members')
+      .update({ invite_sent: emailSent, invited_at: new Date().toISOString() })
+      .eq('id', member_id);
+
+    if (!emailSent) {
+      return res.status(502).json({
+        error: 'Failed to send invitation email. Please try again.',
+        emailSent: false,
+      });
+    }
+
+    res.json({
+      message: `Invitation resent to ${member.email}`,
+      emailSent: true,
     });
   } catch (err) {
     next(err);

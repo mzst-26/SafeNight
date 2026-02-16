@@ -826,6 +826,7 @@ export interface FamilyPackMember {
   status: 'pending' | 'active' | 'removed';
   joined_at: string | null;
   user_id: string | null;
+  invite_sent?: boolean | null;
 }
 
 export interface FamilyPack {
@@ -923,7 +924,7 @@ export const familyApi = {
   },
 
   /** Update a pending member's email and resend the invitation */
-  async updateMemberEmail(memberId: string, newEmail: string): Promise<{ message: string }> {
+  async updateMemberEmail(memberId: string, newEmail: string): Promise<{ message: string; emailSent?: boolean }> {
     const res = await authFetch('/api/family/update-member-email', {
       method: 'POST',
       body: JSON.stringify({ member_id: memberId, new_email: newEmail }),
@@ -931,6 +932,19 @@ export const familyApi = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Update failed' }));
       throw new Error(err.error || 'Failed to update member email');
+    }
+    return res.json();
+  },
+
+  /** Resend invitation email to a pending member */
+  async resendInvite(memberId: string): Promise<{ message: string; emailSent: boolean }> {
+    const res = await authFetch('/api/family/resend-invite', {
+      method: 'POST',
+      body: JSON.stringify({ member_id: memberId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Resend failed' }));
+      throw new Error(err.error || 'Failed to resend invitation');
     }
     return res.json();
   },

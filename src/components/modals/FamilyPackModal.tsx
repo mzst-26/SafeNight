@@ -145,7 +145,16 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
         validMembers.map((m) => ({ email: m.email.trim(), name: m.name.trim() || undefined })),
         packName.trim() || undefined,
       );
-      setSuccess(result.message);
+
+      // Check if any invite emails failed
+      const failedEmails = (result as any).emailResults?.filter((r: any) => !r.sent) || [];
+      if (failedEmails.length > 0) {
+        const failedList = failedEmails.map((r: any) => r.email).join(', ');
+        setSuccess(`${result.message}\n\n⚠️ Invitation email failed for: ${failedList}. You can resend from the member list.`);
+      } else {
+        setSuccess(result.message);
+      }
+
       await loadPack();
       onPackChanged?.();
     } catch (err) {
@@ -163,7 +172,11 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
     setActionLoading(true);
     try {
       const result = await familyApi.addMember(newMemberEmail.trim(), newMemberName.trim() || undefined);
-      setSuccess(result.message);
+      if ((result as any).emailSent === false) {
+        setSuccess(`${result.message}\n⚠️ Invitation email failed to send. You can resend from the member list.`);
+      } else {
+        setSuccess(result.message);
+      }
       setNewMemberEmail('');
       setNewMemberName('');
       setShowAddMember(false);
@@ -250,6 +263,26 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
       setActionLoading(false);
     }
   }, [editEmail, handleCancelEditEmail, loadPack, onPackChanged]);
+
+  // ── Resend invite ──────────────────────────────────────────────────────────
+
+  const handleResendInvite = useCallback(async (memberId: string) => {
+    setError(null);
+    setActionLoading(true);
+    try {
+      const result = await familyApi.resendInvite(memberId);
+      if (result.emailSent) {
+        setSuccess(result.message);
+      } else {
+        setError('Invitation email could not be sent. Please try again.');
+      }
+      await loadPack();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to resend invitation');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [loadPack]);
 
   // ── Cancel pack ────────────────────────────────────────────────────────────
 
@@ -477,11 +510,49 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                         {/* Pending status explanation */}
                         {member.status === 'pending' && (
                           <View style={styles.pendingExplainer}>
-                            <Ionicons name="mail-outline" size={14} color="#92400E" />
-                            <Text style={styles.pendingExplainerText}>
-                              An invitation has been sent to their email. They need to sign up or log in with this email to activate.
+                            <Ionicons
+                              name={member.invite_sent === false ? 'alert-circle-outline' : 'mail-outline'}
+                              size={14}
+                              color={member.invite_sent === false ? '#DC2626' : '#92400E'}
+                            />
+                            <Text style={[
+                              styles.pendingExplainerText,
+                              member.invite_sent === false && { color: '#DC2626' },
+                            ]}>
+                              {member.invite_sent === false
+                                ? 'Invitation email failed to send. Tap "Resend Invite" to try again.'
+                                : 'An invitation has been sent to their email. They need to sign up or log in with this email to activate.'}
                             </Text>
                           </View>
+                        )}
+                        {/* Resend invite button for pending members (owner only) */}
+                        {isOwner && member.status === 'pending' && member.role !== 'owner' && (
+                          <Pressable
+                            style={[
+                              styles.resendInviteBtn,
+                              member.invite_sent === false && styles.resendInviteBtnFailed,
+                            ]}
+                            onPress={() => handleResendInvite(member.id)}
+                            disabled={actionLoading}
+                          >
+                            {actionLoading ? (
+                              <ActivityIndicator size="small" color="#7C3AED" />
+                            ) : (
+                              <>
+                                <Ionicons
+                                  name={member.invite_sent === false ? 'refresh' : 'send'}
+                                  size={13}
+                                  color={member.invite_sent === false ? '#DC2626' : '#7C3AED'}
+                                />
+                                <Text style={[
+                                  styles.resendInviteBtnText,
+                                  member.invite_sent === false && { color: '#DC2626' },
+                                ]}>
+                                  {member.invite_sent === false ? 'Retry Sending' : 'Resend Invite'}
+                                </Text>
+                              </>
+                            )}
+                          </Pressable>
                         )}
                         {/* Edit email for pending members (owner only) */}
                         {isOwner && member.status === 'pending' && member.role !== 'owner' && (
@@ -1004,6 +1075,25 @@ const styles = StyleSheet.create({
     color: '#92400E',
     lineHeight: 15,
     flex: 1,
+  },
+  resendInviteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#F5F3FF',
+  },
+  resendInviteBtnFailed: {
+    backgroundColor: '#FEF2F2',
+  },
+  resendInviteBtnText: {
+    fontSize: 12,
+    color: '#7C3AED',
+    fontWeight: '600',
   },
   editEmailBtn: {
     flexDirection: 'row',
