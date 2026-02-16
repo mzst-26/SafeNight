@@ -16,6 +16,12 @@ const PLANS = {
     priceGBP: 4.99,
     stripePriceId: process.env.STRIPE_PRICE_PRO || null,
   },
+  family: {
+    name: 'Family & Friends Pack',
+    description: 'Guarded for 3+ people at £3/user/month',
+    priceGBP: 3.00,
+    stripePriceId: process.env.STRIPE_PRICE_FAMILY || null,
+  },
 };
 
 /**
