@@ -315,11 +315,19 @@ router.get('/', async (req, res, next) => {
           .eq('status', 'active')
           .maybeSingle();
 
+        // Detect stale sessions (no heartbeat for >60s)
+        let isStale = false;
+        if (liveSession) {
+          const ageMs = Date.now() - new Date(liveSession.last_update_at).getTime();
+          isStale = ageMs > 60_000;
+        }
+
         return {
           id: c.id,
           nickname: c.nickname,
           user: profile || { id: otherUserId, name: 'Unknown', username: null },
           is_live: !!liveSession,
+          is_stale: isStale,
           live_session: liveSession || null,
         };
       }),

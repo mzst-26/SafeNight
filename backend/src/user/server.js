@@ -36,6 +36,7 @@ const reportsRouter = require('./routes/reports');
 const reviewsRouter = require('./routes/reviews');
 const contactsRouter = require('./routes/contacts');
 const liveRouter = require('./routes/live');
+const { cleanupStaleSessions } = require('./routes/live');
 const subscriptionsRouter = require('./routes/subscriptions');
 const giftRouter = require('./routes/gift');
 const familyRouter = require('./routes/family');
@@ -78,5 +79,8 @@ app.use(errorHandler);
 // ─── Start ───────────────────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[user] User Data Service running on http://0.0.0.0:${PORT}`);
+  // ── Periodic cleanup: expire stale live sessions every 60s ──
+  setInterval(cleanupStaleSessions, 60_000);
+  console.log('[user] Stale live session cleanup scheduled (every 60s)');
   console.log(`[user] Routes: auth, usage, reports, reviews, contacts, live, subscriptions, gift, family`);
 });

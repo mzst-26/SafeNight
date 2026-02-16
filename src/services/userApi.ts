@@ -41,7 +41,10 @@ function emitSessionEvent(event: SessionEvent) {
 // ─── Token management ────────────────────────────────────────────────────────
 
 async function getAccessToken(): Promise<string | null> {
-  return AsyncStorage.getItem(AUTH_KEYS.accessToken);
+  const token = await AsyncStorage.getItem(AUTH_KEYS.accessToken);
+  // Cache for sendBeacon (synchronous unload handler)
+  if (token) (globalThis as any).__safenight_access_token = token;
+  return token;
 }
 
 async function storeSession(session: {
@@ -654,6 +657,7 @@ export interface LiveSession {
 
 export interface WatchResult {
   active: boolean;
+  stale?: boolean;
   user?: { name: string; username: string | null };
   session?: {
     id: string;
@@ -727,6 +731,34 @@ export const liveApi = {
     const res = await authFetch(`/api/live/watch/${userId}`);
     if (!res.ok) throw new Error('Failed to watch contact');
     return res.json();
+  },
+
+  /** Send heartbeat to keep session alive */
+  async heartbeat(): Promise<void> {
+    try {
+      await authFetch('/api/live/heartbeat', { method: 'POST' });
+    } catch {
+      // Silently fail — heartbeats are best-effort
+    }
+  },
+
+  /** Best-effort session end (for app close / background) */
+  endSync(status: 'completed' | 'cancelled' = 'cancelled'): void {
+    // On web, use sendBeacon for reliability during page unload
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      try {
+        const token = (globalThis as any).__safenight_access_token;
+        const url = `${env.userApiUrl}/api/live/end`;
+        const blob = new Blob(
+          [JSON.stringify({ status })],
+          { type: 'application/json' },
+        );
+        // sendBeacon doesn't support custom headers, so we use a query param
+        navigator.sendBeacon(`${url}?token=${encodeURIComponent(token || '')}`, blob);
+      } catch {
+        // Best effort
+      }
+    }
   },
 
   /** Register Expo push token with the server */

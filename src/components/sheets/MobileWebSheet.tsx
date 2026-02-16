@@ -9,12 +9,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  PanResponder,
-  ScrollView,
-  StyleSheet,
-  View,
+    Animated,
+    Dimensions,
+    PanResponder,
+    ScrollView,
+    StyleSheet,
+    View,
 } from 'react-native';
 
 function getScreenHeight() {

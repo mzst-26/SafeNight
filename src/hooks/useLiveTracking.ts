@@ -4,15 +4,17 @@
  * Handles:
  * 1. Starting a live session when the user navigates
  * 2. Sending location updates every 5s during the session
- * 3. Ending the session on arrival / manual stop
- * 4. Registering Expo push token for notifications
- * 5. Watching a contact's live location (polling)
+ * 3. Heartbeat every 15s to keep the session marked as alive
+ * 4. Ending the session on arrival / manual stop
+ * 5. Best-effort session end on app close (beforeunload / AppState)
+ * 6. Registering Expo push token for notifications
+ * 7. Watching a contact's live location (polling)
  */
 
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { liveApi, type LiveSession, type WatchResult } from '../services/userApi';
 import { LimitError } from '../types/limitError';
 
@@ -117,6 +119,7 @@ export function useLiveTracking(isLoggedIn = false) {
 
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const updateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heartbeatInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastLocation = useRef<{ lat: number; lng: number } | null>(null);
 
   // Register push token when logged in
@@ -206,6 +209,13 @@ export function useLiveTracking(isLoggedIn = false) {
           }
         }, 5000);
 
+        // Send heartbeat every 15 seconds (keeps session alive even if
+        // location doesn't change — important for safety use case where
+        // user may be stationary)
+        heartbeatInterval.current = setInterval(() => {
+          liveApi.heartbeat();
+        }, 15000);
+
         return true;
       } catch (err: unknown) {
         // Limit errors are handled globally by the LimitReachedModal
@@ -230,6 +240,10 @@ export function useLiveTracking(isLoggedIn = false) {
         if (updateInterval.current) {
           clearInterval(updateInterval.current);
           updateInterval.current = null;
+        }
+        if (heartbeatInterval.current) {
+          clearInterval(heartbeatInterval.current);
+          heartbeatInterval.current = null;
         }
 
         await liveApi.end(status);
@@ -256,8 +270,44 @@ export function useLiveTracking(isLoggedIn = false) {
       if (updateInterval.current) {
         clearInterval(updateInterval.current);
       }
+      if (heartbeatInterval.current) {
+        clearInterval(heartbeatInterval.current);
+      }
     };
   }, []);
+
+  // ── Best-effort session end when app closes / goes to background ──
+  // Web: beforeunload + pagehide → sendBeacon (survives tab close)
+  // Native: AppState → attempt async end when backgrounded
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const handleUnload = () => {
+        if (state.isTracking) {
+          liveApi.endSync('cancelled');
+        }
+      };
+
+      // pagehide fires more reliably on mobile Safari than beforeunload
+      window.addEventListener('beforeunload', handleUnload);
+      window.addEventListener('pagehide', handleUnload);
+
+      return () => {
+        window.removeEventListener('beforeunload', handleUnload);
+        window.removeEventListener('pagehide', handleUnload);
+      };
+    } else {
+      // Native: attempt to end session when app goes to background
+      const sub = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'background' && state.isTracking) {
+          // Fire-and-forget — the backend staleness cleanup is the
+          // real safety net; this is just a best-effort shortcut.
+          liveApi.end('cancelled').catch(() => {});
+        }
+      });
+
+      return () => sub.remove();
+    }
+  }, [state.isTracking]);
 
   return {
     ...state,
