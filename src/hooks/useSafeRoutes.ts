@@ -18,6 +18,7 @@ import {
 } from '@/src/services/safeRoutes';
 import { AppError } from '@/src/types/errors';
 import type { LatLng } from '@/src/types/google';
+import { LimitError } from '@/src/types/limitError';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -105,6 +106,12 @@ export function useSafeRoutes(
       );
     } catch (caught) {
       if (cancelRef.current !== batchId) return;
+
+      // Limit errors are handled by the global modal — don't treat as route error
+      if (caught instanceof LimitError) {
+        setStatus('idle');
+        return;
+      }
 
       const appError =
         caught instanceof AppError

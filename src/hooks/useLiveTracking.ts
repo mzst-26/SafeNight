@@ -14,6 +14,7 @@ import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { liveApi, type LiveSession, type WatchResult } from '../services/userApi';
+import { LimitError } from '../types/limitError';
 
 // ─── Push notification setup ─────────────────────────────────────────────────
 // expo-notifications crashes on web at import time (localStorage SSR issue),
@@ -207,6 +208,8 @@ export function useLiveTracking(isLoggedIn = false) {
 
         return true;
       } catch (err: unknown) {
+        // Limit errors are handled globally by the LimitReachedModal
+        if (err instanceof LimitError) return false;
         const msg = err instanceof Error ? err.message : 'Failed to start tracking';
         setState((s) => ({ ...s, error: msg }));
         return false;

@@ -4,7 +4,9 @@ import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
 import { fetchAIExplanation, type CompactRouteInfo } from '@/src/services/openai';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
+import { subscriptionApi } from '@/src/services/userApi';
 import type { DirectionsRoute } from '@/src/types/google';
+import { LimitError, emitLimitReached } from '@/src/types/limitError';
 
 export type AIStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -42,7 +44,7 @@ export const useAIExplanation = (
   /** Track which cache key the current explanation belongs to */
   const activeCacheKeyRef = useRef<string | null>(null);
 
-  const ask = useCallback(() => {
+  const ask = useCallback(async () => {
     if (!safetyResult) {
       setError('Safety analysis not ready yet.');
       setStatus('error');
@@ -68,6 +70,28 @@ export const useAIExplanation = (
     setStatus('loading');
     setError(null);
     setExplanation(null);
+
+    // ── Pre-check subscription limit before calling backend ──
+    try {
+      const check = await subscriptionApi.checkFeature('ai_explanation');
+      if (!check.allowed) {
+        emitLimitReached({
+          feature: 'ai_explanation',
+          currentTier: check.tier,
+          limit: check.limit,
+          used: check.used,
+          remaining: check.remaining,
+          per: check.per || null,
+          resetsAt: check.resets_at || null,
+          message: `You've used all ${check.limit} AI explanations${check.per ? ` per ${check.per}` : ''} on the ${check.tier} plan.`,
+          errorType: check.reason === 'upgrade_required' ? 'upgrade_required' : 'limit_reached',
+        });
+        setStatus('idle');
+        return;
+      }
+    } catch {
+      // If check fails, proceed anyway — backend will enforce if needed
+    }
 
     // ── Build compact per-route data: aggregated totals only, top 3 ──
     const compactRoutes: CompactRouteInfo[] = routes.slice(0, 3).map((r) => {
@@ -123,6 +147,11 @@ export const useAIExplanation = (
         setStatus('ready');
       })
       .catch((err) => {
+        // Limit errors handled by the global modal — don't show as AI error
+        if (err instanceof LimitError) {
+          setStatus('idle');
+          return;
+        }
         setError(err instanceof Error ? err.message : 'Something went wrong');
         setStatus('error');
       });

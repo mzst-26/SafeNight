@@ -12,6 +12,7 @@ import {
   type Contact,
   type PendingContact,
 } from '../services/userApi';
+import { LimitError } from '../types/limitError';
 
 interface ContactsState {
   contacts: Contact[];
@@ -107,6 +108,8 @@ export function useContacts(enabled: boolean = true) {
         await refresh();
         return true;
       } catch (err: unknown) {
+        // Limit errors are handled globally by the LimitReachedModal
+        if (err instanceof LimitError) return false;
         const msg = err instanceof Error ? err.message : 'Failed to invite';
         setState((s) => ({ ...s, error: msg }));
         return false;
