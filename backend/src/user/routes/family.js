@@ -16,7 +16,7 @@
 const express = require('express');
 const { supabase } = require('../lib/supabase');
 const { requireAuth } = require('../middleware/authMiddleware');
-const { sendEmail } = require('../../shared/email');
+const { sendFamilyInvite } = require('../../shared/email');
 
 const router = express.Router();
 
@@ -141,6 +141,15 @@ router.post('/create', requireAuth, async (req, res, next) => {
       // Clean up the pack
       await supabase.from('family_packs').delete().eq('id', pack.id);
       return res.status(500).json({ error: 'Failed to add members' });
+    }
+
+    // Send invitation emails to all members (fire and forget)
+    for (const m of members) {
+      sendFamilyInvite({
+        to: m.email.trim().toLowerCase(),
+        ownerName: ownerProfile.name,
+        memberName: m.name || null,
+      }).catch((err) => console.error(`[family] Invite email to ${m.email} failed:`, err.message));
     }
 
     res.json({
@@ -346,23 +355,10 @@ router.post('/add-member', requireAuth, async (req, res, next) => {
       .eq('id', req.user.id)
       .single();
 
-    sendEmail({
+    sendFamilyInvite({
       to: cleanEmail,
-      subject: `You've been added to ${ownerProfile?.name || 'a'} SafeNight Family Pack`,
-      html: `
-        <h2>Welcome to SafeNight! 🛡️</h2>
-        <p><strong>${ownerProfile?.name || 'Someone'}</strong> has added you to their SafeNight Family Pack.</p>
-        <p>You now have access to <strong>Guarded (Pro)</strong> features including:</p>
-        <ul>
-          <li>Unlimited route searches</li>
-          <li>Up to 10km walking routes</li>
-          <li>Unlimited navigation sessions</li>
-          <li>5 emergency contacts</li>
-          <li>AI-powered safety explanations</li>
-        </ul>
-        <p>Just log in with this email address to activate your benefits.</p>
-        <p style="color: #6B7280; font-size: 12px;">SafeNight — Walk Safe, Stay Connected</p>
-      `,
+      ownerName: ownerProfile?.name,
+      memberName: name || null,
     }).catch((err) => console.error('[family] Email send error:', err.message));
 
     res.json({
@@ -631,23 +627,10 @@ router.post('/update-member-email', requireAuth, async (req, res, next) => {
       .eq('id', req.user.id)
       .single();
 
-    sendEmail({
+    sendFamilyInvite({
       to: cleanEmail,
-      subject: `You've been added to ${ownerProfile?.name || 'a'} SafeNight Family Pack`,
-      html: `
-        <h2>Welcome to SafeNight! \uD83D\uDEE1\uFE0F</h2>
-        <p><strong>${ownerProfile?.name || 'Someone'}</strong> has added you to their SafeNight Family Pack.</p>
-        <p>You now have access to <strong>Guarded (Pro)</strong> features including:</p>
-        <ul>
-          <li>Unlimited route searches</li>
-          <li>Up to 10km walking routes</li>
-          <li>Unlimited navigation sessions</li>
-          <li>5 emergency contacts</li>
-          <li>AI-powered safety explanations</li>
-        </ul>
-        <p>Just log in with this email address to activate your benefits.</p>
-        <p style="color: #6B7280; font-size: 12px;">SafeNight \u2014 Walk Safe, Stay Connected</p>
-      `,
+      ownerName: ownerProfile?.name,
+      memberName: null,
     }).catch((err) => console.error('[family] Email send error:', err.message));
 
     res.json({
