@@ -772,3 +772,126 @@ export const subscriptionApi = {
     return res.json();
   },
 };
+
+// ─── Family Pack API ─────────────────────────────────────────────────────────
+
+export interface FamilyPackMember {
+  id: string;
+  email: string;
+  name: string | null;
+  role: 'owner' | 'member';
+  status: 'pending' | 'active' | 'removed';
+  joined_at: string | null;
+  user_id: string | null;
+}
+
+export interface FamilyPack {
+  id: string;
+  name: string;
+  status: 'active' | 'pending' | 'cancelled' | 'expired';
+  maxMembers: number;
+  pricePerUser: number;
+  totalMonthly: number;
+  createdAt: string;
+  expiresAt: string | null;
+  stripeSubscriptionId: string | null;
+  owner: { name: string; email: string };
+}
+
+export interface FamilyPackResult {
+  pack: FamilyPack | null;
+  members: FamilyPackMember[];
+  role: 'owner' | 'member' | null;
+  stats: { active: number; pending: number; total: number };
+}
+
+export const familyApi = {
+  /** Get current user's family pack (as owner or member) */
+  async getMyPack(): Promise<FamilyPackResult> {
+    const res = await authFetch('/api/family/my-pack');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to fetch pack' }));
+      throw new Error(err.error || 'Failed to fetch family pack');
+    }
+    return res.json();
+  },
+
+  /** Create a new family pack */
+  async create(members: { email: string; name?: string }[], name?: string): Promise<{ pack: { id: string; totalMembers: number; totalMonthly: number }; message: string }> {
+    const res = await authFetch('/api/family/create', {
+      method: 'POST',
+      body: JSON.stringify({ members, name }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to create pack' }));
+      throw new Error(err.error || 'Failed to create family pack');
+    }
+    return res.json();
+  },
+
+  /** Add a member to the pack */
+  async addMember(email: string, name?: string): Promise<{ message: string; newTotal: number; newMonthly: number }> {
+    const res = await authFetch('/api/family/add-member', {
+      method: 'POST',
+      body: JSON.stringify({ email, name }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to add member' }));
+      throw new Error(err.error || 'Failed to add member');
+    }
+    return res.json();
+  },
+
+  /** Remove a member from the pack */
+  async removeMember(email: string): Promise<{ message: string; remainingMembers: number; newMonthly: number }> {
+    const res = await authFetch('/api/family/remove-member', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to remove member' }));
+      throw new Error(err.error || 'Failed to remove member');
+    }
+    return res.json();
+  },
+
+  /** Activate pending membership (called on login) */
+  async activate(): Promise<{ activated: boolean; message: string }> {
+    const res = await authFetch('/api/family/activate', {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Activation failed' }));
+      throw new Error(err.error || 'Failed to activate membership');
+    }
+    return res.json();
+  },
+
+  /** Cancel the family pack (owner only) */
+  async cancel(): Promise<{ message: string }> {
+    const res = await authFetch('/api/family/cancel', {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Cancel failed' }));
+      throw new Error(err.error || 'Failed to cancel family pack');
+    }
+    return res.json();
+  },
+
+  /** Get checkout info for paying for the family pack */
+  async checkout(packId: string, returnUrl?: string): Promise<{ checkoutUrl: string; packId: string; totalMembers: number; totalMonthly: number }> {
+    const res = await authFetch('/api/family/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        pack_id: packId,
+        return_url: returnUrl || window?.location?.origin || 'http://localhost:8083',
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Checkout failed' }));
+      throw new Error(err.error || 'Failed to create checkout');
+    }
+    return res.json();
+  },
+};

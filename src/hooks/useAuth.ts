@@ -70,6 +70,8 @@ interface AuthState {
     isGift: boolean; // whether subscription is a gift
     giftEndDate: string | null; // ISO date when gift expires
     subscriptionEndsAt: string | null; // ISO date when subscription ends (gift or paid)
+    isFamilyPack: boolean; // whether subscription is from a family pack
+    familyPackId: string | null; // UUID of the family pack
   } | null;
   error: string | null;
 }
@@ -135,6 +137,8 @@ async function _loadSessionOnce(
       isGift: profile.is_gift ?? false,
       giftEndDate: profile.gift_end_date ?? null,
       subscriptionEndsAt: profile.subscription_ends_at ?? null,
+      isFamilyPack: profile.is_family_pack ?? false,
+      familyPackId: profile.family_pack_id ?? null,
     },
     error: null,
   };
@@ -319,6 +323,8 @@ export function useAuth() {
               isGift: profile.is_gift ?? false,
               giftEndDate: profile.gift_end_date ?? null,
               subscriptionEndsAt: profile.subscription_ends_at ?? null,
+              isFamilyPack: profile.is_family_pack ?? false,
+              familyPackId: profile.family_pack_id ?? null,
             }
           : {
               id: data.user.id,
@@ -333,6 +339,8 @@ export function useAuth() {
               isGift: false,
               giftEndDate: null,
               subscriptionEndsAt: null,
+              isFamilyPack: false,
+              familyPackId: null,
             },
         error: null,
       });
@@ -434,6 +442,8 @@ export function useAuth() {
           isGift: profile.is_gift ?? false,
           giftEndDate: profile.gift_end_date ?? null,
           subscriptionEndsAt: profile.subscription_ends_at ?? null,
+          isFamilyPack: profile.is_family_pack ?? false,
+          familyPackId: profile.family_pack_id ?? null,
         },
       }));
     } catch {

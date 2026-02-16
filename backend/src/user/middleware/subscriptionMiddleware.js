@@ -56,7 +56,7 @@ async function attachSubscription(req, res, next) {
     // Validate against subscriptions table (check not expired)
     const { data: sub } = await supabase
       .from('subscriptions')
-      .select('tier, status, expires_at, is_gift, gift_start_date, gift_end_date')
+      .select('tier, status, expires_at, is_gift, gift_start_date, gift_end_date, is_family_pack, family_pack_id')
       .eq('user_id', req.user.id)
       .eq('status', 'active')
       .order('started_at', { ascending: false })
@@ -68,6 +68,8 @@ async function attachSubscription(req, res, next) {
     let isGift = false;
     let giftEndDate = null;
     let expiresAt = null;
+    let isFamilyPack = false;
+    let familyPackId = null;
 
     if (sub && sub.status === 'active') {
       // For gift subscriptions, check gift_end_date; otherwise check expires_at
@@ -78,6 +80,8 @@ async function attachSubscription(req, res, next) {
         isGift = sub.is_gift || false;
         giftEndDate = sub.gift_end_date || null;
         expiresAt = sub.expires_at || null;
+        isFamilyPack = sub.is_family_pack || false;
+        familyPackId = sub.family_pack_id || null;
       } else {
         // Subscription expired — mark it and fall back to free
         await supabase
@@ -119,6 +123,8 @@ async function attachSubscription(req, res, next) {
       isGift,
       giftEndDate,
       expiresAt,
+      isFamilyPack,
+      familyPackId,
     };
 
     next();

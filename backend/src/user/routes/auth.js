@@ -243,7 +243,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
     // Fetch active subscription details
     const { data: sub } = await supabase
       .from('subscriptions')
-      .select('id, tier, status, started_at, expires_at, is_gift, gift_start_date, gift_end_date')
+      .select('id, tier, status, started_at, expires_at, is_gift, gift_start_date, gift_end_date, is_family_pack, family_pack_id')
       .eq('user_id', req.user.id)
       .eq('status', 'active')
       .order('started_at', { ascending: false })
@@ -277,6 +277,8 @@ router.get('/me', requireAuth, async (req, res, next) => {
       is_gift: sub?.is_gift || false,
       gift_end_date: sub?.gift_end_date || null,
       subscription_ends_at: sub?.is_gift ? sub.gift_end_date : (sub?.expires_at || null),
+      is_family_pack: sub?.is_family_pack || false,
+      family_pack_id: sub?.family_pack_id || null,
       contact_count: contactCount || 0,
       route_distance_km: routeDistanceKm,
     });

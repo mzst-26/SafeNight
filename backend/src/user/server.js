@@ -38,6 +38,7 @@ const contactsRouter = require('./routes/contacts');
 const liveRouter = require('./routes/live');
 const subscriptionsRouter = require('./routes/subscriptions');
 const giftRouter = require('./routes/gift');
+const familyRouter = require('./routes/family');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
@@ -66,6 +67,7 @@ app.use('/api/contacts', createRateLimiter({ windowMs: 15 * 60 * 1000, max: 100 
 app.use('/api/live', createRateLimiter({ windowMs: 15 * 60 * 1000, max: 500 }), liveRouter);
 app.use('/api/subscriptions', createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 }), subscriptionsRouter);
 app.use('/api/gift', createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30 }), giftRouter);
+app.use('/api/family', createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 }), familyRouter);
 
 // ─── Health check ────────────────────────────────────────────────────────────
 app.get('/api/health', healthCheck('user-service'));
@@ -76,5 +78,5 @@ app.use(errorHandler);
 // ─── Start ───────────────────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[user] User Data Service running on http://0.0.0.0:${PORT}`);
-  console.log(`[user] Routes: auth, usage, reports, reviews, contacts, live, subscriptions, gift`);
+  console.log(`[user] Routes: auth, usage, reports, reviews, contacts, live, subscriptions, gift, family`);
 });

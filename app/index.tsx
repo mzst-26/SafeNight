@@ -18,6 +18,7 @@ import { AndroidOverlayHost } from '@/src/components/android/AndroidOverlayHost'
 import RouteMap from '@/src/components/maps/RouteMap';
 import { AIExplanationModal } from '@/src/components/modals/AIExplanationModal';
 import { DownloadAppModal } from '@/src/components/modals/DownloadAppModal';
+import { FamilyPackModal } from '@/src/components/modals/FamilyPackModal';
 import { LimitReachedModal } from '@/src/components/modals/LimitReachedModal';
 import LoginModal from '@/src/components/modals/LoginModal';
 import { OnboardingModal } from '@/src/components/modals/OnboardingModal';
@@ -57,6 +58,7 @@ export default function HomeScreen() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [limitModal, setLimitModal] = useState<LimitInfo | null>(null);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showFamilyPackModal, setShowFamilyPackModal] = useState(false);
   const [toast, setToast] = useState<ToastConfig | null>(null);
   const subscriptionTier = auth.user?.subscription ?? 'free';
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
@@ -935,9 +937,18 @@ export default function HomeScreen() {
           visible={showSubscriptionModal}
           currentTier={subscriptionTier}
           isGift={auth.user?.isGift}
+          isFamilyPack={auth.user?.isFamilyPack}
           subscriptionEndsAt={auth.user?.subscriptionEndsAt}
           onClose={() => setShowSubscriptionModal(false)}
           onSubscriptionChanged={() => auth.refreshProfile?.()}
+          onOpenFamilyPack={() => setShowFamilyPackModal(true)}
+        />
+
+        {/* ── Family Pack modal ── */}
+        <FamilyPackModal
+          visible={showFamilyPackModal}
+          onClose={() => setShowFamilyPackModal(false)}
+          onPackChanged={() => auth.refreshProfile?.()}
         />
 
         {/* ── Profile fetch failed — auto-logout overlay (no buttons) ── */}

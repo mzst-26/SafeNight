@@ -28,10 +28,13 @@ interface Props {
   visible: boolean;
   currentTier: string;
   isGift?: boolean;
+  isFamilyPack?: boolean;
   subscriptionEndsAt?: string | null;
   onClose: () => void;
   /** Called after a successful action so the parent can refresh user data */
   onSubscriptionChanged?: () => void;
+  /** Open the Family Pack modal */
+  onOpenFamilyPack?: () => void;
 }
 
 const TIER_COLORS: Record<string, string> = {
@@ -55,7 +58,7 @@ const FEATURE_HIGHLIGHTS: Record<string, string[]> = {
   ],
 };
 
-export function SubscriptionModal({ visible, currentTier, isGift, subscriptionEndsAt, onClose, onSubscriptionChanged }: Props) {
+export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, subscriptionEndsAt, onClose, onSubscriptionChanged, onOpenFamilyPack }: Props) {
   const [plans, setPlans] = useState<StripePlan[]>([]);
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -170,6 +173,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, subscriptionEn
                 <Text style={[styles.currentPlanText, { color: TIER_COLORS[currentTier] }]}>
                   Current plan: {currentTier === 'pro' ? 'Guarded' : 'Free'}
                   {isGift ? ' (Gift)' : ''}
+                  {isFamilyPack ? ' (Family Pack)' : ''}
                 </Text>
               </View>
 
@@ -326,6 +330,38 @@ export function SubscriptionModal({ visible, currentTier, isGift, subscriptionEn
                   ) : (
                     <Text style={styles.cancelButtonText}>Cancel Subscription</Text>
                   )}
+                </Pressable>
+              )}
+
+              {/* Family & Friends Pack option */}
+              {onOpenFamilyPack && (
+                <Pressable
+                  style={styles.familyPackCard}
+                  onPress={() => {
+                    onClose();
+                    setTimeout(() => onOpenFamilyPack(), 300);
+                  }}
+                >
+                  <View style={styles.familyPackHeader}>
+                    <Ionicons name="people" size={24} color="#7C3AED" />
+                    <View style={styles.familyPackHeaderText}>
+                      <Text style={styles.familyPackTitle}>Family & Friends Pack</Text>
+                      <Text style={styles.familyPackPrice}>
+                        £3<Text style={styles.familyPackPriceSub}>/user/month</Text>
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.familyPackDesc}>
+                    {isFamilyPack
+                      ? 'Manage your Family Pack members and billing.'
+                      : 'Get Guarded for 3+ people at £3/each. Save £1.99 per person!'}
+                  </Text>
+                  <View style={styles.familyPackCta}>
+                    <Text style={styles.familyPackCtaText}>
+                      {isFamilyPack ? 'Manage Pack' : 'Create Pack'}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color="#7C3AED" />
+                  </View>
                 </Pressable>
               )}
 
@@ -614,5 +650,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     color: '#6B7280',
+  },
+  familyPackCard: {
+    borderWidth: 2,
+    borderColor: '#DDD6FE',
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    backgroundColor: '#FAFAFF',
+  },
+  familyPackHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  familyPackHeaderText: {
+    flex: 1,
+  },
+  familyPackTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  familyPackPrice: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#7C3AED',
+  },
+  familyPackPriceSub: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#6B7280',
+  },
+  familyPackDesc: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  familyPackCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#F5F3FF',
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  familyPackCtaText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#7C3AED',
   },
 });
