@@ -1,12 +1,13 @@
 /**
  * auth.js — Authentication routes (magic link / passwordless).
  *
- * POST /api/auth/magic-link   — Send magic link email
- * POST /api/auth/verify       — Exchange OTP token for session
- * POST /api/auth/refresh       — Refresh expired access token
- * GET  /api/auth/me            — Get current user profile
- * POST /api/auth/update-profile — Update user name/platform/version
- * POST /api/auth/logout        — Sign out (invalidate token)
+ * POST   /api/auth/magic-link     — Send magic link email
+ * POST   /api/auth/verify         — Exchange OTP token for session
+ * POST   /api/auth/refresh        — Refresh expired access token
+ * GET    /api/auth/me             — Get current user profile
+ * POST   /api/auth/update-profile — Update user name/platform/version
+ * POST   /api/auth/logout         — Sign out (invalidate token)
+ * DELETE /api/auth/account        — Permanently delete account & data
  */
 
 const express = require('express');
@@ -376,6 +377,67 @@ router.post('/logout', requireAuth, async (req, res, next) => {
     }
 
     res.json({ message: 'Logged out' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── DELETE /api/auth/account ───────────────────────────────────────────────
+// Permanently deletes the user's account and all associated data.
+// Required by Google Play Data Deletion policy.
+router.delete('/account', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    console.log(`[auth] Account deletion requested for user ${userId}`);
+
+    // 1. Delete user's data from all tables (order matters for FK constraints)
+    const tables = [
+      'usage_events',
+      'user_reports',
+      'user_reviews',
+      'contacts',
+      'subscriptions',
+      'family_pack_members',
+      'profiles',
+    ];
+
+    for (const table of tables) {
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq('user_id', userId);
+      if (error) {
+        console.warn(`[auth] Delete from ${table} failed: ${error.message}`);
+      }
+    }
+
+    // Also delete any contacts where user is the contact (not the owner)
+    const { error: contactErr } = await supabase
+      .from('contacts')
+      .delete()
+      .eq('contact_id', userId);
+    if (contactErr) {
+      console.warn(`[auth] Delete contacts (as contact) failed: ${contactErr.message}`);
+    }
+
+    // Also delete profiles row using id (not user_id)
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', userId);
+    if (profileErr) {
+      console.warn(`[auth] Delete profile by id failed: ${profileErr.message}`);
+    }
+
+    // 2. Delete the auth user from Supabase Auth
+    const { error: authError } = await supabaseAuth.auth.admin.deleteUser(userId);
+    if (authError) {
+      console.error(`[auth] Failed to delete auth user: ${authError.message}`);
+      return res.status(500).json({ error: 'Failed to delete authentication account' });
+    }
+
+    console.log(`[auth] Account deleted successfully for user ${userId}`);
+    res.json({ message: 'Account deleted successfully' });
   } catch (err) {
     next(err);
   }

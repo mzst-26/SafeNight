@@ -22,7 +22,35 @@ import {
   View,
 } from 'react-native';
 
-import { stripeApi, type StripePlan, type SubscriptionStatus } from '@/src/services/stripeApi';
+import { stripeApi, type SubscriptionStatus } from '@/src/services/stripeApi';
+
+/** Local plan definitions — no need to fetch from Stripe API */
+interface LocalPlan {
+  tier: string;
+  name: string;
+  description: string;
+  priceGBP: number;
+  period: string;
+  features: string[];
+}
+
+const LOCAL_PLANS: LocalPlan[] = [
+  {
+    tier: 'pro',
+    name: 'Guarded',
+    description: 'Full safety suite for regular walkers',
+    priceGBP: 4.99,
+    period: '/month',
+    features: [
+      'Unlimited route searches',
+      'Up to 10km walking routes',
+      'Unlimited navigation sessions',
+      '5 emergency contacts',
+      '10 AI explanations/day',
+      'Unlimited live sharing',
+    ],
+  },
+];
 
 interface Props {
   visible: boolean;
@@ -47,36 +75,20 @@ const TIER_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   pro: 'shield-checkmark',
 };
 
-const FEATURE_HIGHLIGHTS: Record<string, string[]> = {
-  pro: [
-    'Unlimited route searches',
-    'Up to 10km walking routes',
-    'Unlimited navigation sessions',
-    '5 emergency contacts',
-    '10 AI explanations/day',
-    'Unlimited live sharing',
-  ],
-};
-
 export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, subscriptionEndsAt, onClose, onSubscriptionChanged, onOpenFamilyPack }: Props) {
-  const [plans, setPlans] = useState<StripePlan[]>([]);
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load plans and status when modal opens
+  // Only fetch subscription status (not plans — those are defined locally)
   useEffect(() => {
     if (!visible) return;
 
     setLoading(true);
     setError(null);
 
-    Promise.all([
-      stripeApi.getPlans().catch(() => [] as StripePlan[]),
-      stripeApi.getStatus().catch(() => null),
-    ]).then(([fetchedPlans, fetchedStatus]) => {
-      setPlans(fetchedPlans);
+    stripeApi.getStatus().catch(() => null).then((fetchedStatus) => {
       setStatus(fetchedStatus);
       setLoading(false);
     });
@@ -259,8 +271,8 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                 </View>
               )}
 
-              {/* Plan cards */}
-              {plans
+              {/* Plan cards — only show plans the user is NOT currently on */}
+              {LOCAL_PLANS
                 .filter((p) => p.tier !== currentTier)
                 .map((plan) => (
                   <View
@@ -277,7 +289,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                         <Text style={styles.planName}>{plan.name}</Text>
                         <Text style={styles.planPrice}>
                           £{plan.priceGBP.toFixed(2)}
-                          <Text style={styles.planPeriod}>/month</Text>
+                          <Text style={styles.planPeriod}>{plan.period}</Text>
                         </Text>
                       </View>
                     </View>
@@ -286,7 +298,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
 
                     {/* Feature list */}
                     <View style={styles.featureList}>
-                      {(FEATURE_HIGHLIGHTS[plan.tier] || []).map((feature, i) => (
+                      {plan.features.map((feature, i) => (
                         <View key={i} style={styles.featureRow}>
                           <Ionicons name="checkmark-circle" size={16} color="#10B981" />
                           <Text style={styles.featureText}>{feature}</Text>

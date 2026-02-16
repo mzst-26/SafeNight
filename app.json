@@ -4,7 +4,7 @@
     "slug": "PlymHack2026New",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "plymhack2026new",
+    "scheme": "safenight",
     "icon": "./assets/images/logo.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -13,7 +13,7 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We use your location to show nearby routes and help you navigate safely."
       },
-      "bundleIdentifier": "com.anonymous.PlymHack2026New"
+      "bundleIdentifier": "com.safenight.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -31,7 +31,7 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
       ],
-      "package": "com.anonymous.PlymHack2026New"
+      "package": "com.safenight.app"
     },
     "web": {
       "output": "static",

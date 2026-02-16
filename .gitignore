@@ -7,9 +7,11 @@ node_modules/
 .env
 .env.local
 .env.*.local
-.env.example
 backend/.env
-backend/.env.example
+
+# Keep .env.example as template (force-track it)
+!.env.example
+!backend/.env.example
 
 # Database schema files
 backend/src/user/schema.sql
@@ -31,6 +33,9 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+
+# Upload keystore (signing secrets)
+android/app/upload-keystore.jks
 
 # Metro
 .metro-health-check*

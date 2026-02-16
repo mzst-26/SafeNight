@@ -9,6 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
 import {
+    Alert,
     Modal,
     Platform,
     Pressable,
@@ -16,6 +17,8 @@ import {
     Text,
     View
 } from 'react-native';
+import { authApi } from '../../services/userApi';
+import PrivacyPolicyModal from '../modals/PrivacyPolicyModal';
 
 interface Props {
   name: string | null;
@@ -29,11 +32,52 @@ interface Props {
 
 export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptionEndsAt, onLogout, onManageSubscription }: Props) {
   const [open, setOpen] = useState(false);
+  const [privacyVisible, setPrivacyVisible] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleLogout = useCallback(() => {
     setOpen(false);
     onLogout();
   }, [onLogout]);
+
+  const handleDeleteAccount = useCallback(() => {
+    setOpen(false);
+    const doDelete = async () => {
+      setIsDeleting(true);
+      try {
+        await authApi.deleteAccount();
+        if (Platform.OS === 'web') {
+          window.alert('Your account and all data have been permanently deleted.');
+        } else {
+          Alert.alert('Account Deleted', 'Your account and all data have been permanently deleted.');
+        }
+      } catch (err: any) {
+        const msg = err?.message || 'Failed to delete account';
+        if (Platform.OS === 'web') {
+          window.alert(msg);
+        } else {
+          Alert.alert('Error', msg);
+        }
+      } finally {
+        setIsDeleting(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to permanently delete your account? All your data will be erased. This cannot be undone.')) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Account',
+        'Are you sure you want to permanently delete your account? All your data will be erased. This cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: doDelete },
+        ],
+      );
+    }
+  }, []);
 
   return (
     <>
@@ -113,6 +157,22 @@ export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptio
 
             <View style={styles.divider} />
 
+            {/* Privacy Policy */}
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setOpen(false);
+                setPrivacyVisible(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Privacy Policy"
+            >
+              <Ionicons name="shield-checkmark-outline" size={20} color="#1570EF" />
+              <Text style={styles.privacyText}>Privacy Policy</Text>
+            </Pressable>
+
+            <View style={styles.divider} />
+
             {/* Logout */}
             <Pressable
               style={styles.menuItem}
@@ -123,9 +183,31 @@ export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptio
               <Ionicons name="log-out-outline" size={20} color="#DC2626" />
               <Text style={styles.logoutText}>Log out</Text>
             </Pressable>
+
+            <View style={styles.divider} />
+
+            {/* Delete Account */}
+            <Pressable
+              style={styles.menuItem}
+              onPress={handleDeleteAccount}
+              disabled={isDeleting}
+              accessibilityRole="button"
+              accessibilityLabel="Delete account"
+            >
+              <Ionicons name="trash-outline" size={20} color="#991B1B" />
+              <Text style={styles.deleteText}>
+                {isDeleting ? 'Deleting…' : 'Delete Account'}
+              </Text>
+            </Pressable>
           </View>
         </Pressable>
       </Modal>
+
+      {/* Privacy Policy Modal */}
+      <PrivacyPolicyModal
+        visible={privacyVisible}
+        onClose={() => setPrivacyVisible(false)}
+      />
     </>
   );
 }
@@ -231,5 +313,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     fontWeight: '500',
+  },
+  privacyText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1570EF',
+  },
+  deleteText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#991B1B',
   },
 });

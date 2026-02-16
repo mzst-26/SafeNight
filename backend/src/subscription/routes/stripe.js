@@ -182,6 +182,139 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
   }
 });
 
+// ─── POST /api/stripe/create-family-checkout ─────────────────────────────────
+// Creates a Stripe Checkout Session for a Family Pack.
+// Uses quantity-based pricing: family price × member count.
+// Body: { pack_id, return_url? }
+router.post('/create-family-checkout', requireAuth, async (req, res, next) => {
+  try {
+    const { pack_id } = req.body;
+
+    if (!pack_id) {
+      return res.status(400).json({ error: 'pack_id is required' });
+    }
+
+    const familyPlan = getPlan('family');
+    if (!familyPlan?.stripePriceId) {
+      return res.status(503).json({
+        error: 'Family Pack pricing not configured. Contact support.',
+      });
+    }
+
+    // Verify the pack exists and belongs to this user
+    const { data: pack, error: packError } = await supabase
+      .from('family_packs')
+      .select('id, owner_id, max_members, status')
+      .eq('id', pack_id)
+      .single();
+
+    if (packError || !pack) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    if (pack.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the pack owner can purchase' });
+    }
+
+    if (pack.status === 'active') {
+      return res.status(400).json({
+        error: 'Pack is already active.',
+      });
+    }
+
+    // Get user profile for Stripe customer
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('email, name')
+      .eq('id', req.user.id)
+      .single();
+
+    if (!profile) {
+      return res.status(404).json({ error: 'User profile not found' });
+    }
+
+    const customerId = await getOrCreateCustomer(
+      req.user.id,
+      profile.email || req.user.email,
+      profile.name,
+    );
+
+    const stripe = getStripe();
+    const returnUrl = req.body.return_url || process.env.FRONTEND_URL || 'http://localhost:8083';
+
+    // ── Cancel existing Guarded subscription with proration ──────────────
+    // If the user already pays for Guarded (pro), cancel it now so they get
+    // a pro-rated credit on their Stripe balance.  The credit is automatically
+    // applied to the Family Pack's first invoice — no double-charging.
+    let creditApplied = false;
+    const existingSubs = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'active',
+      limit: 5,
+    });
+
+    for (const sub of existingSubs.data) {
+      const subTier = sub.metadata?.tier;
+      // Only cancel individual (pro) subscriptions, not other family packs
+      if (subTier === 'family') continue;
+
+      console.log(`[stripe] Cancelling existing sub ${sub.id} (tier=${subTier}) with proration credit`);
+      await stripe.subscriptions.cancel(sub.id, {
+        prorate: true,           // generates credit for unused time
+        invoice_now: true,       // finalise the last invoice immediately
+      });
+      creditApplied = true;
+
+      // Also expire it in our DB
+      await supabase
+        .from('subscriptions')
+        .update({ status: 'expired', cancelled_at: new Date().toISOString() })
+        .eq('user_id', req.user.id)
+        .eq('status', 'active');
+    }
+
+    if (creditApplied) {
+      console.log('[stripe] Pro-rated credit applied to customer balance for family upgrade');
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: familyPlan.stripePriceId,
+          quantity: pack.max_members,
+        },
+      ],
+      success_url: `${returnUrl}?subscription=success&tier=family`,
+      cancel_url: `${returnUrl}?subscription=cancelled`,
+      subscription_data: {
+        metadata: {
+          supabase_user_id: req.user.id,
+          tier: 'family',
+          pack_id: pack.id,
+        },
+      },
+      metadata: {
+        supabase_user_id: req.user.id,
+        tier: 'family',
+        pack_id: pack.id,
+      },
+      allow_promotion_codes: true,
+    });
+
+    res.json({
+      url: session.url,
+      sessionId: session.id,
+      type: 'checkout',
+    });
+  } catch (err) {
+    console.error('[stripe] Family checkout error:', err.message);
+    next(err);
+  }
+});
+
 // ─── POST /api/stripe/create-portal ──────────────────────────────────────────
 // Creates a Stripe Customer Portal session for managing/cancelling subscriptions.
 // Returns the portal URL for the frontend to open.

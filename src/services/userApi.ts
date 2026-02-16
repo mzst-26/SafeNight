@@ -316,6 +316,17 @@ export const authApi = {
     }
   },
 
+  /** Permanently delete account and all data (Google Play compliance) */
+  async deleteAccount(): Promise<void> {
+    const res = await authFetch('/api/auth/account', { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Delete failed' }));
+      throw new Error(err.error || 'Failed to delete account');
+    }
+    await clearSession();
+    emitSessionEvent('logged_out');
+  },
+
   /** Check if user is logged in (has stored token) */
   async isLoggedIn(): Promise<boolean> {
     const token = await getAccessToken();
@@ -907,6 +918,19 @@ export const familyApi = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Cancel failed' }));
       throw new Error(err.error || 'Failed to cancel family pack');
+    }
+    return res.json();
+  },
+
+  /** Update a pending member's email and resend the invitation */
+  async updateMemberEmail(memberId: string, newEmail: string): Promise<{ message: string }> {
+    const res = await authFetch('/api/family/update-member-email', {
+      method: 'POST',
+      body: JSON.stringify({ member_id: memberId, new_email: newEmail }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Update failed' }));
+      throw new Error(err.error || 'Failed to update member email');
     }
     return res.json();
   },

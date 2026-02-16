@@ -113,6 +113,30 @@ export const stripeApi = {
   },
 
   /**
+   * Create a Stripe Checkout session for a Family Pack.
+   * Uses quantity-based pricing (family price × member count).
+   */
+  async createFamilyCheckout(
+    packId: string,
+    returnUrl?: string,
+  ): Promise<CheckoutResult> {
+    const res = await authFetch('/api/stripe/create-family-checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        pack_id: packId,
+        return_url: returnUrl || window?.location?.origin || 'http://localhost:8083',
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Checkout failed' }));
+      throw new Error(err.error || 'Failed to create family checkout session');
+    }
+
+    return res.json();
+  },
+
+  /**
    * Create a Stripe Customer Portal session to manage/cancel subscription.
    * Returns a URL to redirect the user to.
    */

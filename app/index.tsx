@@ -45,6 +45,7 @@ import { useFriendLocations } from '@/src/hooks/useFriendLocations';
 import { useHomeScreen } from '@/src/hooks/useHomeScreen';
 import { useLiveTracking } from '@/src/hooks/useLiveTracking';
 import { useWebBreakpoint } from '@/src/hooks/useWebBreakpoint';
+import { stripeApi } from '@/src/services/stripeApi';
 import { onLimitReached, type LimitInfo } from '@/src/types/limitError';
 import { formatDistance, formatDuration } from '@/src/utils/format';
 
@@ -94,21 +95,58 @@ export default function HomeScreen() {
   }, []);
 
   // Handle Stripe checkout redirect (?subscription=success or ?subscription=cancelled)
+  // Security: URL params are cosmetic — we verify with the server before showing success.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const params = new URLSearchParams(window.location.search);
     const subResult = params.get('subscription');
-    if (subResult === 'success') {
-      setToast({
-        message: 'Subscription activated! Welcome to Guarded.',
-        icon: 'shield-checkmark',
-        iconColor: '#7C3AED',
-        duration: 5000,
-      });
-      // Refresh user data to pick up new tier
-      auth.refreshProfile?.();
-      // Clean up URL params
+
+    // Always clean up URL params immediately to prevent reuse / bookmarking
+    if (subResult) {
       window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    if (subResult === 'success') {
+      // Verify the subscription is actually active on the server
+      (async () => {
+        try {
+          const status = await stripeApi.getStatus();
+          if (status.stripeSubscription?.status === 'active') {
+            auth.refreshProfile?.();
+            setToast({
+              message: `Subscription activated! Welcome to ${status.tier === 'family' ? 'Family Pack' : 'Guarded'}.`,
+              icon: 'shield-checkmark',
+              iconColor: '#7C3AED',
+              duration: 5000,
+            });
+          } else {
+            // Webhook may still be processing — show a softer message
+            setToast({
+              message: 'Payment received — your subscription is being activated…',
+              icon: 'hourglass-outline',
+              iconColor: '#F59E0B',
+              duration: 5000,
+            });
+            // Retry after a short delay for webhook propagation
+            setTimeout(async () => {
+              try {
+                const retry = await stripeApi.getStatus();
+                if (retry.stripeSubscription?.status === 'active') {
+                  auth.refreshProfile?.();
+                  setToast({
+                    message: 'Subscription activated! Welcome to Guarded.',
+                    icon: 'shield-checkmark',
+                    iconColor: '#7C3AED',
+                    duration: 4000,
+                  });
+                }
+              } catch { /* silent retry */ }
+            }, 4000);
+          }
+        } catch {
+          // Not logged in or network error — ignore
+        }
+      })();
     } else if (subResult === 'cancelled') {
       setToast({
         message: 'Subscription checkout was cancelled.',
@@ -116,7 +154,6 @@ export default function HomeScreen() {
         iconColor: '#6B7280',
         duration: 4000,
       });
-      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 

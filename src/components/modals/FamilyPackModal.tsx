@@ -24,6 +24,7 @@ import {
     View,
 } from 'react-native';
 
+import { stripeApi } from '@/src/services/stripeApi';
 import {
     familyApi,
     type FamilyPackResult
@@ -63,6 +64,10 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
+
+  // Edit member email mode
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editEmail, setEditEmail] = useState('');
 
   const hasPack = !!packData?.pack;
   const isOwner = packData?.role === 'owner';
@@ -205,7 +210,71 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
     }
   }, [loadPack, onPackChanged]);
 
+  // ── Update member email ────────────────────────────────────────────────────
+
+  const handleStartEditEmail = useCallback((memberId: string, currentEmail: string) => {
+    setEditingMemberId(memberId);
+    setEditEmail(currentEmail);
+  }, []);
+
+  const handleCancelEditEmail = useCallback(() => {
+    setEditingMemberId(null);
+    setEditEmail('');
+  }, []);
+
+  const handleSaveEmail = useCallback(async (memberId: string, oldEmail: string) => {
+    const trimmed = editEmail.trim().toLowerCase();
+    if (!trimmed || trimmed === oldEmail.toLowerCase()) {
+      handleCancelEditEmail();
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmed)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+    setError(null);
+    setActionLoading(true);
+    try {
+      const result = await familyApi.updateMemberEmail(memberId, trimmed);
+      setSuccess(result.message);
+      setEditingMemberId(null);
+      setEditEmail('');
+      await loadPack();
+      onPackChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update email');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [editEmail, handleCancelEditEmail, loadPack, onPackChanged]);
+
   // ── Cancel pack ────────────────────────────────────────────────────────────
+
+  const handleCheckout = useCallback(async () => {
+    if (!packData?.pack?.id) return;
+    setError(null);
+    setActionLoading(true);
+    try {
+      const result = await stripeApi.createFamilyCheckout(packData.pack.id);
+      if (Platform.OS === 'web') {
+        window.open(result.url, '_blank');
+      } else {
+        const { Linking: RNLinking } = require('react-native');
+        RNLinking.openURL(result.url);
+      }
+      setTimeout(() => {
+        onClose();
+        onPackChanged?.();
+      }, 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start checkout');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [packData, onClose, onPackChanged]);
 
   const handleCancel = useCallback(async () => {
     const doCancel = async () => {
@@ -307,6 +376,41 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                         </Text>
                       </View>
                     </View>
+                    {packData!.pack!.status === 'pending' && (
+                      <View style={styles.packPendingInfo}>
+                        <Ionicons name="time-outline" size={16} color="#92400E" />
+                        <Text style={styles.packPendingInfoText}>
+                          Your pack is awaiting payment. Complete checkout to activate Guarded features for all members.
+                        </Text>
+                      </View>
+                    )}
+                    {/* Checkout button for pending packs (owner only) */}
+                    {isOwner && packData!.pack!.status === 'pending' && (
+                      <Pressable
+                        style={styles.checkoutBtn}
+                        onPress={handleCheckout}
+                        disabled={actionLoading}
+                      >
+                        {actionLoading ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <>
+                            <Ionicons name="card-outline" size={18} color="#fff" />
+                            <Text style={styles.checkoutBtnText}>
+                              Complete Checkout — £{packData!.pack!.totalMonthly.toFixed(2)}/mo
+                            </Text>
+                          </>
+                        )}
+                      </Pressable>
+                    )}
+                    {isOwner && packData!.pack!.status === 'pending' && (
+                      <View style={styles.creditNotice}>
+                        <Ionicons name="information-circle-outline" size={14} color="#6D28D9" />
+                        <Text style={styles.creditNoticeText}>
+                          Already on Guarded? Your remaining balance will be credited automatically — no double charge.
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.packInfoRow}>
                       <Text style={styles.packInfoLabel}>Members</Text>
                       <Text style={styles.packInfoValue}>
@@ -370,6 +474,60 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                              member.status === 'pending' ? 'Pending' : 'Removed'}
                           </Text>
                         </View>
+                        {/* Pending status explanation */}
+                        {member.status === 'pending' && (
+                          <View style={styles.pendingExplainer}>
+                            <Ionicons name="mail-outline" size={14} color="#92400E" />
+                            <Text style={styles.pendingExplainerText}>
+                              An invitation has been sent to their email. They need to sign up or log in with this email to activate.
+                            </Text>
+                          </View>
+                        )}
+                        {/* Edit email for pending members (owner only) */}
+                        {isOwner && member.status === 'pending' && member.role !== 'owner' && (
+                          editingMemberId === member.id ? (
+                            <View style={styles.editEmailForm}>
+                              <TextInput
+                                style={styles.editEmailInput}
+                                placeholder="New email address"
+                                placeholderTextColor="#9CA3AF"
+                                value={editEmail}
+                                onChangeText={setEditEmail}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                autoFocus
+                              />
+                              <View style={styles.editEmailBtns}>
+                                <Pressable
+                                  style={styles.editEmailSaveBtn}
+                                  onPress={() => handleSaveEmail(member.id, member.email)}
+                                  disabled={actionLoading}
+                                >
+                                  {actionLoading ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                  ) : (
+                                    <Text style={styles.editEmailSaveBtnText}>Save & Resend</Text>
+                                  )}
+                                </Pressable>
+                                <Pressable
+                                  style={styles.editEmailCancelBtn}
+                                  onPress={handleCancelEditEmail}
+                                >
+                                  <Text style={styles.editEmailCancelBtnText}>Cancel</Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          ) : (
+                            <Pressable
+                              style={styles.editEmailBtn}
+                              onPress={() => handleStartEditEmail(member.id, member.email)}
+                              disabled={actionLoading}
+                            >
+                              <Ionicons name="pencil" size={13} color="#7C3AED" />
+                              <Text style={styles.editEmailBtnText}>Change email</Text>
+                            </Pressable>
+                          )
+                        )}
                       </View>
                       {isOwner && member.role !== 'owner' && (
                         <Pressable
@@ -715,6 +873,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  packPendingInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FFFBEB',
+    padding: 10,
+    borderRadius: 8,
+  },
+  packPendingInfoText: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 17,
+    flex: 1,
+  },
+  checkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#7C3AED',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  checkoutBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  creditNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 4,
+    marginTop: -2,
+  },
+  creditNoticeText: {
+    fontSize: 11,
+    color: '#6D28D9',
+    lineHeight: 15,
+    flex: 1,
+  },
   memberNotice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -789,6 +989,75 @@ const styles = StyleSheet.create({
   },
   removeMemberBtn: {
     padding: 8,
+  },
+  pendingExplainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#FFFBEB',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  pendingExplainerText: {
+    fontSize: 11,
+    color: '#92400E',
+    lineHeight: 15,
+    flex: 1,
+  },
+  editEmailBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  editEmailBtnText: {
+    fontSize: 12,
+    color: '#7C3AED',
+    fontWeight: '600',
+  },
+  editEmailForm: {
+    gap: 8,
+    marginTop: 6,
+  },
+  editEmailInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: '#111827',
+  },
+  editEmailBtns: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  editEmailSaveBtn: {
+    flex: 1,
+    backgroundColor: '#7C3AED',
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  editEmailSaveBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  editEmailCancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  editEmailCancelBtnText: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '500',
   },
 
   // ── Add member ──

@@ -111,6 +111,99 @@ async function handleCheckoutCompleted(session) {
       .eq('id', userId);
   }
 
+  // ── Family Pack checkout ───────────────────────────────────────────────
+  if (tier === 'family') {
+    const packId = session.metadata?.pack_id;
+    if (!packId) {
+      console.warn('[webhook] Family checkout missing pack_id in metadata');
+      return;
+    }
+
+    console.log(`[webhook] Activating Family Pack: pack=${packId}`);
+
+    // Activate the pack
+    await supabase
+      .from('family_packs')
+      .update({
+        status: 'active',
+        stripe_subscription_id: subscriptionId || null,
+      })
+      .eq('id', packId);
+
+    // Get all members of this pack
+    const { data: members } = await supabase
+      .from('family_pack_members')
+      .select('id, user_id, email, status')
+      .eq('pack_id', packId)
+      .neq('status', 'removed');
+
+    // Upgrade each member who has a user_id (already signed up)
+    for (const member of (members || [])) {
+      if (!member.user_id) continue;
+
+      // Cancel existing active subs
+      await supabase
+        .from('subscriptions')
+        .update({ status: 'expired', cancelled_at: new Date().toISOString() })
+        .eq('user_id', member.user_id)
+        .eq('status', 'active');
+
+      // Create family-linked pro subscription
+      await supabase.from('subscriptions').insert({
+        user_id: member.user_id,
+        tier: 'pro',
+        status: 'active',
+        started_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        payment_ref: subscriptionId || session.id,
+        is_family_pack: true,
+        family_pack_id: packId,
+      });
+
+      // Update denormalized tier
+      await supabase
+        .from('profiles')
+        .update({ subscription: 'pro' })
+        .eq('id', member.user_id);
+    }
+
+    // Log the event
+    await supabase.from('usage_events').insert({
+      user_id: userId,
+      event_type: 'family_pack_activated',
+      value_text: `Family Pack ${packId} activated (${(members || []).length} members)`,
+    });
+
+    // Also give the pack OWNER a family-linked pro subscription
+    // (the owner pays but should also get Guarded features)
+    await supabase
+      .from('subscriptions')
+      .update({ status: 'expired', cancelled_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    await supabase.from('subscriptions').insert({
+      user_id: userId,
+      tier: 'pro',
+      status: 'active',
+      started_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      payment_ref: subscriptionId || session.id,
+      is_family_pack: true,
+      family_pack_id: packId,
+    });
+
+    await supabase
+      .from('profiles')
+      .update({ subscription: 'pro' })
+      .eq('id', userId);
+
+    console.log(`[webhook] ✅ Family Pack ${packId} activated for ${(members || []).length} members + owner`);
+    return;
+  }
+
+  // ── Individual checkout (pro) ──────────────────────────────────────────
+
   // Expire any existing active subscriptions
   await supabase
     .from('subscriptions')

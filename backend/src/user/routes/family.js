@@ -553,6 +553,111 @@ router.post('/activate', requireAuth, async (req, res, next) => {
   }
 });
 
+// ─── POST /api/family/update-member-email ────────────────────────────────────
+// Update a pending member's email address and resend the invitation.
+// Only the pack owner can do this, and only for pending members.
+// Body: { member_id, new_email }
+router.post('/update-member-email', requireAuth, async (req, res, next) => {
+  try {
+    const { member_id, new_email } = req.body;
+
+    if (!member_id || !new_email) {
+      return res.status(400).json({ error: 'member_id and new_email are required' });
+    }
+
+    const cleanEmail = new_email.trim().toLowerCase();
+    if (!EMAIL_RE.test(cleanEmail)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+
+    // Find owner's pack (active or pending)
+    const { data: pack } = await supabase
+      .from('family_packs')
+      .select('id')
+      .eq('owner_id', req.user.id)
+      .in('status', ['active', 'pending'])
+      .maybeSingle();
+
+    if (!pack) {
+      return res.status(404).json({ error: 'You do not have an active Family Pack' });
+    }
+
+    // Find the member and verify they're pending
+    const { data: member } = await supabase
+      .from('family_pack_members')
+      .select('id, email, role, status')
+      .eq('id', member_id)
+      .eq('pack_id', pack.id)
+      .single();
+
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found in your pack' });
+    }
+
+    if (member.role === 'owner') {
+      return res.status(400).json({ error: 'Cannot change the owner email' });
+    }
+
+    if (member.status !== 'pending') {
+      return res.status(400).json({ error: 'Can only change email for pending members' });
+    }
+
+    // Check if new email already exists in the pack
+    const { data: existing } = await supabase
+      .from('family_pack_members')
+      .select('id')
+      .eq('pack_id', pack.id)
+      .eq('email', cleanEmail)
+      .neq('status', 'removed')
+      .maybeSingle();
+
+    if (existing) {
+      return res.status(409).json({ error: 'This email is already in your pack' });
+    }
+
+    // Update the email
+    await supabase
+      .from('family_pack_members')
+      .update({
+        email: cleanEmail,
+        invited_at: new Date().toISOString(),
+      })
+      .eq('id', member_id);
+
+    // Resend invitation email
+    const { data: ownerProfile } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', req.user.id)
+      .single();
+
+    sendEmail({
+      to: cleanEmail,
+      subject: `You've been added to ${ownerProfile?.name || 'a'} SafeNight Family Pack`,
+      html: `
+        <h2>Welcome to SafeNight! \uD83D\uDEE1\uFE0F</h2>
+        <p><strong>${ownerProfile?.name || 'Someone'}</strong> has added you to their SafeNight Family Pack.</p>
+        <p>You now have access to <strong>Guarded (Pro)</strong> features including:</p>
+        <ul>
+          <li>Unlimited route searches</li>
+          <li>Up to 10km walking routes</li>
+          <li>Unlimited navigation sessions</li>
+          <li>5 emergency contacts</li>
+          <li>AI-powered safety explanations</li>
+        </ul>
+        <p>Just log in with this email address to activate your benefits.</p>
+        <p style="color: #6B7280; font-size: 12px;">SafeNight \u2014 Walk Safe, Stay Connected</p>
+      `,
+    }).catch((err) => console.error('[family] Email send error:', err.message));
+
+    res.json({
+      message: `Email updated to ${cleanEmail} and invitation resent`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/family/checkout ───────────────────────────────────────────────
 // Create a Stripe Checkout session for a family pack.
 // Uses quantity-based pricing (£3 × member count).
