@@ -390,6 +390,42 @@ router.delete('/account', requireAuth, async (req, res, next) => {
     const userId = req.user.id;
     console.log(`[auth] Account deletion requested for user ${userId}`);
 
+    // 0. Cancel any active Stripe subscriptions before deleting data
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', userId)
+      .single();
+
+    if (profile?.stripe_customer_id) {
+      try {
+        const { getStripe } = require('../../subscription/lib/stripeClient');
+        const stripe = getStripe();
+        const subs = await stripe.subscriptions.list({
+          customer: profile.stripe_customer_id,
+          status: 'active',
+          limit: 10,
+        });
+        for (const sub of subs.data) {
+          console.log(`[auth] Cancelling Stripe subscription ${sub.id} for deleted user ${userId}`);
+          await stripe.subscriptions.cancel(sub.id);
+        }
+        // Also cancel past_due subscriptions
+        const pastDue = await stripe.subscriptions.list({
+          customer: profile.stripe_customer_id,
+          status: 'past_due',
+          limit: 10,
+        });
+        for (const sub of pastDue.data) {
+          console.log(`[auth] Cancelling past_due Stripe subscription ${sub.id}`);
+          await stripe.subscriptions.cancel(sub.id);
+        }
+      } catch (stripeErr) {
+        // Log but don't block account deletion if Stripe is unavailable
+        console.error(`[auth] Stripe cancellation failed: ${stripeErr.message}`);
+      }
+    }
+
     // 1. Delete user's data from all tables (order matters for FK constraints)
     const tables = [
       'usage_events',
