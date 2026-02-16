@@ -18,6 +18,7 @@ import { AndroidOverlayHost } from '@/src/components/android/AndroidOverlayHost'
 import RouteMap from '@/src/components/maps/RouteMap';
 import { AIExplanationModal } from '@/src/components/modals/AIExplanationModal';
 import { DownloadAppModal } from '@/src/components/modals/DownloadAppModal';
+import { LimitReachedModal } from '@/src/components/modals/LimitReachedModal';
 import LoginModal from '@/src/components/modals/LoginModal';
 import { OnboardingModal } from '@/src/components/modals/OnboardingModal';
 import { ReportModal } from '@/src/components/modals/ReportModal';
@@ -39,6 +40,7 @@ import { useContacts } from '@/src/hooks/useContacts';
 import { useFriendLocations } from '@/src/hooks/useFriendLocations';
 import { useHomeScreen } from '@/src/hooks/useHomeScreen';
 import { useLiveTracking } from '@/src/hooks/useLiveTracking';
+import { onLimitReached, type LimitInfo } from '@/src/types/limitError';
 import { formatDistance, formatDuration } from '@/src/utils/format';
 
 export default function HomeScreen() {
@@ -49,6 +51,7 @@ export default function HomeScreen() {
   const [showFriendsOnMap, setShowFriendsOnMap] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [limitModal, setLimitModal] = useState<LimitInfo | null>(null);
   const [toast, setToast] = useState<ToastConfig | null>(null);
   const subscriptionTier = auth.user?.subscription ?? 'free';
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
@@ -70,6 +73,14 @@ export default function HomeScreen() {
       setShowLoginPrompt(false);
     }
   }, [auth.isLoggedIn]);
+
+  // Listen for subscription limit events from any service
+  useEffect(() => {
+    const unsub = onLimitReached((info) => {
+      setLimitModal(info);
+    });
+    return unsub;
+  }, []);
 
   // Only load contacts when logged in
   const { contacts, liveContacts, refresh: refreshContacts } = useContacts(auth.isLoggedIn);
@@ -732,6 +743,13 @@ export default function HomeScreen() {
           onVerify={auth.verify}
           error={auth.error}
           dismissable={true}
+        />
+
+        {/* ── Subscription limit popup ── */}
+        <LimitReachedModal
+          visible={limitModal !== null}
+          limitInfo={limitModal}
+          onClose={() => setLimitModal(null)}
         />
       </AndroidOverlayHost>
     </View>
