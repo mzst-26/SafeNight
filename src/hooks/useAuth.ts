@@ -56,6 +56,7 @@ function friendlyError(err: unknown, action: 'send' | 'verify'): string {
 interface AuthState {
   isLoggedIn: boolean;
   isLoading: boolean;
+  profileFetchFailed: boolean; // true when session is valid but profile can't be loaded
   user: {
     id: string;
     email: string;
@@ -85,41 +86,25 @@ async function _loadSessionOnce(
 ): Promise<AuthState> {
   const loggedIn = await authApi.isLoggedIn();
   if (!loggedIn) {
-    return { isLoggedIn: false, isLoading: false, user: null, error: null };
+    return { isLoggedIn: false, isLoading: false, profileFetchFailed: false, user: null, error: null };
   }
 
   const tokenOk = await refreshIfNeeded();
   if (!tokenOk) {
-    return { isLoggedIn: false, isLoading: false, user: null, error: null };
+    return { isLoggedIn: false, isLoading: false, profileFetchFailed: false, user: null, error: null };
   }
 
   const profile = await authApi.getProfile();
   if (!profile) {
-    // Profile fetch failed (network issue / cold start) but we have tokens.
-    // Use cached user data so the user stays logged in.
-    const cached = await authApi.getStoredUser();
-    if (cached) {
-      return {
-        isLoggedIn: true,
-        isLoading: false,
-        user: {
-          id: cached.id,
-          email: cached.email,
-          name: '',
-          username: null,
-          platform: Platform.OS,
-          app_version: APP_VERSION,
-          disclaimer_accepted_at: null,
-          subscription: 'free',
-          routeDistanceKm: 1,
-          isGift: false,
-          giftEndDate: null,
-          subscriptionEndsAt: null,
-        },
-        error: null,
-      };
-    }
-    return { isLoggedIn: false, isLoading: false, user: null, error: null };
+    // Profile fetch failed — flag it so the UI shows a message and auto-logouts
+    console.warn('[auth] Profile fetch failed with valid session — will auto-logout');
+    return {
+      isLoggedIn: true,
+      isLoading: false,
+      profileFetchFailed: true,
+      user: null,
+      error: null,
+    };
   }
 
   // Sync version + platform (fire-and-forget)
@@ -136,6 +121,7 @@ async function _loadSessionOnce(
   return {
     isLoggedIn: true,
     isLoading: false,
+    profileFetchFailed: false,
     user: {
       id: profile.id,
       email: profile.email,
@@ -158,6 +144,7 @@ export function useAuth() {
   const [state, setState] = useState<AuthState>({
     isLoggedIn: false,
     isLoading: true,
+    profileFetchFailed: false,
     user: null,
     error: null,
   });
@@ -210,13 +197,36 @@ export function useAuth() {
     loadSession();
   }, [loadSession]);
 
+  // ─── Auto-logout when profile fetch fails ──────────────────────────────────
+  // If the session is valid but we can't load profile data, give the user
+  // 3 seconds to read the message then force a logout. No user interaction.
+
+  useEffect(() => {
+    if (!state.profileFetchFailed) return;
+
+    const timer = setTimeout(async () => {
+      console.warn('[auth] Auto-logout triggered — profile could not be loaded');
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      await authApi.logout();
+      setState({
+        isLoggedIn: false,
+        isLoading: false,
+        profileFetchFailed: false,
+        user: null,
+        error: null,
+      });
+    }, 3_000);
+
+    return () => clearTimeout(timer);
+  }, [state.profileFetchFailed]);
+
   // ─── Listen for session events from userApi ────────────────────────────────
 
   useEffect(() => {
     const unsub = onSessionChange((event) => {
       if (event === 'expired' || event === 'logged_out') {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-        setState({ isLoggedIn: false, isLoading: false, user: null, error: null });
+        setState({ isLoggedIn: false, isLoading: false, profileFetchFailed: false, user: null, error: null });
       } else if (event === 'refreshed') {
         // Token was auto-refreshed — re-schedule next refresh
         scheduleRefresh();
@@ -294,6 +304,7 @@ export function useAuth() {
       setState({
         isLoggedIn: true,
         isLoading: false,
+        profileFetchFailed: false,
         user: profile
           ? {
               id: profile.id,
@@ -352,6 +363,7 @@ export function useAuth() {
     setState({
       isLoggedIn: false,
       isLoading: false,
+      profileFetchFailed: false,
       user: null,
       error: null,
     });

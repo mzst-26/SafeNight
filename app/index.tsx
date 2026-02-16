@@ -939,6 +939,20 @@ export default function HomeScreen() {
           onClose={() => setShowSubscriptionModal(false)}
           onSubscriptionChanged={() => auth.refreshProfile?.()}
         />
+
+        {/* ── Profile fetch failed — auto-logout overlay (no buttons) ── */}
+        {auth.profileFetchFailed && (
+          <View style={styles.profileFailOverlay}>
+            <View style={styles.profileFailCard}>
+              <Ionicons name="warning-outline" size={40} color="#F59E0B" style={{ marginBottom: 12 }} />
+              <Text style={styles.profileFailTitle}>Unable to load your profile</Text>
+              <Text style={styles.profileFailBody}>
+                Your session is active but we couldn't retrieve your data.{'\n'}
+                Logging you out automatically…
+              </Text>
+            </View>
+          </View>
+        )}
       </AndroidOverlayHost>
     </View>
   );
@@ -1149,5 +1163,40 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
+  },
+  profileFailOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  } as any,
+  profileFailCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 28,
+    alignItems: 'center',
+    maxWidth: 340,
+    width: '85%',
+    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.4)' } : {}),
+    elevation: 20,
+  } as any,
+  profileFailTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  profileFailBody: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
   },
 });
