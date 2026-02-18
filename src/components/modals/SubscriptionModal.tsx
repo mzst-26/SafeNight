@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Modal,
   Platform,
@@ -43,7 +44,7 @@ const LOCAL_PLANS: LocalPlan[] = [
     period: '/month',
     features: [
       'Unlimited route searches',
-      'Up to 10km walking routes',
+      'Up to 6 mile walking routes',
       'Unlimited navigation sessions',
       '5 emergency contacts',
       '10 AI explanations/day',
@@ -80,6 +81,16 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  /** Turn raw errors into user-friendly messages */
+  const friendlyError = (err: unknown, fallback: string): string => {
+    const msg = err instanceof Error ? err.message : '';
+    if (/network|failed to fetch|timeout|econnrefused|unreachable|load failed/i.test(msg)) {
+      return 'Oops! The server seems unreachable. Please reload and try again later.';
+    }
+    return err instanceof Error ? err.message : fallback;
+  };
 
   // Only fetch subscription status (not plans — those are defined locally)
   useEffect(() => {
@@ -87,11 +98,19 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
 
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
-    stripeApi.getStatus().catch(() => null).then((fetchedStatus) => {
-      setStatus(fetchedStatus);
-      setLoading(false);
-    });
+    stripeApi.getStatus()
+      .then((fetchedStatus) => {
+        setStatus(fetchedStatus);
+      })
+      .catch((err) => {
+        setError(friendlyError(err, 'Failed to load subscription status'));
+        // Still allow the modal to render — status will just be null
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [visible]);
 
   const openUrl = useCallback((url: string) => {
@@ -116,7 +135,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
           onSubscriptionChanged?.();
         }, 1000);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to start checkout');
+        setError(friendlyError(err, 'Failed to start checkout'));
       } finally {
         setActionLoading(null);
       }
@@ -136,13 +155,51 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
         onSubscriptionChanged?.();
       }, 1000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open subscription manager');
+      setError(friendlyError(err, 'Failed to open subscription manager'));
     } finally {
       setActionLoading(null);
     }
   }, [openUrl, onClose, onSubscriptionChanged]);
 
-  const isPaid = currentTier === 'pro';
+  const handleCancel = useCallback(async () => {
+    const doCancel = async () => {
+      setActionLoading('cancel');
+      setError(null);
+      setSuccess(null);
+      try {
+        const result = await stripeApi.cancelSubscription();
+        setSuccess(result.message);
+        // Refresh status so UI updates (e.g. cancelAtPeriodEnd becomes true)
+        const refreshed = await stripeApi.getStatus().catch(() => null);
+        setStatus(refreshed);
+        onSubscriptionChanged?.();
+      } catch (err) {
+        setError(friendlyError(err, 'Failed to cancel subscription'));
+      } finally {
+        setActionLoading(null);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (confirm('Cancel your subscription? Within 14 days of your billing date you will receive a full refund. Otherwise your subscription stays active until the end of the billing period.')) {
+        doCancel();
+      }
+    } else {
+      Alert.alert(
+        'Cancel Subscription',
+        'Within 14 days of your billing date you will receive a full refund. Otherwise your subscription stays active until the end of the billing period.',
+        [
+          { text: 'Keep Subscription', style: 'cancel' },
+          { text: 'Cancel Subscription', style: 'destructive', onPress: doCancel },
+        ],
+      );
+    }
+  }, [onSubscriptionChanged]);
+
+  // Family pack members are always on the 'pro' tier, even if the profile
+  // denormalized field hasn't been updated yet. Avoid "Free (Family Pack)".
+  const effectiveTier = isFamilyPack ? 'pro' : currentTier;
+  const isPaid = effectiveTier === 'pro';
   const stripeSub = status?.stripeSubscription;
 
   return (
@@ -157,7 +214,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>
-              {isPaid ? 'Manage Subscription' : 'Upgrade Your Plan'}
+              {isPaid || isFamilyPack ? 'Manage Subscription' : 'Upgrade Your Plan'}
             </Text>
             <Pressable onPress={onClose} hitSlop={12} style={styles.closeButton}>
               <Ionicons name="close" size={24} color="#374151" />
@@ -176,14 +233,14 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
               showsVerticalScrollIndicator={false}
             >
               {/* Current plan badge */}
-              <View style={[styles.currentPlanBadge, { backgroundColor: TIER_COLORS[currentTier] + '15' }]}>
+              <View style={[styles.currentPlanBadge, { backgroundColor: TIER_COLORS[effectiveTier] + '15' }]}>
                 <Ionicons
-                  name={TIER_ICONS[currentTier] || 'shield-outline'}
+                  name={TIER_ICONS[effectiveTier] || 'shield-outline'}
                   size={20}
-                  color={TIER_COLORS[currentTier]}
+                  color={TIER_COLORS[effectiveTier]}
                 />
-                <Text style={[styles.currentPlanText, { color: TIER_COLORS[currentTier] }]}>
-                  Current plan: {currentTier === 'pro' ? 'Guarded' : 'Free'}
+                <Text style={[styles.currentPlanText, { color: TIER_COLORS[effectiveTier] }]}>
+                  Current plan: {effectiveTier === 'pro' ? 'Guarded' : 'Free'}
                   {isGift ? ' (Gift)' : ''}
                   {isFamilyPack ? ' (Family Pack)' : ''}
                 </Text>
@@ -250,7 +307,9 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                     <View style={styles.cancelNotice}>
                       <Ionicons name="warning" size={14} color="#F59E0B" />
                       <Text style={styles.cancelNoticeText}>
-                        Cancels at end of billing period
+                        Your subscription will end on {new Date(stripeSub.currentPeriodEnd).toLocaleDateString('en-GB', {
+                          day: 'numeric', month: 'long', year: 'numeric',
+                        })}. No further charges will be made.
                       </Text>
                     </View>
                   )}
@@ -268,12 +327,25 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                       </>
                     )}
                   </Pressable>
+                  {!stripeSub.cancelAtPeriodEnd && !isFamilyPack && (
+                    <Pressable
+                      style={styles.cancelButton}
+                      onPress={handleCancel}
+                      disabled={actionLoading === 'cancel'}
+                    >
+                      {actionLoading === 'cancel' ? (
+                        <ActivityIndicator size="small" color="#EF4444" />
+                      ) : (
+                        <Text style={styles.cancelButtonText}>Cancel Subscription</Text>
+                      )}
+                    </Pressable>
+                  )}
                 </View>
               )}
 
               {/* Plan cards — only show plans the user is NOT currently on */}
               {LOCAL_PLANS
-                .filter((p) => p.tier !== currentTier)
+                .filter((p) => p.tier !== effectiveTier)
                 .map((plan) => (
                   <View
                     key={plan.tier}
@@ -327,14 +399,24 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                   </View>
                 ))}
 
-              {/* Cancel / downgrade for paid users without Stripe sub info */}
-              {isPaid && !stripeSub && (
+              {/* Family Pack sub-user: show info notice instead of cancel */}
+              {isPaid && isFamilyPack && !stripeSub && (
+                <View style={styles.familyNotice}>
+                  <Ionicons name="information-circle" size={20} color="#7C3AED" />
+                  <Text style={styles.familyNoticeText}>
+                    Your subscription is managed by your Family Pack owner. To cancel, please ask the pack owner.
+                  </Text>
+                </View>
+              )}
+
+              {/* Cancel / downgrade for paid users without Stripe sub info (non-family) */}
+              {isPaid && !isFamilyPack && !stripeSub && (
                 <Pressable
                   style={styles.cancelButton}
-                  onPress={handleManage}
-                  disabled={actionLoading === 'manage'}
+                  onPress={handleCancel}
+                  disabled={actionLoading === 'cancel'}
                 >
-                  {actionLoading === 'manage' ? (
+                  {actionLoading === 'cancel' ? (
                     <ActivityIndicator size="small" color="#EF4444" />
                   ) : (
                     <Text style={styles.cancelButtonText}>Cancel Subscription</Text>
@@ -382,10 +464,18 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                 </View>
               )}
 
+              {/* Success */}
+              {success && (
+                <View style={styles.successBanner}>
+                  <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                  <Text style={styles.successText}>{success}</Text>
+                </View>
+              )}
+
               {/* Footer note */}
               <Text style={styles.footer}>
                 Payments processed securely by Stripe.{'\n'}
-                Cancel anytime from the subscription manager.
+                14-day cooling-off: cancel within 14 days for a full refund.
               </Text>
             </ScrollView>
           )}
@@ -586,6 +676,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  familyNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#7C3AED10',
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  familyNoticeText: {
+    fontSize: 13,
+    color: '#6B7280',
+    flex: 1,
+    lineHeight: 18,
+  },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -597,6 +702,19 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
     color: '#DC2626',
+    flex: 1,
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#ECFDF5',
+    padding: 12,
+    borderRadius: 10,
+  },
+  successText: {
+    fontSize: 13,
+    color: '#059669',
     flex: 1,
   },
   footer: {
