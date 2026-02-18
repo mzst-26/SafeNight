@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
 import {
     Alert,
+    Linking,
     Modal,
     Platform,
     Pressable,
@@ -19,6 +20,10 @@ import {
 } from 'react-native';
 import { authApi } from '../../services/userApi';
 import PrivacyPolicyModal from '../modals/PrivacyPolicyModal';
+import RefundPolicyModal from '../modals/RefundPolicyModal';
+import TermsModal from '../modals/TermsModal';
+
+const POLICIES_URL = 'https://safenighthome.netlify.app/privacy';
 
 interface Props {
   name: string | null;
@@ -33,6 +38,8 @@ interface Props {
 export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptionEndsAt, onLogout, onManageSubscription }: Props) {
   const [open, setOpen] = useState(false);
   const [privacyVisible, setPrivacyVisible] = useState(false);
+  const [refundVisible, setRefundVisible] = useState(false);
+  const [termsVisible, setTermsVisible] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleLogout = useCallback(() => {
@@ -157,19 +164,54 @@ export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptio
 
             <View style={styles.divider} />
 
-            {/* Privacy Policy */}
-            <Pressable
-              style={styles.menuItem}
-              onPress={() => {
-                setOpen(false);
-                setPrivacyVisible(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Privacy Policy"
-            >
-              <Ionicons name="shield-checkmark-outline" size={20} color="#1570EF" />
-              <Text style={styles.privacyText}>Privacy Policy</Text>
-            </Pressable>
+            {/* Policies — single external link on native, individual modals on web */}
+            {Platform.OS !== 'web' ? (
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setOpen(false);
+                  Linking.openURL(POLICIES_URL);
+                }}
+                accessibilityRole="link"
+                accessibilityLabel="SafeNight Policies"
+              >
+                <Ionicons name="document-text-outline" size={20} color="#1570EF" />
+                <Text style={styles.privacyText}>SafeNight Policies</Text>
+                <Ionicons name="open-outline" size={14} color="#94A3B8" style={{ marginLeft: 'auto' }} />
+              </Pressable>
+            ) : (
+              <>
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => { setOpen(false); setPrivacyVisible(true); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Privacy Policy"
+                >
+                  <Ionicons name="shield-checkmark-outline" size={20} color="#1570EF" />
+                  <Text style={styles.privacyText}>Privacy Policy</Text>
+                </Pressable>
+                <View style={styles.divider} />
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => { setOpen(false); setRefundVisible(true); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Refund & Payment Policy"
+                >
+                  <Ionicons name="card-outline" size={20} color="#1570EF" />
+                  <Text style={styles.privacyText}>Refund & Payment</Text>
+                </Pressable>
+                <View style={styles.divider} />
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => { setOpen(false); setTermsVisible(true); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Terms & Conditions"
+                >
+                  <Ionicons name="reader-outline" size={20} color="#1570EF" />
+                  <Text style={styles.privacyText}>Terms & Conditions</Text>
+                </Pressable>
+              </>
+            )}
 
             <View style={styles.divider} />
 
@@ -203,10 +245,18 @@ export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptio
         </Pressable>
       </Modal>
 
-      {/* Privacy Policy Modal */}
+      {/* Policy Modals (web only) */}
       <PrivacyPolicyModal
         visible={privacyVisible}
         onClose={() => setPrivacyVisible(false)}
+      />
+      <RefundPolicyModal
+        visible={refundVisible}
+        onClose={() => setRefundVisible(false)}
+      />
+      <TermsModal
+        visible={termsVisible}
+        onClose={() => setTermsVisible(false)}
       />
     </>
   );
