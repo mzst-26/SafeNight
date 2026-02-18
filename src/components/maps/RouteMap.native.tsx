@@ -79,6 +79,8 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     var userInteracted = false;
     var lastNavCenter = null;
     var lastNavHeading = 0;
+    /** Last bearing value actually applied to the camera (for dead-zone check) */
+    var lastCameraHeading = 0;
     var lastData = null;
     var styleReady = false;
     var longPressTimer = null;
@@ -128,10 +130,10 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
 
     function addCustomLayers() {
       map.addLayer({ id:'range-circle-fill', type:'fill', source:'range-circle',
-        paint:{'fill-color':'#EF4444','fill-opacity':0.04} });
+        paint:{'fill-color':'#22c55e','fill-opacity':0.04} });
       map.addLayer({ id:'range-circle-line', type:'line', source:'range-circle',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#EF4444','line-opacity':0.8,'line-width':2.5,'line-dasharray':[3,2]} });
+        paint:{'line-color':'#22c55e','line-opacity':0.8,'line-width':2.5,'line-dasharray':[3,2]} });
       map.addLayer({ id:'unselected-routes-line', type:'line', source:'unselected-routes',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#98a2b3','line-opacity':0.5,'line-width':5} });
@@ -247,7 +249,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       var btn=document.getElementById('recenterBtn');
       if(btn)btn.classList.remove('visible');
       if(lastNavCenter){
-        map.easeTo({center:lastNavCenter, zoom:Math.max(map.getZoom(),17), pitch:60, bearing:-lastNavHeading, duration:600});
+        map.easeTo({center:lastNavCenter, zoom:Math.max(map.getZoom(),17), pitch:0, bearing:lastNavHeading, duration:600});
       }
     }
 
@@ -427,17 +429,27 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         navMarkerObj=new maplibregl.Marker({element:ne,anchor:'center',rotationAlignment:'viewport',rotation:0})
           .setLngLat(lastNavCenter).addTo(map);
 
-        // Camera follow
+        // Camera follow with dead-zone: only update if bearing changed >= 5°
+        // to prevent jitter from tiny sensor fluctuations.
+        // Adaptive duration: large turns snap fast, small turns ease smoothly.
         if(!userInteracted){
-          map.easeTo({
-            center:lastNavCenter,
-            zoom:Math.max(map.getZoom(),17),
-            pitch:60,
-            bearing:-heading,
-            duration:1000,
-          });
-          var btn=document.getElementById('recenterBtn');
-          if(btn) btn.classList.remove('visible');
+          var bearingDiff = heading - lastCameraHeading;
+          while (bearingDiff > 180) bearingDiff -= 360;
+          while (bearingDiff < -180) bearingDiff += 360;
+          var absDiff = Math.abs(bearingDiff);
+          if(absDiff >= 5){
+            lastCameraHeading = heading;
+            var camDuration = absDiff >= 30 ? 250 : 500; // snap for big turns, ease for small
+            map.easeTo({
+              center:lastNavCenter,
+              zoom:Math.max(map.getZoom(),17),
+              pitch:0,
+              bearing:heading,
+              duration:camDuration,
+            });
+            var btn=document.getElementById('recenterBtn');
+            if(btn) btn.classList.remove('visible');
+          }
         }
 
         // Enter nav mode
