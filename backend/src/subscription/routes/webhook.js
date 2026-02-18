@@ -17,6 +17,7 @@
 const { supabase } = require('../../user/lib/supabase');
 const { getStripe } = require('../lib/stripeClient');
 const { getTierByPriceId } = require('../lib/plans');
+const { syncFamilyPackContacts } = require('../../shared/familyContacts');
 
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -198,6 +199,9 @@ async function handleCheckoutCompleted(session) {
       .update({ subscription: 'pro' })
       .eq('id', userId);
 
+    // Sync all pack members as emergency contacts
+    await syncFamilyPackContacts(packId);
+
     console.log(`[webhook] ✅ Family Pack ${packId} activated for ${(members || []).length} members + owner`);
     return;
   }
@@ -299,6 +303,8 @@ async function processSubscriptionUpdate(userId, subscription) {
 /**
  * customer.subscription.deleted
  * Subscription was fully cancelled/expired.
+ * If it belongs to a family pack (e.g. end-of-period cancel) we revoke
+ * the entire pack instead of just the owner.
  */
 async function handleSubscriptionDeleted(subscription) {
   const userId =
@@ -310,7 +316,25 @@ async function handleSubscriptionDeleted(subscription) {
     return;
   }
 
-  console.log(`[webhook] Subscription deleted: user=${userId}`);
+  console.log(`[webhook] Subscription deleted: user=${userId}, sub=${subscription.id}`);
+
+  // Check if this Stripe subscription belongs to a family pack
+  const { data: pack } = await supabase
+    .from('family_packs')
+    .select('id, status')
+    .eq('stripe_subscription_id', subscription.id)
+    .in('status', ['active', 'cancelling'])
+    .single();
+
+  if (pack) {
+    // This is a family pack subscription — revoke the entire pack
+    console.log(`[webhook] Subscription ${subscription.id} belongs to family pack ${pack.id} — revoking pack`);
+    const { revokeFamilyPack } = require('../../user/routes/family');
+    await revokeFamilyPack(pack.id);
+    return;
+  }
+
+  // Regular individual subscription
   await revertToFree(userId, 'subscription_deleted');
 }
 
