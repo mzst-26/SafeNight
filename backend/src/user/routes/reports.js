@@ -39,7 +39,7 @@ const MAX_DESC = 500;
 // Gated by safety_reports feature limit (free: 3/month, pro+: unlimited).
 router.post('/', requireAuth, checkFeatureLimit('safety_reports'), async (req, res, next) => {
   try {
-    const { lat, lng, category, description } = req.body;
+    const { lat, lng, category, description, metadata } = req.body;
 
     // Validate coordinates
     const latN = parseFloat(lat);
@@ -55,11 +55,20 @@ router.post('/', requireAuth, checkFeatureLimit('safety_reports'), async (req, r
       });
     }
 
-    // Sanitise description
+    // Sanitise description (free-text user notes only)
     const desc =
       typeof description === 'string'
         ? description.trim().slice(0, MAX_DESC)
         : '';
+
+    // Validate metadata — must be a plain object or null
+    let meta = null;
+    if (metadata != null) {
+      if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+        return res.status(400).json({ error: 'metadata must be a JSON object' });
+      }
+      meta = metadata;
+    }
 
     const { data, error } = await supabase
       .from('safety_reports')
@@ -69,8 +78,9 @@ router.post('/', requireAuth, checkFeatureLimit('safety_reports'), async (req, r
         lng: lngN,
         category,
         description: desc,
+        metadata: meta,
       })
-      .select('id, lat, lng, category, description, created_at')
+      .select('id, lat, lng, category, description, metadata, created_at')
       .single();
 
     if (error) {
@@ -103,7 +113,7 @@ router.get('/', async (req, res, next) => {
   try {
     const { data, error } = await supabase
       .from('safety_reports')
-      .select('id, lat, lng, category, description, created_at')
+      .select('id, lat, lng, category, description, metadata, created_at')
       .is('resolved_at', null)
       .order('created_at', { ascending: false })
       .limit(200);
@@ -138,7 +148,7 @@ router.get('/nearby', async (req, res, next) => {
 
     const { data, error } = await supabase
       .from('safety_reports')
-      .select('id, lat, lng, category, description, created_at')
+      .select('id, lat, lng, category, description, metadata, created_at')
       .is('resolved_at', null)
       .gte('lat', latN - dLat)
       .lte('lat', latN + dLat)
@@ -164,7 +174,7 @@ router.get('/mine', requireAuth, async (req, res, next) => {
   try {
     const { data, error } = await supabase
       .from('safety_reports')
-      .select('id, lat, lng, category, description, created_at, resolved_at')
+      .select('id, lat, lng, category, description, metadata, created_at, resolved_at')
       .eq('user_id', req.user.id)
       .order('created_at', { ascending: false })
       .limit(50);
