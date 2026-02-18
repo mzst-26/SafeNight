@@ -16,6 +16,7 @@
 const express = require('express');
 const { supabase } = require('../lib/supabase');
 const { requireAuth } = require('../middleware/authMiddleware');
+const { syncFamilyPackContacts, removeFamilyPackContacts } = require('../../shared/familyContacts');
 
 const router = express.Router();
 
@@ -23,6 +24,71 @@ const PRICE_PER_USER = 3.00; // £3/user/month
 const MIN_MEMBERS = 3;
 const MAX_MEMBERS = 20; // reasonable upper limit
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Update the Stripe subscription quantity to match the current member count.
+ * Also updates max_members on the pack record.
+ */
+async function updateStripeQuantity(packId, newQuantity) {
+  // Get the stripe_subscription_id and current max_members from the pack
+  const { data: pack } = await supabase
+    .from('family_packs')
+    .select('stripe_subscription_id, max_members')
+    .eq('id', packId)
+    .single();
+
+  if (!pack?.stripe_subscription_id) {
+    console.warn(`[family] No stripe_subscription_id on pack ${packId} — skipping quantity update`);
+    return;
+  }
+
+  const { getStripe } = require('../../subscription/lib/stripeClient');
+  const stripe = getStripe();
+
+  // Retrieve the subscription to get the item ID and current quantity
+  const sub = await stripe.subscriptions.retrieve(pack.stripe_subscription_id);
+  const item = sub.items?.data?.[0];
+  if (!item) {
+    throw new Error(`No subscription items found for ${pack.stripe_subscription_id}`);
+  }
+
+  const oldQuantity = item.quantity;
+
+  // Step 1: Update Stripe first (billing source of truth)
+  await stripe.subscriptions.update(pack.stripe_subscription_id, {
+    items: [{ id: item.id, quantity: newQuantity }],
+    proration_behavior: 'always_invoice',
+    payment_behavior: 'allow_incomplete',
+  });
+
+  // Step 2: Mirror the quantity in the database
+  const { error: dbError } = await supabase
+    .from('family_packs')
+    .update({ max_members: newQuantity })
+    .eq('id', packId);
+
+  if (dbError) {
+    // DB failed after Stripe succeeded — roll back Stripe to keep them in sync
+    console.error(`[family] ⚠️ DB update failed after Stripe update — rolling back Stripe quantity: ${dbError.message}`);
+    try {
+      await stripe.subscriptions.update(pack.stripe_subscription_id, {
+        items: [{ id: item.id, quantity: oldQuantity }],
+        proration_behavior: 'none', // no charge/credit for the rollback
+      });
+      console.log(`[family] Stripe quantity rolled back to ${oldQuantity}`);
+    } catch (rollbackErr) {
+      console.error(
+        `[family] ⚠️ CRITICAL: Stripe rollback also failed! ` +
+        `Stripe has quantity=${newQuantity} but DB has max_members=${pack.max_members}. ` +
+        `Manual fix required.`,
+        rollbackErr.message,
+      );
+    }
+    throw new Error('Failed to update database after Stripe billing change');
+  }
+
+  console.log(`[family] Updated Stripe quantity for pack ${packId} → ${newQuantity}`);
+}
 
 // ─── POST /api/family/create ─────────────────────────────────────────────────
 // Create a new family pack. The owner is automatically added as a member.
@@ -199,7 +265,7 @@ router.get('/my-pack', requireAuth, async (req, res, next) => {
       .from('family_packs')
       .select('*')
       .eq('owner_id', req.user.id)
-      .in('status', ['active', 'pending'])
+      .in('status', ['active', 'pending', 'cancelling'])
       .maybeSingle();
 
     if (ownedPack) {
@@ -226,7 +292,7 @@ router.get('/my-pack', requireAuth, async (req, res, next) => {
             .from('family_packs')
             .select('*')
             .eq('id', membership.pack_id)
-            .in('status', ['active', 'pending'])
+            .in('status', ['active', 'pending', 'cancelling'])
             .single();
 
           if (memberPack) {
@@ -259,6 +325,8 @@ router.get('/my-pack', requireAuth, async (req, res, next) => {
 
     const activeCount = (members || []).filter(m => m.status === 'active').length;
     const pendingCount = (members || []).filter(m => m.status === 'pending').length;
+    const activeMemberCount = (members || []).length; // non-removed members
+    const vacantSlots = pack.max_members - activeMemberCount;
 
     res.json({
       pack: {
@@ -271,6 +339,7 @@ router.get('/my-pack', requireAuth, async (req, res, next) => {
         createdAt: pack.created_at,
         expiresAt: pack.expires_at,
         stripeSubscriptionId: pack.stripe_subscription_id,
+        cancelAt: pack.cancel_at || null,
         owner: {
           name: ownerInfo?.name || 'Unknown',
           email: ownerInfo?.email || '',
@@ -281,7 +350,8 @@ router.get('/my-pack', requireAuth, async (req, res, next) => {
       stats: {
         active: activeCount,
         pending: pendingCount,
-        total: (members || []).length,
+        total: activeMemberCount,
+        vacantSlots: vacantSlots > 0 ? vacantSlots : 0,
       },
     });
   } catch (err) {
@@ -338,6 +408,7 @@ router.post('/add-member', requireAuth, async (req, res, next) => {
     }
 
     // Re-activate if previously removed, otherwise insert
+    let memberId;
     if (existing && existing.status === 'removed') {
       await supabase
         .from('family_pack_members')
@@ -348,18 +419,21 @@ router.post('/add-member', requireAuth, async (req, res, next) => {
           invited_at: new Date().toISOString(),
         })
         .eq('id', existing.id);
+      memberId = existing.id;
     } else {
-      await supabase.from('family_pack_members').insert({
+      const { data: inserted } = await supabase.from('family_pack_members').insert({
         pack_id: pack.id,
         email: cleanEmail,
         name: name || null,
         role: 'member',
         status: 'pending',
-      });
+      }).select('id').single();
+      memberId = inserted?.id;
     }
 
     // Update max_members (pack grows — pricing adjusts)
     const newTotal = (memberCount || 0) + 1;
+    const oldMaxMembers = pack.max_members;
     if (newTotal > pack.max_members) {
       await supabase
         .from('family_packs')
@@ -367,7 +441,96 @@ router.post('/add-member', requireAuth, async (req, res, next) => {
         .eq('id', pack.id);
     }
 
-    // Send invitation email and track result
+    // Update Stripe subscription quantity — if this fails, roll back the
+    // member insert/reactivation so billing and DB stay in sync.
+    try {
+      await updateStripeQuantity(pack.id, newTotal);
+    } catch (stripeErr) {
+      console.error(`[family] Stripe quantity update failed — rolling back member add: ${stripeErr.message}`);
+
+      // Undo the member insert or reactivation
+      if (existing && existing.status === 'removed') {
+        await supabase.from('family_pack_members')
+          .update({ status: 'removed', removed_at: new Date().toISOString() })
+          .eq('id', existing.id);
+      } else {
+        await supabase.from('family_pack_members')
+          .delete()
+          .eq('pack_id', pack.id)
+          .eq('email', cleanEmail);
+      }
+
+      // Undo max_members bump
+      if (newTotal > oldMaxMembers) {
+        await supabase.from('family_packs')
+          .update({ max_members: oldMaxMembers })
+          .eq('id', pack.id);
+      }
+
+      return res.status(502).json({
+        error: 'Failed to update billing. The member was not added. Please try again.',
+      });
+    }
+
+    // Check if user already has an account — if so, activate immediately
+    const { data: existingUser } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .eq('email', cleanEmail)
+      .maybeSingle();
+
+    if (existingUser) {
+      // Auto-activate: link user_id, set status to active
+      await supabase
+        .from('family_pack_members')
+        .update({
+          user_id: existingUser.id,
+          status: 'active',
+          joined_at: new Date().toISOString(),
+          invite_sent: true,
+        })
+        .eq('pack_id', pack.id)
+        .eq('email', cleanEmail);
+
+      // Cancel any existing active subscription
+      await supabase
+        .from('subscriptions')
+        .update({ status: 'replaced', cancelled_at: new Date().toISOString() })
+        .eq('user_id', existingUser.id)
+        .eq('status', 'active');
+
+      // Create family-linked pro subscription
+      await supabase.from('subscriptions').insert({
+        user_id: existingUser.id,
+        tier: 'pro',
+        status: 'active',
+        started_at: new Date().toISOString(),
+        is_gift: false,
+        is_family_pack: true,
+        family_pack_id: pack.id,
+      });
+
+      // Update denormalized tier
+      await supabase
+        .from('profiles')
+        .update({ subscription: 'pro' })
+        .eq('id', existingUser.id);
+
+      // Sync contacts so all pack members are connected
+      await syncFamilyPackContacts(pack.id);
+
+      console.log(`[family] Auto-activated existing user ${cleanEmail} in pack ${pack.id}`);
+
+      return res.json({
+        message: `${cleanEmail} added and activated in your Family Pack`,
+        activated: true,
+        emailSent: false,
+        newTotal,
+        newMonthly: newTotal * PRICE_PER_USER,
+      });
+    }
+
+    // User doesn't exist yet — send invitation email
     const { data: ownerProfile } = await supabase
       .from('profiles')
       .select('name')
@@ -394,6 +557,7 @@ router.post('/add-member', requireAuth, async (req, res, next) => {
 
     res.json({
       message: `${cleanEmail} added to your Family Pack`,
+      activated: false,
       emailSent,
       newTotal,
       newMonthly: newTotal * PRICE_PER_USER,
@@ -447,6 +611,40 @@ router.post('/remove-member', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Cannot remove the pack owner. Cancel the pack instead.' });
     }
 
+    // Check that removing this member won't drop below the minimum
+    const { count: currentCount } = await supabase
+      .from('family_pack_members')
+      .select('id', { count: 'exact', head: true })
+      .eq('pack_id', pack.id)
+      .neq('status', 'removed');
+
+    if ((currentCount || 0) <= MIN_MEMBERS) {
+      return res.status(400).json({
+        error: `A Family Pack requires at least ${MIN_MEMBERS} members. To go below ${MIN_MEMBERS}, cancel the pack instead.`,
+      });
+    }
+
+    // Count remaining active members (after this removal)
+    const { count: currentTotal } = await supabase
+      .from('family_pack_members')
+      .select('id', { count: 'exact', head: true })
+      .eq('pack_id', pack.id)
+      .neq('status', 'removed');
+
+    const remainingCount = (currentTotal || 1) - 1;
+
+    // Update Stripe billing FIRST — if this fails the member stays and
+    // the owner isn't over-charged for a removed member.
+    try {
+      await updateStripeQuantity(pack.id, remainingCount || 1);
+    } catch (stripeErr) {
+      console.error(`[family] Stripe quantity update failed — member NOT removed: ${stripeErr.message}`);
+      return res.status(502).json({
+        error: 'Failed to update billing. The member was not removed. Please try again.',
+      });
+    }
+
+    // Stripe succeeded — now perform DB cleanup (safe to proceed)
     // Soft-remove the member
     await supabase
       .from('family_pack_members')
@@ -455,6 +653,11 @@ router.post('/remove-member', requireAuth, async (req, res, next) => {
         removed_at: new Date().toISOString(),
       })
       .eq('id', member.id);
+
+    // Remove emergency contacts between this member and other pack members
+    if (member.user_id) {
+      await removeFamilyPackContacts(member.user_id, pack.id);
+    }
 
     // If the member had a user_id, revert their subscription to free
     if (member.user_id) {
@@ -479,13 +682,6 @@ router.post('/remove-member', requireAuth, async (req, res, next) => {
         .update({ subscription: 'free' })
         .eq('id', member.user_id);
     }
-
-    // Count remaining active members
-    const { count: remainingCount } = await supabase
-      .from('family_pack_members')
-      .select('id', { count: 'exact', head: true })
-      .eq('pack_id', pack.id)
-      .neq('status', 'removed');
 
     res.json({
       message: `${member.email} removed from your Family Pack`,
@@ -827,72 +1023,210 @@ router.post('/checkout', requireAuth, async (req, res, next) => {
 });
 
 // ─── POST /api/family/cancel ─────────────────────────────────────────────────
-// Cancel the entire family pack. Reverts all members to free tier.
+// Cancel the entire family pack.
+//
+// Refund policy (14-day cooling-off):
+//   • Within 14 days of the current billing period start → immediate full
+//     refund for the current period, access revoked straight away.
+//   • After 14 days → no refund, but the pack stays active until the end
+//     of the current billing period and billing stops automatically.
+//
+const COOLING_OFF_DAYS = 14;
+
 router.post('/cancel', requireAuth, async (req, res, next) => {
   try {
-    // Find owner's active pack
+    // Find owner's active or cancelling pack
     const { data: pack } = await supabase
       .from('family_packs')
-      .select('id')
+      .select('id, stripe_subscription_id, status')
       .eq('owner_id', req.user.id)
-      .eq('status', 'active')
+      .in('status', ['active', 'cancelling'])
       .single();
 
     if (!pack) {
       return res.status(404).json({ error: 'No active Family Pack found' });
     }
 
-    // Get all active members
-    const { data: members } = await supabase
-      .from('family_pack_members')
-      .select('user_id, email')
-      .eq('pack_id', pack.id)
-      .eq('status', 'active');
-
-    // Revert all members to free tier
-    for (const member of (members || [])) {
-      if (!member.user_id) continue;
-
-      await supabase
-        .from('subscriptions')
-        .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
-        .eq('user_id', member.user_id)
-        .eq('status', 'active')
-        .eq('is_family_pack', true);
-
-      await supabase.from('subscriptions').insert({
-        user_id: member.user_id,
-        tier: 'free',
-        status: 'active',
+    if (pack.status === 'cancelling') {
+      return res.status(400).json({
+        error: 'Your Family Pack is already scheduled to cancel at the end of the current billing period.',
       });
-
-      await supabase
-        .from('profiles')
-        .update({ subscription: 'free' })
-        .eq('id', member.user_id);
     }
 
-    // Cancel the pack
-    await supabase
-      .from('family_packs')
-      .update({
-        status: 'cancelled',
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq('id', pack.id);
+    // ── Determine if we are inside the 14-day cooling-off window ──────
+    let withinCoolingOff = true; // default to immediate if no Stripe sub
+    let periodEnd = null;
 
-    // Mark all members as removed
-    await supabase
-      .from('family_pack_members')
-      .update({ status: 'removed', removed_at: new Date().toISOString() })
-      .eq('pack_id', pack.id);
+    if (pack.stripe_subscription_id) {
+      const { getStripe } = require('../../subscription/lib/stripeClient');
+      const stripe = getStripe();
+
+      const sub = await stripe.subscriptions.retrieve(pack.stripe_subscription_id);
+      const periodStart = sub.current_period_start * 1000; // ms
+      const daysSincePeriodStart = (Date.now() - periodStart) / (1000 * 60 * 60 * 24);
+      withinCoolingOff = daysSincePeriodStart <= COOLING_OFF_DAYS;
+      periodEnd = new Date(sub.current_period_end * 1000).toISOString();
+
+      console.log(
+        `[family] Cancel request: ${daysSincePeriodStart.toFixed(1)} days into period ` +
+        `(cooling-off=${withinCoolingOff})`
+      );
+
+      if (withinCoolingOff) {
+        // ── IMMEDIATE CANCEL + FULL REFUND ────────────────────────────
+        // Cancel Stripe sub immediately.
+        await stripe.subscriptions.cancel(sub.id, { prorate: true });
+
+        // Refund ALL paid invoices for this subscription that have a
+        // payment_intent (skips proration credit notes which have none).
+        try {
+          const invoices = await stripe.invoices.list({
+            subscription: sub.id,
+            status: 'paid',
+            limit: 20,
+          });
+
+          for (const invoice of invoices.data) {
+            if (!invoice.payment_intent || invoice.amount_paid <= 0) continue;
+            try {
+              const piId = typeof invoice.payment_intent === 'string'
+                ? invoice.payment_intent
+                : invoice.payment_intent.id;
+              await stripe.refunds.create({
+                payment_intent: piId,
+                reason: 'requested_by_customer',
+              });
+              console.log(`[family] Refunded invoice ${invoice.id} (£${(invoice.amount_paid / 100).toFixed(2)}) for pack ${pack.id}`);
+            } catch (refundErr) {
+              // already refunded or other issue — log but continue
+              console.error(`[family] Refund for invoice ${invoice.id} failed: ${refundErr.message}`);
+            }
+          }
+        } catch (listErr) {
+          console.error(`[family] Failed to list invoices for refund: ${listErr.message}`);
+        }
+      } else {
+        // ── END-OF-PERIOD CANCEL (no refund) ─────────────────────────
+        // Keep access until billing period ends, then Stripe fires
+        // customer.subscription.deleted and our webhook cleans up.
+        await stripe.subscriptions.update(sub.id, {
+          cancel_at_period_end: true,
+        });
+
+        // Mark the pack as "cancelling" so the UI can show a notice.
+        // If this DB write fails, revert the Stripe change so they stay in sync.
+        const { error: dbCancelErr } = await supabase
+          .from('family_packs')
+          .update({
+            status: 'cancelling',
+            cancel_at: periodEnd,
+          })
+          .eq('id', pack.id);
+
+        if (dbCancelErr) {
+          console.error(`[family] ⚠️ DB update failed after Stripe cancel_at_period_end — rolling back Stripe: ${dbCancelErr.message}`);
+          try {
+            await stripe.subscriptions.update(sub.id, {
+              cancel_at_period_end: false,
+            });
+          } catch (rollbackErr) {
+            console.error(`[family] ⚠️ CRITICAL: Stripe rollback also failed! Sub ${sub.id} will cancel at period end but pack ${pack.id} still shows active. Manual fix required.`, rollbackErr.message);
+          }
+          return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+        }
+
+        console.log(`[family] Pack ${pack.id} set to cancel at period end (${periodEnd})`);
+
+        return res.json({
+          message: 'Your Family Pack will remain active until the end of your billing period. No further charges will be made.',
+          cancelAt: periodEnd,
+          refunded: false,
+        });
+      }
+    }
+
+    // ── Immediate revocation (cooling-off refund or no Stripe sub) ────
+    await revokeFamilyPack(pack.id);
 
     res.json({
-      message: 'Family Pack cancelled. All members reverted to free tier.',
+      message: 'Family Pack cancelled and refunded. All members have been reverted to the free plan.',
+      refunded: true,
     });
   } catch (err) {
     next(err);
   }
 });
 
+/**
+ * Revoke a family pack immediately — revert all members to free, mark pack
+ * as cancelled, and mark all members as removed.
+ * Shared between the cancel route (cooling-off refund) and the webhook
+ * (end-of-period expiry).
+ */
+async function revokeFamilyPack(packId) {
+  // Get all active members
+  const { data: members } = await supabase
+    .from('family_pack_members')
+    .select('user_id, email')
+    .eq('pack_id', packId)
+    .in('status', ['active', 'pending']);
+
+  // Revert each member to free tier
+  for (const member of (members || [])) {
+    if (!member.user_id) continue;
+
+    await supabase
+      .from('subscriptions')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .eq('user_id', member.user_id)
+      .eq('status', 'active')
+      .eq('is_family_pack', true);
+
+    await supabase.from('subscriptions').insert({
+      user_id: member.user_id,
+      tier: 'free',
+      status: 'active',
+    });
+
+    await supabase
+      .from('profiles')
+      .update({ subscription: 'free' })
+      .eq('id', member.user_id);
+  }
+
+  // Cancel the pack
+  await supabase
+    .from('family_packs')
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+    })
+    .eq('id', packId);
+
+  // Mark all members as removed
+  await supabase
+    .from('family_pack_members')
+    .update({ status: 'removed', removed_at: new Date().toISOString() })
+    .eq('pack_id', packId);
+
+  // Remove all emergency contacts that were auto-created between pack members
+  const userIds = (members || []).map(m => m.user_id).filter(Boolean);
+  if (userIds.length >= 2) {
+    for (let i = 0; i < userIds.length; i++) {
+      for (let j = i + 1; j < userIds.length; j++) {
+        await supabase
+          .from('emergency_contacts')
+          .delete()
+          .or(
+            `and(user_id.eq.${userIds[i]},contact_id.eq.${userIds[j]}),and(user_id.eq.${userIds[j]},contact_id.eq.${userIds[i]})`,
+          );
+      }
+    }
+    console.log(`[family] Removed emergency contacts between ${userIds.length} pack members`);
+  }
+
+  console.log(`[family] Pack ${packId} fully revoked — all members reverted to free`);
+}
+
 module.exports = router;
+module.exports.revokeFamilyPack = revokeFamilyPack;
