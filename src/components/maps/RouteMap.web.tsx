@@ -108,12 +108,17 @@ function recenterMap(){userInteracted=false;if(lastNavLL){map.panTo(lastNavLL);i
 
 function setNavView(heading,entering){
   var mapEl=document.getElementById('map'),btn=document.getElementById('recenterBtn');
-  if(!entering){isNavMode=false;currentRotation=0;userInteracted=false;mapEl.style.transform='none';if(btn)btn.style.display='none';return;}
+  if(!entering){isNavMode=false;currentRotation=0;userInteracted=false;mapEl.style.transform='none';mapEl.style.transition='transform 0.4s ease-out';if(btn)btn.style.display='none';return;}
   isNavMode=true;if(btn)btn.style.display='flex';
-  var target=-(heading||0),diff=target-currentRotation;
+  // Positive rotation (CW) brings heading direction to the top.
+  var target=(heading||0),diff=target-currentRotation;
   while(diff>180)diff-=360;while(diff<-180)diff+=360;
+  // Dead-zone: ignore < 8° to prevent jitter. Adaptive duration.
+  if(Math.abs(diff)<8) return;
   currentRotation+=diff;
-  mapEl.style.transform='perspective(800px) rotateX(40deg) rotate('+currentRotation+'deg) scale(1.5)';
+  var dur=Math.abs(diff)>=30?'0.25s':'0.5s';
+  mapEl.style.transition='transform '+dur+' ease-out';
+  mapEl.style.transform='rotate('+currentRotation+'deg)';
 }
 
 function setTileUrl(u,a){if(tileLayer)map.removeLayer(tileLayer);
@@ -200,8 +205,8 @@ function updateMap(d){
   if(d.origin&&d.maxDistanceKm&&d.maxDistanceKm>0&&!d.navLocation){
     rangeCircle=L.circle([d.origin.lat,d.origin.lng],{
       radius:d.maxDistanceKm*1000,
-      color:'#EF4444',weight:2.5,opacity:0.8,
-      fillColor:'#EF4444',fillOpacity:0.04,
+      color:'#22c55e',weight:2.5,opacity:0.8,
+      fillColor:'#22c55e',fillOpacity:0.04,
       dashArray:'8,6',
       interactive:false
     }).addTo(map);
@@ -224,7 +229,7 @@ function updateMap(d){
     lastNavLL=[d.navLocation.lat,d.navLocation.lng];
     var svg='<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">'
       +'<circle cx="22" cy="22" r="19" fill="#1570EF" stroke="white" stroke-width="3"/>'
-      +'<polygon points="22,7 29,27 22,22 15,27" fill="white" transform="rotate('+h+',22,22)"/></svg>';
+      +'<polygon points="22,7 29,27 22,22 15,27" fill="white" transform="rotate('+(-h)+',22,22)"/></svg>';
     var ni=L.divIcon({className:'nav-arrow',
       html:'<img src="data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg)+'" width="44" height="44"/>',
       iconSize:[44,44],iconAnchor:[22,22]});
