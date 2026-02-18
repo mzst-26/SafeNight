@@ -1,26 +1,42 @@
 /**
- * DraggableSheet — Android-friendly bottom sheet.
+ * DraggableSheet — Cross-platform bottom sheet with unified scroll+drag logic.
  *
- * The previous implementation used RN's PanResponder + Animated which is
- * unreliable on Android when a WebView (SurfaceView) is in the view
- * hierarchy. This rewrite uses react-native-reanimated's shared values
- * and the native-thread worklet API, which avoids JS-thread gesture
- * contention entirely.
- *
- * On web it falls back to Animated (which is fine for DOM).
+ * Three snap points: MIN (peek), DEFAULT (40%), MAX (75%).
+ * - Drag handle always initiates sheet resize
+ * - Body pan only captures when scrolled to top AND swiping down
+ *   (no confusing bottom-edge capture)
+ * - 3-point nearest-distance snap with velocity shortcuts
+ * - Dynamic screen height (supports rotation)
+ * - Auto-snaps to DEFAULT when sheet becomes visible
+ * - PanResponders recreated via useMemo to avoid stale closures
  */
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
-  Animated,
-  Dimensions,
-  PanResponder,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  View,
+    Animated,
+    Dimensions,
+    PanResponder,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    View,
 } from 'react-native';
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
+/** Always-fresh screen height (handles rotation / resize) */
+function getScreenHeight() {
+  return Dimensions.get('window').height;
+}
+
+const SHEET_MIN = 80;
+const SHEET_DEFAULT_RATIO = 0.4;
+const SHEET_MAX_RATIO = 0.75;
+
+function getSheetDefault() { return getScreenHeight() * SHEET_DEFAULT_RATIO; }
+function getSheetMax() { return getScreenHeight() * SHEET_MAX_RATIO; }
+
+/** Legacy exports — keep the constants available for consumers */
+const SHEET_DEFAULT = Dimensions.get('window').height * SHEET_DEFAULT_RATIO;
+const SHEET_MAX = Dimensions.get('window').height * SHEET_MAX_RATIO;
+export { SHEET_DEFAULT, SHEET_MAX, SHEET_MIN };
 
 interface DraggableSheetProps {
   children: React.ReactNode;
@@ -34,12 +50,6 @@ interface DraggableSheetProps {
   sheetHeightRef: React.MutableRefObject<number>;
 }
 
-const SHEET_MAX = SCREEN_HEIGHT * 0.75;
-const SHEET_DEFAULT = SCREEN_HEIGHT * 0.4;
-const SHEET_MIN = 80;
-
-export { SHEET_DEFAULT, SHEET_MAX, SHEET_MIN };
-
 export function DraggableSheet({
   children,
   bottomInset,
@@ -49,80 +59,117 @@ export function DraggableSheet({
 }: DraggableSheetProps) {
   const scrollOffsetRef = useRef(0);
   const isAtTopRef = useRef(true);
-  const isAtBottomRef = useRef(false);
+  /** Tracks the height value captured at the start of a gesture */
+  const gestureStartHeight = useRef(0);
 
-  const snapSheet = useCallback(
-    (current: number, vy: number) => {
-      let snap: number;
-      if (vy > 0.5 || current < SHEET_MIN + 40) {
-        snap = SHEET_MIN;
-      } else if (vy < -0.5 || current > SHEET_MAX - 40) {
-        snap = SHEET_MAX;
-      } else {
-        snap = SHEET_DEFAULT;
-      }
-      sheetHeightRef.current = snap;
+  // ── Snap logic ──────────────────────────────────────────────────────
+  const snapTo = useCallback(
+    (target: number) => {
+      sheetHeightRef.current = target;
       Animated.spring(sheetHeight, {
-        toValue: snap,
+        toValue: target,
         useNativeDriver: false,
-        bounciness: 4,
+        tension: 68,
+        friction: 12,
       }).start();
     },
     [sheetHeight, sheetHeightRef],
   );
 
-  // Handle drag — always draggable
-  const handlePanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        sheetHeight.stopAnimation((v: number) => {
-          sheetHeightRef.current = v;
-        });
-      },
-      onPanResponderMove: (_, g) => {
-        const next = Math.min(SHEET_MAX, Math.max(SHEET_MIN, sheetHeightRef.current - g.dy));
-        sheetHeight.setValue(next);
-      },
-      onPanResponderRelease: (_, g) => {
-        snapSheet(sheetHeightRef.current - g.dy, g.vy);
-      },
-    }),
-  ).current;
+  const snapToNearest = useCallback(
+    (current: number, velocity: number) => {
+      const sheetDefault = getSheetDefault();
+      const sheetMax = getSheetMax();
 
-  // Body pan — captures only at scroll edges
-  const bodyPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, g) => {
-        if (Math.abs(g.dy) < 4) return false;
-        if (g.dy < 0 && isAtBottomRef.current) return true;
-        if (g.dy > 0 && isAtTopRef.current) return true;
-        return false;
-      },
-      onPanResponderGrant: () => {
-        sheetHeight.stopAnimation((v: number) => {
-          sheetHeightRef.current = v;
-        });
-      },
-      onPanResponderMove: (_, g) => {
-        const next = Math.min(SHEET_MAX, Math.max(SHEET_MIN, sheetHeightRef.current - g.dy));
-        sheetHeight.setValue(next);
-      },
-      onPanResponderRelease: (_, g) => {
-        snapSheet(sheetHeightRef.current - g.dy, g.vy);
-      },
-    }),
-  ).current;
+      // Fast flick shortcuts
+      if (velocity > 0.5) { snapTo(SHEET_MIN); return; }
+      if (velocity < -0.5) { snapTo(sheetMax); return; }
 
-  const handleSheetScroll = (e: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      // Nearest-distance among all three snap points
+      const dMin = Math.abs(current - SHEET_MIN);
+      const dDef = Math.abs(current - sheetDefault);
+      const dMax = Math.abs(current - sheetMax);
+      const best = Math.min(dMin, dDef, dMax);
+      if (best === dMin) snapTo(SHEET_MIN);
+      else if (best === dDef) snapTo(sheetDefault);
+      else snapTo(sheetMax);
+    },
+    [snapTo],
+  );
+
+  // ── Auto-snap to default when sheet becomes visible ─────────────────
+  const prevVisible = useRef(false);
+  useEffect(() => {
+    if (visible && !prevVisible.current) {
+      prevVisible.current = true;
+      requestAnimationFrame(() => snapTo(getSheetDefault()));
+    }
+    if (!visible && prevVisible.current) {
+      prevVisible.current = false;
+    }
+  }, [visible, snapTo]);
+
+  // ── Shared gesture helpers ──────────────────────────────────────────
+  const onGestureStart = useCallback(() => {
+    sheetHeight.stopAnimation((v: number) => {
+      sheetHeightRef.current = v;
+      gestureStartHeight.current = v;
+    });
+  }, [sheetHeight, sheetHeightRef]);
+
+  const onGestureMove = useCallback(
+    (dy: number) => {
+      const sheetMax = getSheetMax();
+      const next = Math.min(sheetMax, Math.max(SHEET_MIN, gestureStartHeight.current - dy));
+      sheetHeight.setValue(next);
+    },
+    [sheetHeight],
+  );
+
+  const onGestureEnd = useCallback(
+    (dy: number, vy: number) => {
+      const current = gestureStartHeight.current - dy;
+      snapToNearest(current, vy);
+    },
+    [snapToNearest],
+  );
+
+  // ── Handle PanResponder (drag handle — always draggable) ────────────
+  const handlePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => onGestureStart(),
+        onPanResponderMove: (_, g) => onGestureMove(g.dy),
+        onPanResponderRelease: (_, g) => onGestureEnd(g.dy, g.vy),
+      }),
+    [onGestureStart, onGestureMove, onGestureEnd],
+  );
+
+  // ── Body PanResponder (scroll area — only captures swipe-down at top)
+  const bodyPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) => {
+          if (Math.abs(g.dy) < 4) return false;
+          // Only intercept when scrolled to top AND swiping down
+          return g.dy > 0 && isAtTopRef.current;
+        },
+        onPanResponderGrant: () => onGestureStart(),
+        onPanResponderMove: (_, g) => onGestureMove(g.dy),
+        onPanResponderRelease: (_, g) => onGestureEnd(g.dy, g.vy),
+      }),
+    [onGestureStart, onGestureMove, onGestureEnd],
+  );
+
+  // ── Scroll tracking ─────────────────────────────────────────────────
+  const handleSheetScroll = useCallback((e: any) => {
+    const { contentOffset } = e.nativeEvent;
     scrollOffsetRef.current = contentOffset.y;
     isAtTopRef.current = contentOffset.y <= 1;
-    isAtBottomRef.current =
-      contentOffset.y + layoutMeasurement.height >= contentSize.height - 1;
-  };
+  }, []);
 
   if (!visible) return null;
 
@@ -148,6 +195,7 @@ export function DraggableSheet({
           onScroll={handleSheetScroll}
           bounces={false}
           nestedScrollEnabled={Platform.OS === 'android'}
+          keyboardShouldPersistTaps="always"
         >
           {children}
         </ScrollView>
@@ -167,7 +215,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     ...(Platform.OS === 'web'
-      ? { boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)', userSelect: 'none', cursor: 'default' }
+      ? { boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)', userSelect: 'none', cursor: 'default', touchAction: 'none' }
       : {
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -4 },
@@ -180,9 +228,9 @@ const styles = StyleSheet.create({
   } as any,
   dragZone: {
     alignItems: 'center',
-    paddingTop: 8,
-    paddingBottom: 4,
-    ...(Platform.OS === 'web' ? { cursor: 'grab' } : {}),
+    paddingTop: 12,
+    paddingBottom: 10,
+    ...(Platform.OS === 'web' ? { cursor: 'grab', touchAction: 'none' } : {}),
   } as any,
   handle: {
     width: 36,
