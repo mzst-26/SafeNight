@@ -30,6 +30,7 @@ const directionsRouter = require('./routes/directions');
 const staticmapRouter = require('./routes/staticmap');
 const nearbyRouter = require('./routes/nearby');
 const explainRouter = require('./routes/explain');
+const integrityVerifyRouter = require('./routes/integrityVerify');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -55,6 +56,7 @@ app.use('/api/directions', directionsRouter);
 app.use('/api/staticmap', staticmapRouter);
 app.use('/api/nearby', nearbyRouter);
 app.use('/api', explainRouter);
+app.use('/api/integrity', integrityVerifyRouter);
 
 // ─── Health check ────────────────────────────────────────────────────────────
 app.get('/api/health', healthCheck('api-gateway'));
