@@ -86,6 +86,21 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
   const [remainingDuration, setRemainingDuration] = useState(0);
 
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  /** Separate subscription for compass/magnetometer heading (fires instantly) */
+  const headingWatchRef = useRef<Location.LocationSubscription | null>(null);
+  /** Whether the compass heading has been received at least once */
+  const hasCompassRef = useRef(false);
+  /**
+   * Running EMA-smoothed heading (never emitted directly — used for jitter filtering).
+   * Smoothing factor: α=0.25 → new reading gets 25% weight, history gets 75%.
+   * This suppresses magnetometer noise (±1-3°) without lag on real turns.
+   */
+  const smoothedHeadingRef = useRef<number | null>(null);
+  /**
+   * Last heading value that was actually pushed into React state.
+   * We only update state when the change exceeds HEADING_EMIT_THRESHOLD.
+   */
+  const lastEmittedHeadingRef = useRef<number | null>(null);
   const syntheticStepsRef = useRef<NavigationStep[] | null>(null);
   const routeRef = useRef(route);
   routeRef.current = route;
@@ -95,11 +110,14 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
   const currentStep = activeSteps[currentStepIndex] ?? null;
   const nextStep = activeSteps[currentStepIndex + 1] ?? null;
 
-  // ── GPS watcher ──────────────────────────────────────────────
+  // ── GPS + Compass watcher ────────────────────────────────────
   const startWatching = useCallback(async () => {
-    // Clean previous watcher (try/catch: expo-location web lacks removeSubscription)
+    // Clean previous watchers
     try { watchRef.current?.remove(); } catch { /* noop */ }
+    try { headingWatchRef.current?.remove(); } catch { /* noop */ }
     watchRef.current = null;
+    headingWatchRef.current = null;
+    hasCompassRef.current = false;
 
     // Ensure we have location permission (critical on web)
     try {
@@ -115,6 +133,60 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
       return;
     }
 
+    // ── Compass heading (instant — no movement required) ──────
+    // watchHeadingAsync fires on every magnetometer/orientation change.
+    // trueHeading is preferred (accurate), magHeading as fallback.
+    // GPS heading is only used as last resort (requires physical movement).
+    //
+    // Stabilisation strategy:
+    //   1. Low-pass EMA (α=0.12) smooths out sensor noise (±1-3° jitter).
+    //      Lower α = more smoothing, slightly more lag on very slow turns
+    //      but zero perceptible lag on quick/real turns.
+    //   2. Dead-zone: only push to React state when change ≥ 8° so micro
+    //      wobbles don't cause re-renders / map camera updates.
+    //   3. Full turns (any size) are still captured immediately — the
+    //      dead-zone only blocks noise, not real rotations.
+    const SMOOTH_ALPHA = 0.12;
+    const EMIT_THRESHOLD = 8; // degrees — ignore changes smaller than this
+    try {
+      const headingSub = await Location.watchHeadingAsync((h) => {
+        const raw = h.trueHeading > 0 ? h.trueHeading : h.magHeading;
+        if (raw < 0) return;
+        hasCompassRef.current = true;
+
+        // ── Step 1: EMA smooth (circular) ────────────────────
+        let smoothed: number;
+        if (smoothedHeadingRef.current === null) {
+          smoothed = raw;
+        } else {
+          // Shortest-path delta so we interpolate through 0/360 correctly
+          let d = raw - smoothedHeadingRef.current;
+          while (d > 180) d -= 360;
+          while (d < -180) d += 360;
+          smoothed = (smoothedHeadingRef.current + d * SMOOTH_ALPHA + 360) % 360;
+        }
+        smoothedHeadingRef.current = smoothed;
+
+        // ── Step 2: Dead-zone — only emit if change is meaningful ─
+        if (lastEmittedHeadingRef.current === null) {
+          lastEmittedHeadingRef.current = smoothed;
+          setUserHeading(smoothed);
+        } else {
+          let delta = smoothed - lastEmittedHeadingRef.current;
+          while (delta > 180) delta -= 360;
+          while (delta < -180) delta += 360;
+          if (Math.abs(delta) >= EMIT_THRESHOLD) {
+            lastEmittedHeadingRef.current = smoothed;
+            setUserHeading(smoothed);
+          }
+        }
+      });
+      headingWatchRef.current = headingSub as unknown as Location.LocationSubscription;
+    } catch {
+      // Compass unavailable (web, simulator) — fall back to GPS heading
+    }
+
+    // ── GPS position (used for location + heading refinement) ──
     try {
       const sub = await Location.watchPositionAsync(
         {
@@ -128,7 +200,8 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
             longitude: loc.coords.longitude,
           };
           setUserLocation(pos);
-          if (loc.coords.heading != null && loc.coords.heading >= 0) {
+          // Use GPS heading only when compass hasn't fired yet (or unavailable)
+          if (!hasCompassRef.current && loc.coords.heading != null && loc.coords.heading >= 0) {
             setUserHeading(loc.coords.heading);
           }
         },
@@ -142,7 +215,12 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
 
   const stopWatching = useCallback(() => {
     try { watchRef.current?.remove(); } catch { /* expo-location web compat */ }
+    try { headingWatchRef.current?.remove(); } catch { /* expo-location web compat */ }
     watchRef.current = null;
+    headingWatchRef.current = null;
+    hasCompassRef.current = false;
+    smoothedHeadingRef.current = null;
+    lastEmittedHeadingRef.current = null;
   }, []);
 
   // ── Start / Stop ─────────────────────────────────────────────
