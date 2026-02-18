@@ -12,6 +12,7 @@
  * - Minimum width preserves search inputs; can't collapse past results
  */
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Animated,
@@ -19,6 +20,7 @@ import {
     Pressable,
     ScrollView,
     StyleSheet,
+    Text,
     View
 } from 'react-native';
 
@@ -242,6 +244,23 @@ export function WebSidebar({
             <Ionicons name="shield-checkmark" size={24} color="#1570ef" />
           </View>
         )}
+
+        {/* Policy links footer */}
+        {!isCollapsed && (
+          <View style={styles.policyFooter}>
+            <Pressable onPress={() => router.push('/privacy' as any)} accessibilityRole="link">
+              <Text style={styles.policyLink}>Privacy</Text>
+            </Pressable>
+            <Text style={styles.policySep}>·</Text>
+            <Pressable onPress={() => router.push('/refund' as any)} accessibilityRole="link">
+              <Text style={styles.policyLink}>Refund</Text>
+            </Pressable>
+            <Text style={styles.policySep}>·</Text>
+            <Pressable onPress={() => router.push('/terms' as any)} accessibilityRole="link">
+              <Text style={styles.policyLink}>Terms</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       {/* Right-edge drag handle */}
@@ -328,6 +347,27 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  policyFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
+    gap: 4,
+    flexWrap: 'wrap',
+  },
+  policyLink: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '500',
+    paddingHorizontal: 2,
+  },
+  policySep: {
+    fontSize: 11,
+    color: '#CBD5E1',
   },
   dragHandle: {
     width: 6,
