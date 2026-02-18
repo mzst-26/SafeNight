@@ -328,6 +328,21 @@ router.post('/create-portal', requireAuth, async (req, res, next) => {
       .single();
 
     if (!profile?.stripe_customer_id) {
+      // Check if user is on a family pack (they won't have their own Stripe customer)
+      const { data: memberRecord } = await supabase
+        .from('family_pack_members')
+        .select('pack_id')
+        .eq('user_id', req.user.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (memberRecord) {
+        return res.status(403).json({
+          error: 'Your subscription is managed by your Family Pack owner. Please ask them to manage or cancel the subscription.',
+          isFamilyMember: true,
+        });
+      }
+
       return res.status(400).json({
         error: 'No subscription found. You need to subscribe first.',
       });
@@ -344,6 +359,118 @@ router.post('/create-portal', requireAuth, async (req, res, next) => {
     res.json({ url: portalSession.url });
   } catch (err) {
     console.error('[stripe] Portal error:', err.message);
+    next(err);
+  }
+});
+
+// ─── POST /api/stripe/cancel ─────────────────────────────────────────────────
+// Cancel the user's individual (Guarded) subscription.
+//
+// 14-day cooling-off policy:
+//   • Within 14 days of the current billing period start → immediate cancel
+//     with a full refund for the current period.
+//   • After 14 days → no refund; access continues until the end of the
+//     current billing period, then billing stops automatically.
+//
+const COOLING_OFF_DAYS = 14;
+
+router.post('/cancel', requireAuth, async (req, res, next) => {
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', req.user.id)
+      .single();
+
+    if (!profile?.stripe_customer_id) {
+      return res.status(400).json({ error: 'No subscription found.' });
+    }
+
+    const stripe = getStripe();
+
+    // Find the active subscription
+    const subs = await stripe.subscriptions.list({
+      customer: profile.stripe_customer_id,
+      status: 'active',
+      limit: 1,
+    });
+
+    const sub = subs.data[0];
+    if (!sub) {
+      return res.status(404).json({ error: 'No active subscription found.' });
+    }
+
+    // Already scheduled to cancel?
+    if (sub.cancel_at_period_end) {
+      return res.status(400).json({
+        error: 'Your subscription is already scheduled to cancel at the end of the current billing period.',
+      });
+    }
+
+    const periodStart = sub.current_period_start * 1000; // ms
+    const daysSincePeriodStart = (Date.now() - periodStart) / (1000 * 60 * 60 * 24);
+    const withinCoolingOff = daysSincePeriodStart <= COOLING_OFF_DAYS;
+    const periodEnd = new Date(sub.current_period_end * 1000).toISOString();
+
+    console.log(
+      `[stripe] Cancel request: user=${req.user.id}, ` +
+      `${daysSincePeriodStart.toFixed(1)} days into period (cooling-off=${withinCoolingOff})`
+    );
+
+    if (withinCoolingOff) {
+      // ── IMMEDIATE CANCEL + FULL REFUND ──────────────────────────────
+      await stripe.subscriptions.cancel(sub.id, { prorate: true });
+
+      // Refund ALL paid invoices for this subscription that have a
+      // payment_intent (skips proration credit notes which have none).
+      try {
+        const invoices = await stripe.invoices.list({
+          subscription: sub.id,
+          status: 'paid',
+          limit: 20,
+        });
+
+        for (const invoice of invoices.data) {
+          if (!invoice.payment_intent || invoice.amount_paid <= 0) continue;
+          try {
+            const piId = typeof invoice.payment_intent === 'string'
+              ? invoice.payment_intent
+              : invoice.payment_intent.id;
+            await stripe.refunds.create({
+              payment_intent: piId,
+              reason: 'requested_by_customer',
+            });
+            console.log(`[stripe] Refunded invoice ${invoice.id} (£${(invoice.amount_paid / 100).toFixed(2)}) for user ${req.user.id}`);
+          } catch (refundErr) {
+            // already refunded or other issue — log but continue
+            console.error(`[stripe] Refund for invoice ${invoice.id} failed: ${refundErr.message}`);
+          }
+        }
+      } catch (listErr) {
+        console.error(`[stripe] Failed to list invoices for refund: ${listErr.message}`);
+      }
+
+      // The webhook (subscription.deleted) will handle reverting to free tier
+      return res.json({
+        message: 'Subscription cancelled and refunded. You have been reverted to the free plan.',
+        refunded: true,
+      });
+    } else {
+      // ── END-OF-PERIOD CANCEL (no refund) ────────────────────────────
+      await stripe.subscriptions.update(sub.id, {
+        cancel_at_period_end: true,
+      });
+
+      console.log(`[stripe] Subscription ${sub.id} set to cancel at period end (${periodEnd})`);
+
+      return res.json({
+        message: 'Your Guarded subscription will remain active until the end of your billing period. No further charges will be made.',
+        cancelAt: periodEnd,
+        refunded: false,
+      });
+    }
+  } catch (err) {
+    console.error('[stripe] Cancel error:', err.message);
     next(err);
   }
 });
