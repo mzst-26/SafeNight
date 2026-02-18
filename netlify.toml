@@ -4,9 +4,12 @@
   publish = "dist"
 
 # Environment variables (set these in Netlify Dashboard > Site settings > Environment variables):
-#   EXPO_PUBLIC_API_BASE_URL = https://plymhack2026-fork.onrender.com
-#   EXPO_PUBLIC_OSM_USER_AGENT = SafeNightHome/1.0
-#   EXPO_PUBLIC_OPENAI_API_KEY = sk-...
+#   EXPO_PUBLIC_API_BASE_URL          = https://safenighthome-gateway.onrender.com
+#   EXPO_PUBLIC_SAFETY_API_URL        = https://safenighthome-safety.onrender.com
+#   EXPO_PUBLIC_USER_API_URL          = https://safenighthome-user.onrender.com
+#   EXPO_PUBLIC_SUBSCRIPTION_API_URL  = https://safenighthome-subscription.onrender.com
+#   EXPO_PUBLIC_OSM_USER_AGENT        = SafeNightHome/1.0
+#   EXPO_PUBLIC_OPENAI_API_KEY        = sk-...
 
 # SPA fallback — all routes serve index.html (Expo Router handles client-side routing)
 [[redirects]]

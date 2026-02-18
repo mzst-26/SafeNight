@@ -66,3 +66,29 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://safenight.netlify.app
     healthCheckPath: /api/health
+
+  # ─── Subscription Service ────────────────────────────────────────────────────
+  - type: web
+    name: safenighthome-subscription
+    runtime: node
+    region: eu-west
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/subscription/server.js
+    envVars:
+      - key: PORT
+        value: 3004
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        value: https://safenight.netlify.app
+      - key: STRIPE_SECRET_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false  # Set manually in Render dashboard
+      - key: SUPABASE_URL
+        sync: false  # Set manually in Render dashboard
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false  # Set manually in Render dashboard
+    healthCheckPath: /api/health
