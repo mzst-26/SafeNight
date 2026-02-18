@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
@@ -12,11 +13,17 @@ import LoginModal from '@/src/components/modals/LoginModal';
 import WelcomeModal from '@/src/components/modals/WelcomeModal';
 import ForceUpdateScreen from '@/src/components/ui/ForceUpdateScreen';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useAutoUpdate } from '@/src/hooks/useAutoUpdate';
 import { useUpdateCheck } from '@/src/hooks/useUpdateCheck';
 import { setOnboardingAccepted } from '@/src/services/onboarding';
 
 // Hide native splash as fast as possible
 SplashScreen.preventAutoHideAsync().then(() => SplashScreen.hideAsync());
+
+// Set Android navigation bar color to white with dark icons
+if (Platform.OS === 'android') {
+  SystemUI.setBackgroundColorAsync('#ffffff');
+}
 
 const MIN_SPLASH_MS = 3500;
 
@@ -28,6 +35,9 @@ export default function RootLayout() {
   const [locationGranted, setLocationGranted] = useState(false);
   const update = useUpdateCheck();
   const auth = useAuth();
+
+  // Enable auto-updates (OTA updates for Play Store builds)
+  useAutoUpdate();
 
   // Start minimum timer on mount
   useEffect(() => {
@@ -111,7 +121,7 @@ export default function RootLayout() {
         onLayout={onMainLayout}
       >
         <SafeAreaProvider>
-          <StatusBar style="dark" translucent />
+          <StatusBar style="dark" />
           <Stack screenOptions={{ headerShown: false }} />
         </SafeAreaProvider>
       </View>
