@@ -23,7 +23,7 @@ function createCorsMiddleware() {
         callback(new Error(`CORS: origin ${origin} not allowed`));
       }
     },
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     optionsSuccessStatus: 200,
   });
 }
