@@ -169,4 +169,21 @@ export const stripeApi = {
 
     return res.json();
   },
+
+  /**
+   * Cancel the user's individual subscription.
+   * 14-day cooling-off: within 14 days → full refund, after → access until period end.
+   */
+  async cancelSubscription(): Promise<{ message: string; refunded?: boolean; cancelAt?: string }> {
+    const res = await authFetch('/api/stripe/cancel', {
+      method: 'POST',
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Cancel failed' }));
+      throw new Error(err.error || 'Failed to cancel subscription');
+    }
+
+    return res.json();
+  },
 };
