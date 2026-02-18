@@ -1,0 +1,16 @@
+# Exclude backend and other unrelated directories from EAS builds
+backend/
+node_modules/
+.git/
+.github/
+docs/
+*.md
+.env.local
+.env.*.local
+.expo
+.idea
+.vscode
+android/
+dist
+ios
+.env
