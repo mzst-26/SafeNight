@@ -3,15 +3,12 @@
 # dependencies
 node_modules/
 
-# Environment secrets — NEVER commit API keys
+# Environment secrets — NEVER commit API keys or env files
 .env
 .env.local
 .env.*.local
+.env.production
 backend/.env
-
-# Keep .env.example as template (force-track it)
-!.env.example
-!backend/.env.example
 
 # Database schema files
 *.sql
@@ -74,4 +71,16 @@ app-example
 # Build artifacts
 android_build_log.txt
 test_map.png
-.env.production
+
+# Google Play service account (for automated submission)
+google-play-service-account.json
+
+# Markdown documentation files (notes, deployment guides, environment docs)
+*.md
+!README.md
+
+# SQL files (database schema/migration files - keep out of repo)
+*.sql
+
+# Environment files (all variants - never commit real secrets)
+.env*
