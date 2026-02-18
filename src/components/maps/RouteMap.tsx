@@ -2,9 +2,9 @@
  * RouteMap — Platform entry point for TypeScript module resolution.
  *
  * At build time, Metro resolves to the platform-specific implementation:
- *   • Android → RouteMap.android.tsx  (WebView + Leaflet / OSM tiles)
- *   • iOS     → RouteMap.ios.tsx      (WebView + Leaflet / OSM tiles)
- *   • Web     → RouteMap.web.tsx      (iframe + Leaflet / OSM tiles)
+ *   • Android → RouteMap.native.tsx  (WebView + MapLibre GL JS, 3D navigation)
+ *   • iOS     → RouteMap.native.tsx  (WebView + MapLibre GL JS, 3D navigation)
+ *   • Web     → RouteMap.web.tsx     (iframe + Leaflet / OSM tiles)
  *
  * This file is NEVER bundled by Metro because the platform suffixes
  * always take priority.  It exists purely so TypeScript (tsc) can
