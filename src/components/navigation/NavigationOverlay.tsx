@@ -5,10 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { NavigationInfo } from '@/src/hooks/useNavigation';
-import { formatDuration, maneuverIcon, stripHtml } from '@/src/utils/format';
-
-/** Always show metres (no km conversion) */
-const formatMetres = (m: number): string => `${Math.round(m)} m`;
+import { formatDuration, formatNavDistance, maneuverIcon, stripHtml } from '@/src/utils/format';
 
 interface NavigationOverlayProps {
   nav: NavigationInfo;
@@ -34,9 +31,11 @@ export function NavigationOverlay({ nav, topInset, bottomInset }: NavigationOver
                 color="#1570EF"
               />
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.distance}>
-                  In {formatMetres(nav.distanceToNextTurn)}
-                </Text>
+                {nav.distanceToNextTurn > 30 ? (
+                  <Text style={styles.distance}>
+                    In {formatNavDistance(nav.distanceToNextTurn)}
+                  </Text>
+                ) : null}
                 <Text style={styles.instruction} numberOfLines={2}>
                   {stripHtml(nav.currentStep?.instruction ?? 'Continue on route')}
                 </Text>
@@ -53,10 +52,14 @@ export function NavigationOverlay({ nav, topInset, bottomInset }: NavigationOver
           <View style={[styles.bottomBar, { marginBottom: bottomInset + 8 }]}>
             <View>
               <Text style={styles.remaining}>
-                {formatMetres(nav.remainingDistance)} remaining
+                {formatNavDistance(nav.remainingDistance)} remaining
               </Text>
               <Text style={styles.eta}>
-                ETA: {formatDuration(nav.remainingDuration)} walking
+                ETA{' '}
+                <Text style={styles.arrivalTime}>
+                  {new Date(Date.now() + nav.remainingDuration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                {' · '}{formatDuration(nav.remainingDuration)} walking
               </Text>
               {nav.state === 'off-route' && (
                 <Text style={styles.offRoute}>Off route — rerouting…</Text>
@@ -147,6 +150,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#667085',
     marginTop: 2,
+  },
+  arrivalTime: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#22c55e',
   },
   offRoute: {
     fontSize: 13,
