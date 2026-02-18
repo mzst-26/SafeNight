@@ -50,6 +50,15 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  /** Turn raw errors into user-friendly messages */
+  const friendlyError = (err: unknown, fallback: string): string => {
+    const msg = err instanceof Error ? err.message : '';
+    if (/network|failed to fetch|timeout|econnrefused|unreachable|load failed/i.test(msg)) {
+      return 'Oops! The server seems unreachable. Please reload and try again later.';
+    }
+    return err instanceof Error ? err.message : fallback;
+  };
+
   // Existing pack state
   const [packData, setPackData] = useState<FamilyPackResult | null>(null);
 
@@ -85,7 +94,11 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
       const data = await familyApi.getMyPack();
       setPackData(data);
     } catch (err) {
-      // No pack is fine — show setup mode
+      const msg = err instanceof Error ? err.message : '';
+      if (/network|failed to fetch|timeout|econnrefused|unreachable|load failed/i.test(msg)) {
+        setError('Oops! The server seems unreachable. Please reload and try again later.');
+      }
+      // If it's a non-network error, no pack found is fine — show setup mode
       setPackData(null);
     } finally {
       setLoading(false);
@@ -158,7 +171,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
       await loadPack();
       onPackChanged?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create pack');
+      setError(friendlyError(err, 'Failed to create pack'));
     } finally {
       setActionLoading(false);
     }
@@ -172,7 +185,9 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
     setActionLoading(true);
     try {
       const result = await familyApi.addMember(newMemberEmail.trim(), newMemberName.trim() || undefined);
-      if ((result as any).emailSent === false) {
+      if ((result as any).activated) {
+        setSuccess(result.message);
+      } else if ((result as any).emailSent === false) {
         setSuccess(`${result.message}\n⚠️ Invitation email failed to send. You can resend from the member list.`);
       } else {
         setSuccess(result.message);
@@ -183,7 +198,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
       await loadPack();
       onPackChanged?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add member');
+      setError(friendlyError(err, 'Failed to add member'));
     } finally {
       setActionLoading(false);
     }
@@ -201,7 +216,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
         await loadPack();
         onPackChanged?.();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to remove member');
+        setError(friendlyError(err, 'Failed to remove member'));
       } finally {
         setActionLoading(false);
       }
@@ -258,7 +273,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
       await loadPack();
       onPackChanged?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update email');
+      setError(friendlyError(err, 'Failed to update email'));
     } finally {
       setActionLoading(false);
     }
@@ -278,7 +293,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
       }
       await loadPack();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resend invitation');
+      setError(friendlyError(err, 'Failed to resend invitation'));
     } finally {
       setActionLoading(false);
     }
@@ -303,7 +318,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
         onPackChanged?.();
       }, 1000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start checkout');
+      setError(friendlyError(err, 'Failed to start checkout'));
     } finally {
       setActionLoading(false);
     }
@@ -315,31 +330,38 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
       setActionLoading(true);
       try {
         const result = await familyApi.cancel();
-        setSuccess(result.message);
-        setPackData(null);
+        if (result.refunded) {
+          // Immediate cancellation with refund
+          setSuccess(result.message);
+          setPackData(null);
+        } else {
+          // End-of-period cancellation — pack stays active
+          setSuccess(result.message);
+          loadPack(); // reload to get 'cancelling' status + cancelAt
+        }
         onPackChanged?.();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to cancel pack');
+        setError(friendlyError(err, 'Failed to cancel pack'));
       } finally {
         setActionLoading(false);
       }
     };
 
     if (Platform.OS === 'web') {
-      if (confirm('Cancel your Family Pack? All members will lose Guarded features.')) {
+      if (confirm('Cancel your Family Pack? If you are within 14 days of your billing date you will receive a full refund. Otherwise your pack will stay active until the end of the billing period.')) {
         doCancel();
       }
     } else {
       Alert.alert(
         'Cancel Pack',
-        'All members will lose Guarded features and revert to the free plan.',
+        'If you are within 14 days of your billing date you will receive a full refund. Otherwise your pack will stay active until the end of the billing period.',
         [
           { text: 'Keep Pack', style: 'cancel' },
           { text: 'Cancel Pack', style: 'destructive', onPress: doCancel },
         ],
       );
     }
-  }, [onPackChanged]);
+  }, [onPackChanged, loadPack]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -450,6 +472,27 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                         {packData!.stats.active} active, {packData!.stats.pending} pending
                       </Text>
                     </View>
+                    {isOwner && packData!.stats.vacantSlots > 0 && (
+                      <View style={styles.vacantNotice}>
+                        <Ionicons name="alert-circle" size={16} color="#D97706" />
+                        <Text style={styles.vacantNoticeText}>
+                          {packData!.stats.vacantSlots} member{packData!.stats.vacantSlots > 1 ? 's have' : ' has'} left your pack.
+                          You’re still being charged for {packData!.pack!.maxMembers} members (minimum 3).
+                          Add a replacement member or cancel the pack.
+                        </Text>
+                      </View>
+                    )}
+                    {packData!.pack!.status === 'cancelling' && packData!.pack!.cancelAt && (
+                      <View style={styles.cancellingNotice}>
+                        <Ionicons name="time-outline" size={16} color="#DC2626" />
+                        <Text style={styles.cancellingNoticeText}>
+                          Your pack is scheduled to cancel on{' '}
+                          {new Date(packData!.pack!.cancelAt).toLocaleDateString('en-GB', {
+                            day: 'numeric', month: 'long', year: 'numeric',
+                          })}. All members will keep Guarded access until then.
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.packInfoRow}>
                       <Text style={styles.packInfoLabel}>Monthly total</Text>
                       <Text style={styles.packInfoPrice}>
@@ -508,7 +551,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                           </Text>
                         </View>
                         {/* Pending status explanation */}
-                        {member.status === 'pending' && (
+                        {member.status === 'pending' && !member.user_id && (
                           <View style={styles.pendingExplainer}>
                             <Ionicons
                               name={member.invite_sent === false ? 'alert-circle-outline' : 'mail-outline'}
@@ -525,8 +568,17 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                             </Text>
                           </View>
                         )}
-                        {/* Resend invite button for pending members (owner only) */}
-                        {isOwner && member.status === 'pending' && member.role !== 'owner' && (
+                        {/* Linked but pending — just needs to log in */}
+                        {member.status === 'pending' && member.user_id && (
+                          <View style={styles.pendingExplainer}>
+                            <Ionicons name="time-outline" size={14} color="#92400E" />
+                            <Text style={styles.pendingExplainerText}>
+                              Account found. They’ll be activated automatically on their next login.
+                            </Text>
+                          </View>
+                        )}
+                        {/* Resend invite button for pending members without accounts (owner only) */}
+                        {isOwner && member.status === 'pending' && !member.user_id && member.role !== 'owner' && (
                           <Pressable
                             style={[
                               styles.resendInviteBtn,
@@ -654,6 +706,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                           </View>
                         </View>
                       ) : (
+                        packData!.pack!.status !== 'cancelling' && (
                         <Pressable
                           style={styles.addMemberBtn}
                           onPress={() => setShowAddMember(true)}
@@ -661,16 +714,19 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                           <Ionicons name="add-circle-outline" size={20} color="#7C3AED" />
                           <Text style={styles.addMemberBtnText}>Add Member</Text>
                         </Pressable>
+                        )
                       )}
 
-                      {/* Cancel pack */}
-                      <Pressable
-                        style={styles.cancelPackBtn}
-                        onPress={handleCancel}
-                        disabled={actionLoading}
-                      >
-                        <Text style={styles.cancelPackBtnText}>Cancel Family Pack</Text>
-                      </Pressable>
+                      {/* Cancel pack — hide if already cancelling */}
+                      {packData!.pack!.status !== 'cancelling' && (
+                        <Pressable
+                          style={styles.cancelPackBtn}
+                          onPress={handleCancel}
+                          disabled={actionLoading}
+                        >
+                          <Text style={styles.cancelPackBtnText}>Cancel Family Pack</Text>
+                        </Pressable>
+                      )}
                     </>
                   )}
                 </>
@@ -999,6 +1055,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#4338CA',
     fontWeight: '500',
+  },
+  vacantNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 6,
+  },
+  vacantNoticeText: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 17,
+    flex: 1,
+  },
+  cancellingNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 6,
+  },
+  cancellingNoticeText: {
+    fontSize: 12,
+    color: '#991B1B',
+    lineHeight: 17,
+    flex: 1,
   },
 
   // ── Section title ──
