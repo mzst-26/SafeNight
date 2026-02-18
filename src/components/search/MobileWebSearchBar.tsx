@@ -1,5 +1,5 @@
 /**
- * MobileWebSearchBar — Google Maps-style collapsible search for phone-size web.
+ * MobileWebSearchBar — Google Maps-style collapsible search.
  *
  * Behaviour:
  *   - Default: single "Where to?" pill at the top
@@ -7,14 +7,14 @@
  *   - Search performed → collapses back to single pill showing destination name
  *   - Tap pill again → re-expands to dual inputs (does NOT edit destination inline)
  *
- * This component is ONLY rendered on web when viewport < 768px.
- * Android/iOS native always uses the original SearchBar.
+ * Used on phone-size web AND Android native.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Animated,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -46,6 +46,8 @@ export interface MobileWebSearchBarProps {
   onGuestTap?: () => void;
   /** Whether route results are currently showing */
   hasResults: boolean;
+  /** Safe-area top inset (used on Android) */
+  topInset?: number;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -67,6 +69,7 @@ export function MobileWebSearchBar({
   onSwap,
   onGuestTap,
   hasResults,
+  topInset,
 }: MobileWebSearchBarProps) {
   const [expanded, setExpanded] = useState(false);
   const expandAnim = useRef(new Animated.Value(0)).current;
@@ -85,7 +88,9 @@ export function MobileWebSearchBar({
 
   const handleBlur = useCallback(() => {
     if (suppressBlur.current) { suppressBlur.current = false; return; }
-    blurTimer.current = setTimeout(() => setFocusedField(null), 200);
+    // Longer delay on Android — focus/blur fires unreliably above WebView
+    const delay = Platform.OS === 'android' ? 1000 : 200;
+    blurTimer.current = setTimeout(() => setFocusedField(null), delay);
   }, []);
 
   useEffect(() => {
@@ -132,12 +137,27 @@ export function MobileWebSearchBar({
   }, [onGuestTap, expand]);
 
   // Prediction logic
+  // On Android, focus/blur events are unreliable above a WebView, so
+  // fall back to checking which field has active predictions.
+  const activeField: 'origin' | 'destination' | null =
+    focusedField ?? lastFocused.current ?? null;
+
   const activePredictions =
-    focusedField === 'origin' && !manualOrigin && !originSearch.place
-      ? originSearch.predictions
-      : focusedField === 'destination' && !manualDest && !destSearch.place
-        ? destSearch.predictions
-        : [];
+    Platform.OS === 'android'
+      ? activeField === 'origin' && !manualOrigin && !originSearch.place
+        ? originSearch.predictions
+        : activeField === 'destination' && !manualDest && !destSearch.place
+          ? destSearch.predictions
+          : !manualDest && !destSearch.place && destSearch.predictions.length > 0
+            ? destSearch.predictions
+            : !manualOrigin && !originSearch.place && originSearch.predictions.length > 0
+              ? originSearch.predictions
+              : []
+      : focusedField === 'origin' && !manualOrigin && !originSearch.place
+        ? originSearch.predictions
+        : focusedField === 'destination' && !manualDest && !destSearch.place
+          ? destSearch.predictions
+          : [];
 
   const handlePredictionSelect = useCallback(
     (pred: PlacePrediction) => {
@@ -186,7 +206,7 @@ export function MobileWebSearchBar({
   });
 
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, topInset != null && { top: topInset + 8 }]}>
       <Animated.View style={[styles.container, { height: containerHeight }]}>
         {/* ── Collapsed single pill ── */}
         {!expanded && (
@@ -399,10 +419,11 @@ export function MobileWebSearchBar({
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    top: 32,
+    top: Platform.OS === 'android' ? 12 : 32,
     left: 0,
     right: 0,
     zIndex: 50,
+    ...(Platform.OS === 'android' ? { elevation: 50 } : {}),
     alignItems: 'center',
     paddingHorizontal: 12,
   },
@@ -427,7 +448,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     gap: 10,
-    boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 2px 12px rgba(0,0,0,0.12)' }
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.12,
+          shadowRadius: 12,
+          elevation: 8,
+        }),
   } as any,
   pillText: {
     flex: 1,
@@ -448,7 +477,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 12,
-    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 20,
+          elevation: 10,
+        }),
     gap: 8,
   } as any,
   expandedHeader: {
@@ -506,14 +543,21 @@ const styles = StyleSheet.create({
   inputFieldFocused: {
     borderColor: '#1570ef',
     backgroundColor: '#ffffff',
-    boxShadow: '0 0 0 2px rgba(21, 112, 239, 0.15)',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 0 0 2px rgba(21, 112, 239, 0.15)' }
+      : {
+          shadowColor: '#1570ef',
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+        }),
   } as any,
   textInput: {
     flex: 1,
     fontSize: 14,
     color: '#101828',
-    outlineStyle: 'none',
     borderWidth: 0,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : {}),
   } as any,
   locationText: {
     fontSize: 14,
@@ -536,10 +580,20 @@ const styles = StyleSheet.create({
   // ── Predictions ──
   predictions: {
     marginTop: 6,
+    width: '100%',
+    maxWidth: 480,
     backgroundColor: '#ffffff',
     borderRadius: 12,
-    boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
-    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 6px 20px rgba(0,0,0,0.12)' }
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.12,
+          shadowRadius: 20,
+          elevation: 12,
+        }),
+    overflow: Platform.OS === 'web' ? ('hidden' as any) : ('visible' as any),
     maxHeight: 280,
     borderWidth: 1,
     borderColor: '#e5e7eb',
