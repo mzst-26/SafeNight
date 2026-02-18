@@ -8,14 +8,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef } from 'react';
 import {
-    ActivityIndicator,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 
 import type { UseAutoPlaceSearchReturn } from '@/src/hooks/useAutoPlaceSearch';
@@ -391,21 +391,21 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
+    borderRadius: Platform.OS === 'android' ? 16 : 14,
     ...(Platform.OS === 'web'
       ? { boxShadow: '0 2px 12px rgba(0, 0, 0, 0.10)' }
       : {
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.10,
-          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 20,
         }),
-    elevation: 6,
+    elevation: Platform.OS === 'android' ? 8 : 6,
     overflow: Platform.OS === 'web' ? 'hidden' : 'visible',
     width: '100%',
     maxWidth: 600,
-    paddingTop: Platform.OS === 'web' ? 8 : 10,
-    paddingBottom: Platform.OS === 'web' ? 8 : 10,
+    paddingTop: Platform.OS === 'android' ? 12 : (Platform.OS === 'web' ? 8 : 10),
+    paddingBottom: Platform.OS === 'android' ? 12 : (Platform.OS === 'web' ? 8 : 10),
   },
   cardEmbedded: {
     maxWidth: '100%' as any,
@@ -417,8 +417,8 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Platform.OS === 'web' ? 10 : 8,
-    paddingVertical: Platform.OS === 'web' ? 0 : 2,
+    paddingHorizontal: Platform.OS === 'android' ? 10 : (Platform.OS === 'web' ? 10 : 8),
+    paddingVertical: Platform.OS === 'android' ? 4 : (Platform.OS === 'web' ? 0 : 2),
   },
   inputIconWrap: {
     width: 20,
@@ -449,18 +449,27 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 8,
+    marginLeft: Platform.OS === 'android' ? 10 : 8,
     backgroundColor: '#f9fafb',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    paddingHorizontal: Platform.OS === 'web' ? 12 : 10,
-    paddingVertical: Platform.OS === 'web' ? 10 : 7,
+    paddingHorizontal: Platform.OS === 'android' ? 10 : (Platform.OS === 'web' ? 12 : 10),
+    paddingVertical: Platform.OS === 'android' ? 8 : (Platform.OS === 'web' ? 10 : 7),
   },
   inputFieldWrapFocused: {
     borderColor: '#1570ef',
     backgroundColor: '#ffffff',
-    ...(Platform.OS === 'web' ? { boxShadow: '0 0 0 2px rgba(21, 112, 239, 0.15)' } : {}),
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 0 0 2px rgba(21, 112, 239, 0.15)' }
+      : Platform.OS === 'android'
+        ? {
+            shadowColor: '#1570ef',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.15,
+            shadowRadius: 8,
+          }
+        : {}),
   },
   inputField: {
     flex: 1,
@@ -491,7 +500,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f0fe',
   },
   inputDivider: {
-    flex: 1,
+    paddingHorizontal: Platform.OS === 'android' ? 10 : (Platform.OS === 'web' ? 10 : 8),
+    marginVertical: Platform.OS === 'android' ? 4 : (Platform.OS === 'web' ? 0 : 2),
     height: 1,
     backgroundColor: '#f2f4f7',
     marginLeft: 8,
@@ -511,18 +521,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   predictionsDropdown: {
-    marginTop: 6,
+    marginTop: 8,
     backgroundColor: '#ffffff',
     borderRadius: 12,
     ...(Platform.OS === 'web'
       ? { boxShadow: '0 6px 20px rgba(0, 0, 0, 0.12)' }
-      : {
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.12,
-          shadowRadius: 20,
-        }),
-    elevation: 12,
+      : Platform.OS === 'android'
+        ? {
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.15,
+            shadowRadius: 20,
+          }
+        : {
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.12,
+            shadowRadius: 20,
+          }),
+    elevation: Platform.OS === 'android' ? 12 : 12,
     zIndex: 20,
     overflow: Platform.OS === 'web' ? 'hidden' : 'visible',
     width: '100%',
