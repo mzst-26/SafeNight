@@ -2,12 +2,24 @@
  * format.ts — Shared formatting helpers used across the app.
  */
 
-/** Format metres to a human-readable distance string. */
+/** Format metres to a human-readable UK imperial distance string (always miles). */
 export const formatDistance = (meters: number): string => {
-  if (meters >= 1000) {
-    return `${(meters / 1000).toFixed(1)} km`;
+  const miles = meters / 1609.344;
+  if (miles >= 10) return `${Math.round(miles)} mi`;
+  return `${miles.toFixed(1)} mi`;
+};
+
+/** Format metres to a UK imperial string for navigation turn distances.
+ *  < 0.2 mi → yards, otherwise miles. */
+export const formatNavDistance = (meters: number): string => {
+  const miles = meters / 1609.344;
+  if (miles >= 0.2) {
+    if (miles >= 10) return `${Math.round(miles)} mi`;
+    return `${miles.toFixed(1)} mi`;
   }
-  return `${meters.toFixed(0)} m`;
+  const yards = Math.round(meters * 1.09361);
+  // Round to nearest 10 for cleaner readout
+  return `${Math.round(yards / 10) * 10} yds`;
 };
 
 /** Format seconds to a human-readable duration string. */
