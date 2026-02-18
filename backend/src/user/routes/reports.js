@@ -7,7 +7,8 @@
  * GET  /api/reports/mine      — Get current user's reports
  * DELETE /api/reports/:id     — Delete own report
  *
- * Categories: poor_lighting, unsafe_area, obstruction, harassment, other
+ * Categories: poor_lighting, unsafe_area, obstruction, harassment, suspicious_activity,
+ *             cctv, street_light, bus_stop, safe_space, dead_end, other
  */
 
 const express = require('express');
@@ -22,6 +23,12 @@ const VALID_CATEGORIES = [
   'unsafe_area',
   'obstruction',
   'harassment',
+  'suspicious_activity',
+  'cctv',
+  'street_light',
+  'bus_stop',
+  'safe_space',
+  'dead_end',
   'other',
 ];
 
