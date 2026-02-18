@@ -9,7 +9,7 @@
  * modified Dijkstra to return 3–5 safety-ranked routes.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   fetchSafeRoutes,
@@ -19,6 +19,9 @@ import {
 import { AppError } from '@/src/types/errors';
 import type { LatLng } from '@/src/types/google';
 import { LimitError } from '@/src/types/limitError';
+
+/** Round to 4 decimal places (~11 m) to avoid jitter re-fetches */
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -63,8 +66,23 @@ export function useSafeRoutes(
   const [meta, setMeta] = useState<SafeRoutesResponse['meta'] | null>(null);
   const cancelRef = useRef(0);
 
+  // Stabilise coordinate references so the effect doesn't re-fire on every render
+  const oLat = origin ? round4(origin.latitude) : null;
+  const oLng = origin ? round4(origin.longitude) : null;
+  const dLat = destination ? round4(destination.latitude) : null;
+  const dLng = destination ? round4(destination.longitude) : null;
+
+  const stableOrigin = useMemo<LatLng | null>(
+    () => (oLat != null && oLng != null ? { latitude: oLat, longitude: oLng } : null),
+    [oLat, oLng],
+  );
+  const stableDest = useMemo<LatLng | null>(
+    () => (dLat != null && dLng != null ? { latitude: dLat, longitude: dLng } : null),
+    [dLat, dLng],
+  );
+
   const refresh = useCallback(async () => {
-    if (!origin || !destination) {
+    if (!stableOrigin || !stableDest) {
       setRoutes([]);
       setStatus('idle');
       setError(null);
@@ -86,11 +104,11 @@ export function useSafeRoutes(
     try {
       console.log(
         `[useSafeRoutes] 🔍 Fetching safe routes: ` +
-          `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)} → ` +
-          `${destination.latitude.toFixed(4)},${destination.longitude.toFixed(4)}`,
+          `${stableOrigin.latitude.toFixed(4)},${stableOrigin.longitude.toFixed(4)} → ` +
+          `${stableDest.latitude.toFixed(4)},${stableDest.longitude.toFixed(4)}`,
       );
 
-      const result = await fetchSafeRoutes(origin, destination, subscriptionTier, maxDistanceKmOverride);
+      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride);
 
       if (cancelRef.current !== batchId) return; // stale
 
@@ -132,7 +150,7 @@ export function useSafeRoutes(
       setError(appError);
       setStatus('error');
     }
-  }, [origin, destination]);
+  }, [stableOrigin, stableDest]);
 
   useEffect(() => {
     refresh().catch(() => {
