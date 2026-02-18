@@ -11,7 +11,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AndroidOverlayHost } from '@/src/components/android/AndroidOverlayHost';
@@ -252,6 +252,56 @@ export default function HomeScreen() {
     }
   }, [h.nav.state, live]);
 
+  // --- PiP: auto-enter Picture-in-Picture when user leaves app during navigation (Android only) ---
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    let mod: typeof import('expo-pip').default | null = null;
+    try {
+      mod = require('expo-pip').default;
+    } catch {
+      return; // expo-pip not available in this build
+    }
+    if (!mod) return;
+    const ExpoPip = mod;
+
+    if (h.nav.state === 'navigating') {
+      ExpoPip.setPictureInPictureParams({
+        width: 9,
+        height: 16,
+        autoEnterEnabled: true,
+        title: 'SafeNight Navigation',
+        subtitle: h.destSearch?.place?.name ?? 'Navigating...',
+        seamlessResizeEnabled: true,
+      });
+    } else {
+      ExpoPip.setPictureInPictureParams({
+        autoEnterEnabled: false,
+      });
+    }
+  }, [h.nav.state, h.destSearch?.place?.name]);
+
+  // PiP fallback: manually enter PiP on older Android (< 12) when app goes to background during nav
+  useEffect(() => {
+    if (Platform.OS !== 'android' || h.nav.state !== 'navigating') return;
+
+    let mod2: typeof import('expo-pip').default | null = null;
+    try {
+      mod2 = require('expo-pip').default;
+    } catch {
+      return;
+    }
+    if (!mod2) return;
+    const pip = mod2;
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background') {
+        pip.enterPipMode({ width: 9, height: 16 });
+      }
+    });
+
+    return () => sub.remove();
+  }, [h.nav.state]);
+
   const distanceLabel = h.selectedRoute ? `🚶 ${formatDistance(h.selectedRoute.distanceMeters)}` : '--';
   const durationLabel = h.selectedRoute ? formatDuration(h.selectedRoute.durationSeconds) : '--';
   const showSafety = Boolean(h.selectedRoute);
@@ -290,7 +340,7 @@ export default function HomeScreen() {
   const isWeb = Platform.OS === 'web';
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       {/* ── Map (fills the screen as a flex child) ── */}
       <RouteMap
         origin={h.effectiveOrigin}
@@ -510,7 +560,7 @@ export default function HomeScreen() {
 
             {/* Login button for guest */}
             {isWebGuest && (
-              <View style={{ position: 'absolute', top: 76, left: 12, right: 12, zIndex: 45, alignItems: 'center' }}>
+              <View style={{ position: 'absolute', top: 100, left: 12, right: 12, zIndex: 45, alignItems: 'center' }}>
                 <WebLoginButton onPress={promptLogin} />
               </View>
             )}
@@ -667,7 +717,7 @@ export default function HomeScreen() {
 
         {/* ── Search bar (mobile only — web uses sidebar) ── */}
         {!isWeb && !h.isNavActive && (
-          <SearchBar
+          <MobileWebSearchBar
             topInset={insets.top + webBannerOffset}
             location={h.location}
             isUsingCurrentLocation={h.isUsingCurrentLocation}
@@ -684,12 +734,13 @@ export default function HomeScreen() {
             onClearRoute={h.clearSelectedRoute}
             onSwap={h.swapOriginAndDest}
             onGuestTap={isWebGuest ? promptLogin : undefined}
+            hasResults={h.routes.length > 0}
           />
         )}
 
         {/* ── Profile / Logout button (logged in) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 180 : 190), right: 12, zIndex: 110 }}>
+          <View style={{ position: 'absolute', top: isWeb ? insets.top + webBannerOffset + (isPhoneWeb ? 180 : 190) : '40%', marginTop: isWeb ? 0 : -50, right: 12, zIndex: 110 }}>
             <ProfileMenu
               name={auth.user?.name ?? auth.user?.username ?? null}
               email={auth.user?.email ?? null}
@@ -704,14 +755,14 @@ export default function HomeScreen() {
 
         {/* ── Web guest: Login button (under search bar) — mobile only, web uses sidebar ── */}
         {!isWeb && !h.isNavActive && isWebGuest && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 180, left: 0, right: 0, zIndex: 110, alignItems: 'center', paddingHorizontal: 10 }}>
+          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + 80, left: 0, right: 0, zIndex: 110, alignItems: 'center', paddingHorizontal: 10 }}>
             <WebLoginButton onPress={promptLogin} />
           </View>
         )}
 
         {/* ── Safety Circle button (right under profile button) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 230 : 240 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
+          <View style={{ position: 'absolute', top: isWeb ? insets.top + webBannerOffset + (isPhoneWeb ? 230 : 290) : '40%', marginTop: isWeb ? 0 : 0, right: 12, zIndex: 100 }}>
             <BuddyButton
               username={auth.user?.username ?? null}
               userId={auth.user?.id ?? null}
@@ -723,7 +774,7 @@ export default function HomeScreen() {
 
         {/* ── Show Friends on Map toggle (below Safety Circle) ── */}
         {!h.isNavActive && auth.isLoggedIn && (
-          <View style={{ position: 'absolute', top: insets.top + webBannerOffset + (isPhoneWeb ? 285 : 295 + (isWeb ? 50 : 0)), right: 12, zIndex: 100 }}>
+          <View style={{ position: 'absolute', top: isWeb ? insets.top + webBannerOffset + (isPhoneWeb ? 285 : 345) : '40%', marginTop: isWeb ? 0 : 50, right: 12, zIndex: 100 }}>
             <Pressable
               onPress={handleFriendToggle}
               style={[
@@ -742,12 +793,19 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* ── Report hazard button (only during navigation) ── */}
-        {h.isNavActive && auth.isLoggedIn && (
+        {/* ── Report hazard button (always available when logged in) ── */}
+        {auth.isLoggedIn && (
           <View style={{
             position: 'absolute',
-            bottom: insets.bottom + 100,
-            right: 16,
+            ...(h.isNavActive
+              ? { bottom: insets.bottom + 100, right: 16 }
+              : {
+                  top: isWeb
+                    ? insets.top + webBannerOffset + (isPhoneWeb ? 340 : 400)
+                    : '40%',
+                  marginTop: isWeb ? 0 : 100,
+                  right: 12,
+                }),
             zIndex: 100,
           }}>
             <Pressable
