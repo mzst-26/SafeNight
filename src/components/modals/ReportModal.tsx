@@ -1458,6 +1458,7 @@ const styles = StyleSheet.create({
   },
   popup: {
     width: '95%',
+    maxWidth: Platform.OS === 'web' ? 520 : undefined,
     maxHeight: POPUP_MAX_H,
     backgroundColor: '#fff',
     borderRadius: 20,
