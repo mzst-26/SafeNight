@@ -13,6 +13,7 @@
 const express = require('express');
 const { supabase, supabaseAuth } = require('../lib/supabase');
 const { requireAuth } = require('../middleware/authMiddleware');
+const { syncFamilyPackContacts } = require('../../shared/familyContacts');
 
 const router = express.Router();
 
@@ -136,6 +137,9 @@ async function ensureUserRecords(userId, email, name) {
             .eq('id', userId);
 
           console.log(`[auth] Auto-linked family pack member ${cleanEmail} → pack ${pack.id}`);
+
+          // Sync all pack members as emergency contacts
+          await syncFamilyPackContacts(pack.id);
         }
       }
     }
@@ -450,7 +454,49 @@ router.delete('/account', requireAuth, async (req, res, next) => {
     const userId = req.user.id;
     console.log(`[auth] Account deletion requested for user ${userId}`);
 
-    // 0. Cancel any active Stripe subscriptions before deleting data
+    // 0a. If user is a family pack sub-user, remove them from the pack first
+    const { data: memberRecords } = await supabase
+      .from('family_pack_members')
+      .select('id, pack_id, role')
+      .eq('user_id', userId)
+      .neq('status', 'removed');
+
+    if (memberRecords && memberRecords.length > 0) {
+      for (const member of memberRecords) {
+        // Get the pack to check ownership
+        const { data: pack } = await supabase
+          .from('family_packs')
+          .select('id, owner_id, status')
+          .eq('id', member.pack_id)
+          .maybeSingle();
+
+        if (pack && pack.owner_id !== userId && ['active', 'trialing'].includes(pack.status)) {
+          // Sub-user: soft-remove from pack, revert subscription
+          await supabase
+            .from('family_pack_members')
+            .update({
+              status: 'removed',
+              user_id: null,
+              removed_at: new Date().toISOString(),
+            })
+            .eq('id', member.id);
+
+          // Cancel their family-linked subscription
+          await supabase
+            .from('subscriptions')
+            .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+            .eq('user_id', userId)
+            .eq('status', 'active')
+            .eq('is_family_pack', true);
+
+          console.log(`[auth] Removed user ${userId} from family pack ${pack.id} before account deletion`);
+          // Note: Stripe quantity stays the same (min 3 users).
+          // The owner can add a replacement member or cancel the pack.
+        }
+      }
+    }
+
+    // 0b. Cancel any active Stripe subscriptions before deleting data
     const { data: profile } = await supabase
       .from('profiles')
       .select('stripe_customer_id')
