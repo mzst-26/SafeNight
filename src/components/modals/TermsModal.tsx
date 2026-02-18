@@ -101,11 +101,17 @@ export function TermsContent() {
 
       <Text style={styles.sectionTitle}>7. User-Generated Content & Reports</Text>
       <Text style={styles.body}>
-        Where the Service allows you to submit content (e.g. safety reports, comments), you retain
-        ownership of that content but grant us a worldwide, royalty-free licence to use, store, and
-        display it in connection with operating the Service.{'\n\n'}
-        You are responsible for ensuring that any content you submit does not violate applicable
-        laws or third-party rights. We reserve the right to remove any content at our discretion.
+        Where the Service allows you to submit content (e.g. safety reports, hazard data, CCTV or
+        infrastructure records), you grant us a perpetual, worldwide, royalty-free licence to use,
+        store, display, and retain that content in connection with operating the Service.{'\n\n'}
+        Safety reports are retained indefinitely in anonymised form to maintain the accuracy of
+        the shared safety dataset, even after account deletion. Once your account is deleted,
+        retained reports cannot be linked to your identity.{'\n\n'}
+        Anonymised, aggregate usage analytics are also retained to improve the service and cannot
+        be traced back to your account after deletion.{'\n\n'}
+        You are responsible for ensuring that content you submit is accurate and does not violate
+        applicable laws or third-party rights. We reserve the right to remove or edit submitted
+        content at our discretion.
       </Text>
 
       <Text style={styles.sectionTitle}>8. Privacy</Text>

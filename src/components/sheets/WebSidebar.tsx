@@ -259,6 +259,10 @@ export function WebSidebar({
             <Pressable onPress={() => router.push('/terms' as any)} accessibilityRole="link">
               <Text style={styles.policyLink}>Terms</Text>
             </Pressable>
+            <Text style={styles.policySep}>·</Text>
+            <Pressable onPress={() => router.push('/delete-account' as any)} accessibilityRole="link">
+              <Text style={[styles.policyLink, { color: '#EF4444' }]}>Delete Account</Text>
+            </Pressable>
           </View>
         )}
       </View>

@@ -75,6 +75,10 @@ export function PolicyFooter() {
         <Pressable onPress={() => router.push('/terms' as any)} accessibilityRole="link">
           <Text style={styles.footerLink}>Terms & Conditions</Text>
         </Pressable>
+        <Text style={styles.footerSep}>·</Text>
+        <Pressable onPress={() => router.push('/delete-account' as any)} accessibilityRole="link">
+          <Text style={[styles.footerLink, { color: '#EF4444' }]}>Delete My Account</Text>
+        </Pressable>
       </View>
     </View>
   );

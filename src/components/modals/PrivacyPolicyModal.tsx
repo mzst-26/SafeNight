@@ -102,13 +102,29 @@ export function PrivacyPolicyContent() {
         applicable law or to protect the safety of our users.
       </Text>
 
-      <Text style={styles.sectionTitle}>4. Data Storage & Security</Text>
+      <Text style={styles.sectionTitle}>4. Data Storage, Retention & Security</Text>
       <Text style={styles.body}>
         Your data is stored securely on Supabase (hosted on AWS within the EU). All data
         transmission uses HTTPS/TLS encryption. Access to production databases is restricted to
-        authorised team members. We retain your data for as long as your account is active or as
-        required by law. When you delete your account all personally identifiable data is
-        permanently erased within 30 days.
+        authorised team members.
+      </Text>
+      <Text style={styles.body}>
+        <Text style={styles.bold}>Account data: </Text>
+        Retained for as long as your account is active. When you delete your account, all
+        personally identifiable data (name, email, username, location history, Safety Circle
+        contacts, and Stripe customer ID) is permanently erased within 30 days.
+      </Text>
+      <Text style={styles.body}>
+        <Text style={styles.bold}>Safety reports: </Text>
+        Reports you submit (hazards, CCTV, street lights, etc.) are retained indefinitely in
+        anonymised form after account deletion. They form part of the shared safety dataset that
+        benefits all users and cannot be linked back to your identity once your account is deleted.
+      </Text>
+      <Text style={styles.body}>
+        <Text style={styles.bold}>Usage analytics: </Text>
+        Anonymised, aggregate usage events are retained to improve the service. These records
+        contain no name, email, or any identifier that can be traced back to you after your account
+        is deleted.
       </Text>
 
       <Text style={styles.sectionTitle}>5. Cookies & Web Tracking</Text>
@@ -123,8 +139,9 @@ export function PrivacyPolicyContent() {
         Under UK GDPR / EU GDPR you have the right to:{'\n\n'}
         • <Text style={styles.bold}>Access</Text> — request a copy of your personal data.{'\n'}
         • <Text style={styles.bold}>Rectification</Text> — correct inaccurate data via your profile.{'\n'}
-        • <Text style={styles.bold}>Erasure</Text> — delete your account and all data via "Delete
-        Account" in the profile menu.{'\n'}
+        • <Text style={styles.bold}>Erasure</Text> — delete your account and all personally
+        identifiable data via "Delete Account" in the profile menu. Note: anonymised safety
+        reports and aggregate usage analytics are retained as described in section 4.{'\n'}
         • <Text style={styles.bold}>Restriction</Text> — ask us to stop processing your data in
         certain circumstances.{'\n'}
         • <Text style={styles.bold}>Portability</Text> — request an export of your data by
