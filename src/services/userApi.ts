@@ -401,6 +401,12 @@ export type ReportCategory =
   | 'unsafe_area'
   | 'obstruction'
   | 'harassment'
+  | 'suspicious_activity'
+  | 'cctv'
+  | 'street_light'
+  | 'bus_stop'
+  | 'safe_space'
+  | 'dead_end'
   | 'other';
 
 export interface SafetyReport {
@@ -409,6 +415,7 @@ export interface SafetyReport {
   lng: number;
   category: ReportCategory;
   description: string;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   resolved_at?: string;
 }
@@ -420,6 +427,7 @@ export const reportsApi = {
     lng: number;
     category: ReportCategory;
     description: string;
+    metadata?: Record<string, unknown> | null;
   }): Promise<SafetyReport> {
     const res = await authFetch('/api/reports', {
       method: 'POST',
@@ -832,12 +840,13 @@ export interface FamilyPackMember {
 export interface FamilyPack {
   id: string;
   name: string;
-  status: 'active' | 'pending' | 'cancelled' | 'expired';
+  status: 'active' | 'pending' | 'cancelling' | 'cancelled' | 'expired';
   maxMembers: number;
   pricePerUser: number;
   totalMonthly: number;
   createdAt: string;
   expiresAt: string | null;
+  cancelAt: string | null;
   stripeSubscriptionId: string | null;
   owner: { name: string; email: string };
 }
@@ -846,7 +855,7 @@ export interface FamilyPackResult {
   pack: FamilyPack | null;
   members: FamilyPackMember[];
   role: 'owner' | 'member' | null;
-  stats: { active: number; pending: number; total: number };
+  stats: { active: number; pending: number; total: number; vacantSlots: number };
 }
 
 export const familyApi = {
@@ -912,7 +921,7 @@ export const familyApi = {
   },
 
   /** Cancel the family pack (owner only) */
-  async cancel(): Promise<{ message: string }> {
+  async cancel(): Promise<{ message: string; refunded?: boolean; cancelAt?: string }> {
     const res = await authFetch('/api/family/cancel', {
       method: 'POST',
     });
