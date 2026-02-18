@@ -1,13 +1,16 @@
 /**
  * MobileWebSheet — Bottom sheet for phone-size web.
  *
- * Simplified version of DraggableSheet optimised for phone-size web:
+ * Unified scroll+drag logic matching DraggableSheet:
  * - Three snap points: peek (120px), half (45%), full (85%)
- * - Drag handle at top for resizing (uses PanResponder for reliability)
- * - ScrollView for content — always scrollable
- * - Auto-appears when results arrive, hides when cleared
+ * - Drag handle always initiates sheet resize
+ * - Body pan only captures when scrolled to top AND swiping down
+ * - 3-point nearest-distance snap with velocity shortcuts
+ * - Dynamic screen height (handles resize)
+ * - Auto-snaps to half when sheet becomes visible
+ * - PanResponders via useMemo to avoid stale closures
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Animated,
     Dimensions,
@@ -42,14 +45,18 @@ export function MobileWebSheet({ children, visible }: MobileWebSheetProps) {
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffset = useRef(0);
   const isAtTopRef = useRef(true);
+  /** Tracks the height value captured at the start of a gesture */
+  const gestureStartHeight = useRef(0);
 
+  // ── Snap logic (unified with DraggableSheet) ─────────────────────────
   const snapTo = useCallback((target: number) => {
     heightRef.current = target;
     setCurrentSnap(target);
     Animated.spring(animatedHeight, {
       toValue: target,
       useNativeDriver: false,
-      bounciness: 4,
+      tension: 68,
+      friction: 12,
     }).start();
   }, [animatedHeight]);
 
@@ -57,19 +64,18 @@ export function MobileWebSheet({ children, visible }: MobileWebSheetProps) {
     const half = getSheetHalf();
     const full = getSheetFull();
 
-    if (velocity > 0.5) {
-      snapTo(SHEET_PEEK);
-    } else if (velocity < -0.5) {
-      snapTo(full);
-    } else {
-      const dPeek = Math.abs(current - SHEET_PEEK);
-      const dHalf = Math.abs(current - half);
-      const dFull = Math.abs(current - full);
-      const min = Math.min(dPeek, dHalf, dFull);
-      if (min === dPeek) snapTo(SHEET_PEEK);
-      else if (min === dHalf) snapTo(half);
-      else snapTo(full);
-    }
+    // Fast flick shortcuts
+    if (velocity > 0.5) { snapTo(SHEET_PEEK); return; }
+    if (velocity < -0.5) { snapTo(full); return; }
+
+    // Nearest-distance among all three snap points
+    const dPeek = Math.abs(current - SHEET_PEEK);
+    const dHalf = Math.abs(current - half);
+    const dFull = Math.abs(current - full);
+    const best = Math.min(dPeek, dHalf, dFull);
+    if (best === dPeek) snapTo(SHEET_PEEK);
+    else if (best === dHalf) snapTo(half);
+    else snapTo(full);
   }, [snapTo]);
 
   // Auto-snap to half when sheet becomes visible
@@ -84,58 +90,62 @@ export function MobileWebSheet({ children, visible }: MobileWebSheetProps) {
     }
   }, [visible, snapTo]);
 
-  // ── Drag handle — PanResponder (reliable on all platforms including web) ──
-  const handlePanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        animatedHeight.stopAnimation((v: number) => {
-          heightRef.current = v;
-        });
-      },
-      onPanResponderMove: (_, g) => {
-        const next = Math.min(
-          getSheetFull(),
-          Math.max(SHEET_PEEK, heightRef.current - g.dy),
-        );
-        animatedHeight.setValue(next);
-      },
-      onPanResponderRelease: (_, g) => {
-        const current = heightRef.current - g.dy;
-        snapToNearest(current, g.vy);
-      },
-    }),
-  ).current;
+  // ── Shared gesture helpers (same pattern as DraggableSheet) ──────────
+  const onGestureStart = useCallback(() => {
+    animatedHeight.stopAnimation((v: number) => {
+      heightRef.current = v;
+      gestureStartHeight.current = v;
+    });
+  }, [animatedHeight]);
 
-  // ── Body pan — captures only when scrolled to top and swiping down ──
-  const bodyPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, g) => {
-        if (Math.abs(g.dy) < 4) return false;
-        // Only capture if swiping down while at top of scroll
-        if (g.dy > 0 && isAtTopRef.current) return true;
-        return false;
-      },
-      onPanResponderGrant: () => {
-        animatedHeight.stopAnimation((v: number) => {
-          heightRef.current = v;
-        });
-      },
-      onPanResponderMove: (_, g) => {
-        const next = Math.min(
-          getSheetFull(),
-          Math.max(SHEET_PEEK, heightRef.current - g.dy),
-        );
-        animatedHeight.setValue(next);
-      },
-      onPanResponderRelease: (_, g) => {
-        const current = heightRef.current - g.dy;
-        snapToNearest(current, g.vy);
-      },
-    }),
-  ).current;
+  const onGestureMove = useCallback(
+    (dy: number) => {
+      const next = Math.min(
+        getSheetFull(),
+        Math.max(SHEET_PEEK, gestureStartHeight.current - dy),
+      );
+      animatedHeight.setValue(next);
+    },
+    [animatedHeight],
+  );
+
+  const onGestureEnd = useCallback(
+    (dy: number, vy: number) => {
+      const current = gestureStartHeight.current - dy;
+      snapToNearest(current, vy);
+    },
+    [snapToNearest],
+  );
+
+  // ── Handle PanResponder (drag handle — always draggable) ────────────
+  const handlePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => onGestureStart(),
+        onPanResponderMove: (_, g) => onGestureMove(g.dy),
+        onPanResponderRelease: (_, g) => onGestureEnd(g.dy, g.vy),
+      }),
+    [onGestureStart, onGestureMove, onGestureEnd],
+  );
+
+  // ── Body PanResponder (scroll area — only captures swipe-down at top)
+  const bodyPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) => {
+          if (Math.abs(g.dy) < 4) return false;
+          // Only intercept when scrolled to top AND swiping down
+          return g.dy > 0 && isAtTopRef.current;
+        },
+        onPanResponderGrant: () => onGestureStart(),
+        onPanResponderMove: (_, g) => onGestureMove(g.dy),
+        onPanResponderRelease: (_, g) => onGestureEnd(g.dy, g.vy),
+      }),
+    [onGestureStart, onGestureMove, onGestureEnd],
+  );
 
   const handleScroll = useCallback((e: any) => {
     const { contentOffset } = e.nativeEvent;
