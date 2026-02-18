@@ -1,0 +1,42 @@
+{
+  "cli": {
+    "version": ">= 15.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://plymhack2026-fork-1.onrender.com",
+        "EXPO_PUBLIC_SAFETY_API_URL": "https://plymhack2026-fork-safety.onrender.com",
+        "EXPO_PUBLIC_USER_API_URL": "https://plymhack2026-fork-user.onrender.com",
+        "EXPO_PUBLIC_SUBSCRIPTION_API_URL": "https://plymhack2026-fork-subscription.onrender.com"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}
