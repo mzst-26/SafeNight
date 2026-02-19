@@ -2,10 +2,17 @@
  * NavigationOverlay — Turn-by-turn UI during active navigation.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { NavigationInfo } from '@/src/hooks/useNavigation';
 import { formatDuration, formatNavDistance, maneuverIcon, stripHtml } from '@/src/utils/format';
+
+let _useIsInPip: () => { isInPipMode: boolean } = () => ({ isInPipMode: false });
+try {
+  const ExpoPip = require('expo-pip').default;
+  if (ExpoPip?.useIsInPip) _useIsInPip = ExpoPip.useIsInPip;
+} catch {}
 
 interface NavigationOverlayProps {
   nav: NavigationInfo;
@@ -15,9 +22,94 @@ interface NavigationOverlayProps {
 }
 
 export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotice }: NavigationOverlayProps) {
+  const { isInPipMode } = _useIsInPip();
   const isActive = nav.state === 'navigating' || nav.state === 'off-route';
 
+  // Measured PiP window width — gate updates to >= 6px changes to avoid
+  // a re-render storm during Android's PiP window resize animation.
+  const [pipW, setPipW] = useState(0);
+  const pipWRef = useRef(0);
+  const onPipLayout = useCallback((e: any) => {
+    const w = e.nativeEvent.layout.width;
+    if (w > 0 && Math.abs(w - pipWRef.current) >= 6) {
+      pipWRef.current = w;
+      setPipW(w);
+    }
+  }, []);
+
   if (!isActive && nav.state !== 'arrived') return null;
+
+  // ── PiP overlay — transparent, map visible. Two slim strips. ───────────
+  // All sizes are proportional to the measured window width so the layout
+  // remains readable whether the user makes the PiP window tiny or large.
+  if (isInPipMode && isActive) {
+    // Reference width: 220 px → scale 1.0. Shrinks down to 0.5 for narrow windows.
+    const scale = pipW > 0 ? Math.min(1.0, Math.max(0.50, pipW / 220)) : 0.85;
+    const iconCircle = Math.round(28 * scale);
+    const iconSz     = Math.round(15 * scale);
+    const distFont   = Math.round(12 * scale);
+    const instrFont  = Math.round(10 * scale);
+    const etaFont    = Math.round(9  * scale);
+    const hPad       = Math.round(8  * scale);
+    const vPadTop    = Math.round(6  * scale);
+    const vPadBot    = Math.round(4  * scale);
+    const stripGap   = Math.round(5  * scale);
+    const minTopH    = Math.round(40 * scale);
+    const minBotH    = Math.round(20 * scale);
+
+    return (
+      <View style={styles.pipRoot} onLayout={onPipLayout} pointerEvents="none">
+        {/* ── Top strip: icon + distance + turn instruction ── */}
+        <View style={[
+          styles.pipTopStrip,
+          { paddingHorizontal: hPad, paddingVertical: vPadTop, minHeight: minTopH, gap: stripGap },
+        ]}>
+          <View style={[styles.pipIconCircle, { width: iconCircle, height: iconCircle, borderRadius: iconCircle / 2 }]}>
+            <Ionicons
+              name={maneuverIcon(nav.currentStep?.maneuver) as any}
+              size={iconSz}
+              color="#ffffff"
+            />
+          </View>
+          <View style={styles.pipTextBlock}>
+            {nav.distanceToNextTurn > 30 ? (
+              <Text style={[styles.pipDistanceText, { fontSize: distFont }]} numberOfLines={1}>
+                {formatNavDistance(nav.distanceToNextTurn)}
+              </Text>
+            ) : null}
+            <Text
+              style={[styles.pipInstructionText, { fontSize: instrFont, lineHeight: instrFont + 3 }]}
+              numberOfLines={2}
+            >
+              {stripHtml(nav.currentStep?.instruction ?? 'Continue on route')}
+            </Text>
+          </View>
+        </View>
+
+        {/* Map shows through this spacer */}
+        <View style={{ flex: 1 }} />
+
+        {/* ── Bottom strip: remaining distance + ETA ── */}
+        <View style={[
+          styles.pipBottomStrip,
+          { paddingHorizontal: hPad, paddingVertical: vPadBot, minHeight: minBotH },
+        ]}>
+          {nav.state === 'off-route' ? (
+            <Text style={[styles.pipOffRouteText, { fontSize: etaFont }]} numberOfLines={1}>
+              ⚠ Off route…
+            </Text>
+          ) : (
+            <Text style={[styles.pipEtaText, { fontSize: etaFont }]} numberOfLines={1}>
+              {formatNavDistance(nav.remainingDistance)}
+              {'  ·  ETA '}
+              {new Date(Date.now() + nav.remainingDuration * 1000)
+                .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          )}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <>
@@ -94,6 +186,76 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
 }
 
 const styles = StyleSheet.create({
+  // ── PiP overlay — transparent, map shows through the middle ──────
+  pipRoot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'column',
+  },
+  // Top strip — dark frosted band
+  pipTopStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(8, 12, 22, 0.86)',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 6,
+    // min height so it's always readable
+    minHeight: 44,
+  },
+  pipIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#1570EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  pipTextBlock: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 1,
+  },
+  pipDistanceText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.3,
+  },
+  pipInstructionText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.90)',
+    lineHeight: 14,
+  },
+  // Bottom strip — subtler dark band
+  pipBottomStrip: {
+    backgroundColor: 'rgba(8, 12, 22, 0.80)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    alignItems: 'center',
+    minHeight: 24,
+    justifyContent: 'center',
+  },
+  pipEtaText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.80)',
+    letterSpacing: 0.1,
+    textAlign: 'center',
+  },
+  pipOffRouteText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#ef4444',
+    textAlign: 'center',
+  },
+
+  // ── Normal overlay ──────────────────────────────────────────────
   overlay: {
     position: 'absolute',
     top: 0,
