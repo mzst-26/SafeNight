@@ -11,7 +11,7 @@ const cors = require('cors');
 function createCorsMiddleware() {
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
-    .map((o) => o.trim())
+    .map((o) => o.trim().replace(/\/$/, ''))  // strip trailing slashes
     .filter(Boolean);
 
   return cors({
