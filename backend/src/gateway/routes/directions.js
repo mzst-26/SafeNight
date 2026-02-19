@@ -154,7 +154,7 @@ router.get('/', async (req, res) => {
 
       return {
         legs: [{
-          distance: { text: `${(route.distance / 1000).toFixed(1)} km`, value: route.distance },
+          distance: { text: `${(route.distance / 1609.344).toFixed(1)} mi`, value: route.distance },
           duration: { text: `${Math.round(route.duration / 60)} mins`, value: Math.round(route.duration) },
           end_location: { lat: dLat.value, lng: dLng.value },
           start_location: { lat: oLat.value, lng: oLng.value },

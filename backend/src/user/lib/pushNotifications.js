@@ -40,6 +40,9 @@ async function sendPush(pushToken, notification) {
         data: notification.data || {},
         priority: 'high',
         channelId: 'default',
+        // Ensure delivery even when app is closed / device is in Doze mode
+        ttl: 86400,
+        _contentAvailable: true,
       }),
     });
 

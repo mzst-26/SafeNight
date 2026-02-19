@@ -127,14 +127,14 @@ router.post('/start', checkFeatureLimit('live_sessions'), async (req, res, next)
 
       if (profiles && profiles.length > 0) {
         const notificationBody = destination_name
-          ? `${userName} is heading to ${destination_name}. Open SafeNight to track their location.`
-          : `${userName} has started walking. Open SafeNight to track their location.`;
+          ? `${userName} started a live session going to ${destination_name}`
+          : `${userName} started a live session`;
 
         // Send notifications in parallel
         await Promise.allSettled(
           profiles.map((p) =>
             sendPush(p.push_token, {
-              title: '🚶 Contact is on the move',
+              title: '📍 Live session started',
               body: notificationBody,
               data: {
                 type: 'live_session_started',

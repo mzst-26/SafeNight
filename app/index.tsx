@@ -236,10 +236,22 @@ export default function HomeScreen() {
     if (h.nav.state === 'navigating' && auth.isLoggedIn && contacts.length > 0 && !liveStarted.current) {
       liveStarted.current = true;
       const dest = h.effectiveDestination;
+      const destName = h.destSearch?.place?.name;
       live.startTracking({
         destination_lat: dest?.latitude,
         destination_lng: dest?.longitude,
-        destination_name: h.destSearch?.place?.name ?? 'Unknown destination',
+        destination_name: destName ?? 'Unknown destination',
+      }).then((success) => {
+        if (success) {
+          setToast({
+            message: destName
+              ? `Your Safety Circle can see you heading to ${destName}`
+              : 'Your Safety Circle can now see where you are',
+            icon: 'shield-checkmark',
+            iconColor: '#10B981',
+            duration: 5000,
+          });
+        }
       });
     }
   }, [h.nav.state, auth.isLoggedIn, contacts.length, h.effectiveDestination, h.destSearch?.place?.name, live]);
@@ -419,7 +431,7 @@ export default function HomeScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.warningTitle}>Destination out of range</Text>
                   <Text style={styles.warningText}>
-                    {h.outOfRangeMessage || 'Destination is too far away (max 10 km walking distance).'}
+                    {h.outOfRangeMessage || 'Destination is too far away (max 6.2 mi walking distance).'}
                   </Text>
                   {h.directionsError?.details?.detail ? (
                     <Text style={styles.warningDetail}>{String(h.directionsError.details.detail)}</Text>
@@ -470,7 +482,7 @@ export default function HomeScreen() {
                         : h.directionsError.code === 'NO_WALKING_NETWORK'
                           ? '💡 This area only has motorways or private roads. Pick a more residential destination.'
                           : h.directionsError.code === 'safe_routes_timeout'
-                            ? '💡 Shorter routes compute faster. Try somewhere within 5 km.'
+                            ? '💡 Shorter routes compute faster. Try somewhere within 3 mi.'
                             : h.directionsError.code === 'INTERNAL_ERROR'
                               ? '💡 This is usually temporary — wait a moment and try again.'
                               : '💡 Try again, or pick a different destination.'}
@@ -585,7 +597,7 @@ export default function HomeScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.warningTitle}>Destination out of range</Text>
                     <Text style={styles.warningText}>
-                      {h.outOfRangeMessage || 'Destination is too far away (max 10 km walking distance).'}
+                      {h.outOfRangeMessage || 'Destination is too far away (max 6.2 mi walking distance).'}
                     </Text>
                     {h.directionsError?.details?.detail ? (
                       <Text style={styles.warningDetail}>{String(h.directionsError.details.detail)}</Text>
@@ -636,7 +648,7 @@ export default function HomeScreen() {
                           : h.directionsError.code === 'NO_WALKING_NETWORK'
                             ? '💡 This area only has motorways or private roads. Pick a more residential destination.'
                             : h.directionsError.code === 'safe_routes_timeout'
-                              ? '💡 Shorter routes compute faster. Try somewhere within 5 km.'
+                              ? '💡 Shorter routes compute faster. Try somewhere within 3 mi.'
                               : h.directionsError.code === 'INTERNAL_ERROR'
                                 ? '💡 This is usually temporary — wait a moment and try again.'
                                 : '💡 Try again, or pick a different destination.'}
@@ -880,7 +892,7 @@ export default function HomeScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.warningTitle}>Destination out of range</Text>
                 <Text style={styles.warningText}>
-                  {h.outOfRangeMessage || 'Destination is too far away (max 10 km walking distance).'}
+                  {h.outOfRangeMessage || 'Destination is too far away (max 6.2 mi walking distance).'}
                 </Text>
                 {h.directionsError?.details?.detail ? (
                   <Text style={styles.warningDetail}>
@@ -935,7 +947,7 @@ export default function HomeScreen() {
                       : h.directionsError.code === 'NO_WALKING_NETWORK'
                         ? '💡 This area only has motorways or private roads. Pick a more residential destination.'
                         : h.directionsError.code === 'safe_routes_timeout'
-                          ? '💡 Shorter routes compute faster. Try somewhere within 5 km.'
+                          ? '💡 Shorter routes compute faster. Try somewhere within 3 mi.'
                           : h.directionsError.code === 'INTERNAL_ERROR'
                             ? '💡 This is usually temporary — wait a moment and try again.'
                             : '💡 Try again, or pick a different destination.'}

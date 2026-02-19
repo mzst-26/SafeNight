@@ -168,14 +168,16 @@ router.get('/', async (req, res) => {
       // ~4 000 elements/km² (roads, nodes, lights, CCTV, places, transit, crimes)
       const estimatedDataPoints = Math.round(areaKm2 * 4000);
 
+      const straightLineMi = straightLineKm * 0.621371;
+      const maxDistanceMi = maxDistanceKm * 0.621371;
       return res.status(400).json({
         error: 'DESTINATION_OUT_OF_RANGE',
-        message: `That destination is ${straightLineKm.toFixed(1)} km away — your limit is ${maxDistanceKm} km.`,
+        message: `That destination is ${straightLineMi.toFixed(1)} mi away — your limit is ${maxDistanceMi.toFixed(1)} mi.`,
         maxDistanceKm,
         actualDistanceKm: Math.round(straightLineKm * 10) / 10,
         estimatedDataPoints,
         areaKm2: Math.round(areaKm2 * 10) / 10,
-        detail: `To score this route for safety, we'd need to analyse roughly ${estimatedDataPoints.toLocaleString()} data points — every street, street light, CCTV camera, bus stop, open venue, and police-reported crime in a ${areaKm2.toFixed(1)} km² area. To keep SafeNight fast, we cap routes at ${maxDistanceKm} km for your plan.`,
+        detail: `To score this route for safety, we'd need to analyse roughly ${estimatedDataPoints.toLocaleString()} data points — every street, street light, CCTV camera, bus stop, open venue, and police-reported crime in a ${areaKm2.toFixed(1)} km² area. To keep SafeNight fast, we cap routes at ${maxDistanceMi.toFixed(1)} mi for your plan.`,
       });
     }
 
@@ -454,9 +456,9 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
       overview_polyline: { points: encodePolyline(polyline) },
       legs: [{
         distance: {
-          text: route.totalDist >= 1000
-            ? `${(route.totalDist / 1000).toFixed(1)} km`
-            : `${Math.round(route.totalDist)} m`,
+          text: route.totalDist >= 1609
+            ? `${(route.totalDist / 1609.344).toFixed(1)} mi`
+            : `${Math.round(route.totalDist * 3.281)} ft`,
           value: Math.round(route.totalDist),
         },
         duration: {
