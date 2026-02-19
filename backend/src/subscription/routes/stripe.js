@@ -33,7 +33,26 @@ async function getOrCreateCustomer(userId, email, name) {
     .single();
 
   if (profile?.stripe_customer_id) {
-    return profile.stripe_customer_id;
+    // Verify the customer still exists in Stripe (guards against test→live migration
+    // or manual Stripe dashboard deletions)
+    const stripe = getStripe();
+    try {
+      await stripe.customers.retrieve(profile.stripe_customer_id);
+      return profile.stripe_customer_id;
+    } catch (err) {
+      if (err?.code === 'resource_missing') {
+        // Stale ID — clear it and fall through to create a new one below
+        console.warn(
+          `[stripe] Customer ${profile.stripe_customer_id} not found in Stripe (stale ID). Creating new customer.`,
+        );
+        await supabase
+          .from('profiles')
+          .update({ stripe_customer_id: null })
+          .eq('id', userId);
+      } else {
+        throw err;
+      }
+    }
   }
 
   // Create a new Stripe customer
