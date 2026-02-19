@@ -56,7 +56,13 @@ app-example
 
 # generated native folders
 /ios
-/android
+# android source is committed (custom native modules + signing config)
+# ignore only build artifacts and sensitive files:
+android/app/build/
+android/build/
+android/.gradle/
+android/app/release.keystore
+android/local.properties
 .env
 
 # IDE settings (user-specific, should not be committed)

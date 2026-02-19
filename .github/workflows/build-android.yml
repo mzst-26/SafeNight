@@ -51,14 +51,17 @@ jobs:
           EXPO_PUBLIC_API_BASE_URL=${{ secrets.EXPO_PUBLIC_API_BASE_URL }}
           EXPO_PUBLIC_SAFETY_API_URL=${{ secrets.EXPO_PUBLIC_SAFETY_API_URL }}
           EXPO_PUBLIC_USER_API_URL=${{ secrets.EXPO_PUBLIC_USER_API_URL }}
+          EXPO_PUBLIC_SUBSCRIPTION_API_URL=${{ secrets.EXPO_PUBLIC_SUBSCRIPTION_API_URL }}
+          EXPO_PUBLIC_OPENAI_API_KEY=${{ secrets.EXPO_PUBLIC_OPENAI_API_KEY }}
           EXPO_PUBLIC_OSM_USER_AGENT=${{ secrets.EXPO_PUBLIC_OSM_USER_AGENT }}
           EXPO_PUBLIC_OSM_EMAIL=${{ secrets.EXPO_PUBLIC_OSM_EMAIL }}
           EXPO_PUBLIC_BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           EXPO_PUBLIC_BUILD_NUMBER=${{ steps.buildnum.outputs.value }}
           EOF
 
-      - name: Generate native Android project
-        run: npx expo prebuild --platform android
+      - name: Restore release keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.keystore
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -72,6 +75,8 @@ jobs:
 
       - name: Build release APK
         working-directory: android
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
         run: ./gradlew assembleRelease --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a
 
       - name: Rename APK
