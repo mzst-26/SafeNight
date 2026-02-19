@@ -23,12 +23,13 @@ const router = express.Router();
 /**
  * Get or create a Stripe Customer for the given user.
  * Stores stripe_customer_id in the profiles table for reuse.
+ * Returns { id: string, refundIneligible: boolean }.
  */
 async function getOrCreateCustomer(userId, email, name) {
   // Check if user already has a Stripe customer ID
   const { data: profile } = await supabase
     .from('profiles')
-    .select('stripe_customer_id')
+    .select('stripe_customer_id, refund_ineligible')
     .eq('id', userId)
     .single();
 
@@ -38,7 +39,7 @@ async function getOrCreateCustomer(userId, email, name) {
     const stripe = getStripe();
     try {
       await stripe.customers.retrieve(profile.stripe_customer_id);
-      return profile.stripe_customer_id;
+      return { id: profile.stripe_customer_id, refundIneligible: profile.refund_ineligible === true };
     } catch (err) {
       if (err?.code === 'resource_missing') {
         // Stale ID — clear it and fall through to create a new one below
@@ -55,8 +56,59 @@ async function getOrCreateCustomer(userId, email, name) {
     }
   }
 
-  // Create a new Stripe customer
+  // ── Anti-abuse: search Stripe by email before creating a new customer ──────
+  // If this email previously had a Stripe customer (from a deleted account),
+  // reuse that customer and mark the profile as refund_ineligible so the
+  // 14-day cooling-off refund cannot be claimed again.
   const stripe = getStripe();
+
+  if (email) {
+    try {
+      const existingCustomers = await stripe.customers.list({
+        email: email.trim().toLowerCase(),
+        limit: 5,
+      });
+
+      for (const candidate of existingCustomers.data) {
+        // Check if this customer has ANY subscription history (all statuses)
+        const priorSubs = await stripe.subscriptions.list({
+          customer: candidate.id,
+          status: 'all',
+          limit: 1,
+        });
+
+        const hasPriorSubs = priorSubs.data.length > 0;
+
+        // Reuse the existing customer — link it to this new profile
+        await supabase
+          .from('profiles')
+          .update({
+            stripe_customer_id: candidate.id,
+            ...(hasPriorSubs ? { refund_ineligible: true } : {}),
+          })
+          .eq('id', userId);
+
+        if (hasPriorSubs) {
+          console.warn(
+            `[stripe] ⚠️  Reused Stripe customer ${candidate.id} for user ${userId} ` +
+            `(email: ${email}) — prior subscription history detected. Marked refund_ineligible.`,
+          );
+        } else {
+          console.log(
+            `[stripe] Reused existing Stripe customer ${candidate.id} for user ${userId} ` +
+            `(no prior subscriptions).`,
+          );
+        }
+
+        return { id: candidate.id, refundIneligible: hasPriorSubs };
+      }
+    } catch (searchErr) {
+      // Non-fatal — log and fall through to creating a new customer
+      console.warn('[stripe] Email customer search failed, creating new customer:', searchErr.message);
+    }
+  }
+
+  // No existing customer found for this email — create a fresh one
   const customer = await stripe.customers.create({
     email,
     name: name || undefined,
@@ -71,7 +123,7 @@ async function getOrCreateCustomer(userId, email, name) {
     .update({ stripe_customer_id: customer.id })
     .eq('id', userId);
 
-  return customer.id;
+  return { id: customer.id, refundIneligible: false };
 }
 
 /**
@@ -132,7 +184,7 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'User profile not found' });
     }
 
-    const customerId = await getOrCreateCustomer(
+    const { id: customerId, refundIneligible: checkoutRefundIneligible } = await getOrCreateCustomer(
       req.user.id,
       profile.email || req.user.email,
       profile.name,
@@ -218,6 +270,9 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
       url: session.url,
       sessionId: session.id,
       type: 'checkout',
+      // Inform the frontend if this user is not eligible for the cooling-off refund
+      // (prior subscription detected on a re-created account with the same email)
+      coolingOffEligible: !checkoutRefundIneligible,
     });
   } catch (err) {
     console.error('[stripe] Checkout error:', err.message);
@@ -276,7 +331,7 @@ router.post('/create-family-checkout', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'User profile not found' });
     }
 
-    const customerId = await getOrCreateCustomer(
+    const { id: customerId } = await getOrCreateCustomer(
       req.user.id,
       profile.email || req.user.email,
       profile.name,
@@ -424,7 +479,7 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
   try {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('stripe_customer_id')
+      .select('stripe_customer_id, refund_ineligible')
       .eq('id', req.user.id)
       .single();
 
@@ -470,13 +525,17 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
 
     const hasUsedCoolingOff = (previousSubs || []).some(s => s.cooling_off_used === true);
     const hasPreviousPaidSub = (previousSubs || []).length > 0;
-    const eligibleForCoolingOff = withinTimeWindow && !hasUsedCoolingOff && !hasPreviousPaidSub;
+    // refund_ineligible is true when a prior Stripe customer was detected on account re-creation
+    // (same email, deleted account), preventing re-run of the cooling-off refund cycle.
+    const isRefundIneligible = profile.refund_ineligible === true;
+    const eligibleForCoolingOff = withinTimeWindow && !hasUsedCoolingOff && !hasPreviousPaidSub && !isRefundIneligible;
 
     console.log(
       `[stripe] Cancel request: user=${req.user.id}, ` +
       `${daysSincePeriodStart.toFixed(1)} days into period, ` +
       `withinTimeWindow=${withinTimeWindow}, hasPreviousPaidSub=${hasPreviousPaidSub}, ` +
-      `hasUsedCoolingOff=${hasUsedCoolingOff}, eligibleForCoolingOff=${eligibleForCoolingOff}`
+      `hasUsedCoolingOff=${hasUsedCoolingOff}, isRefundIneligible=${isRefundIneligible}, ` +
+      `eligibleForCoolingOff=${eligibleForCoolingOff}`
     );
 
     if (eligibleForCoolingOff) {
@@ -533,7 +592,9 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
 
       const reason = !withinTimeWindow
         ? 'You are past the 14-day cooling-off window.'
-        : 'The 14-day cooling-off refund is available on your first subscription only.';
+        : isRefundIneligible
+          ? 'A prior subscription was found on this account. The 14-day cooling-off refund applies to first-time subscribers only.'
+          : 'The 14-day cooling-off refund is available on your first subscription only.';
 
       return res.json({
         message: `Your Guarded subscription will remain active until the end of your billing period. No further charges will be made. ${reason}`,
