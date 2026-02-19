@@ -268,6 +268,7 @@ export default function HomeScreen() {
       liveStarted.current = true;
       // Build route_path from the selected route so contacts can see the planned route
       const routePath = h.selectedRoute?.path?.map((p) => ({ lat: p.latitude, lng: p.longitude }));
+      console.log('[live] routePath debug — selectedRoute exists:', !!h.selectedRoute, 'path length:', h.selectedRoute?.path?.length, 'routePath length:', routePath?.length);
       liveRef.current.startTracking({
         destination_lat: dest?.latitude,
         destination_lng: dest?.longitude,

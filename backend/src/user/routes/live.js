@@ -70,6 +70,8 @@ router.post('/start', async (req, res, next) => {
           .slice(0, 1000)
       : null;
 
+    console.log('[live/start] route_path received:', typeof route_path, Array.isArray(route_path) ? route_path.length + ' points' : route_path, '→ cleanRoutePath:', cleanRoutePath ? cleanRoutePath.length + ' points' : null);
+
     if (!isValidCoord(current_lat, current_lng)) {
       return res.status(400).json({ error: 'Valid current_lat and current_lng are required' });
     }

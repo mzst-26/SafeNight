@@ -53,7 +53,8 @@ app.use(helmet());
 app.use(createCorsMiddleware());
 
 // ─── Body parser ─────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10kb' }));
+// Raised to 100kb to accommodate route_path polylines in live session starts
+app.use(express.json({ limit: '100kb' }));
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 // Limits are PER USER (via JWT peek) per 15 minutes; falls back to IP when
