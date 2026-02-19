@@ -235,7 +235,12 @@ export function SavedPlaces({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 4,
+    // Lift the pill row to sit closer to the search inputs.
+    // Use a slightly larger lift on web where spacing tends to be roomier.
+    marginTop: Platform.OS === 'web' ? -70 : -60,
+    // Nudge left so the pills visually align with the input field.
+    marginLeft: -8,
+    zIndex: 50,
   },
   scrollContent: {
     paddingHorizontal: 2,
