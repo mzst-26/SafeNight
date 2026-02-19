@@ -113,10 +113,11 @@ export const useAutoPlaceSearch = (
     // If we already resolved this query, skip
     if (place) return;
 
-    setStatus('searching');
     setError(null);
 
     const timer = setTimeout(async () => {
+      // Only update status once the user has paused — avoids a state update on every keystroke
+      setStatus('searching');
       try {
         const results = await fetchPlacePredictions(trimmed, {
           locationBias: locationBias ?? undefined,
@@ -142,7 +143,7 @@ export const useAutoPlaceSearch = (
             : new AppError('autocomplete_error', 'Search failed', e),
         );
       }
-    }, 600);
+    }, 700);
 
     return () => clearTimeout(timer);
   }, [query, locationBias?.latitude, locationBias?.longitude, place]);

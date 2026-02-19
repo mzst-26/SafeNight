@@ -9,7 +9,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -77,7 +77,7 @@ const TIER_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   pro: 'shield-checkmark',
 };
 
-export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, subscriptionEndsAt, onClose, onSubscriptionChanged, onOpenFamilyPack }: Props) {
+function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, subscriptionEndsAt, onClose, onSubscriptionChanged, onOpenFamilyPack }: Props) {
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -220,9 +220,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
   const isPaid = effectiveTier === 'pro';
   const stripeSub = status?.stripeSubscription;
 
-  // Render-phase logging for Android debugging
   const filteredPlans = LOCAL_PLANS.filter((p) => p.tier !== effectiveTier);
-  console.log('[SubscriptionModal] RENDER: loading=', loading, 'effectiveTier=', effectiveTier, 'isPaid=', isPaid, 'plansToShow=', filteredPlans.length, 'hasStripeSub=', !!stripeSub, 'currentTier=', currentTier);
 
   return (
     <Modal
@@ -859,3 +857,5 @@ const styles = StyleSheet.create({
     color: '#7C3AED',
   },
 });
+
+export const SubscriptionModal = memo(SubscriptionModalInner);
