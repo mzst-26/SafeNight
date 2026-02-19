@@ -1,0 +1,29 @@
+{
+  "name": "SafeNight — Walk Safer at Night",
+  "short_name": "SafeNight",
+  "description": "AI-powered safe walking route finder. Get real-time safety scores, street lighting data, crime stats, and live navigation to walk home safer at night.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFFFF",
+  "theme_color": "#1570EF",
+  "lang": "en-GB",
+  "categories": ["navigation", "utilities", "lifestyle"],
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "related_applications": [
+    {
+      "platform": "play",
+      "url": "https://play.google.com/store/apps/details?id=com.safenight.app",
+      "id": "com.safenight.app"
+    }
+  ],
+  "prefer_related_applications": true
+}

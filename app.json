@@ -56,7 +56,13 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "SafeNight — Walk Safer at Night",
+      "shortName": "SafeNight",
+      "description": "AI-powered safe walking route finder. Get real-time safety scores, street lighting data, crime stats, and live navigation to walk home safer at night.",
+      "lang": "en",
+      "themeColor": "#1570EF",
+      "backgroundColor": "#FFFFFF"
     },
     "plugins": [
       "expo-router",

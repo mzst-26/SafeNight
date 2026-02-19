@@ -23,7 +23,7 @@ import PrivacyPolicyModal from '../modals/PrivacyPolicyModal';
 import RefundPolicyModal from '../modals/RefundPolicyModal';
 import TermsModal from '../modals/TermsModal';
 
-const POLICIES_URL = 'https://safenighthome.netlify.app/privacy';
+const POLICIES_URL = 'https://safenight.netlify.app/privacy';
 
 interface Props {
   name: string | null;

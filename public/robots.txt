@@ -1,0 +1,13 @@
+# SafeNight robots.txt
+# https://safenight.netlify.app
+
+User-agent: *
+Allow: /
+Disallow: /modal
+Disallow: /api/
+
+# Sitemap location
+Sitemap: https://safenight.netlify.app/sitemap.xml
+
+# Crawl-delay (optional — respected by some bots)
+Crawl-delay: 1

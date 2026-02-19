@@ -5,6 +5,7 @@
  * URL where users can request deletion of their account and data.
  * No login required — accessible to anyone.
  */
+import { PageHead } from '@/src/components/seo/PageHead';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -20,6 +21,7 @@ export default function DeleteAccountPage() {
 
   return (
     <View style={styles.root}>
+      <PageHead path="/delete-account" />
       {/* Top nav */}
       <View style={styles.nav}>
         <View style={styles.navInner}>

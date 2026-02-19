@@ -3,6 +3,7 @@
  * Rendered as a standalone full-page document on web.
  * Not accessible from mobile app navigation.
  */
+import { PageHead } from '@/src/components/seo/PageHead';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -14,6 +15,7 @@ export default function PrivacyPage() {
 
   return (
     <View style={styles.root}>
+      <PageHead path="/privacy" />
       {/* Top nav */}
       <View style={styles.nav}>
         <View style={styles.navInner}>
