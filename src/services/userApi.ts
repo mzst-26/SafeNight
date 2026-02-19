@@ -139,13 +139,31 @@ export async function refreshIfNeeded(bufferMs = 2 * 60 * 1000): Promise<boolean
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
 
+// React Native (OkHttp on Android) has NO default response timeout.
+// Render.com free-tier cold starts can take 30-60s.
+// Without this, fetch() can hang forever on Android.
+const DEFAULT_TIMEOUT_MS = 20_000; // 20 seconds
+
+function fetchWithTimeout(
+  url: string,
+  options: RequestInit & { timeout?: number } = {},
+): Promise<Response> {
+  const { timeout = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort('Request timed out'), timeout);
+
+  return fetch(url, { ...fetchOptions, signal: controller.signal }).finally(() =>
+    clearTimeout(timeoutId),
+  );
+}
+
 async function authFetch(
   path: string,
   options: RequestInit = {},
 ): Promise<Response> {
   const token = await getAccessToken();
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchWithTimeout(`${BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -158,7 +176,7 @@ async function authFetch(
   if (res.status === 401 && token) {
     const refreshToken = await AsyncStorage.getItem(AUTH_KEYS.refreshToken);
     if (refreshToken) {
-      const refreshRes = await fetch(`${BASE}/api/auth/refresh`, {
+      const refreshRes = await fetchWithTimeout(`${BASE}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken }),
@@ -170,7 +188,7 @@ async function authFetch(
         emitSessionEvent('refreshed');
 
         // Retry original request with new token
-        return fetch(`${BASE}${path}`, {
+        return fetchWithTimeout(`${BASE}${path}`, {
           ...options,
           headers: {
             'Content-Type': 'application/json',
