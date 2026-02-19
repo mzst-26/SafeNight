@@ -28,6 +28,15 @@ const userApiUrl =
     ? rawUserApiUrl.replace('localhost', '10.0.2.2').replace('127.0.0.1', '10.0.2.2')
     : rawUserApiUrl;
 
+// Geocode service URL — place search, forward geocoding, reverse geocoding
+// In production, set EXPO_PUBLIC_GEOCODE_API_URL to your deployed geocode service (e.g. https://safenighthome-geocode.onrender.com)
+const rawGeocodeApiUrl = process.env.EXPO_PUBLIC_GEOCODE_API_URL ?? 'http://localhost:3005';
+const isLocalGeocode = rawGeocodeApiUrl.includes('localhost') || rawGeocodeApiUrl.includes('127.0.0.1');
+const geocodeApiUrl =
+  Platform.OS === 'android' && isLocalGeocode
+    ? rawGeocodeApiUrl.replace('localhost', '10.0.2.2').replace('127.0.0.1', '10.0.2.2')
+    : rawGeocodeApiUrl;
+
 // Subscription / Stripe service URL — checkout, portal, webhook
 // In production, set EXPO_PUBLIC_SUBSCRIPTION_API_URL to your deployed subscription service
 const rawSubscriptionApiUrl = process.env.EXPO_PUBLIC_SUBSCRIPTION_API_URL ?? 'http://localhost:3004';
@@ -59,6 +68,7 @@ export const env = {
   apiBaseUrl,
   safetyApiUrl,
   userApiUrl,
+  geocodeApiUrl,
   subscriptionApiUrl,
   osMapsApiKey,
   osMapsLayer,

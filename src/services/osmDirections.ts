@@ -1,17 +1,17 @@
 import { env } from '@/src/config/env';
 import { AppError } from '@/src/types/errors';
 import type {
-    DirectionsRoute,
-    LatLng,
-    NavigationStep,
-    PlaceDetails,
-    PlacePrediction,
+  DirectionsRoute,
+  LatLng,
+  NavigationStep,
+  PlaceDetails,
+  PlacePrediction,
 } from '@/src/types/google';
 import { decodePolyline } from '@/src/utils/polyline';
 import {
-    directionsRateLimiter,
-    placesAutocompleteRateLimiter,
-    placesDetailsRateLimiter,
+  directionsRateLimiter,
+  placesAutocompleteRateLimiter,
+  placesDetailsRateLimiter,
 } from '@/src/utils/rateLimiter';
 
 // ---------------------------------------------------------------------------
@@ -85,10 +85,11 @@ type GoogleDirectionsResponse = {
 };
 
 const BACKEND_API_BASE = env.apiBaseUrl;
+const GEOCODE_API_BASE = env.geocodeApiUrl;
 
 const fetchJson = async <T>(url: string): Promise<T> => {
   try {
-    const endpoint = url.replace(BACKEND_API_BASE, '').split('?')[0];
+    const endpoint = url.replace(BACKEND_API_BASE, '').replace(GEOCODE_API_BASE, '').split('?')[0];
     console.log(`[OSM] 🌐 Backend call → ${endpoint}`);
     const response = await fetch(url);
 
@@ -120,7 +121,7 @@ export const fetchPlacePredictions = async (
   }
 
   // Build backend proxy URL
-  let url = `${BACKEND_API_BASE}/api/places/autocomplete?input=${encodeURIComponent(trimmedInput)}`;
+  let url = `${GEOCODE_API_BASE}/api/geocode/autocomplete?input=${encodeURIComponent(trimmedInput)}`;
 
   if (options?.locationBias && options.radiusMeters) {
     url += `&lat=${options.locationBias.latitude}&lng=${options.locationBias.longitude}&radius=${options.radiusMeters}`;
@@ -152,7 +153,7 @@ export const fetchPlacePredictions = async (
 };
 
 export const fetchPlaceDetails = async (placeId: string): Promise<PlaceDetails> => {
-  const url = `${BACKEND_API_BASE}/api/places/details?place_id=${encodeURIComponent(placeId)}`;
+  const url = `${GEOCODE_API_BASE}/api/geocode/details?place_id=${encodeURIComponent(placeId)}`;
 
   return placesDetailsRateLimiter.execute(async () => {
 

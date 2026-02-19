@@ -6,6 +6,7 @@ import { decodePolyline } from '@/src/utils/polyline';
 
 const NOMINATIM_BASE_URL = env.osmBaseUrl;
 const OSRM_BASE_URL = env.osrmBaseUrl;
+const GEOCODE_API_BASE = env.geocodeApiUrl;
 
 const buildHeaders = (): HeadersInit => {
   const headers: Record<string, string> = {
@@ -229,30 +230,30 @@ export const fetchPlaceDetails = async (placeId: string): Promise<PlaceDetails> 
 };
 
 export const reverseGeocode = async (location: LatLng): Promise<PlaceDetails | null> => {
-  const params = new URLSearchParams({
-    format: 'jsonv2',
-    lat: String(location.latitude),
-    lon: String(location.longitude),
-  });
-
-  if (env.osmEmail) {
-    params.set('email', env.osmEmail);
-  }
-
-  const url = `${NOMINATIM_BASE_URL}/reverse?${params.toString()}`;
-
+  // Route through the geocode microservice so the result is cached and
+  // Nominatim’s 1 req/sec limit is enforced server-side instead of per-client.
   try {
-    const data = await fetchJson<NominatimLookupResult>(url);
-    const resolvedLocation = parseLatLng(data.lat, data.lon);
+    const url = `${GEOCODE_API_BASE}/api/geocode/reverse?lat=${location.latitude}&lng=${location.longitude}`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = await response.json() as {
+      status: string;
+      result: {
+        place_id: string;
+        name: string;
+        geometry: { location: { lat: number; lng: number } };
+      } | null;
+    };
 
-    if (!resolvedLocation) {
-      return null;
-    }
+    if (data.status !== 'OK' || !data.result) return null;
 
     return {
-      placeId: formatOsmPlaceId(data.osm_type, data.osm_id),
-      name: data.display_name,
-      location: resolvedLocation,
+      placeId: data.result.place_id,
+      name: data.result.name,
+      location: {
+        latitude: data.result.geometry.location.lat,
+        longitude: data.result.geometry.location.lng,
+      },
       source: 'osm',
     };
   } catch {
