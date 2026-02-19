@@ -307,10 +307,10 @@ router.get('/', async (req, res, next) => {
           .eq('id', otherUserId)
           .single();
 
-        // Check if they have an active live session
+        // Check if they have an active live session (include path for map visualization)
         const { data: liveSession } = await supabase
           .from('live_sessions')
-          .select('id, current_lat, current_lng, destination_name, started_at, last_update_at')
+          .select('id, current_lat, current_lng, destination_name, started_at, last_update_at, path')
           .eq('user_id', otherUserId)
           .eq('status', 'active')
           .maybeSingle();

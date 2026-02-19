@@ -17,6 +17,8 @@ export interface FriendMarker {
   lat: number;
   lng: number;
   destinationName?: string;
+  /** Route path history — array of {lat, lng} for drawing path line */
+  path?: Array<{ lat: number; lng: number }>;
 }
 
 export interface FriendLocationResult {
@@ -45,6 +47,7 @@ export function useFriendLocations(enabled: boolean): FriendLocationResult {
           lat: c.live_session!.current_lat,
           lng: c.live_session!.current_lng,
           destinationName: c.live_session!.destination_name ?? undefined,
+          path: c.live_session!.path?.map(({ lat, lng }) => ({ lat, lng })) ?? undefined,
         }));
       setFriends(live);
       return live;

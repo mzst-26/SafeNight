@@ -585,6 +585,7 @@ export interface Contact {
     destination_name: string | null;
     started_at: string;
     last_update_at: string;
+    path?: Array<{ lat: number; lng: number; t: number }>;
   } | null;
 }
 
@@ -705,6 +706,7 @@ export interface WatchResult {
     destination_name?: string;
     started_at: string;
     last_update_at: string;
+    path?: Array<{ lat: number; lng: number; t: number }>;
   };
 }
 
