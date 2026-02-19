@@ -348,13 +348,13 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
     };
 
     if (Platform.OS === 'web') {
-      if (confirm('Cancel your Family Pack? If you are within 14 days of your billing date you will receive a full refund. Otherwise your pack will stay active until the end of the billing period.')) {
+      if (confirm('Cancel your Family Pack? If this is your first subscription and you are within 14 days of your billing date, you will receive a full refund. The 14-day cooling-off refund applies to first subscriptions only.')) {
         doCancel();
       }
     } else {
       Alert.alert(
         'Cancel Pack',
-        'If you are within 14 days of your billing date you will receive a full refund. Otherwise your pack will stay active until the end of the billing period.',
+        'If this is your first subscription and you are within 14 days of your billing date, you will receive a full refund. The 14-day cooling-off refund applies to first subscriptions only. Otherwise your pack will stay active until the end of the billing period.',
         [
           { text: 'Keep Pack', style: 'cancel' },
           { text: 'Cancel Pack', style: 'destructive', onPress: doCancel },

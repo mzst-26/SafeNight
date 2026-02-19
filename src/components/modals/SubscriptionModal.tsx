@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Linking,
   Modal,
   Platform,
@@ -23,6 +24,7 @@ import {
   View,
 } from 'react-native';
 
+import { env } from '@/src/config/env';
 import { stripeApi, type SubscriptionStatus } from '@/src/services/stripeApi';
 
 /** Local plan definitions — no need to fetch from Stripe API */
@@ -96,21 +98,38 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
   useEffect(() => {
     if (!visible) return;
 
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
     setSuccess(null);
 
-    stripeApi.getStatus()
+    // console.log('[SubscriptionModal] Modal opened, fetching status...');
+    // console.log('[SubscriptionModal] Platform:', Platform.OS);
+
+    const startTime = Date.now();
+    stripeApi.getStatus(controller.signal)
       .then((fetchedStatus) => {
-        setStatus(fetchedStatus);
+        console.log(`[SubscriptionModal] getStatus SUCCESS (${Date.now() - startTime}ms):`, JSON.stringify(fetchedStatus).substring(0, 200));
+        if (!controller.signal.aborted) {
+          setStatus(fetchedStatus);
+        }
       })
       .catch((err) => {
-        setError(friendlyError(err, 'Failed to load subscription status'));
-        // Still allow the modal to render — status will just be null
+        console.error(`[SubscriptionModal] getStatus FAILED (${Date.now() - startTime}ms):`, err?.message ?? err, '| name:', err?.name);
+        if (!controller.signal.aborted) {
+          const msg = friendlyError(err, 'Failed to load subscription status');
+          setError(msg);
+        }
       })
       .finally(() => {
-        setLoading(false);
+        console.log(`[SubscriptionModal] getStatus FINALLY (${Date.now() - startTime}ms), aborted=${controller.signal.aborted}`);
+        if (!controller.signal.aborted) setLoading(false);
       });
+
+    return () => {
+      console.log('[SubscriptionModal] Cleanup — aborting fetch');
+      controller.abort();
+    };
   }, [visible]);
 
   const openUrl = useCallback((url: string) => {
@@ -181,13 +200,13 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
     };
 
     if (Platform.OS === 'web') {
-      if (confirm('Cancel your subscription? Within 14 days of your billing date you will receive a full refund. Otherwise your subscription stays active until the end of the billing period.')) {
+      if (confirm('Cancel your subscription? If this is your first subscription and you are within 14 days of your billing date, you will receive a full refund. Otherwise your subscription stays active until the end of the billing period.')) {
         doCancel();
       }
     } else {
       Alert.alert(
         'Cancel Subscription',
-        'Within 14 days of your billing date you will receive a full refund. Otherwise your subscription stays active until the end of the billing period.',
+        'If this is your first subscription and you are within 14 days of your billing date, you will receive a full refund. The 14-day cooling-off refund applies to first subscriptions only. Otherwise your subscription stays active until the end of the billing period.',
         [
           { text: 'Keep Subscription', style: 'cancel' },
           { text: 'Cancel Subscription', style: 'destructive', onPress: doCancel },
@@ -202,6 +221,10 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
   const isPaid = effectiveTier === 'pro';
   const stripeSub = status?.stripeSubscription;
 
+  // Render-phase logging for Android debugging
+  const filteredPlans = LOCAL_PLANS.filter((p) => p.tier !== effectiveTier);
+  console.log('[SubscriptionModal] RENDER: loading=', loading, 'effectiveTier=', effectiveTier, 'isPaid=', isPaid, 'plansToShow=', filteredPlans.length, 'hasStripeSub=', !!stripeSub, 'currentTier=', currentTier);
+
   return (
     <Modal
       visible={visible}
@@ -210,7 +233,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
       onRequestClose={onClose}
     >
       <View style={styles.backdrop}>
-        <View style={styles.container}>
+        <View style={[styles.container, Platform.OS !== 'web' && { height: Dimensions.get('window').height * 0.85 }]}>
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>
@@ -225,6 +248,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
             <View style={styles.loadingWrap}>
               <ActivityIndicator size="large" color="#7C3AED" />
               <Text style={styles.loadingText}>Loading plans...</Text>
+
             </View>
           ) : (
             <ScrollView
@@ -344,8 +368,12 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
               )}
 
               {/* Plan cards — only show plans the user is NOT currently on */}
-              {LOCAL_PLANS
-                .filter((p) => p.tier !== effectiveTier)
+              {filteredPlans.length === 0 && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, color: '#6B7280' }}>You're on the top plan!</Text>
+                </View>
+              )}
+              {filteredPlans
                 .map((plan) => (
                   <View
                     key={plan.tier}
@@ -464,6 +492,8 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
                 </View>
               )}
 
+              {/* Debug banner removed (was showing Platform/API debugInfo) */}
+
               {/* Success */}
               {success && (
                 <View style={styles.successBanner}>
@@ -475,7 +505,7 @@ export function SubscriptionModal({ visible, currentTier, isGift, isFamilyPack, 
               {/* Footer note */}
               <Text style={styles.footer}>
                 Payments processed securely by Stripe.{'\n'}
-                14-day cooling-off: cancel within 14 days for a full refund.
+                14-day cooling-off: cancel within 14 days for a full refund (first subscription only).
               </Text>
             </ScrollView>
           )}
@@ -499,6 +529,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     maxHeight: '90%',
+    flexShrink: 1,
+    flexGrow: 0,
     overflow: 'hidden',
     ...(Platform.OS === 'web'
       ? { boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }
@@ -536,11 +568,13 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   scroll: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
   },
   scrollContent: {
     padding: 20,
     gap: 16,
+    paddingBottom: 40,
   },
   currentPlanBadge: {
     flexDirection: 'row',

@@ -22,7 +22,7 @@ interface Props {
   onClose: () => void;
 }
 
-export const REFUND_LAST_UPDATED = '18 February 2026';
+export const REFUND_LAST_UPDATED = '19 February 2026';
 
 /** Shared policy content — rendered in the modal AND the /refund web page. */
 export function RefundPolicyContent() {
@@ -84,19 +84,33 @@ export function RefundPolicyContent() {
         mid-cycle unless required by applicable consumer law.
       </Text>
 
-      <Text style={styles.sectionTitle}>6. Refund Policy</Text>
+      <Text style={styles.sectionTitle}>6. 14-Day Cooling-Off Period</Text>
+      <Text style={styles.body}>
+        In accordance with the Consumer Contracts Regulations 2013 (UK) and EU Directive
+        2011/83/EU, new subscribers are entitled to a <Text style={styles.bold}>14-day cooling-off
+        period on their first subscription only</Text>.{'\n\n'}
+        If you cancel within 14 days of your <Text style={styles.bold}>first-ever</Text> paid
+        subscription, you will receive an automatic, full refund and immediate cancellation.{'\n\n'}
+        <Text style={styles.bold}>This cooling-off refund is a one-time entitlement.</Text> If you
+        have previously subscribed, cancelled, and received a cooling-off refund, subsequent
+        subscriptions are not eligible for the automatic refund. Instead, cancellation will take
+        effect at the end of the current billing period with no refund.{'\n\n'}
+        After using the cooling-off refund, a <Text style={styles.bold}>30-day cooldown
+        period</Text> applies before you can re-subscribe. This policy exists to prevent abuse
+        while still protecting first-time subscribers.
+      </Text>
+
+      <Text style={styles.sectionTitle}>7. Refund Policy</Text>
       <Text style={styles.body}>
         <Text style={styles.bold}>General: </Text>
         Due to the digital and immediately-consumable nature of our Service, all subscription fees
-        are generally non-refundable once the billing period has commenced.
+        are generally non-refundable once the billing period has commenced, except as described in
+        the 14-day cooling-off period above.
       </Text>
       <Text style={styles.body}>
-        <Text style={styles.bold}>Exceptions — you may be eligible for a full or partial refund
+        <Text style={styles.bold}>Additional exceptions — you may be eligible for a refund
         if:{'\n'}</Text>
         • You were charged due to a verified technical error or duplicate transaction on our part.{'\n'}
-        • You are a consumer in the UK or EU and cancel within 14 days of your first purchase,
-        provided you have not materially used the paid features during that period (Consumer Contracts
-        Regulations 2013 / EU Directive 2011/83/EU).{'\n'}
         • We have experienced significant, prolonged service outages (more than 48 consecutive hours)
         during your billing period that materially prevented you from using the Service.
       </Text>
@@ -107,14 +121,14 @@ export function RefundPolicyContent() {
         business days.
       </Text>
 
-      <Text style={styles.sectionTitle}>7. Gift Subscriptions</Text>
+      <Text style={styles.sectionTitle}>8. Gift Subscriptions</Text>
       <Text style={styles.body}>
         Gift subscriptions are granted manually and are non-transferable. They cannot be exchanged
         for cash. If a gift subscription was granted in error, contact us within 7 days and we will
         work to resolve the issue.
       </Text>
 
-      <Text style={styles.sectionTitle}>8. Price Changes</Text>
+      <Text style={styles.sectionTitle}>9. Price Changes</Text>
       <Text style={styles.body}>
         We reserve the right to change subscription prices at any time. We will provide at least 30
         days advance notice of any price increase by email and/or in-app notification. Continued use
@@ -122,7 +136,7 @@ export function RefundPolicyContent() {
         you do not agree to a price change, you may cancel before the new price applies.
       </Text>
 
-      <Text style={styles.sectionTitle}>9. Disputes</Text>
+      <Text style={styles.sectionTitle}>10. Disputes</Text>
       <Text style={styles.body}>
         If you believe a charge was made in error or you have a billing dispute, please contact us
         before initiating a chargeback with your bank. Unjustified chargebacks may result in
@@ -130,7 +144,7 @@ export function RefundPolicyContent() {
         and fairly.
       </Text>
 
-      <Text style={styles.sectionTitle}>10. Contact Us</Text>
+      <Text style={styles.sectionTitle}>11. Contact Us</Text>
       <Text style={styles.body}>
         For all payment and refund enquiries:{'\n\n'}
         Email: mzst.26.x@gmail.com{'\n'}
