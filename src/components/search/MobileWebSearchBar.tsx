@@ -55,6 +55,7 @@ export interface MobileWebSearchBarProps {
   onSelectSavedPlace?: (place: SavedPlace) => void;
   onSavePlace?: (place: Omit<SavedPlace, 'id' | 'createdAt'>) => void;
   onRemoveSavedPlace?: (id: string) => void;
+  onSavedPlaceToast?: (msg: string, icon?: string) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -81,6 +82,7 @@ export function MobileWebSearchBar({
   onSelectSavedPlace,
   onSavePlace,
   onRemoveSavedPlace,
+  onSavedPlaceToast,
 }: MobileWebSearchBarProps) {
   const [expanded, setExpanded] = useState(false);
   const expandAnim = useRef(new Animated.Value(0)).current;
@@ -457,6 +459,7 @@ export function MobileWebSearchBar({
           onSelect={onSelectSavedPlace}
           onSave={onSavePlace}
           onRemove={onRemoveSavedPlace}
+          onToast={onSavedPlaceToast}
           currentDestination={
             manualDest
               ? { name: manualDest.name ?? 'Dropped pin', lat: manualDest.location.latitude, lng: manualDest.location.longitude }

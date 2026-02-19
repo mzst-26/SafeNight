@@ -98,6 +98,11 @@ export default function HomeScreen() {
     h.clearSelectedRoute();
   }, [h]);
 
+  // Toast callback for saved places
+  const handleSavedPlaceToast = useCallback((msg: string, icon?: string) => {
+    setToast({ message: msg, icon: (icon as any) ?? 'bookmark', iconColor: '#1570ef', duration: 2000 });
+  }, []);
+
   // Auto-dismiss login prompt when user logs in
   useEffect(() => {
     if (auth.isLoggedIn) {
@@ -438,6 +443,7 @@ export default function HomeScreen() {
                 onSelectSavedPlace={handleSelectSavedPlace}
                 onSavePlace={savePlace}
                 onRemoveSavedPlace={removePlace}
+                onSavedPlaceToast={handleSavedPlaceToast}
               />
             }
           >
@@ -596,6 +602,7 @@ export default function HomeScreen() {
               onSelectSavedPlace={handleSelectSavedPlace}
               onSavePlace={savePlace}
               onRemoveSavedPlace={removePlace}
+              onSavedPlaceToast={handleSavedPlaceToast}
             />
 
             {/* Login button for guest */}
@@ -779,6 +786,7 @@ export default function HomeScreen() {
             onSelectSavedPlace={handleSelectSavedPlace}
             onSavePlace={savePlace}
             onRemoveSavedPlace={removePlace}
+            onSavedPlaceToast={handleSavedPlaceToast}
           />
         )}
 

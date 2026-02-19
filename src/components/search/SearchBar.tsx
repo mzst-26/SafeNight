@@ -61,6 +61,7 @@ export interface SearchBarProps {
   onSelectSavedPlace?: (place: SavedPlace) => void;
   onSavePlace?: (place: Omit<SavedPlace, 'id' | 'createdAt'>) => void;
   onRemoveSavedPlace?: (id: string) => void;
+  onSavedPlaceToast?: (msg: string, icon?: string) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ export function SearchBar({
   onSelectSavedPlace,
   onSavePlace,
   onRemoveSavedPlace,
+  onSavedPlaceToast,
 }: SearchBarProps) {
   const originInputRef = useRef<TextInput>(null);
   const destInputRef = useRef<TextInput>(null);
@@ -382,6 +384,7 @@ export function SearchBar({
         onSelect={onSelectSavedPlace}
         onSave={onSavePlace}
         onRemove={onRemoveSavedPlace}
+        onToast={onSavedPlaceToast}
         currentDestination={
           manualDest
             ? { name: manualDest.name ?? 'Dropped pin', lat: manualDest.location!.latitude, lng: manualDest.location!.longitude }
