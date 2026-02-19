@@ -24,7 +24,9 @@ import {
 } from 'react-native';
 
 import type { UseAutoPlaceSearchReturn } from '@/src/hooks/useAutoPlaceSearch';
+import type { SavedPlace } from '@/src/hooks/useSavedPlaces';
 import type { LatLng, PlaceDetails, PlacePrediction } from '@/src/types/google';
+import { SavedPlaces } from './SavedPlaces';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -48,6 +50,11 @@ export interface MobileWebSearchBarProps {
   hasResults: boolean;
   /** Safe-area top inset (used on Android) */
   topInset?: number;
+  /** Saved places for quick access */
+  savedPlaces?: SavedPlace[];
+  onSelectSavedPlace?: (place: SavedPlace) => void;
+  onSavePlace?: (place: Omit<SavedPlace, 'id' | 'createdAt'>) => void;
+  onRemoveSavedPlace?: (id: string) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -70,6 +77,10 @@ export function MobileWebSearchBar({
   onGuestTap,
   hasResults,
   topInset,
+  savedPlaces,
+  onSelectSavedPlace,
+  onSavePlace,
+  onRemoveSavedPlace,
 }: MobileWebSearchBarProps) {
   const [expanded, setExpanded] = useState(false);
   const expandAnim = useRef(new Animated.Value(0)).current;
@@ -437,6 +448,24 @@ export function MobileWebSearchBar({
             ))}
           </ScrollView>
         </View>
+      )}
+
+      {/* ── Saved places (only when expanded and no predictions showing) ── */}
+      {expanded && activePredictions.length === 0 && savedPlaces && onSelectSavedPlace && onSavePlace && onRemoveSavedPlace && (
+        <SavedPlaces
+          places={savedPlaces}
+          onSelect={onSelectSavedPlace}
+          onSave={onSavePlace}
+          onRemove={onRemoveSavedPlace}
+          currentDestination={
+            manualDest
+              ? { name: manualDest.name ?? 'Dropped pin', lat: manualDest.location.latitude, lng: manualDest.location.longitude }
+              : destSearch.place
+                ? { name: destSearch.place.name ?? destSearch.query, lat: destSearch.place.location.latitude, lng: destSearch.place.location.longitude }
+                : null
+          }
+          visible
+        />
       )}
     </View>
   );

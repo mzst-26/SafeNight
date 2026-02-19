@@ -14,6 +14,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PageHead } from '@/src/components/seo/PageHead';
+
 import { AndroidOverlayHost } from '@/src/components/android/AndroidOverlayHost';
 import RouteMap from '@/src/components/maps/RouteMap';
 import { AIExplanationModal } from '@/src/components/modals/AIExplanationModal';
@@ -44,6 +46,7 @@ import { useContacts } from '@/src/hooks/useContacts';
 import { useFriendLocations } from '@/src/hooks/useFriendLocations';
 import { useHomeScreen } from '@/src/hooks/useHomeScreen';
 import { useLiveTracking } from '@/src/hooks/useLiveTracking';
+import { useSavedPlaces, type SavedPlace } from '@/src/hooks/useSavedPlaces';
 import { useWebBreakpoint } from '@/src/hooks/useWebBreakpoint';
 import { stripeApi } from '@/src/services/stripeApi';
 import { onLimitReached, type LimitInfo } from '@/src/types/limitError';
@@ -53,6 +56,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const h = useHomeScreen();
   const auth = useAuth();
+  const { places: savedPlaces, savePlace, removePlace } = useSavedPlaces();
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showFriendsOnMap, setShowFriendsOnMap] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -78,6 +82,21 @@ export default function HomeScreen() {
   const promptLogin = useCallback(() => {
     setShowLoginPrompt(true);
   }, []);
+
+  // Handle selecting a saved place as destination
+  const handleSelectSavedPlace = useCallback((place: SavedPlace) => {
+    h.destSearch.setQuery(place.name);
+    h.destSearch.selectPrediction({
+      placeId: place.id,
+      primaryText: place.name,
+      secondaryText: place.address ?? '',
+      fullText: place.name,
+      location: { latitude: place.lat, longitude: place.lng },
+    });
+    h.setManualDest(null);
+    h.handlePanTo({ latitude: place.lat, longitude: place.lng });
+    h.clearSelectedRoute();
+  }, [h]);
 
   // Auto-dismiss login prompt when user logs in
   useEffect(() => {
@@ -353,6 +372,7 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <PageHead path="/" />
       {/* ── Map (fills the screen as a flex child) ── */}
       <RouteMap
         origin={h.effectiveOrigin}
@@ -414,6 +434,10 @@ export default function HomeScreen() {
                 onSwap={h.swapOriginAndDest}
                 onGuestTap={isWebGuest ? promptLogin : undefined}
                 embedded
+                savedPlaces={savedPlaces}
+                onSelectSavedPlace={handleSelectSavedPlace}
+                onSavePlace={savePlace}
+                onRemoveSavedPlace={removePlace}
               />
             }
           >
@@ -568,6 +592,10 @@ export default function HomeScreen() {
               onSwap={h.swapOriginAndDest}
               onGuestTap={isWebGuest ? promptLogin : undefined}
               hasResults={h.routes.length > 0}
+              savedPlaces={savedPlaces}
+              onSelectSavedPlace={handleSelectSavedPlace}
+              onSavePlace={savePlace}
+              onRemoveSavedPlace={removePlace}
             />
 
             {/* Login button for guest */}
@@ -747,6 +775,10 @@ export default function HomeScreen() {
             onSwap={h.swapOriginAndDest}
             onGuestTap={isWebGuest ? promptLogin : undefined}
             hasResults={h.routes.length > 0}
+            savedPlaces={savedPlaces}
+            onSelectSavedPlace={handleSelectSavedPlace}
+            onSavePlace={savePlace}
+            onRemoveSavedPlace={removePlace}
           />
         )}
 

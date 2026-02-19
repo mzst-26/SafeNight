@@ -19,7 +19,9 @@ import {
 } from 'react-native';
 
 import type { UseAutoPlaceSearchReturn } from '@/src/hooks/useAutoPlaceSearch';
+import type { SavedPlace } from '@/src/hooks/useSavedPlaces';
 import type { LatLng, PlaceDetails, PlacePrediction } from '@/src/types/google';
+import { SavedPlaces } from './SavedPlaces';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,11 @@ export interface SearchBarProps {
   onGuestTap?: () => void;
   /** When true, renders inline (no absolute positioning) — used inside WebSidebar */
   embedded?: boolean;
+  /** Saved places for quick access */
+  savedPlaces?: SavedPlace[];
+  onSelectSavedPlace?: (place: SavedPlace) => void;
+  onSavePlace?: (place: Omit<SavedPlace, 'id' | 'createdAt'>) => void;
+  onRemoveSavedPlace?: (id: string) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -76,6 +83,10 @@ export function SearchBar({
   onSwap,
   onGuestTap,
   embedded,
+  savedPlaces,
+  onSelectSavedPlace,
+  onSavePlace,
+  onRemoveSavedPlace,
 }: SearchBarProps) {
   const originInputRef = useRef<TextInput>(null);
   const destInputRef = useRef<TextInput>(null);
@@ -157,6 +168,7 @@ export function SearchBar({
   );
 
   return (
+    <>
     <ScrollView
       style={[
         embedded ? styles.containerEmbedded : styles.container,
@@ -362,6 +374,25 @@ export function SearchBar({
         </View>
       )}
     </ScrollView>
+
+    {/* ── Saved places (when no predictions showing) ── */}
+    {activePredictions.length === 0 && savedPlaces && onSelectSavedPlace && onSavePlace && onRemoveSavedPlace && (
+      <SavedPlaces
+        places={savedPlaces}
+        onSelect={onSelectSavedPlace}
+        onSave={onSavePlace}
+        onRemove={onRemoveSavedPlace}
+        currentDestination={
+          manualDest
+            ? { name: manualDest.name ?? 'Dropped pin', lat: manualDest.location!.latitude, lng: manualDest.location!.longitude }
+            : destSearch.place
+              ? { name: destSearch.place.name ?? destSearch.query, lat: destSearch.place!.location.latitude, lng: destSearch.place!.location.longitude }
+              : null
+        }
+        visible
+      />
+    )}
+    </>
   );
 }
 
