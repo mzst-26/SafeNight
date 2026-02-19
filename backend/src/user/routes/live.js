@@ -49,10 +49,16 @@ function isValidCoord(lat, lng) {
 }
 
 // ─── POST /api/live/start ────────────────────────────────────────────────────
-// Start a live session. Automatically ends any existing active session.
+// Start a live session. If there is a recent session (ended/cancelled/expired
+// within the last 5 minutes) it will be reactivated instead of creating a new
+// one — this avoids burning a usage count when the user quickly restarts
+// navigation or the session was briefly interrupted.
 // Notifies all accepted emergency contacts.
-// Gated by live_sessions feature limit (free: 1/month, pro+: unlimited).
-router.post('/start', checkFeatureLimit('live_sessions'), async (req, res, next) => {
+// Gated by live_sessions feature limit — only for truly NEW sessions (reuse is free).
+
+const SESSION_REUSE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+router.post('/start', async (req, res, next) => {
   try {
     const { current_lat, current_lng, destination_lat, destination_lng, destination_name } = req.body;
 
@@ -60,42 +66,128 @@ router.post('/start', checkFeatureLimit('live_sessions'), async (req, res, next)
       return res.status(400).json({ error: 'Valid current_lat and current_lng are required' });
     }
 
-    // End any existing active session
-    await supabase
+    const now = new Date();
+    let session = null;
+    let reused = false;
+
+    // 1. If there is already an active session, just update it and return it
+    const { data: activeSession } = await supabase
       .from('live_sessions')
-      .update({
-        status: 'cancelled',
-        ended_at: new Date().toISOString(),
-      })
+      .select('*')
       .eq('user_id', req.user.id)
-      .eq('status', 'active');
+      .eq('status', 'active')
+      .maybeSingle();
 
-    // Create new session
-    const sessionData = {
-      user_id: req.user.id,
-      status: 'active',
-      current_lat,
-      current_lng,
-      last_update_at: new Date().toISOString(),
-    };
-
-    if (isValidCoord(destination_lat, destination_lng)) {
-      sessionData.destination_lat = destination_lat;
-      sessionData.destination_lng = destination_lng;
+    if (activeSession) {
+      // Update location + destination on the existing active session
+      const updateData = {
+        current_lat,
+        current_lng,
+        last_update_at: now.toISOString(),
+      };
+      if (isValidCoord(destination_lat, destination_lng)) {
+        updateData.destination_lat = destination_lat;
+        updateData.destination_lng = destination_lng;
+      }
+      if (destination_name && typeof destination_name === 'string') {
+        updateData.destination_name = destination_name.trim().slice(0, 200);
+      }
+      const { data: updated, error: upErr } = await supabase
+        .from('live_sessions')
+        .update(updateData)
+        .eq('id', activeSession.id)
+        .select()
+        .single();
+      if (upErr) throw upErr;
+      session = updated;
+      reused = true;
     }
 
-    if (destination_name && typeof destination_name === 'string') {
-      sessionData.destination_name = destination_name.trim().slice(0, 200);
+    // 2. Try to reactivate a recently ended session (within 5 min window)
+    if (!session) {
+      const cutoff = new Date(now.getTime() - SESSION_REUSE_WINDOW_MS).toISOString();
+
+      const { data: recentSession } = await supabase
+        .from('live_sessions')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .in('status', ['cancelled', 'completed', 'expired'])
+        .gte('ended_at', cutoff)
+        .order('ended_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (recentSession) {
+        // Reactivate: set back to active, update coords & heartbeat
+        const reactivateData = {
+          status: 'active',
+          current_lat,
+          current_lng,
+          last_update_at: now.toISOString(),
+          ended_at: null,
+        };
+        if (isValidCoord(destination_lat, destination_lng)) {
+          reactivateData.destination_lat = destination_lat;
+          reactivateData.destination_lng = destination_lng;
+        }
+        if (destination_name && typeof destination_name === 'string') {
+          reactivateData.destination_name = destination_name.trim().slice(0, 200);
+        }
+        const { data: reactivated, error: rErr } = await supabase
+          .from('live_sessions')
+          .update(reactivateData)
+          .eq('id', recentSession.id)
+          .select()
+          .single();
+        if (rErr) throw rErr;
+        session = reactivated;
+        reused = true;
+      }
     }
 
-    const { data: session, error } = await supabase
-      .from('live_sessions')
-      .insert(sessionData)
-      .select()
-      .single();
+    // 3. No reusable session — enforce subscription limit, then create new
+    if (!session) {
+      // Run the feature limit check only for genuinely new sessions
+      const limitBlocked = await new Promise((resolve) => {
+        checkFeatureLimit('live_sessions')(req, res, (err) => {
+          if (err) return resolve(true);
+          resolve(false);
+        });
+      });
+      // If checkFeatureLimit already sent a 403 response, stop here
+      if (limitBlocked || res.headersSent) return;
 
-    if (error) throw error;
+      const sessionData = {
+        user_id: req.user.id,
+        status: 'active',
+        current_lat,
+        current_lng,
+        last_update_at: now.toISOString(),
+      };
 
+      if (isValidCoord(destination_lat, destination_lng)) {
+        sessionData.destination_lat = destination_lat;
+        sessionData.destination_lng = destination_lng;
+      }
+
+      if (destination_name && typeof destination_name === 'string') {
+        sessionData.destination_name = destination_name.trim().slice(0, 200);
+      }
+
+      const { data: newSession, error: insertErr } = await supabase
+        .from('live_sessions')
+        .insert(sessionData)
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+      session = newSession;
+    }
+
+    if (!session) throw new Error('Failed to create or reactivate session');
+
+    // Only notify contacts for brand-new sessions (not reuse/reactivation)
+    if (!reused) {
     // Get user's profile for notification
     const { data: userProfile } = await supabase
       .from('profiles')
@@ -146,8 +238,9 @@ router.post('/start', checkFeatureLimit('live_sessions'), async (req, res, next)
         );
       }
     }
+    } // end if (!reused)
 
-    res.status(201).json(session);
+    res.status(reused ? 200 : 201).json(session);
   } catch (err) {
     next(err);
   }

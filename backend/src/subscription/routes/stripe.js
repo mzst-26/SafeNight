@@ -161,6 +161,30 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
       });
     }
 
+    // ── Anti-abuse: prevent re-subscribing too soon after a cooling-off refund ──
+    const { data: recentRefund } = await supabase
+      .from('subscriptions')
+      .select('cooling_off_refunded_at')
+      .eq('user_id', req.user.id)
+      .eq('cooling_off_used', true)
+      .order('cooling_off_refunded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (recentRefund?.cooling_off_refunded_at) {
+      const refundedAt = new Date(recentRefund.cooling_off_refunded_at).getTime();
+      const daysSinceRefund = (Date.now() - refundedAt) / (1000 * 60 * 60 * 24);
+      const RESUBSCRIBE_COOLDOWN_DAYS = 30;
+
+      if (daysSinceRefund < RESUBSCRIBE_COOLDOWN_DAYS) {
+        const daysRemaining = Math.ceil(RESUBSCRIBE_COOLDOWN_DAYS - daysSinceRefund);
+        return res.status(403).json({
+          error: `You recently used the 14-day cooling-off refund. You can re-subscribe in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}. This cooldown prevents abuse of the refund policy.`,
+          cooldownEnds: new Date(refundedAt + RESUBSCRIBE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      }
+    }
+
     // Determine success/cancel URLs
     const returnUrl = req.body.return_url || process.env.FRONTEND_URL || 'http://localhost:8083';
 
@@ -385,13 +409,16 @@ router.post('/create-portal', requireAuth, async (req, res, next) => {
 // ─── POST /api/stripe/cancel ─────────────────────────────────────────────────
 // Cancel the user's individual (Guarded) subscription.
 //
-// 14-day cooling-off policy:
-//   • Within 14 days of the current billing period start → immediate cancel
-//     with a full refund for the current period.
-//   • After 14 days → no refund; access continues until the end of the
-//     current billing period, then billing stops automatically.
+// 14-day cooling-off policy (FIRST SUBSCRIPTION ONLY):
+//   • Within 14 days of the current billing period start AND this is the
+//     user's first-ever paid subscription → immediate cancel with full refund.
+//   • Otherwise (repeat subscriber or past 14 days) → no refund; access
+//     continues until the end of the current billing period.
+//
+// This prevents the subscribe → cancel → refund → re-subscribe abuse loop.
 //
 const COOLING_OFF_DAYS = 14;
+const RESUBSCRIBE_COOLDOWN_DAYS = 30; // days after a cooling-off refund before re-subscribing
 
 router.post('/cancel', requireAuth, async (req, res, next) => {
   try {
@@ -428,20 +455,35 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
 
     const periodStart = sub.current_period_start * 1000; // ms
     const daysSincePeriodStart = (Date.now() - periodStart) / (1000 * 60 * 60 * 24);
-    const withinCoolingOff = daysSincePeriodStart <= COOLING_OFF_DAYS;
+    const withinTimeWindow = daysSincePeriodStart <= COOLING_OFF_DAYS;
     const periodEnd = new Date(sub.current_period_end * 1000).toISOString();
+
+    // ── Check if user has ever had a previous cancelled/refunded subscription ──
+    // If they have, they are NOT eligible for the cooling-off refund.
+    const { data: previousSubs } = await supabase
+      .from('subscriptions')
+      .select('id, status, cooling_off_used')
+      .eq('user_id', req.user.id)
+      .neq('tier', 'free')
+      .in('status', ['cancelled', 'expired'])
+      .limit(1);
+
+    const hasUsedCoolingOff = (previousSubs || []).some(s => s.cooling_off_used === true);
+    const hasPreviousPaidSub = (previousSubs || []).length > 0;
+    const eligibleForCoolingOff = withinTimeWindow && !hasUsedCoolingOff && !hasPreviousPaidSub;
 
     console.log(
       `[stripe] Cancel request: user=${req.user.id}, ` +
-      `${daysSincePeriodStart.toFixed(1)} days into period (cooling-off=${withinCoolingOff})`
+      `${daysSincePeriodStart.toFixed(1)} days into period, ` +
+      `withinTimeWindow=${withinTimeWindow}, hasPreviousPaidSub=${hasPreviousPaidSub}, ` +
+      `hasUsedCoolingOff=${hasUsedCoolingOff}, eligibleForCoolingOff=${eligibleForCoolingOff}`
     );
 
-    if (withinCoolingOff) {
-      // ── IMMEDIATE CANCEL + FULL REFUND ──────────────────────────────
+    if (eligibleForCoolingOff) {
+      // ── IMMEDIATE CANCEL + FULL REFUND (first subscription only) ────
       await stripe.subscriptions.cancel(sub.id, { prorate: true });
 
-      // Refund ALL paid invoices for this subscription that have a
-      // payment_intent (skips proration credit notes which have none).
+      // Refund ALL paid invoices for this subscription
       try {
         const invoices = await stripe.invoices.list({
           subscription: sub.id,
@@ -461,7 +503,6 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
             });
             console.log(`[stripe] Refunded invoice ${invoice.id} (£${(invoice.amount_paid / 100).toFixed(2)}) for user ${req.user.id}`);
           } catch (refundErr) {
-            // already refunded or other issue — log but continue
             console.error(`[stripe] Refund for invoice ${invoice.id} failed: ${refundErr.message}`);
           }
         }
@@ -469,21 +510,33 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
         console.error(`[stripe] Failed to list invoices for refund: ${listErr.message}`);
       }
 
+      // Mark this subscription as having used the cooling-off refund
+      await supabase
+        .from('subscriptions')
+        .update({ cooling_off_used: true, cooling_off_refunded_at: new Date().toISOString() })
+        .eq('user_id', req.user.id)
+        .eq('status', 'active');
+
       // The webhook (subscription.deleted) will handle reverting to free tier
       return res.json({
-        message: 'Subscription cancelled and refunded. You have been reverted to the free plan.',
+        message: 'Subscription cancelled and refunded under the 14-day cooling-off period. You have been reverted to the free plan.',
         refunded: true,
       });
     } else {
       // ── END-OF-PERIOD CANCEL (no refund) ────────────────────────────
+      // Either past 14 days OR this is a repeat subscription (no refund).
       await stripe.subscriptions.update(sub.id, {
         cancel_at_period_end: true,
       });
 
       console.log(`[stripe] Subscription ${sub.id} set to cancel at period end (${periodEnd})`);
 
+      const reason = !withinTimeWindow
+        ? 'You are past the 14-day cooling-off window.'
+        : 'The 14-day cooling-off refund is available on your first subscription only.';
+
       return res.json({
-        message: 'Your Guarded subscription will remain active until the end of your billing period. No further charges will be made.',
+        message: `Your Guarded subscription will remain active until the end of your billing period. No further charges will be made. ${reason}`,
         cancelAt: periodEnd,
         refunded: false,
       });

@@ -1025,11 +1025,14 @@ router.post('/checkout', requireAuth, async (req, res, next) => {
 // ─── POST /api/family/cancel ─────────────────────────────────────────────────
 // Cancel the entire family pack.
 //
-// Refund policy (14-day cooling-off):
-//   • Within 14 days of the current billing period start → immediate full
-//     refund for the current period, access revoked straight away.
-//   • After 14 days → no refund, but the pack stays active until the end
-//     of the current billing period and billing stops automatically.
+// Refund policy (14-day cooling-off — FIRST SUBSCRIPTION ONLY):
+//   • Within 14 days of the current billing period start AND this is the
+//     user's first-ever paid subscription → immediate full refund, access
+//     revoked straight away.
+//   • Otherwise (repeat subscriber or past 14 days) → no refund, pack stays
+//     active until the end of the current billing period.
+//
+// This prevents the subscribe → cancel → refund → re-subscribe abuse loop.
 //
 const COOLING_OFF_DAYS = 14;
 
@@ -1053,8 +1056,20 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
       });
     }
 
+    // ── Check if user has ever used cooling-off refund before ─────────
+    const { data: previousSubs } = await supabase
+      .from('subscriptions')
+      .select('id, status, cooling_off_used')
+      .eq('user_id', req.user.id)
+      .neq('tier', 'free')
+      .in('status', ['cancelled', 'expired'])
+      .limit(1);
+
+    const hasUsedCoolingOff = (previousSubs || []).some(s => s.cooling_off_used === true);
+    const hasPreviousPaidSub = (previousSubs || []).length > 0;
+
     // ── Determine if we are inside the 14-day cooling-off window ──────
-    let withinCoolingOff = true; // default to immediate if no Stripe sub
+    let withinTimeWindow = true; // default to immediate if no Stripe sub
     let periodEnd = null;
 
     if (pack.stripe_subscription_id) {
@@ -1064,21 +1079,22 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
       const sub = await stripe.subscriptions.retrieve(pack.stripe_subscription_id);
       const periodStart = sub.current_period_start * 1000; // ms
       const daysSincePeriodStart = (Date.now() - periodStart) / (1000 * 60 * 60 * 24);
-      withinCoolingOff = daysSincePeriodStart <= COOLING_OFF_DAYS;
+      withinTimeWindow = daysSincePeriodStart <= COOLING_OFF_DAYS;
       periodEnd = new Date(sub.current_period_end * 1000).toISOString();
 
+      const eligibleForCoolingOff = withinTimeWindow && !hasUsedCoolingOff && !hasPreviousPaidSub;
+
       console.log(
-        `[family] Cancel request: ${daysSincePeriodStart.toFixed(1)} days into period ` +
-        `(cooling-off=${withinCoolingOff})`
+        `[family] Cancel request: ${daysSincePeriodStart.toFixed(1)} days into period, ` +
+        `withinTimeWindow=${withinTimeWindow}, hasPreviousPaidSub=${hasPreviousPaidSub}, ` +
+        `hasUsedCoolingOff=${hasUsedCoolingOff}, eligibleForCoolingOff=${eligibleForCoolingOff}`
       );
 
-      if (withinCoolingOff) {
-        // ── IMMEDIATE CANCEL + FULL REFUND ────────────────────────────
-        // Cancel Stripe sub immediately.
+      if (eligibleForCoolingOff) {
+        // ── IMMEDIATE CANCEL + FULL REFUND (first subscription only) ──
         await stripe.subscriptions.cancel(sub.id, { prorate: true });
 
-        // Refund ALL paid invoices for this subscription that have a
-        // payment_intent (skips proration credit notes which have none).
+        // Refund ALL paid invoices for this subscription
         try {
           const invoices = await stripe.invoices.list({
             subscription: sub.id,
@@ -1098,23 +1114,25 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
               });
               console.log(`[family] Refunded invoice ${invoice.id} (£${(invoice.amount_paid / 100).toFixed(2)}) for pack ${pack.id}`);
             } catch (refundErr) {
-              // already refunded or other issue — log but continue
               console.error(`[family] Refund for invoice ${invoice.id} failed: ${refundErr.message}`);
             }
           }
         } catch (listErr) {
           console.error(`[family] Failed to list invoices for refund: ${listErr.message}`);
         }
+
+        // Mark as having used cooling-off refund
+        await supabase
+          .from('subscriptions')
+          .update({ cooling_off_used: true, cooling_off_refunded_at: new Date().toISOString() })
+          .eq('user_id', req.user.id)
+          .eq('status', 'active');
       } else {
         // ── END-OF-PERIOD CANCEL (no refund) ─────────────────────────
-        // Keep access until billing period ends, then Stripe fires
-        // customer.subscription.deleted and our webhook cleans up.
         await stripe.subscriptions.update(sub.id, {
           cancel_at_period_end: true,
         });
 
-        // Mark the pack as "cancelling" so the UI can show a notice.
-        // If this DB write fails, revert the Stripe change so they stay in sync.
         const { error: dbCancelErr } = await supabase
           .from('family_packs')
           .update({
@@ -1137,8 +1155,12 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
 
         console.log(`[family] Pack ${pack.id} set to cancel at period end (${periodEnd})`);
 
+        const reason = !withinTimeWindow
+          ? 'You are past the 14-day cooling-off window.'
+          : 'The 14-day cooling-off refund is available on your first subscription only.';
+
         return res.json({
-          message: 'Your Family Pack will remain active until the end of your billing period. No further charges will be made.',
+          message: `Your Family Pack will remain active until the end of your billing period. No further charges will be made. ${reason}`,
           cancelAt: periodEnd,
           refunded: false,
         });
@@ -1149,7 +1171,7 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
     await revokeFamilyPack(pack.id);
 
     res.json({
-      message: 'Family Pack cancelled and refunded. All members have been reverted to the free plan.',
+      message: 'Family Pack cancelled and refunded under the 14-day cooling-off period. All members have been reverted to the free plan.',
       refunded: true,
     });
   } catch (err) {
