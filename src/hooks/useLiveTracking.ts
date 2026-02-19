@@ -107,6 +107,8 @@ interface LiveTrackingState {
   session: LiveSession | null;
   pushToken: string | null;
   error: string | null;
+  /** True when we're waiting for the user to accept the background location disclosure */
+  showBackgroundDisclosure: boolean;
 }
 
 export function useLiveTracking(isLoggedIn = false) {
@@ -115,12 +117,15 @@ export function useLiveTracking(isLoggedIn = false) {
     session: null,
     pushToken: null,
     error: null,
+    showBackgroundDisclosure: false,
   });
 
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const updateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const heartbeatInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastLocation = useRef<{ lat: number; lng: number } | null>(null);
+  // Resolves the background-permission gate inside startTracking
+  const bgPermResolveRef = useRef<((granted: boolean) => void) | null>(null);
 
   // Register push token when logged in
   useEffect(() => {
@@ -167,6 +172,31 @@ export function useLiveTracking(isLoggedIn = false) {
           setState((s) => ({ ...s, error: 'Location permission required' }));
           return false;
         }
+
+        // ── Background location (Android only) ───────────────────────────
+        // Google Play requires a prominent in-app disclosure before requesting
+        // ACCESS_BACKGROUND_LOCATION. Show our disclosure modal and wait for
+        // the user to respond before calling the system prompt.
+        if (Platform.OS === 'android') {
+          const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+          if (bgStatus !== 'granted') {
+            // Show the prominent disclosure modal and pause until user responds
+            const userAllowed = await new Promise<boolean>((resolve) => {
+              bgPermResolveRef.current = resolve;
+              setState((s) => ({ ...s, showBackgroundDisclosure: true }));
+            });
+
+            if (userAllowed) {
+              // User accepted disclosure — now show the system permission prompt
+              const { status: granted } = await Location.requestBackgroundPermissionsAsync();
+              if (granted !== 'granted') {
+                // System prompt denied — continue with foreground-only tracking
+                console.log('[live] Background location denied — tracking in foreground only');
+              }
+            }
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         const location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
@@ -313,6 +343,18 @@ export function useLiveTracking(isLoggedIn = false) {
     ...state,
     startTracking,
     stopTracking,
+    /** Called when the user taps "Allow" on the background location disclosure modal */
+    confirmBackgroundPermission: useCallback(() => {
+      setState((s) => ({ ...s, showBackgroundDisclosure: false }));
+      bgPermResolveRef.current?.(true);
+      bgPermResolveRef.current = null;
+    }, []),
+    /** Called when the user taps "Not Now" on the background location disclosure modal */
+    denyBackgroundPermission: useCallback(() => {
+      setState((s) => ({ ...s, showBackgroundDisclosure: false }));
+      bgPermResolveRef.current?.(false);
+      bgPermResolveRef.current = null;
+    }, []),
   };
 }
 

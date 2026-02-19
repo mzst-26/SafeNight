@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AndroidOverlayHost } from '@/src/components/android/AndroidOverlayHost';
 import RouteMap from '@/src/components/maps/RouteMap';
 import { AIExplanationModal } from '@/src/components/modals/AIExplanationModal';
+import { BackgroundLocationModal } from '@/src/components/modals/BackgroundLocationModal';
 import { DownloadAppModal } from '@/src/components/modals/DownloadAppModal';
 import { FamilyPackModal } from '@/src/components/modals/FamilyPackModal';
 import { LimitReachedModal } from '@/src/components/modals/LimitReachedModal';
@@ -1022,6 +1023,13 @@ export default function HomeScreen() {
           error={h.onboardingError}
           onAccept={h.handleAcceptOnboarding}
           onDismiss={() => h.setShowOnboarding(false)}
+        />
+
+        {/* ── Background location prominent disclosure (Google Play required) ── */}
+        <BackgroundLocationModal
+          visible={live.showBackgroundDisclosure}
+          onAllow={live.confirmBackgroundPermission}
+          onDeny={live.denyBackgroundPermission}
         />
 
         {Platform.OS !== 'web' && (
