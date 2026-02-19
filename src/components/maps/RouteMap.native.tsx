@@ -32,12 +32,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       cursor:pointer;display:flex;align-items:center;justify-content:center;
       -webkit-tap-highlight-color:transparent;user-select:none;pointer-events:auto;line-height:1}
     .map-btn:active{background:#e4e7ec}
-    .recenter-btn{position:absolute;right:12px;bottom:200px;z-index:10;width:42px;height:42px;
-      border:none;border-radius:50%;background:rgba(255,255,255,.95);
-      box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:pointer;display:none;align-items:center;
-      justify-content:center;pointer-events:auto;transition:opacity 0.3s}
-    .recenter-btn:active{background:#e4e7ec}
-    .recenter-btn.visible{display:flex}
+
     .road-label{background:rgba(0,0,0,.7);color:#fff;padding:2px 8px;border-radius:9px;
       font-size:9px;font-weight:600;white-space:nowrap}
     .road-label-3d{background:rgba(20,30,50,.8);color:#fff;padding:4px 12px;border-radius:5px;
@@ -56,7 +51,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     .friend-label{margin-top:2px;background:rgba(124,58,237,.9);color:#fff;padding:2px 8px;
       border-radius:8px;font-size:10px;font-weight:700;white-space:nowrap;
       box-shadow:0 1px 4px rgba(0,0,0,.3);max-width:100px;overflow:hidden;text-overflow:ellipsis}
-    .maplibregl-ctrl-attrib{font-size:9px!important}
+    .maplibregl-ctrl-attrib{display:none!important}
   </style>
 </head>
 <body>
@@ -65,9 +60,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     <button class="map-btn" onclick="map.zoomIn()">+</button>
     <button class="map-btn" onclick="map.zoomOut()">&minus;</button>
   </div>
-  <button class="recenter-btn" id="recenterBtn" onclick="recenterMap()">
-    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1D2939" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
-  </button>
+
 
   <script>
     /* ── State ─────────────────────────────────────────────── */
@@ -76,6 +69,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     var hazardMarkers = [];
     var friendMarkerObjs = [];
     var isNavMode = false;
+    var isPipMode = false;   // zooms out when in PiP
     var userInteracted = false;
     var lastNavCenter = null;
     var lastNavHeading = 0;
@@ -110,7 +104,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       bearing: 0,
       maxPitch: 70,
       antialias: true,
-      attributionControl: true,
+      attributionControl: false,
     });
 
     // Disable rotation in normal mode (enable only in nav mode)
@@ -235,23 +229,41 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     mapEl.addEventListener('touchend',function(){cancelLongPress()},{passive:true});
     mapEl.addEventListener('touchcancel',function(){cancelLongPress()},{passive:true});
 
-    /* ── Drag tracking for recenter ────────────────────────── */
+    /* ── Drag tracking ────────────────────────────────────────── */
     map.on('dragstart',function(){
       if(isNavMode){
         userInteracted=true;
-        var btn=document.getElementById('recenterBtn');
-        if(btn)btn.classList.add('visible');
       }
     });
 
-    function recenterMap(){
-      userInteracted=false;
-      var btn=document.getElementById('recenterBtn');
-      if(btn)btn.classList.remove('visible');
-      if(lastNavCenter){
-        map.easeTo({center:lastNavCenter, zoom:Math.max(map.getZoom(),17), pitch:0, bearing:lastNavHeading, duration:600});
+    /* ── Dedicated PiP setter — called directly from RN for zero-lag zoom ── */
+    window.setPipMode = function(pip){
+      var entering = !!pip;
+      if(entering === isPipMode) return;
+      isPipMode = entering;
+
+      // Always hide interactive controls when entering PiP
+      var ctrl = document.getElementById('mapCtrl');
+      if(ctrl) ctrl.style.display = isPipMode ? 'none' : (isNavMode ? 'none' : 'flex');
+
+      // Force resize detection and auto-recenter immediately
+      map.resize();
+      if(lastNavCenter && isNavMode){
+        userInteracted = false;
+        var tz = isPipMode ? 15 : 17;
+        map.jumpTo({center:lastNavCenter, zoom:tz, pitch:0, bearing:lastNavHeading});
       }
-    }
+    };
+
+    /* ── Re-anchor camera immediately on any container resize ── */
+    /* Handles PiP window resize (user dragging pip edge) and activity transitions. */
+    map.on('resize', function(){
+      if(isNavMode && lastNavCenter && !userInteracted){
+        var rz = isPipMode ? 15 : 17;
+        // jumpTo = instant, no animation artefacts during resize
+        map.jumpTo({center:lastNavCenter, zoom:Math.max(map.getZoom(), rz), bearing:lastNavHeading, pitch:0});
+      }
+    });
 
     /* ── Helpers ────────────────────────────────────────────── */
     function nearestIdx(path,pt){
@@ -284,6 +296,11 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     function updateMap(data){
       if(!styleReady) return;
       lastData = data;
+      isPipMode = !!(data.isInPipMode);
+
+      // Ensure controls reflect PiP state immediately
+      var ctrl = document.getElementById('mapCtrl');
+      if(ctrl) ctrl.style.display = (isPipMode || isNavMode) ? 'none' : 'flex';
 
       clearMarkerArray(currentMarkers);
       var bounds = null;
@@ -429,26 +446,27 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         navMarkerObj=new maplibregl.Marker({element:ne,anchor:'center',rotationAlignment:'viewport',rotation:0})
           .setLngLat(lastNavCenter).addTo(map);
 
-        // Camera follow with dead-zone: only update if bearing changed >= 5°
-        // to prevent jitter from tiny sensor fluctuations.
-        // Adaptive duration: large turns snap fast, small turns ease smoothly.
+        // Camera follow — dead-zone & duration are tighter in PiP for snappy heading tracking
         if(!userInteracted){
           var bearingDiff = heading - lastCameraHeading;
           while (bearingDiff > 180) bearingDiff -= 360;
           while (bearingDiff < -180) bearingDiff += 360;
           var absDiff = Math.abs(bearingDiff);
-          if(absDiff >= 5){
+          // PiP: 1° dead-zone so even slight turns are visible on the small screen
+          // Normal: 5° dead-zone to suppress sensor jitter
+          var deadZone = isPipMode ? 1 : 5;
+          if(absDiff >= deadZone){
             lastCameraHeading = heading;
-            var camDuration = absDiff >= 30 ? 250 : 500; // snap for big turns, ease for small
+            // PiP: snap at 80ms so the map feels live; Normal: adapt to turn size
+            var camDuration = isPipMode ? 80 : (absDiff >= 30 ? 250 : 500);
+            var navZoom = isPipMode ? 15 : 17;
             map.easeTo({
               center:lastNavCenter,
-              zoom:Math.max(map.getZoom(),17),
+              zoom:Math.max(map.getZoom(), navZoom),
               pitch:0,
               bearing:heading,
               duration:camDuration,
             });
-            var btn=document.getElementById('recenterBtn');
-            if(btn) btn.classList.remove('visible');
           }
         }
 
@@ -457,8 +475,6 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
           isNavMode=true;
           var ctrl=document.getElementById('mapCtrl');
           if(ctrl) ctrl.style.display='none';
-          var rb=document.getElementById('recenterBtn');
-          if(rb) rb.style.bottom='200px';
           map.dragRotate.enable();
           map.touchZoomRotate.enableRotation();
         }
@@ -480,9 +496,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
           isNavMode=false;
           userInteracted=false;
           var ctrl=document.getElementById('mapCtrl');
-          if(ctrl) ctrl.style.display='flex';
-          var btn=document.getElementById('recenterBtn');
-          if(btn){ btn.classList.remove('visible'); btn.style.bottom='200px'; }
+          if(ctrl) ctrl.style.display = isPipMode ? 'none' : 'flex';
           map.easeTo({pitch:0,bearing:0,duration:600});
           map.dragRotate.disable();
           map.touchZoomRotate.disableRotation();
@@ -527,6 +541,7 @@ export const RouteMap = ({
   mapType = 'roadmap',
   maxDistanceKm,
   friendMarkers = [],
+  isInPipMode = false,
   onSelectRoute,
   onLongPress,
   onMapPress,
@@ -542,13 +557,13 @@ export const RouteMap = ({
     origin, destination, routes, selectedRouteId,
     safetyMarkers, routeSegments, roadLabels, panTo,
     isNavigating, navigationLocation, navigationHeading, maxDistanceKm,
-    friendMarkers,
+    friendMarkers, isInPipMode,
   });
   propsRef.current = {
     origin, destination, routes, selectedRouteId,
     safetyMarkers, routeSegments, roadLabels, panTo,
     isNavigating, navigationLocation, navigationHeading, maxDistanceKm,
-    friendMarkers,
+    friendMarkers, isInPipMode,
   };
 
   const mapTypeRef = useRef(mapType);
@@ -623,6 +638,7 @@ export const RouteMap = ({
           : null,
       navHeading: p.navigationHeading,
       maxDistanceKm: p.maxDistanceKm || null,
+      isInPipMode: p.isInPipMode ?? false,
       friendMarkers: p.friendMarkers.map((f) => ({
         userId: f.userId,
         name: f.name,
@@ -652,8 +668,19 @@ export const RouteMap = ({
     navigationHeading,
     maxDistanceKm,
     friendMarkers,
+    isInPipMode,
     pushUpdate,
   ]);
+
+  // ── Immediate PiP mode injection — bypasses the full pushUpdate cycle.
+  // Fixes the 1+ second zoom delay: camera snaps to pip zoom as soon as
+  // isInPipMode changes, without waiting for the next GPS location update.
+  useEffect(() => {
+    if (!readyRef.current || !webViewRef.current) return;
+    webViewRef.current.injectJavaScript(
+      `try{window.setPipMode(${isInPipMode ? 'true' : 'false'})}catch(e){}true;`
+    );
+  }, [isInPipMode]);
 
   // Update map type when it changes
   useEffect(() => {

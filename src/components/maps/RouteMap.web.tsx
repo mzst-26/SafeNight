@@ -52,10 +52,7 @@ html,body{width:100%;height:100%;overflow:hidden}
   box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:20px;font-weight:700;color:#1D2939;
   cursor:pointer;display:flex;align-items:center;justify-content:center;user-select:none;line-height:1}
 .map-btn:hover{background:#e4e7ec}
-.recenter-btn{position:absolute;right:12px;bottom:50px;z-index:1000;width:38px;height:38px;
-  border:none;border-radius:50%;background:rgba(255,255,255,.95);
-  box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:pointer;display:none;align-items:center;justify-content:center}
-.recenter-btn:hover{background:#e4e7ec}
+
 .road-label{background:rgba(0,0,0,.7);color:#fff;padding:2px 8px;border-radius:9px;
   font-size:9px;font-weight:600;white-space:nowrap;border:none;box-shadow:none}
 .friend-marker{display:flex;align-items:center;gap:4px;background:#7C3AED;color:#fff;padding:3px 8px 3px 3px;
@@ -63,6 +60,7 @@ html,body{width:100%;height:100%;overflow:hidden}
   box-shadow:0 2px 8px rgba(124,58,237,.4);line-height:1.2}
 .friend-dot{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.25);
   display:flex;align-items:center;justify-content:center;font-size:12px}
+.leaflet-control-attribution{display:none!important}
 </style>
 </head><body>
 <div id="viewport">
@@ -71,11 +69,10 @@ html,body{width:100%;height:100%;overflow:hidden}
 <button class="map-btn" onclick="map.zoomIn()">+</button>
 <button class="map-btn" onclick="map.zoomOut()">&minus;</button>
 </div>
-<button class="recenter-btn" id="recenterBtn" onclick="recenterMap()">
-<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D2939" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
-</button>
+
 </div>
 <script>
+var isPipMode = false;
 var map,tileLayer,markers=[],polylines=[],navMarker=null,longPressTimer=null,longPressLatLng=null;
 var isNavMode=false,currentRotation=0,userInteracted=false,lastNavLL=null;
 var rangeCircle=null;
@@ -89,7 +86,7 @@ function sendMsg(t,d){
   }catch(e){}
 }
 
-map=L.map('map',{center:[50.3755,-4.1427],zoom:13,zoomControl:false,attributionControl:true});
+map=L.map('map',{center:[50.3755,-4.1427],zoom:13,zoomControl:false,attributionControl:false});
 tileLayer=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
   attribution:'&copy; OpenStreetMap',maxZoom:19}).addTo(map);
 
@@ -104,12 +101,16 @@ sendMsg('ready',{});
 
 map.on('dragstart',function(){if(isNavMode)userInteracted=true;});
 
-function recenterMap(){userInteracted=false;if(lastNavLL){map.panTo(lastNavLL);if(map.getZoom()<17)map.setZoom(17);}}
+// PiP setter — called from host to hide controls immediately
+window.setPipMode = function(pip){
+  isPipMode = !!pip;
+  var ctrl = document.querySelector('.map-ctrl'); if(ctrl) ctrl.style.display = isPipMode ? 'none' : 'flex';
+};
 
 function setNavView(heading,entering){
-  var mapEl=document.getElementById('map'),btn=document.getElementById('recenterBtn');
-  if(!entering){isNavMode=false;currentRotation=0;userInteracted=false;mapEl.style.transform='none';mapEl.style.transition='transform 0.4s ease-out';if(btn)btn.style.display='none';return;}
-  isNavMode=true;if(btn)btn.style.display='flex';
+  var mapEl=document.getElementById('map');
+  if(!entering){isNavMode=false;currentRotation=0;userInteracted=false;mapEl.style.transform='none';mapEl.style.transition='transform 0.4s ease-out';return;}
+  isNavMode=true;
   // Positive rotation (CW) brings heading direction to the top.
   var target=(heading||0),diff=target-currentRotation;
   while(diff>180)diff-=360;while(diff<-180)diff+=360;
@@ -125,6 +126,10 @@ function setTileUrl(u,a){if(tileLayer)map.removeLayer(tileLayer);
   tileLayer=L.tileLayer(u,{attribution:a,maxZoom:19}).addTo(map);}
 
 function updateMap(d){
+  if(d && typeof d.isInPipMode !== 'undefined'){
+    isPipMode = !!d.isInPipMode;
+    var ctrl = document.querySelector('.map-ctrl'); if(ctrl) ctrl.style.display = isPipMode ? 'none' : 'flex';
+  }
   clearArr(markers);clearArr(polylines);
   var bounds=L.latLngBounds([]),hasBounds=false;
 
@@ -261,6 +266,7 @@ export const RouteMap = ({
   highlightCategory,
   maxDistanceKm,
   friendMarkers = [],
+  isInPipMode = false,
   onSelectRoute,
   onLongPress,
   onMapPress,
@@ -358,6 +364,7 @@ export const RouteMap = ({
         lng: f.lng,
         destinationName: f.destinationName || null,
       })),
+      isInPipMode: isInPipMode || false,
     };
 
     try {
@@ -385,6 +392,15 @@ export const RouteMap = ({
     } catch { /* ignore */ }
   }, [mapType]);
 
+  // Immediate PiP injection — set iframe.setPipMode without waiting for full update
+  useEffect(() => {
+    if (!readyRef.current || !iframeRef.current?.contentWindow) return;
+    try {
+      const win = iframeRef.current.contentWindow as any;
+      if (win && win.setPipMode) win.setPipMode(isInPipMode ? true : false);
+    } catch {}
+  }, [isInPipMode]);
+
   // Blob URL for iframe src
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -410,9 +426,6 @@ export const RouteMap = ({
           <Text style={styles.placeholderText}>Map unavailable</Text>
         </View>
       ) : null}
-      <View style={styles.attribution}>
-        <Text style={styles.attributionText}>© OpenStreetMap contributors</Text>
-      </View>
     </View>
   );
 };
@@ -421,12 +434,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f2f4f7' },
   placeholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   placeholderText: { color: '#667085', fontSize: 14 },
-  attribution: {
-    position: 'absolute', right: 8, bottom: 8,
-    paddingHorizontal: 8, paddingVertical: 4,
-    borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.9)',
-  },
-  attributionText: { fontSize: 10, color: '#475467' },
 });
 
 export default RouteMap;

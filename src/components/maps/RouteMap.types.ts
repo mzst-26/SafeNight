@@ -36,6 +36,8 @@ export type RouteMapProps = {
   maxDistanceKm?: number | null;
   /** Live friend positions to show on the map */
   friendMarkers?: FriendMapMarker[];
+  /** When true, uses a lower camera zoom so the user sees more map context in PiP */
+  isInPipMode?: boolean;
   onSelectRoute?: (routeId: string) => void;
   onLongPress?: (location: LatLng) => void;
   onMapPress?: (location: LatLng) => void;
