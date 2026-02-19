@@ -249,6 +249,7 @@ router.post('/start', async (req, res, next) => {
 // ─── POST /api/live/update ───────────────────────────────────────────────────
 // Update current location during an active session.
 // Called every 5-10 seconds from the app.
+// Also appends the coordinate to the session's path history.
 router.post('/update', async (req, res, next) => {
   try {
     const { current_lat, current_lng } = req.body;
@@ -257,22 +258,30 @@ router.post('/update', async (req, res, next) => {
       return res.status(400).json({ error: 'Valid current_lat and current_lng are required' });
     }
 
-    const { data, error } = await supabase
-      .from('live_sessions')
-      .update({
-        current_lat,
-        current_lng,
-        last_update_at: new Date().toISOString(),
-      })
-      .eq('user_id', req.user.id)
-      .eq('status', 'active')
-      .select()
-      .single();
+    // Use RPC to atomically append coordinate to path and update location
+    const { error: rpcError } = await supabase.rpc('append_path_point', {
+      p_user_id: req.user.id,
+      p_lat: current_lat,
+      p_lng: current_lng,
+    });
 
-    if (error) throw error;
+    if (rpcError) {
+      // Fallback to simple update if RPC not available (migration not run yet)
+      console.warn('[live] append_path_point RPC failed, falling back:', rpcError.message);
+      const { data, error } = await supabase
+        .from('live_sessions')
+        .update({
+          current_lat,
+          current_lng,
+          last_update_at: new Date().toISOString(),
+        })
+        .eq('user_id', req.user.id)
+        .eq('status', 'active')
+        .select()
+        .single();
 
-    if (!data) {
-      return res.status(404).json({ error: 'No active session found' });
+      if (error) throw error;
+      if (!data) return res.status(404).json({ error: 'No active session found' });
     }
 
     res.json({ updated: true });
@@ -426,10 +435,10 @@ router.get('/watch/:userId', async (req, res, next) => {
       return res.status(403).json({ error: 'Not an accepted contact' });
     }
 
-    // Get their active session
+    // Get their active session (include path for contact visualization)
     const { data: session, error } = await supabase
       .from('live_sessions')
-      .select('id, current_lat, current_lng, destination_lat, destination_lng, destination_name, started_at, last_update_at')
+      .select('id, current_lat, current_lng, destination_lat, destination_lng, destination_name, started_at, last_update_at, path')
       .eq('user_id', userId)
       .eq('status', 'active')
       .maybeSingle();
@@ -549,5 +558,30 @@ async function cleanupStaleSessions() {
   }
 }
 
+// ─── 30-day old session cleanup ──────────────────────────────────────────────
+// Deletes completed/cancelled/expired sessions older than 30 days.
+// Run periodically (every hour is sufficient).
+async function cleanupOldSessions() {
+  try {
+    const { error } = await supabase.rpc('cleanup_old_sessions');
+    if (error) {
+      // Fallback: manual delete if RPC not available
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: delError } = await supabase
+        .from('live_sessions')
+        .delete()
+        .not('status', 'eq', 'active')
+        .not('ended_at', 'is', null)
+        .lt('ended_at', cutoff);
+      if (delError) {
+        console.error('[live] Old session cleanup fallback error:', delError.message);
+      }
+    }
+  } catch (err) {
+    console.error('[live] Old session cleanup failed:', err.message);
+  }
+}
+
 module.exports = router;
 module.exports.cleanupStaleSessions = cleanupStaleSessions;
+module.exports.cleanupOldSessions = cleanupOldSessions;

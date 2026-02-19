@@ -36,7 +36,7 @@ const reportsRouter = require('./routes/reports');
 const reviewsRouter = require('./routes/reviews');
 const contactsRouter = require('./routes/contacts');
 const liveRouter = require('./routes/live');
-const { cleanupStaleSessions } = require('./routes/live');
+const { cleanupStaleSessions, cleanupOldSessions } = require('./routes/live');
 const subscriptionsRouter = require('./routes/subscriptions');
 const familyRouter = require('./routes/family');
 
@@ -80,5 +80,9 @@ app.listen(PORT, '0.0.0.0', () => {
   // ── Periodic cleanup: expire stale live sessions every 60s ──
   setInterval(cleanupStaleSessions, 60_000);
   console.log('[user] Stale live session cleanup scheduled (every 60s)');
+  // ── Periodic cleanup: delete sessions older than 30 days (every hour) ──
+  setInterval(cleanupOldSessions, 60 * 60 * 1000);
+  cleanupOldSessions(); // Run once on startup
+  console.log('[user] 30-day old session cleanup scheduled (every hour)');
   console.log(`[user] Routes: auth, usage, reports, reviews, contacts, live, subscriptions, family`);
 });
