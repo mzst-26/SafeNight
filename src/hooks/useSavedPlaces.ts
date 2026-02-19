@@ -76,25 +76,32 @@ export function useSavedPlaces() {
       const sameLocation = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
         Math.abs(a.lat - b.lat) < 0.00005 && Math.abs(a.lng - b.lng) < 0.00005;
 
-      // check if this location already exists under a different label
-      const existingByLocation = places.find((p) => sameLocation(p, place));
-      if (existingByLocation && existingByLocation.label.toLowerCase() !== place.label.toLowerCase()) {
-        return { ok: false, existingLabel: existingByLocation.label };
-      }
+      // Read latest state via ref-safe approach
+      let result: SaveResult = { ok: true, updated: false };
+      setPlaces((prev) => {
+        // check if this location already exists under a different label
+        const existingByLocation = prev.find((p) => sameLocation(p, place));
+        if (existingByLocation && existingByLocation.label.toLowerCase() !== place.label.toLowerCase()) {
+          result = { ok: false, existingLabel: existingByLocation.label };
+          return prev; // no change
+        }
 
-      // proceed to add / replace by label
-      const filtered = places.filter((p) => p.label.toLowerCase() !== place.label.toLowerCase());
-      const newPlace: SavedPlace = {
-        ...place,
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        createdAt: new Date().toISOString(),
-      };
-      const updated = [newPlace, ...filtered];
-      setPlaces(updated);
-      persist(updated);
-      return { ok: true, updated: filtered.length > 0 };
+        // proceed to add / replace by label
+        const filtered = prev.filter((p) => p.label.toLowerCase() !== place.label.toLowerCase());
+        const isUpdate = prev.length !== filtered.length;
+        const newPlace: SavedPlace = {
+          ...place,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: new Date().toISOString(),
+        };
+        const updated = [newPlace, ...filtered];
+        persist(updated);
+        result = { ok: true, updated: isUpdate };
+        return updated;
+      });
+      return result;
     },
-    [places, persist],
+    [persist],
   );
 
   /** Remove a saved place by ID */
