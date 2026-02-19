@@ -3,9 +3,14 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useCallback, useEffect, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { LogBox, Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+// expo-router uses expo-keep-awake internally during bundle load; the native
+// module occasionally fails to activate before the Activity is fully ready on
+// Android dev builds. This is non-fatal — suppress the noise.
+LogBox.ignoreLogs(['Unable to activate keep awake']);
 
 import { AnimatedSplashScreen } from '@/src/components/AnimatedSplashScreen';
 import DisclaimerModal from '@/src/components/modals/DisclaimerModal';

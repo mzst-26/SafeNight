@@ -26,12 +26,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;overflow:hidden;background:#e8eaed}
     #map{width:100%;height:100%;position:absolute;top:0;left:0}
-    .map-ctrl{position:absolute;right:12px;bottom:200px;z-index:10;display:flex;flex-direction:column;gap:4px;transition:bottom 0.3s ease}
-    .map-btn{width:42px;height:42px;border:none;border-radius:10px;background:rgba(255,255,255,.95);
-      box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:22px;font-weight:700;color:#1D2939;
-      cursor:pointer;display:flex;align-items:center;justify-content:center;
-      -webkit-tap-highlight-color:transparent;user-select:none;pointer-events:auto;line-height:1}
-    .map-btn:active{background:#e4e7ec}
+    /* Zoom controls removed */
 
     .road-label{background:rgba(0,0,0,.7);color:#fff;padding:2px 8px;border-radius:9px;
       font-size:9px;font-weight:600;white-space:nowrap}
@@ -56,10 +51,6 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
 </head>
 <body>
   <div id="map"></div>
-  <div class="map-ctrl" id="mapCtrl">
-    <button class="map-btn" onclick="map.zoomIn()">+</button>
-    <button class="map-btn" onclick="map.zoomOut()">&minus;</button>
-  </div>
 
 
   <script>
