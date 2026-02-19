@@ -92,18 +92,25 @@ export function SavedPlaces({
         return;
       }
       const isUpdate = existingLabels.has(preset.label.toLowerCase());
-      onSave({
+      const result = onSave({
         label: preset.label,
         name: currentDestination.name,
         address: currentDestination.address,
         lat: currentDestination.lat,
         lng: currentDestination.lng,
         icon: preset.icon,
+      } as any);
+      Promise.resolve(result).then((r: any) => {
+        if (!r || r.ok === undefined) {
+          onToast?.(`${preset.label} saved`, preset.icon);
+          return;
+        }
+        if (!r.ok) {
+          onToast?.(`Location already saved as ${r.existingLabel}`, 'bookmark');
+        } else {
+          onToast?.(`${preset.label} ${r.updated ? 'updated' : 'saved'}`, preset.icon);
+        }
       });
-      onToast?.(
-        `${preset.label} ${isUpdate ? 'updated' : 'saved'}`,
-        preset.icon,
-      );
     },
     [currentDestination, existingLabels, onSave, onToast],
   );
@@ -116,15 +123,23 @@ export function SavedPlaces({
     const preset = PLACE_PRESETS.find(
       (p) => p.label.toLowerCase() === label.toLowerCase(),
     );
-    onSave({
+    const result = onSave({
       label,
       name: currentDestination.name,
       address: currentDestination.address,
       lat: currentDestination.lat,
       lng: currentDestination.lng,
       icon: preset?.icon ?? 'bookmark',
+    } as any);
+    Promise.resolve(result).then((r: any) => {
+      if (!r || r.ok === undefined) {
+        onToast?.(`${label} saved`, preset?.icon ?? 'bookmark');
+      } else if (!r.ok) {
+        onToast?.(`Location already saved as ${r.existingLabel}`, 'bookmark');
+      } else {
+        onToast?.(`${label} ${r.updated ? 'updated' : 'saved'}`, preset?.icon ?? 'bookmark');
+      }
     });
-    onToast?.(`${label} ${isUpdate ? 'updated' : 'saved'}`, preset?.icon ?? 'bookmark');
     setAddingCustom(false);
     setCustomLabel('');
   }, [customLabel, currentDestination, existingLabels, onSave, onToast]);

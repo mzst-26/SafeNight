@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 
 import type { UseAutoPlaceSearchReturn } from '@/src/hooks/useAutoPlaceSearch';
-import type { SavedPlace } from '@/src/hooks/useSavedPlaces';
+import type { SavedPlace, SaveResult } from '@/src/hooks/useSavedPlaces';
 import type { LatLng, PlaceDetails, PlacePrediction } from '@/src/types/google';
 import { SavedPlaces } from './SavedPlaces';
 
@@ -59,7 +59,7 @@ export interface SearchBarProps {
   /** Saved places for quick access */
   savedPlaces?: SavedPlace[];
   onSelectSavedPlace?: (place: SavedPlace) => void;
-  onSavePlace?: (place: Omit<SavedPlace, 'id' | 'createdAt'>) => void;
+  onSavePlace?: (place: Omit<SavedPlace, 'id' | 'createdAt'>) => Promise<SaveResult> | SaveResult;
   onRemoveSavedPlace?: (id: string) => void;
   onSavedPlaceToast?: (msg: string, icon?: string) => void;
 }
