@@ -86,7 +86,8 @@ export function TermsContent() {
         The Service offers free and paid subscription tiers. By subscribing to a paid plan you
         agree to our Refund & Payment Policy, which is incorporated into these Terms by reference.
         Subscription fees are billed through Stripe and are non-refundable except as set out in
-        our Refund & Payment Policy.
+        our Refund & Payment Policy. A 14-day cooling-off refund is available on your first
+        subscription only, in accordance with UK consumer law.
       </Text>
 
       <Text style={styles.sectionTitle}>6. Intellectual Property</Text>
