@@ -22,7 +22,7 @@ interface Props {
   onClose: () => void;
 }
 
-export const TERMS_LAST_UPDATED = '18 February 2026';
+export const TERMS_LAST_UPDATED = '19 February 2026';
 
 /** Shared terms content — rendered in the modal AND the /terms web page. */
 export function TermsContent() {

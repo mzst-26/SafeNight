@@ -24,7 +24,6 @@ import {
   View,
 } from 'react-native';
 
-import { env } from '@/src/config/env';
 import { stripeApi, type SubscriptionStatus } from '@/src/services/stripeApi';
 
 /** Local plan definitions — no need to fetch from Stripe API */
