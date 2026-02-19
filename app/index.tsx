@@ -19,6 +19,7 @@ import { PageHead } from '@/src/components/seo/PageHead';
 import { AndroidOverlayHost } from '@/src/components/android/AndroidOverlayHost';
 import RouteMap from '@/src/components/maps/RouteMap';
 import { AIExplanationModal } from '@/src/components/modals/AIExplanationModal';
+import { BackgroundLocationModal } from '@/src/components/modals/BackgroundLocationModal';
 import { DownloadAppModal } from '@/src/components/modals/DownloadAppModal';
 import { FamilyPackModal } from '@/src/components/modals/FamilyPackModal';
 import { LimitReachedModal } from '@/src/components/modals/LimitReachedModal';
@@ -254,19 +255,23 @@ export default function HomeScreen() {
   // Live tracking — auto-register push token on mount, share location during nav
   const live = useLiveTracking(auth.isLoggedIn);
   const liveStarted = useRef(false);
+  // Keep stable references to avoid re-firing effects when live state changes
+  const liveRef = useRef(live);
+  liveRef.current = live;
 
   // Auto-start live tracking when navigation begins (if logged in with contacts)
   useEffect(() => {
     if (h.nav.state === 'navigating' && auth.isLoggedIn && contacts.length > 0 && !liveStarted.current) {
-      liveStarted.current = true;
       const dest = h.effectiveDestination;
-      const destName = h.destSearch?.place?.name;
-      live.startTracking({
+      const destName = h.destSearch?.place?.name ?? h.manualDest?.name ?? undefined;
+      // Set flag immediately to prevent duplicate calls while the async call is in flight
+      liveStarted.current = true;
+      liveRef.current.startTracking({
         destination_lat: dest?.latitude,
         destination_lng: dest?.longitude,
-        destination_name: destName ?? 'Unknown destination',
-      }).then((success) => {
-        if (success) {
+        ...(destName ? { destination_name: destName } : {}),
+      }).then((result) => {
+        if (result.ok) {
           setToast({
             message: destName
               ? `Your Safety Circle can see you heading to ${destName}`
@@ -275,18 +280,40 @@ export default function HomeScreen() {
             iconColor: '#10B981',
             duration: 5000,
           });
+        } else {
+          // Start failed — reset flag so it can retry on next render
+          liveStarted.current = false;
+          if (result.reason === 'limit-reached') {
+            // LimitReachedModal handles this globally
+          } else if (result.reason === 'permission-denied') {
+            // Background location is required — exit navigation
+            h.nav.stop();
+            setToast({
+              message: 'Background location is required for safe navigation. Please allow it to continue.',
+              icon: 'location-outline',
+              iconColor: '#ef4444',
+              duration: 5000,
+            });
+          } else {
+            setToast({
+              message: result.message || 'Could not start live sharing',
+              icon: 'alert-circle-outline',
+              iconColor: '#ef4444',
+              duration: 4000,
+            });
+          }
         }
       });
     }
-  }, [h.nav.state, auth.isLoggedIn, contacts.length, h.effectiveDestination, h.destSearch?.place?.name, live]);
+  }, [h.nav.state, auth.isLoggedIn, contacts.length, h.effectiveDestination, h.destSearch?.place?.name]);
 
   // Auto-stop live tracking when navigation ends
   useEffect(() => {
     if (liveStarted.current && (h.nav.state === 'arrived' || h.nav.state === 'idle')) {
       liveStarted.current = false;
-      live.stopTracking(h.nav.state === 'arrived' ? 'completed' : 'cancelled');
+      liveRef.current.stopTracking(h.nav.state === 'arrived' ? 'completed' : 'cancelled');
     }
-  }, [h.nav.state, live]);
+  }, [h.nav.state]);
 
   // --- PiP: auto-enter Picture-in-Picture when user leaves app during navigation (Android only) ---
   useEffect(() => {
@@ -1098,6 +1125,13 @@ export default function HomeScreen() {
           dismissable={true}
         />
 
+        {/* ── Background location disclosure (Android — Google Play requirement) ── */}
+        <BackgroundLocationModal
+          visible={live.showBackgroundDisclosure}
+          onAllow={live.confirmBackgroundPermission}
+          onDeny={live.denyBackgroundPermission}
+        />
+
         {/* ── Subscription limit popup ── */}
         <LimitReachedModal
           visible={limitModal !== null}
@@ -1384,4 +1418,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
+
 });

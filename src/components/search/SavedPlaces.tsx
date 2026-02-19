@@ -250,7 +250,7 @@ export function SavedPlaces({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 4,
+    marginTop: 0,
   },
   scrollContent: {
     paddingHorizontal: 2,

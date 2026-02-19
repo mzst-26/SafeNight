@@ -125,6 +125,7 @@ router.post('/start', async (req, res, next) => {
           current_lng,
           last_update_at: now.toISOString(),
           ended_at: null,
+          path: [{ lat: current_lat, lng: current_lng, t: Math.floor(now.getTime() / 1000) }],
         };
         if (isValidCoord(destination_lat, destination_lng)) {
           reactivateData.destination_lat = destination_lat;
@@ -163,6 +164,7 @@ router.post('/start', async (req, res, next) => {
         current_lat,
         current_lng,
         last_update_at: now.toISOString(),
+        path: [{ lat: current_lat, lng: current_lng, t: Math.floor(now.getTime() / 1000) }],
       };
 
       if (isValidCoord(destination_lat, destination_lng)) {
@@ -266,22 +268,34 @@ router.post('/update', async (req, res, next) => {
     });
 
     if (rpcError) {
-      // Fallback to simple update if RPC not available (migration not run yet)
+      // Fallback: manually append to path + update location if RPC not available
       console.warn('[live] append_path_point RPC failed, falling back:', rpcError.message);
-      const { data, error } = await supabase
+
+      // First read the current session to get existing path
+      const { data: existing, error: readErr } = await supabase
+        .from('live_sessions')
+        .select('id, path')
+        .eq('user_id', req.user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (readErr) throw readErr;
+      if (!existing) return res.status(404).json({ error: 'No active session found' });
+
+      const currentPath = Array.isArray(existing.path) ? existing.path : [];
+      currentPath.push({ lat: current_lat, lng: current_lng, t: Math.floor(Date.now() / 1000) });
+
+      const { error: updateErr } = await supabase
         .from('live_sessions')
         .update({
           current_lat,
           current_lng,
           last_update_at: new Date().toISOString(),
+          path: currentPath,
         })
-        .eq('user_id', req.user.id)
-        .eq('status', 'active')
-        .select()
-        .single();
+        .eq('id', existing.id);
 
-      if (error) throw error;
-      if (!data) return res.status(404).json({ error: 'No active session found' });
+      if (updateErr) throw updateErr;
     }
 
     res.json({ updated: true });

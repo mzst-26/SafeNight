@@ -10,6 +10,8 @@ export interface FriendMapMarker {
   lat: number;
   lng: number;
   destinationName?: string;
+  /** Route path history for drawing a dashed trail on the map */
+  path?: Array<{ lat: number; lng: number }>;
 }
 
 export type RouteMapProps = {

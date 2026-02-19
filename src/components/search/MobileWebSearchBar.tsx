@@ -413,6 +413,25 @@ export function MobileWebSearchBar({
                 )}
               </Pressable>
             </View>
+
+            {/* ── Saved places (inside card, below inputs, only when no predictions) ── */}
+            {activePredictions.length === 0 && savedPlaces && onSelectSavedPlace && onSavePlace && onRemoveSavedPlace && (
+              <SavedPlaces
+                places={savedPlaces}
+                onSelect={onSelectSavedPlace}
+                onSave={onSavePlace}
+                onRemove={onRemoveSavedPlace}
+                onToast={onSavedPlaceToast}
+                currentDestination={
+                  manualDest
+                    ? { name: manualDest.name ?? 'Dropped pin', lat: manualDest.location.latitude, lng: manualDest.location.longitude }
+                    : destSearch.place
+                      ? { name: destSearch.place.name ?? destSearch.query, lat: destSearch.place.location.latitude, lng: destSearch.place.location.longitude }
+                      : null
+                }
+                visible
+              />
+            )}
           </Animated.View>
         )}
       </Animated.View>
@@ -452,24 +471,6 @@ export function MobileWebSearchBar({
         </View>
       )}
 
-      {/* ── Saved places (only when expanded and no predictions showing) ── */}
-      {expanded && activePredictions.length === 0 && savedPlaces && onSelectSavedPlace && onSavePlace && onRemoveSavedPlace && (
-        <SavedPlaces
-          places={savedPlaces}
-          onSelect={onSelectSavedPlace}
-          onSave={onSavePlace}
-          onRemove={onRemoveSavedPlace}
-          onToast={onSavedPlaceToast}
-          currentDestination={
-            manualDest
-              ? { name: manualDest.name ?? 'Dropped pin', lat: manualDest.location.latitude, lng: manualDest.location.longitude }
-              : destSearch.place
-                ? { name: destSearch.place.name ?? destSearch.query, lat: destSearch.place.location.latitude, lng: destSearch.place.location.longitude }
-                : null
-          }
-          visible
-        />
-      )}
     </View>
   );
 }
