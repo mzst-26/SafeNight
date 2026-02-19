@@ -120,6 +120,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       map.addSource('route-remaining', { type:'geojson', data:emptyFC });
       map.addSource('safety-markers', { type:'geojson', data:emptyFC });
       map.addSource('range-circle', { type:'geojson', data:emptyFC });
+      map.addSource('friend-paths', { type:'geojson', data:emptyFC });
     }
 
     function addCustomLayers() {
@@ -143,6 +144,9 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       map.addLayer({ id:'safety-circles', type:'circle', source:'safety-markers',
         paint:{'circle-radius':4,'circle-color':['get','color'],'circle-opacity':0.9,
           'circle-stroke-color':'#fff','circle-stroke-width':1} });
+      map.addLayer({ id:'friend-paths-line', type:'line', source:'friend-paths',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#1D2939','line-opacity':0.8,'line-width':4,'line-dasharray':[2,1]} });
 
       // Click unselected route to select it
       map.on('click','unselected-routes-line',function(e){
@@ -427,6 +431,22 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         friendMarkerObjs.push(new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat([f.lng,f.lat]).addTo(map));
       });
 
+      /* — Friend path lines (black dashed line showing their route) — */
+      var friendPathFeatures = [];
+      (data.friendMarkers||[]).forEach(function(f){
+        if(f.path&&f.path.length>1){
+          friendPathFeatures.push({
+            type:'Feature',
+            properties:{userId:f.userId},
+            geometry:{
+              type:'LineString',
+              coordinates:f.path.map(function(p){return[p.lng,p.lat]})
+            }
+          });
+        }
+      });
+      map.getSource('friend-paths').setData({type:'FeatureCollection',features:friendPathFeatures});
+
       /* — Navigation marker + 3D camera — */
       if(navMarkerObj){navMarkerObj.remove();navMarkerObj=null}
       clearMarkerArray(hazardMarkers);
@@ -644,6 +664,7 @@ export const RouteMap = ({
         name: f.name,
         lat: f.lat,
         lng: f.lng,
+        path: f.path ?? [],
       })),
     };
 

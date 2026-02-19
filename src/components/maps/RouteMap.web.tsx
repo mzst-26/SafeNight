@@ -228,6 +228,14 @@ function updateMap(d){
     markers.push(L.marker([f.lat,f.lng],{icon:ic,zIndexOffset:500}).bindTooltip(tooltip).addTo(map));
   });
 
+  /* Friend path lines (black dashed) */
+  (d.friendMarkers||[]).forEach(function(f){
+    if(f.path&&f.path.length>=2){
+      var pts=f.path.map(function(p){return[p.lat,p.lng];});
+      polylines.push(L.polyline(pts,{color:'#000000',opacity:0.8,weight:4,dashArray:'10,5',interactive:false}).addTo(map));
+    }
+  });
+
   /* Navigation arrow + 3D nav view */
   if(navMarker){map.removeLayer(navMarker);navMarker=null;}
   if(d.navLocation){var h=d.navHeading||0;
@@ -363,6 +371,7 @@ export const RouteMap = ({
         lat: f.lat,
         lng: f.lng,
         destinationName: f.destinationName || null,
+        path: f.path ?? [],
       })),
       isInPipMode: isInPipMode || false,
     };
