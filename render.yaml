@@ -1,15 +1,22 @@
-# Render.com deployment config — 3-service architecture
+# Render.com deployment config — 5-service architecture
 # See: https://render.com/docs/blueprint-spec
 #
-# Service 1: API Gateway — lightweight I/O proxy (places, directions, map, AI)
+# Service 1: API Gateway    — directions, static maps, AI explanations, nearby
 # Service 2: Safety Service — CPU-heavy A* pathfinding + safety scoring
-# Service 3: User Data Service — auth, usage tracking, reports, reviews (Supabase)
+# Service 3: User Data      — auth, usage tracking, reports, reviews (Supabase)
+# Service 4: Subscription   — Stripe checkout, portal, webhook
+# Service 5: Geocode        — place search, forward geocoding, reverse geocoding
+#                             (Nominatim-backed with in-process TTL cache)
 #
 # All share the same rootDir (backend/) and node_modules,
 # but run separate entry points on independent free-tier instances.
 
 services:
   # ─── API Gateway ────────────────────────────────────────────────────────────
+  # Handles: walking directions (OSRM), static map tiles (OSM),
+  #          nearby places (Overpass), AI route explanations (OpenAI),
+  #          app integrity verification.
+  # Does NOT handle geocoding — that moved to safenighthome-geocode.
   - type: web
     name: safenighthome-gateway
     runtime: node
@@ -91,4 +98,27 @@ services:
         sync: false  # Set manually in Render dashboard
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false  # Set manually in Render dashboard
+    healthCheckPath: /api/health
+
+  # ─── Geocode Service ────────────────────────────────────────────────────────
+  # Handles: place search (autocomplete), forward geocoding (placeId → lat/lng),
+  #          reverse geocoding (lat/lng → address).
+  # Backed by Nominatim (free, no API key). All responses are cached in-process
+  # (5 min autocomplete, 60 min details/reverse) so the free tier handles
+  # heavy search load without hitting Nominatim rate limits.
+  - type: web
+    name: safenighthome-geocode
+    runtime: node
+    region: eu-west
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/geocode/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        value: https://safenight.netlify.app
+      - key: OSM_USER_AGENT
+        value: SafeNightHome/1.0 (geocode-service; contact@safenighthome.app)
     healthCheckPath: /api/health
