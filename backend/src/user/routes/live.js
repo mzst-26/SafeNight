@@ -60,7 +60,15 @@ const SESSION_REUSE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
 router.post('/start', async (req, res, next) => {
   try {
-    const { current_lat, current_lng, destination_lat, destination_lng, destination_name } = req.body;
+    const { current_lat, current_lng, destination_lat, destination_lng, destination_name, route_path } = req.body;
+
+    // route_path — the planned polyline sent by the app at nav start.
+    // Must be an array of {lat, lng} objects; cap at 1000 points to prevent DB bloat.
+    const cleanRoutePath = Array.isArray(route_path)
+      ? route_path
+          .filter((p) => p && typeof p.lat === 'number' && typeof p.lng === 'number')
+          .slice(0, 1000)
+      : null;
 
     if (!isValidCoord(current_lat, current_lng)) {
       return res.status(400).json({ error: 'Valid current_lat and current_lng are required' });
@@ -91,6 +99,9 @@ router.post('/start', async (req, res, next) => {
       }
       if (destination_name && typeof destination_name === 'string') {
         updateData.destination_name = destination_name.trim().slice(0, 200);
+      }
+      if (cleanRoutePath && cleanRoutePath.length >= 2) {
+        updateData.route_path = cleanRoutePath;
       }
       const { data: updated, error: upErr } = await supabase
         .from('live_sessions')
@@ -134,6 +145,9 @@ router.post('/start', async (req, res, next) => {
         if (destination_name && typeof destination_name === 'string') {
           reactivateData.destination_name = destination_name.trim().slice(0, 200);
         }
+        if (cleanRoutePath && cleanRoutePath.length >= 2) {
+          reactivateData.route_path = cleanRoutePath;
+        }
         const { data: reactivated, error: rErr } = await supabase
           .from('live_sessions')
           .update(reactivateData)
@@ -174,6 +188,9 @@ router.post('/start', async (req, res, next) => {
 
       if (destination_name && typeof destination_name === 'string') {
         sessionData.destination_name = destination_name.trim().slice(0, 200);
+      }
+      if (cleanRoutePath && cleanRoutePath.length >= 2) {
+        sessionData.route_path = cleanRoutePath;
       }
 
       const { data: newSession, error: insertErr } = await supabase

@@ -586,6 +586,8 @@ export interface Contact {
     started_at: string;
     last_update_at: string;
     path?: Array<{ lat: number; lng: number; t: number }>;
+    /** Full planned route polyline shared when the session started */
+    route_path?: Array<{ lat: number; lng: number }> | null;
   } | null;
 }
 
@@ -718,6 +720,8 @@ export const liveApi = {
     destination_lat?: number;
     destination_lng?: number;
     destination_name?: string;
+    /** Planned route polyline — shown to contacts on the map */
+    route_path?: Array<{ lat: number; lng: number }>;
   }): Promise<LiveSession> {
     const res = await authFetch('/api/live/start', {
       method: 'POST',

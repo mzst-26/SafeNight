@@ -125,6 +125,26 @@ function setNavView(heading,entering){
 function setTileUrl(u,a){if(tileLayer)map.removeLayer(tileLayer);
   tileLayer=L.tileLayer(u,{attribution:a,maxZoom:19}).addTo(map);}
 
+/* ── On-route helpers (used for friend path coloring) ────────────── */
+function haversineM(a,b){
+  var R=6371000,dLat=(b.lat-a.lat)*Math.PI/180,dLng=(b.lng-a.lng)*Math.PI/180;
+  var sa=Math.sin(dLat/2),sb=Math.sin(dLng/2);
+  return 2*R*Math.asin(Math.sqrt(sa*sa+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*sb*sb));
+}
+function distToSegM(p,a,b){
+  var dx=b.lng-a.lng,dy=b.lat-a.lat,lenSq=dx*dx+dy*dy;
+  if(lenSq===0) return haversineM(p,a);
+  var t=Math.max(0,Math.min(1,((p.lng-a.lng)*dx+(p.lat-a.lat)*dy)/lenSq));
+  return haversineM(p,{lat:a.lat+t*dy,lng:a.lng+t*dx});
+}
+function isPointOnRoute(p,routePath,thresholdM){
+  if(!routePath||routePath.length<2) return false;
+  for(var i=0;i<routePath.length-1;i++){
+    if(distToSegM(p,routePath[i],routePath[i+1])<=thresholdM) return true;
+  }
+  return false;
+}
+
 function updateMap(d){
   if(d && typeof d.isInPipMode !== 'undefined'){
     isPipMode = !!d.isInPipMode;
@@ -228,11 +248,22 @@ function updateMap(d){
     markers.push(L.marker([f.lat,f.lng],{icon:ic,zIndexOffset:500}).bindTooltip(tooltip).addTo(map));
   });
 
-  /* Friend path lines (black dashed) */
+  /* Friend planned routes (dashed purple — the route they clicked navigate on) */
   (d.friendMarkers||[]).forEach(function(f){
-    if(f.path&&f.path.length>=2){
-      var pts=f.path.map(function(p){return[p.lat,p.lng];});
-      polylines.push(L.polyline(pts,{color:'#000000',opacity:0.8,weight:4,dashArray:'10,5',interactive:false}).addTo(map));
+    if(f.routePath && f.routePath.length >= 2){
+      var pts=f.routePath.map(function(p){return[p.lat,p.lng];});
+      polylines.push(L.polyline(pts,{color:'#7C3AED',opacity:0.45,weight:5,dashArray:'8,5',interactive:false}).addTo(map));
+    }
+  });
+
+  /* Friend actual path (purple = on-route ≤30m of planned, orange = off-route) */
+  (d.friendMarkers||[]).forEach(function(f){
+    var ap=f.path||[], rp=f.routePath||[];
+    for(var i=0;i<ap.length-1;i++){
+      var mid={lat:(ap[i].lat+ap[i+1].lat)/2, lng:(ap[i].lng+ap[i+1].lng)/2};
+      var onRoute=isPointOnRoute(mid, rp, 30);
+      polylines.push(L.polyline([[ap[i].lat,ap[i].lng],[ap[i+1].lat,ap[i+1].lng]],
+        {color:onRoute?'#7C3AED':'#f97316', opacity:0.9, weight:5, interactive:false}).addTo(map));
     }
   });
 
@@ -372,6 +403,7 @@ export const RouteMap = ({
         lng: f.lng,
         destinationName: f.destinationName || null,
         path: f.path ?? [],
+        routePath: f.routePath ?? [],
       })),
       isInPipMode: isInPipMode || false,
     };

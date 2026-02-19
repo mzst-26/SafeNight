@@ -17,8 +17,10 @@ export interface FriendMarker {
   lat: number;
   lng: number;
   destinationName?: string;
-  /** Route path history — array of {lat, lng} for drawing path line */
+  /** Breadcrumb trail — actual positions taken so far */
   path?: Array<{ lat: number; lng: number }>;
+  /** Full planned route polyline shared at session start */
+  routePath?: Array<{ lat: number; lng: number }>;
 }
 
 export interface FriendLocationResult {
@@ -28,6 +30,31 @@ export interface FriendLocationResult {
 }
 
 const POLL_INTERVAL = 15_000; // 15 seconds
+
+/**
+ * Remove consecutive duplicate coordinates from a path so that a stationary
+ * device (or simulator) with 90 identical GPS fixes doesn't produce an
+ * invisible zero-length polyline on the map.
+ * Two points are considered duplicates when they round to the same 5dp value
+ * (~1 metre precision).
+ */
+function deduplicatePath(
+  raw: Array<{ lat: number; lng: number }>,
+): Array<{ lat: number; lng: number }> {
+  const result: Array<{ lat: number; lng: number }> = [];
+  for (const pt of raw) {
+    const prev = result[result.length - 1];
+    if (
+      prev &&
+      Math.round(prev.lat * 1e5) === Math.round(pt.lat * 1e5) &&
+      Math.round(prev.lng * 1e5) === Math.round(pt.lng * 1e5)
+    ) {
+      continue; // skip consecutive duplicate
+    }
+    result.push(pt);
+  }
+  return result;
+}
 
 export function useFriendLocations(enabled: boolean): FriendLocationResult {
   const [friends, setFriends] = useState<FriendMarker[]>([]);
@@ -47,7 +74,10 @@ export function useFriendLocations(enabled: boolean): FriendLocationResult {
           lat: c.live_session!.current_lat,
           lng: c.live_session!.current_lng,
           destinationName: c.live_session!.destination_name ?? undefined,
-          path: c.live_session!.path?.map(({ lat, lng }) => ({ lat, lng })) ?? undefined,
+          path: deduplicatePath(
+            c.live_session!.path?.map(({ lat, lng }) => ({ lat, lng })) ?? [],
+          ),
+          routePath: c.live_session!.route_path ?? undefined,
         }));
       setFriends(live);
       return live;

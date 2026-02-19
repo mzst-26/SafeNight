@@ -266,10 +266,13 @@ export default function HomeScreen() {
       const destName = h.destSearch?.place?.name ?? h.manualDest?.name ?? undefined;
       // Set flag immediately to prevent duplicate calls while the async call is in flight
       liveStarted.current = true;
+      // Build route_path from the selected route so contacts can see the planned route
+      const routePath = h.selectedRoute?.path?.map((p) => ({ lat: p.latitude, lng: p.longitude }));
       liveRef.current.startTracking({
         destination_lat: dest?.latitude,
         destination_lng: dest?.longitude,
         ...(destName ? { destination_name: destName } : {}),
+        ...(routePath && routePath.length >= 2 ? { route_path: routePath } : {}),
       }).then((result) => {
         if (result.ok) {
           setToast({

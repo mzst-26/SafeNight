@@ -172,6 +172,8 @@ export function useLiveTracking(isLoggedIn = false) {
       destination_lat?: number;
       destination_lng?: number;
       destination_name?: string;
+      /** Planned route polyline — passed through to the live session so contacts can see it */
+      route_path?: Array<{ lat: number; lng: number }>;
     }): Promise<StartTrackingResult> => {
       try {
         // Get current location

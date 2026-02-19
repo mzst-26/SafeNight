@@ -112,6 +112,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       map.addSource('safety-markers', { type:'geojson', data:emptyFC });
       map.addSource('range-circle', { type:'geojson', data:emptyFC });
       map.addSource('friend-paths', { type:'geojson', data:emptyFC });
+      map.addSource('friend-planned-routes', { type:'geojson', data:emptyFC });
     }
 
     function addCustomLayers() {
@@ -137,7 +138,10 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
           'circle-stroke-color':'#fff','circle-stroke-width':1} });
       map.addLayer({ id:'friend-paths-line', type:'line', source:'friend-paths',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#1D2939','line-opacity':0.8,'line-width':4,'line-dasharray':[2,1]} });
+        paint:{'line-color':['get','color'],'line-opacity':0.9,'line-width':5} });
+      map.addLayer({ id:'friend-planned-routes-line', type:'line', source:'friend-planned-routes',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#7C3AED','line-opacity':0.45,'line-width':5,'line-dasharray':[4,3]} });
 
       // Click unselected route to select it
       map.on('click','unselected-routes-line',function(e){
@@ -268,6 +272,28 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         if(d<bestD){bestD=d;best=i}
       }
       return best;
+    }
+
+    /* Haversine distance in metres between two {lat,lng} points */
+    function haversineM(a,b){
+      var R=6371000,dLat=(b.lat-a.lat)*Math.PI/180,dLng=(b.lng-a.lng)*Math.PI/180;
+      var sa=Math.sin(dLat/2),sb=Math.sin(dLng/2);
+      return 2*R*Math.asin(Math.sqrt(sa*sa+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*sb*sb));
+    }
+    /* Distance from point p to segment a→b in metres */
+    function distToSegM(p,a,b){
+      var dx=b.lng-a.lng,dy=b.lat-a.lat,lenSq=dx*dx+dy*dy;
+      if(lenSq===0) return haversineM(p,a);
+      var t=Math.max(0,Math.min(1,((p.lng-a.lng)*dx+(p.lat-a.lat)*dy)/lenSq));
+      return haversineM(p,{lat:a.lat+t*dy,lng:a.lng+t*dx});
+    }
+    /* Returns true if point p is within thresholdM metres of any segment in routePath */
+    function isPointOnRoute(p,routePath,thresholdM){
+      if(!routePath||routePath.length<2) return false;
+      for(var i=0;i<routePath.length-1;i++){
+        if(distToSegM(p,routePath[i],routePath[i+1])<=thresholdM) return true;
+      }
+      return false;
     }
     function extBounds(b,c){
       if(!b) return [[c[0],c[1]],[c[0],c[1]]];
@@ -412,6 +438,34 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         map.getSource('range-circle').setData(emptyFC);
       }
 
+      /* — Friend planned routes (dashed purple — the route they clicked navigate on) — */
+      var plannedRouteFeats = [];
+      (data.friendMarkers||[]).forEach(function(f){
+        if(f.routePath && f.routePath.length >= 2){
+          plannedRouteFeats.push({
+            type:'Feature', properties:{userId:f.userId},
+            geometry:{type:'LineString', coordinates:f.routePath.map(function(p){return[p.lng,p.lat]})}
+          });
+        }
+      });
+      map.getSource('friend-planned-routes').setData({type:'FeatureCollection',features:plannedRouteFeats});
+
+      /* — Friend actual path (purple = on-route ≤30m, orange = off-route) — */
+      var actualPathFeats = [];
+      (data.friendMarkers||[]).forEach(function(f){
+        var ap = f.path || [], rp = f.routePath || [];
+        for(var i=0;i<ap.length-1;i++){
+          var mid = {lat:(ap[i].lat+ap[i+1].lat)/2, lng:(ap[i].lng+ap[i+1].lng)/2};
+          var onRoute = isPointOnRoute(mid, rp, 30);
+          actualPathFeats.push({
+            type:'Feature',
+            properties:{color: onRoute ? '#7C3AED' : '#f97316'},
+            geometry:{type:'LineString', coordinates:[[ap[i].lng,ap[i].lat],[ap[i+1].lng,ap[i+1].lat]]}
+          });
+        }
+      });
+      map.getSource('friend-paths').setData({type:'FeatureCollection',features:actualPathFeats});
+
       /* — Friend markers — */
       clearMarkerArray(friendMarkerObjs);
       (data.friendMarkers||[]).forEach(function(f){
@@ -422,21 +476,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         friendMarkerObjs.push(new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat([f.lng,f.lat]).addTo(map));
       });
 
-      /* — Friend path lines (black dashed line showing their route) — */
-      var friendPathFeatures = [];
-      (data.friendMarkers||[]).forEach(function(f){
-        if(f.path&&f.path.length>1){
-          friendPathFeatures.push({
-            type:'Feature',
-            properties:{userId:f.userId},
-            geometry:{
-              type:'LineString',
-              coordinates:f.path.map(function(p){return[p.lng,p.lat]})
-            }
-          });
-        }
-      });
-      map.getSource('friend-paths').setData({type:'FeatureCollection',features:friendPathFeatures});
+        // actual path rendered above via actualPathFeats
 
       /* — Navigation marker + 3D camera — */
       if(navMarkerObj){navMarkerObj.remove();navMarkerObj=null}
@@ -656,6 +696,7 @@ export const RouteMap = ({
         lat: f.lat,
         lng: f.lng,
         path: f.path ?? [],
+        routePath: f.routePath ?? [],
       })),
     };
 
