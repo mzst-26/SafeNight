@@ -37,7 +37,6 @@ import { WebSidebar } from '@/src/components/sheets/WebSidebar';
 import { AndroidDownloadBanner } from '@/src/components/ui/AndroidDownloadBanner';
 import { BuddyButton } from '@/src/components/ui/BuddyButton';
 import { JailLoadingAnimation } from '@/src/components/ui/JailLoadingAnimation';
-import { MapToast, type ToastConfig } from '@/src/components/ui/MapToast';
 import { ProfileMenu } from '@/src/components/ui/ProfileMenu';
 import { WebLoginButton } from '@/src/components/ui/WebLoginButton';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -46,9 +45,11 @@ import { useFriendLocations } from '@/src/hooks/useFriendLocations';
 import { useHomeScreen } from '@/src/hooks/useHomeScreen';
 import { useLiveTracking } from '@/src/hooks/useLiveTracking';
 import { useWebBreakpoint } from '@/src/hooks/useWebBreakpoint';
+import { reverseGeocode } from '@/src/services/openStreetMap';
 import { stripeApi } from '@/src/services/stripeApi';
 import { onLimitReached, type LimitInfo } from '@/src/types/limitError';
 import { formatDistance, formatDuration } from '@/src/utils/format';
+import { MapToast, type ToastConfig } from '../src/components/ui/MapToast';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -62,6 +63,7 @@ export default function HomeScreen() {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showFamilyPackModal, setShowFamilyPackModal] = useState(false);
   const [toast, setToast] = useState<ToastConfig | null>(null);
+  const [liveSharingNotice, setLiveSharingNotice] = useState<string | null>(null);
   const subscriptionTier = auth.user?.subscription ?? 'free';
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
 
@@ -231,99 +233,163 @@ export default function HomeScreen() {
   // Live tracking — auto-register push token on mount, share location during nav
   const live = useLiveTracking(auth.isLoggedIn);
   const liveStarted = useRef(false);
+  const liveStartAttempted = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+  const navStartedAtRef = useRef<number>(0);
 
   // Auto-start live tracking when navigation begins (if logged in with contacts)
   useEffect(() => {
-    if (h.nav.state === 'navigating' && auth.isLoggedIn && contacts.length > 0 && !liveStarted.current) {
-      liveStarted.current = true;
+    if (h.nav.state !== 'navigating') return;
+    if (!auth.isLoggedIn || contacts.length <= 0) return;
+    if (liveStarted.current || liveStartAttempted.current) return;
+
+    liveStartAttempted.current = true;
+    let cancelled = false;
+
+    const startLiveTracking = async () => {
       const dest = h.effectiveDestination;
-      const destName = h.destSearch?.place?.name;
-      live.startTracking({
+      const placeName = h.destSearch?.place?.name?.trim() || null;
+      const manualName = h.manualDest?.name?.trim() || null;
+      const queryName = h.destSearch?.query?.trim() || null;
+
+      let destName = placeName || manualName || queryName;
+      const isGenericName = !destName || /^(unknown destination|dropped pin)$/i.test(destName);
+
+      if (dest && isGenericName) {
+        try {
+          const resolved = await reverseGeocode(dest);
+          const resolvedName = resolved?.name?.trim();
+          if (resolvedName) destName = resolvedName;
+        } catch {
+          // Keep existing fallback name
+        }
+      }
+
+      if (cancelled) return;
+
+      const result = await live.startTracking({
         destination_lat: dest?.latitude,
         destination_lng: dest?.longitude,
         destination_name: destName ?? 'Unknown destination',
-      }).then((success) => {
-        if (success) {
-          setToast({
-            message: destName
-              ? `Your Safety Circle can see you heading to ${destName}`
-              : 'Your Safety Circle can now see where you are',
-            icon: 'shield-checkmark',
-            iconColor: '#10B981',
-            duration: 5000,
-          });
-        } else {
-          // User denied background location — cancel navigation and return to search
-          liveStarted.current = false;
-          h.nav.stop();
-          setToast({
-            message: 'Background location access is required to use navigation.',
-            icon: 'location-outline',
-            iconColor: '#EF4444',
-            duration: 4000,
-          });
-        }
       });
-    }
-  }, [h.nav.state, auth.isLoggedIn, contacts.length, h.effectiveDestination, h.destSearch?.place?.name, live]);
+
+      if (cancelled) return;
+
+      if (result.ok) {
+        liveStarted.current = true;
+        setLiveSharingNotice(null);
+        setToast({
+          message: destName
+            ? `Your Safety Circle can see you heading to ${destName}`
+            : 'Your Safety Circle can now see where you are',
+          icon: 'shield-checkmark',
+          iconColor: '#10B981',
+          duration: 5000,
+        });
+        return;
+      }
+
+      liveStarted.current = false;
+      if (result.reason === 'limit-reached') {
+        setLiveSharingNotice('Live sharing OFF · Plan limit reached');
+        setToast({
+          message: 'Navigation started. Live sharing limit reached for your current plan.',
+          icon: 'information-circle-outline',
+          iconColor: '#F59E0B',
+          duration: 4500,
+        });
+        return;
+      }
+
+      if (result.reason === 'permission-denied') {
+        setLiveSharingNotice('Live sharing OFF · Permission denied');
+        setToast({
+          message: 'Navigation started. Live sharing is off because location permission was denied.',
+          icon: 'location-outline',
+          iconColor: '#F59E0B',
+          duration: 4500,
+        });
+        return;
+      }
+
+      setLiveSharingNotice('Live sharing OFF · Unavailable');
+      setToast({
+        message: 'Navigation started. Live sharing is currently unavailable.',
+        icon: 'alert-circle-outline',
+        iconColor: '#F59E0B',
+        duration: 4000,
+      });
+    };
+
+    startLiveTracking();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [h.nav.state, auth.isLoggedIn, contacts.length, h.effectiveDestination, h.destSearch?.place?.name, h.destSearch?.query, h.manualDest?.name, live]);
 
   // Auto-stop live tracking when navigation ends
   useEffect(() => {
-    if (liveStarted.current && (h.nav.state === 'arrived' || h.nav.state === 'idle')) {
-      liveStarted.current = false;
-      live.stopTracking(h.nav.state === 'arrived' ? 'completed' : 'cancelled');
-    }
+    if (h.nav.state !== 'arrived' && h.nav.state !== 'idle') return;
+
+    liveStartAttempted.current = false;
+    setLiveSharingNotice(null);
+
+    if (!liveStarted.current) return;
+
+    liveStarted.current = false;
+    live.stopTracking(h.nav.state === 'arrived' ? 'completed' : 'cancelled');
   }, [h.nav.state, live]);
 
-  // --- PiP: auto-enter Picture-in-Picture when user leaves app during navigation (Android only) ---
+  // PiP should only happen when user explicitly leaves app during active navigation.
+  useEffect(() => {
+    if (h.nav.state === 'navigating') {
+      navStartedAtRef.current = Date.now();
+    }
+  }, [h.nav.state]);
+
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
-    let mod: typeof import('expo-pip').default | null = null;
+    let pipModule: typeof import('expo-pip').default | null = null;
     try {
-      mod = require('expo-pip').default;
-    } catch {
-      return; // expo-pip not available in this build
-    }
-    if (!mod) return;
-    const ExpoPip = mod;
-
-    if (h.nav.state === 'navigating') {
-      ExpoPip.setPictureInPictureParams({
-        width: 9,
-        height: 16,
-        autoEnterEnabled: true,
-        title: 'SafeNight Navigation',
-        subtitle: h.destSearch?.place?.name ?? 'Navigating...',
-        seamlessResizeEnabled: true,
-      });
-    } else {
-      ExpoPip.setPictureInPictureParams({
-        autoEnterEnabled: false,
-      });
-    }
-  }, [h.nav.state, h.destSearch?.place?.name]);
-
-  // PiP fallback: manually enter PiP on older Android (< 12) when app goes to background during nav
-  useEffect(() => {
-    if (Platform.OS !== 'android' || h.nav.state !== 'navigating') return;
-
-    let mod2: typeof import('expo-pip').default | null = null;
-    try {
-      mod2 = require('expo-pip').default;
+      pipModule = require('expo-pip').default;
     } catch {
       return;
     }
-    if (!mod2) return;
-    const pip = mod2;
+    if (!pipModule) return;
+
+    const pip = pipModule;
+    pip.setPictureInPictureParams({
+      width: 9,
+      height: 16,
+      autoEnterEnabled: false,
+      title: 'SafeNight Navigation',
+      subtitle: h.destSearch?.place?.name ?? 'Navigating...',
+      seamlessResizeEnabled: true,
+    });
+
+    if (h.nav.state !== 'navigating') return;
+
     const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'background') {
+      const prevState = appStateRef.current;
+      appStateRef.current = nextState;
+
+      // Only trigger PiP when app truly goes to background from active state.
+      if (prevState !== 'active' || nextState !== 'background') return;
+
+      // Ignore immediate transitions right after nav starts (avoids accidental PiP entry).
+      if (Date.now() - navStartedAtRef.current < 1200) return;
+
+      try {
         pip.enterPipMode({ width: 9, height: 16 });
+      } catch {
+        // Best-effort only
       }
     });
 
     return () => sub.remove();
-  }, [h.nav.state]);
+  }, [h.nav.state, h.destSearch?.place?.name]);
 
   const distanceLabel = h.selectedRoute ? `🚶 ${formatDistance(h.selectedRoute.distanceMeters)}` : '--';
   const durationLabel = h.selectedRoute ? formatDuration(h.selectedRoute.durationSeconds) : '--';
@@ -1047,6 +1113,7 @@ export default function HomeScreen() {
             nav={h.nav}
             topInset={insets.top}
             bottomInset={insets.bottom}
+            liveSharingNotice={liveSharingNotice}
           />
         )}
 

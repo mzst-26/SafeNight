@@ -11,9 +11,10 @@ interface NavigationOverlayProps {
   nav: NavigationInfo;
   topInset: number;
   bottomInset: number;
+  liveSharingNotice?: string | null;
 }
 
-export function NavigationOverlay({ nav, topInset, bottomInset }: NavigationOverlayProps) {
+export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotice }: NavigationOverlayProps) {
   const isActive = nav.state === 'navigating' || nav.state === 'off-route';
 
   if (!isActive && nav.state !== 'arrived') return null;
@@ -64,6 +65,12 @@ export function NavigationOverlay({ nav, topInset, bottomInset }: NavigationOver
               {nav.state === 'off-route' && (
                 <Text style={styles.offRoute}>Off route — rerouting…</Text>
               )}
+              {liveSharingNotice ? (
+                <View style={styles.liveShareBadge}>
+                  <Ionicons name="radio-outline" size={12} color="#B54708" />
+                  <Text style={styles.liveShareBadgeText}>{liveSharingNotice}</Text>
+                </View>
+              ) : null}
             </View>
             <Pressable style={styles.stopButton} onPress={nav.stop}>
               <Ionicons name="stop-circle" size={20} color="#ffffff" />
@@ -161,6 +168,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#ef4444',
     marginTop: 2,
+  },
+  liveShareBadge: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#FFFAEB',
+    borderWidth: 1,
+    borderColor: '#FEC84B',
+  },
+  liveShareBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B54708',
   },
   stopButton: {
     flexDirection: 'row',

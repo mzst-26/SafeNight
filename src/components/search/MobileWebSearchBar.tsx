@@ -12,15 +12,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Animated,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Animated,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 
 import type { UseAutoPlaceSearchReturn } from '@/src/hooks/useAutoPlaceSearch';
@@ -75,6 +75,7 @@ export function MobileWebSearchBar({
   const expandAnim = useRef(new Animated.Value(0)).current;
   const originRef = useRef<TextInput>(null);
   const destRef = useRef<TextInput>(null);
+  const prevHasResultsRef = useRef(hasResults);
 
   // Focus management
   const [focusedField, setFocusedField] = useState<'origin' | 'destination' | null>(null);
@@ -97,12 +98,15 @@ export function MobileWebSearchBar({
     if (focusedField) lastFocused.current = focusedField;
   }, [focusedField]);
 
-  // Auto-collapse when results appear
-  useEffect(() => {
-    if (hasResults && expanded) {
-      collapse();
+  const focusField = useCallback((field: 'origin' | 'destination') => {
+    cancelBlur();
+    setFocusedField(field);
+    if (field === 'origin') {
+      requestAnimationFrame(() => originRef.current?.focus());
+      return;
     }
-  }, [hasResults]); // eslint-disable-line react-hooks/exhaustive-deps
+    requestAnimationFrame(() => destRef.current?.focus());
+  }, [cancelBlur]);
 
   // Expand/collapse animation
   const expand = useCallback(() => {
@@ -129,6 +133,17 @@ export function MobileWebSearchBar({
       speed: 14,
     }).start(() => setExpanded(false));
   }, [expandAnim]);
+
+  // Auto-collapse when results appear
+  useEffect(() => {
+    const gainedResults = !prevHasResultsRef.current && hasResults;
+    prevHasResultsRef.current = hasResults;
+
+    const isTyping = !!originRef.current?.isFocused?.() || !!destRef.current?.isFocused?.();
+    if (gainedResults && expanded && !isTyping) {
+      collapse();
+    }
+  }, [hasResults, expanded, collapse]);
 
   // When user taps the collapsed pill
   const handlePillPress = useCallback(() => {
@@ -286,7 +301,13 @@ export function MobileWebSearchBar({
                   </Pressable>
                 </Pressable>
               ) : (
-                <View style={[styles.inputField, focusedField === 'origin' && styles.inputFieldFocused]}>
+                <Pressable
+                  style={[styles.inputField, focusedField === 'origin' && styles.inputFieldFocused]}
+                  onPress={() => {
+                    if (onGuestTap) { onGuestTap(); return; }
+                    focusField('origin');
+                  }}
+                >
                   <TextInput
                     ref={originRef}
                     value={manualOrigin ? (manualOrigin.name ?? 'Dropped pin') : originSearch.query}
@@ -308,7 +329,7 @@ export function MobileWebSearchBar({
                   )}
                   <Pressable
                     style={[styles.pinButton, pinMode === 'origin' && styles.pinButtonActive]}
-                    onPress={() => setPinMode(pinMode === 'origin' ? null : 'origin')}
+                    onPress={(e) => { e.stopPropagation(); setPinMode(pinMode === 'origin' ? null : 'origin'); }}
                     hitSlop={4}
                     accessibilityLabel="Pick origin on map"
                   >
@@ -316,7 +337,8 @@ export function MobileWebSearchBar({
                   </Pressable>
                   {!isUsingCurrentLocation && (
                     <Pressable
-                      onPress={() => {
+                      onPress={(e) => {
+                        e.stopPropagation();
                         setIsUsingCurrentLocation(true);
                         setManualOrigin(null);
                         originSearch.clear();
@@ -327,14 +349,20 @@ export function MobileWebSearchBar({
                       <Ionicons name="locate-outline" size={14} color="#98a2b3" />
                     </Pressable>
                   )}
-                </View>
+                </Pressable>
               )}
             </View>
 
             {/* Destination */}
             <View style={styles.inputRow}>
               <View style={[styles.dot, { backgroundColor: '#d92d20' }]} />
-              <View style={[styles.inputField, focusedField === 'destination' && styles.inputFieldFocused]}>
+              <Pressable
+                style={[styles.inputField, focusedField === 'destination' && styles.inputFieldFocused]}
+                onPress={() => {
+                  if (onGuestTap) { onGuestTap(); return; }
+                  focusField('destination');
+                }}
+              >
                 <TextInput
                   ref={destRef}
                   value={manualDest ? (manualDest.name ?? 'Dropped pin') : destSearch.query}
@@ -356,7 +384,7 @@ export function MobileWebSearchBar({
                 )}
                 <Pressable
                   style={[styles.pinButton, pinMode === 'destination' && styles.pinButtonActive]}
-                  onPress={() => setPinMode(pinMode === 'destination' ? null : 'destination')}
+                  onPress={(e) => { e.stopPropagation(); setPinMode(pinMode === 'destination' ? null : 'destination'); }}
                   hitSlop={4}
                   accessibilityLabel="Pick destination on map"
                 >
@@ -364,13 +392,13 @@ export function MobileWebSearchBar({
                 </Pressable>
                 {(destSearch.place || manualDest) && (
                   <Pressable
-                    onPress={() => { destSearch.clear(); setManualDest(null); onClearRoute(); }}
+                    onPress={(e) => { e.stopPropagation(); destSearch.clear(); setManualDest(null); onClearRoute(); }}
                     hitSlop={6}
                   >
                     <Ionicons name="close-circle-outline" size={14} color="#98a2b3" />
                   </Pressable>
                 )}
-              </View>
+              </Pressable>
             </View>
           </Animated.View>
         )}

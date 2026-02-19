@@ -111,6 +111,14 @@ interface LiveTrackingState {
   showBackgroundDisclosure: boolean;
 }
 
+export type StartTrackingResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: 'permission-denied' | 'limit-reached' | 'unavailable';
+      message: string;
+    };
+
 export function useLiveTracking(isLoggedIn = false) {
   const [state, setState] = useState<LiveTrackingState>({
     isTracking: false,
@@ -164,13 +172,14 @@ export function useLiveTracking(isLoggedIn = false) {
       destination_lat?: number;
       destination_lng?: number;
       destination_name?: string;
-    }) => {
+    }): Promise<StartTrackingResult> => {
       try {
         // Get current location
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          setState((s) => ({ ...s, error: 'Location permission required' }));
-          return false;
+          const message = 'Location permission required';
+          setState((s) => ({ ...s, error: message }));
+          return { ok: false, reason: 'permission-denied', message };
         }
 
         // ── Background location (Android only) ───────────────────────────
@@ -188,16 +197,18 @@ export function useLiveTracking(isLoggedIn = false) {
 
             if (!userAllowed) {
               // User declined the disclosure — block navigation entirely
-              setState((s) => ({ ...s, error: 'Background location is required to use navigation.' }));
-              return false;
+              const message = 'Background location permission denied.';
+              setState((s) => ({ ...s, error: message }));
+              return { ok: false, reason: 'permission-denied', message };
             }
 
             // User accepted disclosure — now show the system permission prompt
             const { status: sysGranted } = await Location.requestBackgroundPermissionsAsync();
             if (sysGranted !== 'granted') {
               // System prompt denied — block navigation
-              setState((s) => ({ ...s, error: 'Background location permission is required to use navigation.' }));
-              return false;
+              const message = 'Background location permission denied.';
+              setState((s) => ({ ...s, error: message }));
+              return { ok: false, reason: 'permission-denied', message };
             }
           }
         }
@@ -251,13 +262,19 @@ export function useLiveTracking(isLoggedIn = false) {
           liveApi.heartbeat();
         }, 15000);
 
-        return true;
+        return { ok: true };
       } catch (err: unknown) {
         // Limit errors are handled globally by the LimitReachedModal
-        if (err instanceof LimitError) return false;
+        if (err instanceof LimitError) {
+          return {
+            ok: false,
+            reason: 'limit-reached',
+            message: 'Live sharing limit reached for your current plan.',
+          };
+        }
         const msg = err instanceof Error ? err.message : 'Failed to start tracking';
         setState((s) => ({ ...s, error: msg }));
-        return false;
+        return { ok: false, reason: 'unavailable', message: msg };
       }
     },
     [],

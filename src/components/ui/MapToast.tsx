@@ -5,8 +5,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
-import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Animated, PanResponder, Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type IoniconsName = keyof typeof Ionicons.glyphMap;
@@ -27,13 +27,115 @@ interface Props {
 export function MapToast({ toast, onDismiss }: Props) {
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(120)).current;
+  const dragAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissingRef = useRef(false);
+  const toastDurationRef = useRef(3000);
+  const onDismissRef = useRef(onDismiss);
 
   useEffect(() => {
-    if (!toast) return;
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
 
-    // Slide in
+  const clearDismissTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const finishDismiss = useCallback(() => {
+    dismissingRef.current = false;
+    slideAnim.setValue(120);
+    dragAnim.setValue(0);
+    opacityAnim.setValue(0);
+    onDismissRef.current();
+  }, [dragAnim, opacityAnim, slideAnim]);
+
+  const dismissToast = useCallback((fromDrag: boolean) => {
+    if (dismissingRef.current) return;
+    dismissingRef.current = true;
+    clearDismissTimer();
+
+    Animated.parallel([
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+      fromDrag
+        ? Animated.timing(dragAnim, {
+            toValue: 120,
+            duration: 220,
+            useNativeDriver: true,
+          })
+        : Animated.timing(slideAnim, {
+            toValue: 120,
+            duration: 220,
+            useNativeDriver: true,
+          }),
+    ]).start(finishDismiss);
+  }, [clearDismissTimer, dragAnim, finishDismiss, opacityAnim, slideAnim]);
+
+  const scheduleAutoDismiss = useCallback(() => {
+    clearDismissTimer();
+    timerRef.current = setTimeout(() => {
+      dismissToast(false);
+    }, toastDurationRef.current);
+  }, [clearDismissTimer, dismissToast]);
+
+  const panResponder = useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        gestureState.dy > 6 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+      onPanResponderGrant: () => {
+        clearDismissTimer();
+      },
+      onPanResponderMove: (_, gestureState) => {
+        dragAnim.setValue(Math.max(0, gestureState.dy));
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy >= 60) {
+          dismissToast(true);
+          return;
+        }
+
+        Animated.spring(dragAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 120,
+          friction: 14,
+        }).start(() => {
+          if (toast) scheduleAutoDismiss();
+        });
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(dragAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 120,
+          friction: 14,
+        }).start(() => {
+          if (toast) scheduleAutoDismiss();
+        });
+      },
+    }),
+    [clearDismissTimer, dismissToast, dragAnim, scheduleAutoDismiss, toast],
+  );
+
+  useEffect(() => {
+    if (!toast) {
+      clearDismissTimer();
+      return;
+    }
+
+    toastDurationRef.current = toast.duration ?? 3000;
+    dismissingRef.current = false;
+    slideAnim.setValue(120);
+    dragAnim.setValue(0);
+    opacityAnim.setValue(0);
+
     Animated.parallel([
       Animated.spring(slideAnim, {
         toValue: 0,
@@ -46,43 +148,30 @@ export function MapToast({ toast, onDismiss }: Props) {
         duration: 200,
         useNativeDriver: true,
       }),
-    ]).start();
-
-    // Auto-dismiss
-    timerRef.current = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 120,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacityAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start(() => onDismiss());
-    }, toast.duration ?? 3000);
+    ]).start(() => {
+      scheduleAutoDismiss();
+    });
 
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      clearDismissTimer();
     };
-  }, [toast, slideAnim, opacityAnim, onDismiss]);
+  }, [toast, clearDismissTimer, dragAnim, opacityAnim, scheduleAutoDismiss, slideAnim]);
 
   if (!toast) return null;
 
   return (
     <Animated.View
+      {...panResponder.panHandlers}
       style={[
         styles.container,
         {
           bottom: insets.bottom + 24,
           backgroundColor: toast.bgColor ?? 'rgba(30, 30, 46, 0.95)',
-          transform: [{ translateY: slideAnim }],
+          transform: [{ translateY: Animated.add(slideAnim, dragAnim) }],
           opacity: opacityAnim,
         },
       ]}
-      pointerEvents="none"
+      pointerEvents="auto"
     >
       {toast.icon && (
         <View style={[styles.iconWrap, { backgroundColor: (toast.iconColor ?? '#7C3AED') + '22' }]}>
