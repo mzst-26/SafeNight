@@ -252,6 +252,16 @@ export default function HomeScreen() {
             iconColor: '#10B981',
             duration: 5000,
           });
+        } else {
+          // User denied background location — cancel navigation and return to search
+          liveStarted.current = false;
+          h.nav.stop();
+          setToast({
+            message: 'Background location access is required to use navigation.',
+            icon: 'location-outline',
+            iconColor: '#EF4444',
+            duration: 4000,
+          });
         }
       });
     }

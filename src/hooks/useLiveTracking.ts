@@ -186,13 +186,18 @@ export function useLiveTracking(isLoggedIn = false) {
               setState((s) => ({ ...s, showBackgroundDisclosure: true }));
             });
 
-            if (userAllowed) {
-              // User accepted disclosure — now show the system permission prompt
-              const { status: granted } = await Location.requestBackgroundPermissionsAsync();
-              if (granted !== 'granted') {
-                // System prompt denied — continue with foreground-only tracking
-                console.log('[live] Background location denied — tracking in foreground only');
-              }
+            if (!userAllowed) {
+              // User declined the disclosure — block navigation entirely
+              setState((s) => ({ ...s, error: 'Background location is required to use navigation.' }));
+              return false;
+            }
+
+            // User accepted disclosure — now show the system permission prompt
+            const { status: sysGranted } = await Location.requestBackgroundPermissionsAsync();
+            if (sysGranted !== 'granted') {
+              // System prompt denied — block navigation
+              setState((s) => ({ ...s, error: 'Background location permission is required to use navigation.' }));
+              return false;
             }
           }
         }
