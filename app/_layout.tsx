@@ -20,11 +20,6 @@ import { setOnboardingAccepted } from '@/src/services/onboarding';
 // Hide native splash as fast as possible
 SplashScreen.preventAutoHideAsync().then(() => SplashScreen.hideAsync());
 
-// Set Android navigation bar color to white with dark icons
-if (Platform.OS === 'android') {
-  SystemUI.setBackgroundColorAsync('#ffffff');
-}
-
 const MIN_SPLASH_MS = 3500;
 
 export default function RootLayout() {
@@ -38,6 +33,13 @@ export default function RootLayout() {
 
   // Enable auto-updates (OTA updates for Play Store builds)
   useAutoUpdate();
+
+  // Set Android navigation bar color to white with dark icons
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      SystemUI.setBackgroundColorAsync('#ffffff').catch(() => {});
+    }
+  }, []);
 
   // Start minimum timer on mount
   useEffect(() => {
