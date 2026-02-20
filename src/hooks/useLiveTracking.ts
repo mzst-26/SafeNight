@@ -6,7 +6,7 @@
  * 2. Sending location updates every 5s during the session
  * 3. Heartbeat every 15s to keep the session marked as alive
  * 4. Ending the session on arrival / manual stop
- * 5. Best-effort session end on app close (beforeunload / AppState)
+ * 5. Session persists if app is closed — only ends via explicit stop or server-side 5-min expiry
  * 6. Registering Expo push token for notifications
  * 7. Watching a contact's live location (polling)
  */
@@ -14,7 +14,7 @@
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import { liveApi, type LiveSession, type WatchResult } from '../services/userApi';
 import { LimitError } from '../types/limitError';
 
@@ -330,38 +330,12 @@ export function useLiveTracking(isLoggedIn = false) {
     };
   }, []);
 
-  // ── Best-effort session end when app closes / goes to background ──
-  // Web: beforeunload + pagehide → sendBeacon (survives tab close)
-  // Native: AppState → attempt async end when backgrounded
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      const handleUnload = () => {
-        if (state.isTracking) {
-          liveApi.endSync('cancelled');
-        }
-      };
-
-      // pagehide fires more reliably on mobile Safari than beforeunload
-      window.addEventListener('beforeunload', handleUnload);
-      window.addEventListener('pagehide', handleUnload);
-
-      return () => {
-        window.removeEventListener('beforeunload', handleUnload);
-        window.removeEventListener('pagehide', handleUnload);
-      };
-    } else {
-      // Native: attempt to end session when app goes to background
-      const sub = AppState.addEventListener('change', (nextState) => {
-        if (nextState === 'background' && state.isTracking) {
-          // Fire-and-forget — the backend staleness cleanup is the
-          // real safety net; this is just a best-effort shortcut.
-          liveApi.end('cancelled').catch(() => {});
-        }
-      });
-
-      return () => sub.remove();
-    }
-  }, [state.isTracking]);
+  // ── Session persistence on app close ──
+  // The live session is NOT cancelled when the app goes to background or is
+  // closed. It stays active on the server so contacts can still see the last
+  // known location. The server-side stale-session cleanup (EXPIRE_THRESHOLD_S
+  // = 5 min) will automatically expire the session if no heartbeat arrives.
+  // The session is only ended explicitly when the user stops navigation.
 
   return {
     ...state,
