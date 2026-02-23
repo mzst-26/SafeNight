@@ -2,7 +2,7 @@
   "expo": {
     "name": "SafeNight",
     "slug": "safenight",
-    "version": "1.0.16",
+    "version": "1.0.17",
     "orientation": "portrait",
     "scheme": "safenight",
     "icon": "./assets/images/logo.png",
