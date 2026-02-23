@@ -112,11 +112,11 @@ async function _loadSessionOnce(
   // Sync version + platform (fire-and-forget)
   const platform = Platform.OS;
   if (profile.app_version !== APP_VERSION || profile.platform !== platform) {
-    authApi.updateProfile({ app_version: APP_VERSION, platform });
+    authApi.updateProfile({ app_version: APP_VERSION, platform }).catch(() => {});
   }
 
   // Track app open (fire-and-forget)
-  usageApi.track('app_open', null, APP_VERSION);
+  usageApi.track('app_open', null, APP_VERSION).catch(() => {});
 
   scheduleRefresh();
 
@@ -201,15 +201,46 @@ export function useAuth() {
     loadSession();
   }, [loadSession]);
 
-  // ─── Auto-logout when profile fetch fails ──────────────────────────────────
-  // If the session is valid but we can't load profile data, give the user
-  // 3 seconds to read the message then force a logout. No user interaction.
+  // ─── Retry profile load before auto-logout ────────────────────────────────
+  // If the session is valid but the profile can't be loaded (e.g. Render.com
+  // cold start can take 30–60 s), retry up to 3 times with backoff before
+  // giving up and forcing a logout.
+
+  const profileRetryCount = useRef(0);
+  const PROFILE_RETRY_DELAYS = [8_000, 15_000, 30_000];
 
   useEffect(() => {
-    if (!state.profileFetchFailed) return;
+    if (!state.profileFetchFailed) {
+      // Reset the counter whenever we are in a good state
+      profileRetryCount.current = 0;
+      return;
+    }
 
+    if (profileRetryCount.current < PROFILE_RETRY_DELAYS.length) {
+      const attempt = profileRetryCount.current;
+      const delay = PROFILE_RETRY_DELAYS[attempt];
+      profileRetryCount.current += 1;
+
+      console.warn(
+        `[auth] Profile fetch failed — retrying in ${delay / 1000}s ` +
+        `(attempt ${attempt + 1}/${PROFILE_RETRY_DELAYS.length})`,
+      );
+
+      const timer = setTimeout(() => {
+        // Force a fresh network call by busting the dedup cache
+        _sharedLoadTs = 0;
+        _sharedLoadPromise = null;
+        setState((s) => ({ ...s, profileFetchFailed: false, isLoading: true }));
+        loadSession();
+      }, delay);
+
+      return () => clearTimeout(timer);
+    }
+
+    // All retries exhausted — only NOW trigger the actual auto-logout
     const timer = setTimeout(async () => {
-      console.warn('[auth] Auto-logout triggered — profile could not be loaded');
+      console.warn('[auth] Auto-logout triggered — profile could not be loaded after retries');
+      profileRetryCount.current = 0;
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       await authApi.logout();
       setState({
@@ -222,6 +253,7 @@ export function useAuth() {
     }, 3_000);
 
     return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.profileFetchFailed]);
 
   // ─── Listen for session events from userApi ────────────────────────────────
