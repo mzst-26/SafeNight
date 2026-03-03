@@ -221,10 +221,11 @@ export const authApi = {
     methods: Array<'otp' | 'password'>;
     default_method: 'otp';
   }> {
-    const res = await fetch(`${BASE}/api/auth/options`, {
+    const res = await fetchWithTimeout(`${BASE}/api/auth/options`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
+      timeout: 8_000, // short timeout — we fall back to OTP if this is slow
     });
     if (!res.ok) {
       if (res.status === 429) {
@@ -239,7 +240,7 @@ export const authApi = {
 
   /** Send magic link email */
   async sendMagicLink(email: string, name: string): Promise<{ message: string }> {
-    const res = await fetch(`${BASE}/api/auth/magic-link`, {
+    const res = await fetchWithTimeout(`${BASE}/api/auth/magic-link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, name }),
@@ -260,7 +261,7 @@ export const authApi = {
     email: string,
     password: string,
   ): Promise<{ access_token: string; user: { id: string; email: string } }> {
-    const res = await fetch(`${BASE}/api/auth/password-login`, {
+    const res = await fetchWithTimeout(`${BASE}/api/auth/password-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -281,7 +282,7 @@ export const authApi = {
 
   /** Send forgot-password email (Supabase built-in email template) */
   async forgotPassword(email: string): Promise<{ message: string }> {
-    const res = await fetch(`${BASE}/api/auth/forgot-password`, {
+    const res = await fetchWithTimeout(`${BASE}/api/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -302,7 +303,7 @@ export const authApi = {
     email: string,
     token: string,
   ): Promise<{ access_token: string; user: { id: string; email: string } }> {
-    const res = await fetch(`${BASE}/api/auth/verify`, {
+    const res = await fetchWithTimeout(`${BASE}/api/auth/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, token }),

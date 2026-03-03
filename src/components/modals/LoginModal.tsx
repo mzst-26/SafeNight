@@ -127,7 +127,12 @@ export default function LoginModal({
     const options = await onCheckAuthOptions(email.trim().toLowerCase());
     setIsLoading(false);
 
-    if (!options) return;
+    // If auth-options check fails for any reason (backend down, 404, network error),
+    // fall back to plain OTP flow so login always works.
+    if (!options) {
+      await sendOtpCode();
+      return;
+    }
 
     setAvailableMethods(options.methods);
 

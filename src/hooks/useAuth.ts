@@ -34,6 +34,8 @@ try {
 /** Detect network vs server errors and return a friendly message */
 function isNetworkError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
+  // AbortController timeout fires as AbortError
+  if (err.name === 'AbortError') return true;
   const m = err.message.toLowerCase();
   return (
     m.includes('network request failed') ||
@@ -41,7 +43,8 @@ function isNetworkError(err: unknown): boolean {
     m.includes('econnrefused') ||
     m.includes('networkerror') ||
     m.includes('load failed') ||
-    m.includes('timeout')
+    m.includes('timeout') ||
+    m.includes('aborted')
   );
 }
 
