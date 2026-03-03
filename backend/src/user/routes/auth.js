@@ -175,6 +175,18 @@ function validateEmail(email) {
 
 async function doesUserExistByEmail(email) {
   const cleanEmail = email.trim().toLowerCase();
+
+  // Check auth.users via admin API — this is the authoritative source.
+  // profiles.email can be null for users who signed up before we started
+  // storing email there, so querying profiles alone gives false negatives.
+  try {
+    const { data, error } = await supabaseAuth.auth.admin.getUserByEmail(cleanEmail);
+    if (!error && data?.user) return true;
+  } catch (_) {
+    // Fall through to profiles check if admin API fails
+  }
+
+  // Fallback: check profiles table (catches edge cases)
   const { data } = await supabase
     .from('profiles')
     .select('id')
