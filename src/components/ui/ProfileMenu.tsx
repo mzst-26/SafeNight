@@ -19,6 +19,7 @@ import {
     View
 } from 'react-native';
 import { authApi } from '../../services/userApi';
+import { ChangePasswordModal } from '../modals/ChangePasswordModal';
 import PrivacyPolicyModal from '../modals/PrivacyPolicyModal';
 import RefundPolicyModal from '../modals/RefundPolicyModal';
 import TermsModal from '../modals/TermsModal';
@@ -33,14 +34,16 @@ interface Props {
   subscriptionEndsAt?: string | null;
   onLogout: () => void;
   onManageSubscription?: () => void;
+  onChangePassword: (newPassword: string) => Promise<boolean>;
 }
 
-export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptionEndsAt, onLogout, onManageSubscription }: Props) {
+export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptionEndsAt, onLogout, onManageSubscription, onChangePassword }: Props) {
   const [open, setOpen] = useState(false);
   const [privacyVisible, setPrivacyVisible] = useState(false);
   const [refundVisible, setRefundVisible] = useState(false);
   const [termsVisible, setTermsVisible] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [changePasswordVisible, setChangePasswordVisible] = useState(false);
 
   const handleLogout = useCallback(() => {
     setOpen(false);
@@ -164,6 +167,26 @@ export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptio
 
             <View style={styles.divider} />
 
+            {/* ── Settings section ── */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionHeaderText}>SETTINGS</Text>
+            </View>
+
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setOpen(false);
+                setChangePasswordVisible(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Change password"
+            >
+              <Ionicons name="lock-closed-outline" size={20} color="#475569" />
+              <Text style={styles.settingsText}>Change Password</Text>
+            </Pressable>
+
+            <View style={styles.divider} />
+
             {/* Policies — single external link on native, individual modals on web */}
             {Platform.OS !== 'web' ? (
               <Pressable
@@ -257,6 +280,12 @@ export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptio
       <TermsModal
         visible={termsVisible}
         onClose={() => setTermsVisible(false)}
+      />
+      <ChangePasswordModal
+        visible={changePasswordVisible}
+        onClose={() => setChangePasswordVisible(false)}
+        onChangePassword={onChangePassword}
+        email={email}
       />
     </>
   );
@@ -373,5 +402,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: '#991B1B',
+  },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  sectionHeaderText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94A3B8',
+    letterSpacing: 1,
+  },
+  settingsText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1E293B',
   },
 });

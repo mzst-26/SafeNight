@@ -298,6 +298,45 @@ export const authApi = {
     return res.json();
   },
 
+  /**
+   * Update the current user's password.
+   * Requires a valid session JWT (either normal login or recovery token from email).
+   * The JWT is attached automatically by authFetch — never sent from the UI.
+   */
+  async updatePassword(newPassword: string): Promise<{ message: string }> {
+    const res = await authFetch('/api/auth/update-password', {
+      method: 'POST',
+      body: JSON.stringify({ password: newPassword }),
+    });
+    if (!res.ok) {
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({ retry_after: 900 }));
+        throw new Error(`RATE_LIMIT:${body.retry_after || 900}`);
+      }
+      const err = await res.json().catch(() => ({ error: 'Failed to update password' }));
+      throw new Error(err.error || 'Failed to update password');
+    }
+    return res.json();
+  },
+
+  /**
+   * Store a Supabase recovery session received from the password-reset email
+   * deep link. This makes the access token available to authFetch so that
+   * updatePassword() can be called without requiring a separate login.
+   */
+  async storeRecoverySession(
+    accessToken: string,
+    refreshToken: string,
+    expiresIn?: number,
+  ): Promise<void> {
+    await storeSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      ...(expiresIn ? { expires_in: expiresIn } : {}),
+    });
+    emitSessionEvent('logged_in');
+  },
+
   /** Verify OTP token from magic link */
   async verify(
     email: string,

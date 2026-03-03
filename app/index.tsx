@@ -833,6 +833,7 @@ export default function HomeScreen() {
               subscriptionEndsAt={auth.user?.subscriptionEndsAt}
               onLogout={auth.logout}
               onManageSubscription={() => setShowSubscriptionModal(true)}
+              onChangePassword={auth.changePassword}
             />
           </View>
         )}

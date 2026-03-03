@@ -3,7 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useCallback, useEffect, useState } from 'react';
-import { LogBox, Platform, StyleSheet, View } from 'react-native';
+import { Linking, LogBox, Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 LogBox.ignoreLogs(['Unable to activate keep awake']);
 
 import { AnimatedSplashScreen } from '@/src/components/AnimatedSplashScreen';
+import { ChangePasswordModal } from '@/src/components/modals/ChangePasswordModal';
 import DisclaimerModal from '@/src/components/modals/DisclaimerModal';
 import LoginModal from '@/src/components/modals/LoginModal';
 import WelcomeModal from '@/src/components/modals/WelcomeModal';
@@ -33,11 +34,43 @@ export default function RootLayout() {
   const [minTimePassed, setMinTimePassed] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [locationGranted, setLocationGranted] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
   const update = useUpdateCheck();
   const auth = useAuth();
 
   // Enable auto-updates (OTA updates for Play Store builds)
   useAutoUpdate();
+
+  // Handle deep links for password reset (safenight://reset-password?access_token=...&type=recovery)
+  useEffect(() => {
+    const handleUrl = async (url: string | null) => {
+      if (!url) return;
+      if (!url.includes('reset-password') && !url.includes('type=recovery')) return;
+
+      const queryString = url.includes('?') ? url.split('?')[1] : '';
+      const params = new URLSearchParams(queryString);
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token') ?? '';
+      const type = params.get('type');
+      const expiresIn = params.get('expires_in');
+
+      if (type === 'recovery' && accessToken) {
+        await auth.beginPasswordReset(
+          accessToken,
+          refreshToken,
+          expiresIn ? parseInt(expiresIn, 10) : undefined
+        );
+        setShowPasswordReset(true);
+      }
+    };
+
+    // Check if app was cold-started from a deep link
+    Linking.getInitialURL().then(handleUrl);
+
+    // Listen for links while app is already running
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => sub.remove();
+  }, [auth.beginPasswordReset]);
 
   // Set Android navigation bar color to white with dark icons
   useEffect(() => {
@@ -181,6 +214,15 @@ export default function RootLayout() {
         onSetName={auth.updateName}
         onAcceptLocation={handleAcceptLocation}
         hasLocationPermission={locationGranted}
+      />
+
+      {/* Password reset via email deep link */}
+      <ChangePasswordModal
+        visible={showPasswordReset && !splashVisible}
+        onClose={() => setShowPasswordReset(false)}
+        onChangePassword={auth.changePassword}
+        isResetFlow={true}
+        email={auth.user?.email ?? null}
       />
     </View>
   );

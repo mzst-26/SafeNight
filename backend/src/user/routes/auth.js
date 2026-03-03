@@ -327,15 +327,56 @@ router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
       });
     }
 
-    const redirectTo = process.env.SUPABASE_PASSWORD_RESET_REDIRECT_TO;
-    const options = redirectTo ? { redirectTo } : undefined;
-    const { error } = await supabaseAuth.auth.resetPasswordForEmail(cleanEmail, options);
+    // The redirect URL must be listed as an allowed redirect URL in the Supabase dashboard.
+    // The Netlify relay page at /reset-password reads the #hash fragment and opens
+    // the safenight:// deep link with query params (reliable on Android).
+    const redirectTo =
+      process.env.SUPABASE_PASSWORD_RESET_REDIRECT_TO ||
+      'https://safenight.netlify.app/reset-password';
+    const { error } = await supabaseAuth.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
 
     if (error) {
       return res.status(400).json({ error: error.message || 'Failed to send reset email' });
     }
 
     return res.json({ message: 'Password reset email sent — check your inbox' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/update-password ─────────────────────────────────────────
+// Update the authenticated user's password.
+// Security:
+//   1. requireAuth — validates JWT (either normal session or recovery token from email)
+//   2. authSensitiveLimit — max 20 req / 15 min / IP (prevents brute force)
+//   3. Password: min 8 chars, max 72 (bcrypt hard limit)
+//   4. Uses admin.updateUserById — server-side only, never exposes keys to client
+router.post('/update-password', authSensitiveLimit, requireAuth, async (req, res, next) => {
+  try {
+    const { password } = req.body;
+
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    if (password.length > 72) {
+      return res.status(400).json({ error: 'Password is too long (max 72 characters)' });
+    }
+
+    const { error } = await supabaseAuth.auth.admin.updateUserById(req.user.id, {
+      password,
+    });
+
+    if (error) {
+      console.error('[auth] update-password error:', error.message);
+      return res.status(400).json({ error: error.message || 'Failed to update password' });
+    }
+
+    console.log(`[auth] Password updated for user ${req.user.id}`);
+    return res.json({ message: 'Password updated successfully' });
   } catch (err) {
     next(err);
   }

@@ -582,6 +582,36 @@ export function useAuth() {
     }
   }, []);
 
+  /** Change the current user's password (from Settings or password-reset flow). */
+  const changePassword = useCallback(async (newPassword: string): Promise<boolean> => {
+    setState((s) => ({ ...s, error: null }));
+    try {
+      await authApi.updatePassword(newPassword);
+      return true;
+    } catch (err: unknown) {
+      const msg =
+        isNetworkError(err)
+          ? 'Server is down. Try again in a bit.'
+          : err instanceof Error && err.message
+            ? err.message
+            : 'Failed to update password. Try again.';
+      setState((s) => ({ ...s, error: msg }));
+      return false;
+    }
+  }, []);
+
+  /**
+   * Store a Supabase recovery session from a password-reset email deep link.
+   * Call this when the app receives the safenight://reset-password?access_token=... link.
+   * The stored token is then used by changePassword() automatically.
+   */
+  const beginPasswordReset = useCallback(
+    async (accessToken: string, refreshToken: string, expiresIn?: number) => {
+      await authApi.storeRecoverySession(accessToken, refreshToken, expiresIn);
+    },
+    [],
+  );
+
   return {
     ...state,
     checkAuthOptions,
@@ -594,5 +624,7 @@ export function useAuth() {
     updateUsername,
     acceptDisclaimer,
     refreshProfile,
+    changePassword,
+    beginPasswordReset,
   };
 }
