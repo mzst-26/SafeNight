@@ -50,6 +50,8 @@ function isNetworkError(err: unknown): boolean {
 
 function friendlyError(err: unknown, action: 'send' | 'verify' | 'options' | 'password' | 'forgot'): string {
   if (isNetworkError(err)) return 'Server is down. Try again in a bit.';
+  // Pass through lockout sentinel so LoginModal can auto-switch to OTP
+  if (err instanceof Error && err.message === 'LOCKED_OUT') return 'LOCKED_OUT';
   // Pass through rate limit errors with the seconds so the UI can show a countdown
   if (err instanceof Error && err.message.startsWith('RATE_LIMIT:')) return err.message;
   if (err instanceof Error && err.message) {

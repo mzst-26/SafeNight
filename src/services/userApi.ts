@@ -269,9 +269,11 @@ export const authApi = {
     if (!res.ok) {
       if (res.status === 429) {
         const body = await res.json().catch(() => ({ retry_after: 900 }));
+        if (body.locked_out) throw new Error('LOCKED_OUT');
         throw new Error(`RATE_LIMIT:${body.retry_after || 900}`);
       }
       const err = await res.json().catch(() => ({ error: 'Login failed' }));
+      if (err.locked_out) throw new Error('LOCKED_OUT');
       throw new Error(err.error || 'Invalid email or password');
     }
     const data = await res.json();

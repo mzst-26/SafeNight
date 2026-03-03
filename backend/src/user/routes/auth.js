@@ -163,6 +163,73 @@ const authSensitiveLimit = require('../../shared/middleware/rateLimiter').create
   ipOnly: true,
 });
 
+// ─── Per-email security stores (in-memory) ───────────────────────────────────
+// These protect against targeted per-account attacks that bypass per-IP limits.
+// On Render's single-instance plan this is sufficient; swap for Redis if you
+// ever run multiple replicas.
+
+// Failed password login attempts: normalised_email → { count, windowStart }
+const failedLoginAttempts = new Map();
+const LOGIN_LOCKOUT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const LOGIN_MAX_ATTEMPTS = 5;                    // lock after 5 failures
+
+// Password-reset request history: normalised_email → lastRequestAt (ms timestamp)
+const passwordResetTracker = new Map();
+const RESET_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours between resets
+
+// Housekeeping: evict stale entries every 30 minutes to prevent memory growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of failedLoginAttempts) {
+    if (now - val.windowStart > LOGIN_LOCKOUT_WINDOW_MS) failedLoginAttempts.delete(key);
+  }
+  for (const [key, ts] of passwordResetTracker) {
+    if (now - ts > RESET_COOLDOWN_MS) passwordResetTracker.delete(key);
+  }
+}, 30 * 60 * 1000);
+
+/** Returns true if the email is currently locked out of password login. */
+function isPasswordLocked(email) {
+  const entry = failedLoginAttempts.get(email);
+  if (!entry) return false;
+  // Expire the window automatically
+  if (Date.now() - entry.windowStart > LOGIN_LOCKOUT_WINDOW_MS) {
+    failedLoginAttempts.delete(email);
+    return false;
+  }
+  return entry.count >= LOGIN_MAX_ATTEMPTS;
+}
+
+/** Record a failed password login attempt. Returns remaining attempts. */
+function recordPasswordFailure(email) {
+  const now = Date.now();
+  const entry = failedLoginAttempts.get(email);
+  if (!entry || now - entry.windowStart > LOGIN_LOCKOUT_WINDOW_MS) {
+    failedLoginAttempts.set(email, { count: 1, windowStart: now });
+    return LOGIN_MAX_ATTEMPTS - 1;
+  }
+  entry.count += 1;
+  return Math.max(0, LOGIN_MAX_ATTEMPTS - entry.count);
+}
+
+/** Clear failed attempts on successful login (so users aren't locked out after reset). */
+function clearPasswordFailures(email) {
+  failedLoginAttempts.delete(email);
+}
+
+/** Returns ms until the next password-reset is allowed (0 = allowed now). */
+function resetCooldownRemaining(email) {
+  const last = passwordResetTracker.get(email);
+  if (!last) return 0;
+  const elapsed = Date.now() - last;
+  return elapsed >= RESET_COOLDOWN_MS ? 0 : RESET_COOLDOWN_MS - elapsed;
+}
+
+/** Record a successful password-reset request. */
+function recordResetRequest(email) {
+  passwordResetTracker.set(email, Date.now());
+}
+
 // ─── Validation helpers ──────────────────────────────────────────────────────
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_NAME = 100;
@@ -258,6 +325,8 @@ router.post('/magic-link', authSensitiveLimit, async (req, res, next) => {
 
 // ─── POST /api/auth/password-login ─────────────────────────────────────────
 // Password login is only for existing users. New users must signup via OTP.
+// Security: per-email lockout after 5 wrong passwords within 10 minutes.
+//           After lockout, the client must fall back to OTP.
 router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -270,6 +339,17 @@ router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
+
+    // ── Lockout check (must come before DB look-up to avoid timing leaks) ──
+    if (isPasswordLocked(cleanEmail)) {
+      const retryAfterMs = LOGIN_LOCKOUT_WINDOW_MS;
+      return res.status(429).json({
+        error: `Too many failed attempts. Please sign in with your email code instead.`,
+        locked_out: true,
+        retry_after: Math.ceil(retryAfterMs / 1000),
+      });
+    }
+
     const exists = await doesUserExistByEmail(cleanEmail);
 
     if (!exists) {
@@ -284,10 +364,20 @@ router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
     });
 
     if (error || !data.session) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      const remaining = recordPasswordFailure(cleanEmail);
+      const locked = remaining === 0;
+      return res.status(401).json({
+        error: locked
+          ? 'Too many failed attempts. Please sign in with your email code instead.'
+          : `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`,
+        locked_out: locked,
+      });
     }
 
     await ensureUserRecords(data.user.id, data.user.email, data.user.user_metadata?.name);
+
+    // ── Successful login — clear any failed-attempt counter ──────────────
+    clearPasswordFailures(cleanEmail);
 
     await supabase
       .from('profiles')
@@ -310,6 +400,9 @@ router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
 
 // ─── POST /api/auth/forgot-password ────────────────────────────────────────
 // Sends Supabase built-in password reset email to existing users.
+// Security: once-per-24-hours per email to prevent email bombing and token
+//           farming. Also clears the password-login lockout so the user can
+//           try password again after completing the reset flow.
 router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -327,6 +420,16 @@ router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
       });
     }
 
+    // ── Once-per-day throttle ─────────────────────────────────────────────
+    const cooldownMs = resetCooldownRemaining(cleanEmail);
+    if (cooldownMs > 0) {
+      const hours = Math.ceil(cooldownMs / (60 * 60 * 1000));
+      return res.status(429).json({
+        error: `Password reset already requested today. Please try again in ${hours} hour${hours === 1 ? '' : 's'}.`,
+        retry_after: Math.ceil(cooldownMs / 1000),
+      });
+    }
+
     // The redirect URL must be listed as an allowed redirect URL in the Supabase dashboard.
     // The Netlify relay page at /reset-password reads the #hash fragment and opens
     // the safenight:// deep link with query params (reliable on Android).
@@ -338,6 +441,11 @@ router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
     if (error) {
       return res.status(400).json({ error: error.message || 'Failed to send reset email' });
     }
+
+    // Record so subsequent requests within 24 h are blocked.
+    // Also lift any password-login lockout — the reset flow will set a new password.
+    recordResetRequest(cleanEmail);
+    clearPasswordFailures(cleanEmail);
 
     return res.json({ message: 'Password reset email sent — check your inbox' });
   } catch (err) {

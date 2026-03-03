@@ -92,6 +92,20 @@ export default function LoginModal({
     };
   }, [rawError]);
 
+  // Auto-switch to OTP when password login is locked out (5 wrong attempts)
+  useEffect(() => {
+    if (rawError === 'LOCKED_OUT') {
+      // Dismiss the raw sentinel immediately
+      setLocalError(null);
+      setPassword('');
+      // Switch to OTP step and fire off a code so the user can get in right away
+      setStep('otp');
+      setInfoMessage('Too many wrong passwords. We\'ve sent an email code — use that to sign in instead.');
+      onSendMagicLink(email.trim().toLowerCase(), '').catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawError]);
+
   // Build display error with countdown
   const isRateLimited = countdown > 0;
   const formatCountdown = (s: number) => {
@@ -99,9 +113,10 @@ export default function LoginModal({
     const sec = s % 60;
     return m > 0 ? `${m}m ${sec.toString().padStart(2, '0')}s` : `${sec}s`;
   };
+  // Never render the raw sentinel string — it's handled by the useEffect above
   const displayError = isRateLimited
     ? `Slow down! Try again in ${formatCountdown(countdown)}. We limit requests to keep SafeNight free for everyone.`
-    : rawError;
+    : rawError === 'LOCKED_OUT' ? null : rawError;
 
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
