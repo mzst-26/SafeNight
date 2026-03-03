@@ -1,7 +1,10 @@
 /**
- * auth.js — Authentication routes (magic link / passwordless).
+ * auth.js — Authentication routes (OTP + password sign-in).
  *
- * POST   /api/auth/magic-link     — Send magic link email
+ * POST   /api/auth/options        — Check available sign-in methods for email
+ * POST   /api/auth/magic-link     — Send email OTP (used for signup + OTP sign-in)
+ * POST   /api/auth/password-login — Sign in with email + password
+ * POST   /api/auth/forgot-password— Send password reset email
  * POST   /api/auth/verify         — Exchange OTP token for session
  * POST   /api/auth/refresh        — Refresh expired access token
  * GET    /api/auth/me             — Get current user profile
@@ -170,6 +173,44 @@ function validateEmail(email) {
   return EMAIL_RE.test(email.trim().toLowerCase());
 }
 
+async function doesUserExistByEmail(email) {
+  const cleanEmail = email.trim().toLowerCase();
+  const { data } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', cleanEmail)
+    .limit(1)
+    .maybeSingle();
+
+  return !!data;
+}
+
+// ─── POST /api/auth/options ─────────────────────────────────────────────────
+// Returns available auth methods for this email:
+// - Existing user: otp + password
+// - New user: otp only (signup via OTP)
+router.post('/options', authSensitiveLimit, async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!validateEmail(email)) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const exists = await doesUserExistByEmail(cleanEmail);
+
+    return res.json({
+      email: cleanEmail,
+      exists,
+      methods: exists ? ['otp', 'password'] : ['otp'],
+      default_method: 'otp',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/auth/magic-link ───────────────────────────────────────────────
 // Send a passwordless magic link to the user's email.
 // If the user doesn't exist, Supabase creates them automatically.
@@ -198,6 +239,91 @@ router.post('/magic-link', authSensitiveLimit, async (req, res, next) => {
     }
 
     res.json({ message: 'Magic link sent — check your email' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/password-login ─────────────────────────────────────────
+// Password login is only for existing users. New users must signup via OTP.
+router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!validateEmail(email)) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+    if (!password || typeof password !== 'string' || password.length < 6) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const exists = await doesUserExistByEmail(cleanEmail);
+
+    if (!exists) {
+      return res.status(404).json({
+        error: 'No account found for this email. Use email code to sign up first.',
+      });
+    }
+
+    const { data, error } = await supabaseAuth.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    });
+
+    if (error || !data.session) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    await ensureUserRecords(data.user.id, data.user.email, data.user.user_metadata?.name);
+
+    await supabase
+      .from('profiles')
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq('id', data.user.id);
+
+    return res.json({
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_in: data.session.expires_in,
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/auth/forgot-password ────────────────────────────────────────
+// Sends Supabase built-in password reset email to existing users.
+router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!validateEmail(email)) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const exists = await doesUserExistByEmail(cleanEmail);
+
+    if (!exists) {
+      return res.status(404).json({
+        error: 'No account found for this email. Use email code to sign up first.',
+      });
+    }
+
+    const redirectTo = process.env.SUPABASE_PASSWORD_RESET_REDIRECT_TO;
+    const options = redirectTo ? { redirectTo } : undefined;
+    const { error } = await supabaseAuth.auth.resetPasswordForEmail(cleanEmail, options);
+
+    if (error) {
+      return res.status(400).json({ error: error.message || 'Failed to send reset email' });
+    }
+
+    return res.json({ message: 'Password reset email sent — check your inbox' });
   } catch (err) {
     next(err);
   }

@@ -1,9 +1,13 @@
 /**
- * LoginModal.tsx — Magic link login modal.
+ * LoginModal.tsx — Login modal with conditional auth methods.
  *
- * Two steps:
- * 1. Enter email → sends OTP code
- * 2. Enter OTP code from email → verifies
+ * Flow:
+ * 1. Enter email
+ * 2. Check account
+ *    - Existing user: choose OTP or password
+ *    - New user: OTP only (auto-send)
+ * 3. Verify OTP OR sign in with password
+ * 4. Forgot password sends Supabase reset email
  *
  * Name/username are collected separately in WelcomeModal after first login.
  */
@@ -27,18 +31,29 @@ import { PathfindingAnimation } from '../PathfindingAnimation';
 interface Props {
   visible: boolean;
   onClose: () => void;
+  onCheckAuthOptions: (email: string) => Promise<{
+    email: string;
+    exists: boolean;
+    methods: Array<'otp' | 'password'>;
+    default_method: 'otp';
+  } | null>;
   onSendMagicLink: (email: string, name: string) => Promise<boolean>;
+  onSignInWithPassword: (email: string, password: string) => Promise<boolean>;
+  onForgotPassword: (email: string) => Promise<{ message: string } | null>;
   onVerify: (email: string, token: string) => Promise<boolean>;
   error: string | null;
   dismissable?: boolean;
 }
 
-type Step = 'email' | 'otp';
+type Step = 'email' | 'method' | 'otp' | 'password';
 
 export default function LoginModal({
   visible,
   onClose,
+  onCheckAuthOptions,
   onSendMagicLink,
+  onSignInWithPassword,
+  onForgotPassword,
   onVerify,
   error,
   dismissable = true,
@@ -46,6 +61,9 @@ export default function LoginModal({
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
+  const [password, setPassword] = useState('');
+  const [availableMethods, setAvailableMethods] = useState<Array<'otp' | 'password'>>([]);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
@@ -87,20 +105,44 @@ export default function LoginModal({
 
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
-  const handleSend = useCallback(async () => {
+  const sendOtpCode = useCallback(async () => {
     if (!isEmailValid) return;
+    setInfoMessage(null);
     setLocalError(null);
     setIsLoading(true);
     const ok = await onSendMagicLink(email.trim().toLowerCase(), '');
     setIsLoading(false);
     if (ok) {
       setStep('otp');
+      setInfoMessage('We sent a 6-digit code to your email.');
     }
     // error is shown via displayError from the hook
   }, [email, isEmailValid, onSendMagicLink]);
 
+  const handleContinue = useCallback(async () => {
+    if (!isEmailValid) return;
+    setInfoMessage(null);
+    setLocalError(null);
+    setIsLoading(true);
+    const options = await onCheckAuthOptions(email.trim().toLowerCase());
+    setIsLoading(false);
+
+    if (!options) return;
+
+    setAvailableMethods(options.methods);
+
+    // New users: OTP only (signup via OTP)
+    if (!options.exists || !options.methods.includes('password')) {
+      await sendOtpCode();
+      return;
+    }
+
+    setStep('method');
+  }, [email, isEmailValid, onCheckAuthOptions, sendOtpCode]);
+
   const handleVerify = useCallback(async () => {
     if (otp.length < 6) return;
+    setInfoMessage(null);
     setLocalError(null);
     setIsLoading(true);
     const ok = await onVerify(email.trim().toLowerCase(), otp.trim());
@@ -109,17 +151,54 @@ export default function LoginModal({
       setStep('email');
       setEmail('');
       setOtp('');
+      setPassword('');
+      setAvailableMethods([]);
       setLocalError(null);
+      setInfoMessage(null);
       onClose();
     }
     // error is shown via displayError from the hook
   }, [email, otp, onVerify, onClose]);
 
+  const handlePasswordLogin = useCallback(async () => {
+    if (password.trim().length < 6) return;
+    setInfoMessage(null);
+    setLocalError(null);
+    setIsLoading(true);
+    const ok = await onSignInWithPassword(email.trim().toLowerCase(), password);
+    setIsLoading(false);
+    if (ok) {
+      setStep('email');
+      setEmail('');
+      setOtp('');
+      setPassword('');
+      setAvailableMethods([]);
+      setLocalError(null);
+      setInfoMessage(null);
+      onClose();
+    }
+  }, [email, password, onSignInWithPassword, onClose]);
+
+  const handleForgotPassword = useCallback(async () => {
+    if (!isEmailValid) return;
+    setInfoMessage(null);
+    setLocalError(null);
+    setIsLoading(true);
+    const result = await onForgotPassword(email.trim().toLowerCase());
+    setIsLoading(false);
+    if (result?.message) {
+      setInfoMessage(result.message);
+    }
+  }, [email, isEmailValid, onForgotPassword]);
+
   const handleClose = useCallback(() => {
     setStep('email');
     setEmail('');
     setOtp('');
+    setPassword('');
+    setAvailableMethods([]);
     setLocalError(null);
+    setInfoMessage(null);
     onClose();
   }, [onClose]);
 
@@ -142,7 +221,13 @@ export default function LoginModal({
               {/* Header */}
               <View style={styles.header}>
                 <Text style={styles.title}>
-                  {step === 'email' ? 'Log In' : 'Enter Code'}
+                  {step === 'email'
+                    ? 'Log In'
+                    : step === 'method'
+                      ? 'Choose Sign-In Method'
+                      : step === 'password'
+                        ? 'Password Sign-In'
+                        : 'Enter Code'}
                 </Text>
                 {dismissable && (
                   <Pressable onPress={handleClose} style={styles.closeBtn} hitSlop={12}>
@@ -159,7 +244,7 @@ export default function LoginModal({
                     </View>
                     <Text style={styles.heading}>Sign in to SafeNight</Text>
                     <Text style={styles.subtitle}>
-                      Enter your email and we'll send you a code — no password needed.
+                      Enter your email to continue.
                     </Text>
 
                     <TextInput
@@ -179,14 +264,113 @@ export default function LoginModal({
                         styles.button,
                         (!isEmailValid || isRateLimited) && styles.buttonDisabled,
                       ]}
-                      onPress={handleSend}
+                      onPress={handleContinue}
                       disabled={!isEmailValid || isLoading || isRateLimited}
                     >
                       {isLoading ? (
                         <ActivityIndicator color="#FFF" size="small" />
                       ) : (
-                        <Text style={styles.buttonText}>Send Login Code</Text>
+                        <Text style={styles.buttonText}>Continue</Text>
                       )}
+                    </Pressable>
+                  </>
+                ) : step === 'method' ? (
+                  <>
+                    <View style={styles.iconWrap}>
+                      <Ionicons name="log-in-outline" size={48} color="#6366F1" />
+                    </View>
+                    <Text style={styles.heading}>Welcome back</Text>
+                    <Text style={styles.subtitle}>
+                      Choose how you want to sign in for{'\n'}
+                      <Text style={styles.emailHighlight}>{email}</Text>
+                    </Text>
+
+                    <Pressable
+                      style={[styles.button, isRateLimited && styles.buttonDisabled]}
+                      onPress={sendOtpCode}
+                      disabled={isLoading || isRateLimited || !availableMethods.includes('otp')}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#FFF" size="small" />
+                      ) : (
+                        <Text style={styles.buttonText}>Sign in with Email Code</Text>
+                      )}
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.secondaryButton}
+                      onPress={() => {
+                        setOtp('');
+                        setStep('password');
+                      }}
+                      disabled={isLoading || !availableMethods.includes('password')}
+                    >
+                      <Text style={styles.secondaryButtonText}>Sign in with Password</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.linkBtn}
+                      onPress={() => {
+                        setStep('email');
+                        setOtp('');
+                        setPassword('');
+                        setInfoMessage(null);
+                      }}
+                    >
+                      <Text style={styles.linkText}>Use a different email</Text>
+                    </Pressable>
+                  </>
+                ) : step === 'password' ? (
+                  <>
+                    <View style={styles.iconWrap}>
+                      <Ionicons name="lock-closed" size={48} color="#6366F1" />
+                    </View>
+                    <Text style={styles.heading}>Enter your password</Text>
+                    <Text style={styles.subtitle}>
+                      Signing in as{'\n'}
+                      <Text style={styles.emailHighlight}>{email}</Text>
+                    </Text>
+
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Password"
+                      placeholderTextColor="#94A3B8"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                    />
+
+                    <Pressable
+                      style={[
+                        styles.button,
+                        (password.trim().length < 6 || isRateLimited) && styles.buttonDisabled,
+                      ]}
+                      onPress={handlePasswordLogin}
+                      disabled={password.trim().length < 6 || isLoading || isRateLimited}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#FFF" size="small" />
+                      ) : (
+                        <Text style={styles.buttonText}>Sign In</Text>
+                      )}
+                    </Pressable>
+
+                    <Pressable style={styles.linkBtn} onPress={handleForgotPassword}>
+                      <Text style={styles.linkText}>Forgot password?</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.linkBtn}
+                      onPress={() => {
+                        setStep('method');
+                        setPassword('');
+                        setInfoMessage(null);
+                      }}
+                    >
+                      <Text style={styles.linkText}>Back to sign-in options</Text>
                     </Pressable>
                   </>
                 ) : (
@@ -230,13 +414,27 @@ export default function LoginModal({
                     <Pressable
                       style={styles.linkBtn}
                       onPress={() => {
-                        setStep('email');
+                        setStep(availableMethods.includes('password') ? 'method' : 'email');
                         setOtp('');
                       }}
                     >
-                      <Text style={styles.linkText}>Use a different email</Text>
+                      <Text style={styles.linkText}>
+                        {availableMethods.includes('password') ? 'Back to sign-in options' : 'Use a different email'}
+                      </Text>
                     </Pressable>
                   </>
+                )}
+
+                {infoMessage && (
+                  <View style={styles.infoBanner}>
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={18}
+                      color="#0F766E"
+                      style={styles.errorIcon}
+                    />
+                    <Text style={styles.infoText}>{infoMessage}</Text>
+                  </View>
                 )}
 
                 {displayError && (
@@ -272,7 +470,13 @@ export default function LoginModal({
               {/* Header */}
               <View style={styles.header}>
                 <Text style={styles.title}>
-                  {step === 'email' ? 'Log In' : 'Enter Code'}
+                  {step === 'email'
+                    ? 'Log In'
+                    : step === 'method'
+                      ? 'Choose Sign-In Method'
+                      : step === 'password'
+                        ? 'Password Sign-In'
+                        : 'Enter Code'}
                 </Text>
                 {dismissable && (
                   <Pressable onPress={handleClose} style={styles.closeBtn} hitSlop={12}>
@@ -289,7 +493,7 @@ export default function LoginModal({
                     </View>
                     <Text style={styles.heading}>Sign in to SafeNight</Text>
                     <Text style={styles.subtitle}>
-                      Enter your email and we'll send you a code — no password needed.
+                      Enter your email to continue.
                     </Text>
 
                     <TextInput
@@ -309,14 +513,113 @@ export default function LoginModal({
                         styles.button,
                         (!isEmailValid || isRateLimited) && styles.buttonDisabled,
                       ]}
-                      onPress={handleSend}
+                      onPress={handleContinue}
                       disabled={!isEmailValid || isLoading || isRateLimited}
                     >
                       {isLoading ? (
                         <ActivityIndicator color="#FFF" size="small" />
                       ) : (
-                        <Text style={styles.buttonText}>Send Login Code</Text>
+                        <Text style={styles.buttonText}>Continue</Text>
                       )}
+                    </Pressable>
+                  </>
+                ) : step === 'method' ? (
+                  <>
+                    <View style={styles.iconWrap}>
+                      <Ionicons name="log-in-outline" size={48} color="#6366F1" />
+                    </View>
+                    <Text style={styles.heading}>Welcome back</Text>
+                    <Text style={styles.subtitle}>
+                      Choose how you want to sign in for{'\n'}
+                      <Text style={styles.emailHighlight}>{email}</Text>
+                    </Text>
+
+                    <Pressable
+                      style={[styles.button, isRateLimited && styles.buttonDisabled]}
+                      onPress={sendOtpCode}
+                      disabled={isLoading || isRateLimited || !availableMethods.includes('otp')}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#FFF" size="small" />
+                      ) : (
+                        <Text style={styles.buttonText}>Sign in with Email Code</Text>
+                      )}
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.secondaryButton}
+                      onPress={() => {
+                        setOtp('');
+                        setStep('password');
+                      }}
+                      disabled={isLoading || !availableMethods.includes('password')}
+                    >
+                      <Text style={styles.secondaryButtonText}>Sign in with Password</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.linkBtn}
+                      onPress={() => {
+                        setStep('email');
+                        setOtp('');
+                        setPassword('');
+                        setInfoMessage(null);
+                      }}
+                    >
+                      <Text style={styles.linkText}>Use a different email</Text>
+                    </Pressable>
+                  </>
+                ) : step === 'password' ? (
+                  <>
+                    <View style={styles.iconWrap}>
+                      <Ionicons name="lock-closed" size={48} color="#6366F1" />
+                    </View>
+                    <Text style={styles.heading}>Enter your password</Text>
+                    <Text style={styles.subtitle}>
+                      Signing in as{'\n'}
+                      <Text style={styles.emailHighlight}>{email}</Text>
+                    </Text>
+
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Password"
+                      placeholderTextColor="#94A3B8"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                    />
+
+                    <Pressable
+                      style={[
+                        styles.button,
+                        (password.trim().length < 6 || isRateLimited) && styles.buttonDisabled,
+                      ]}
+                      onPress={handlePasswordLogin}
+                      disabled={password.trim().length < 6 || isLoading || isRateLimited}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#FFF" size="small" />
+                      ) : (
+                        <Text style={styles.buttonText}>Sign In</Text>
+                      )}
+                    </Pressable>
+
+                    <Pressable style={styles.linkBtn} onPress={handleForgotPassword}>
+                      <Text style={styles.linkText}>Forgot password?</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.linkBtn}
+                      onPress={() => {
+                        setStep('method');
+                        setPassword('');
+                        setInfoMessage(null);
+                      }}
+                    >
+                      <Text style={styles.linkText}>Back to sign-in options</Text>
                     </Pressable>
                   </>
                 ) : (
@@ -360,13 +663,27 @@ export default function LoginModal({
                     <Pressable
                       style={styles.linkBtn}
                       onPress={() => {
-                        setStep('email');
+                        setStep(availableMethods.includes('password') ? 'method' : 'email');
                         setOtp('');
                       }}
                     >
-                      <Text style={styles.linkText}>Use a different email</Text>
+                      <Text style={styles.linkText}>
+                        {availableMethods.includes('password') ? 'Back to sign-in options' : 'Use a different email'}
+                      </Text>
                     </Pressable>
                   </>
+                )}
+
+                {infoMessage && (
+                  <View style={styles.infoBanner}>
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={18}
+                      color="#0F766E"
+                      style={styles.errorIcon}
+                    />
+                    <Text style={styles.infoText}>{infoMessage}</Text>
+                  </View>
                 )}
 
                 {displayError && (
@@ -518,6 +835,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
+  secondaryButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    marginTop: 10,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFF',
+  },
+  secondaryButtonText: {
+    color: '#334155',
+    fontWeight: '700',
+    fontSize: 16,
+  },
   linkBtn: {
     marginTop: 16,
     padding: 8,
@@ -545,6 +877,25 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+    lineHeight: 18,
+  },
+  infoBanner: {
+    backgroundColor: '#F0FDFA',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 16,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  infoText: {
+    color: '#0F766E',
     fontSize: 13,
     fontWeight: '600',
     flex: 1,

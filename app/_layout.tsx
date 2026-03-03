@@ -156,7 +156,10 @@ export default function RootLayout() {
       <LoginModal
         visible={showLoginGate}
         onClose={() => {}} // Cannot close - mandatory login
+        onCheckAuthOptions={auth.checkAuthOptions}
         onSendMagicLink={auth.sendMagicLink}
+        onSignInWithPassword={auth.signInWithPassword}
+        onForgotPassword={auth.forgotPassword}
         onVerify={auth.verify}
         error={auth.error}
         dismissable={false}

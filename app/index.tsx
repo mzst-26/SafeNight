@@ -1,3 +1,4 @@
+
 /**
  * HomeScreen — Main app screen.
  *
@@ -1123,7 +1124,10 @@ export default function HomeScreen() {
         <LoginModal
           visible={showLoginPrompt}
           onClose={() => setShowLoginPrompt(false)}
+          onCheckAuthOptions={auth.checkAuthOptions}
           onSendMagicLink={auth.sendMagicLink}
+          onSignInWithPassword={auth.signInWithPassword}
+          onForgotPassword={auth.forgotPassword}
           onVerify={auth.verify}
           error={auth.error}
           dismissable={true}

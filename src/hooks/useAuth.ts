@@ -45,11 +45,17 @@ function isNetworkError(err: unknown): boolean {
   );
 }
 
-function friendlyError(err: unknown, action: 'send' | 'verify'): string {
+function friendlyError(err: unknown, action: 'send' | 'verify' | 'options' | 'password' | 'forgot'): string {
   if (isNetworkError(err)) return 'Server is down. Try again in a bit.';
   // Pass through rate limit errors with the seconds so the UI can show a countdown
   if (err instanceof Error && err.message.startsWith('RATE_LIMIT:')) return err.message;
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
   if (action === 'verify') return 'Invalid or expired code. Try again.';
+  if (action === 'password') return 'Invalid email or password.';
+  if (action === 'forgot') return 'Could not send password reset email. Try again.';
+  if (action === 'options') return 'Could not check sign-in options. Try again.';
   return 'Something went wrong. Give it another go.';
 }
 
@@ -329,6 +335,32 @@ export function useAuth() {
     }
   }, []);
 
+  const checkAuthOptions = useCallback(async (email: string) => {
+    setState((s) => ({ ...s, error: null, isLoading: true }));
+    try {
+      const options = await authApi.getAuthOptions(email);
+      setState((s) => ({ ...s, isLoading: false }));
+      return options;
+    } catch (err: unknown) {
+      const msg = friendlyError(err, 'options');
+      setState((s) => ({ ...s, error: msg, isLoading: false }));
+      return null;
+    }
+  }, []);
+
+  const forgotPassword = useCallback(async (email: string) => {
+    setState((s) => ({ ...s, error: null, isLoading: true }));
+    try {
+      const result = await authApi.forgotPassword(email);
+      setState((s) => ({ ...s, isLoading: false }));
+      return result;
+    } catch (err: unknown) {
+      const msg = friendlyError(err, 'forgot');
+      setState((s) => ({ ...s, error: msg, isLoading: false }));
+      return null;
+    }
+  }, []);
+
   const verify = useCallback(async (email: string, token: string) => {
     setState((s) => ({ ...s, error: null, isLoading: true }));
     try {
@@ -392,6 +424,70 @@ export function useAuth() {
       return true;
     } catch (err: unknown) {
       const msg = friendlyError(err, 'verify');
+      setState((s) => ({ ...s, error: msg, isLoading: false }));
+      return false;
+    }
+  }, [scheduleRefresh]);
+
+  const signInWithPassword = useCallback(async (email: string, password: string) => {
+    setState((s) => ({ ...s, error: null, isLoading: true }));
+    try {
+      const data = await authApi.signInWithPassword(email, password);
+
+      const profile = await authApi.getProfile();
+
+      setState({
+        isLoggedIn: true,
+        isLoading: false,
+        profileFetchFailed: false,
+        user: profile
+          ? {
+              id: profile.id,
+              email: profile.email,
+              name: profile.name,
+              username: profile.username ?? null,
+              platform: profile.platform,
+              app_version: profile.app_version,
+              disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
+              subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
+              routeDistanceKm: profile.route_distance_km ?? 1,
+              isGift: profile.is_gift ?? false,
+              giftEndDate: profile.gift_end_date ?? null,
+              subscriptionEndsAt: profile.subscription_ends_at ?? null,
+              isFamilyPack: profile.is_family_pack ?? false,
+              familyPackId: profile.family_pack_id ?? null,
+            }
+          : {
+              id: data.user.id,
+              email: data.user.email,
+              name: '',
+              username: null,
+              platform: Platform.OS,
+              app_version: APP_VERSION,
+              disclaimer_accepted_at: null,
+              subscription: 'free',
+              routeDistanceKm: 1,
+              isGift: false,
+              giftEndDate: null,
+              subscriptionEndsAt: null,
+              isFamilyPack: false,
+              familyPackId: null,
+            },
+        error: null,
+      });
+
+      authApi.updateProfile({
+        app_version: APP_VERSION,
+        platform: Platform.OS,
+      });
+
+      usageApi.track('app_open', null, APP_VERSION);
+
+      scheduleRefresh();
+
+      return true;
+    } catch (err: unknown) {
+      const msg = friendlyError(err, 'password');
       setState((s) => ({ ...s, error: msg, isLoading: false }));
       return false;
     }
@@ -485,7 +581,10 @@ export function useAuth() {
 
   return {
     ...state,
+    checkAuthOptions,
     sendMagicLink,
+    signInWithPassword,
+    forgotPassword,
     verify,
     logout,
     updateName,

@@ -214,6 +214,29 @@ async function authFetch(
 // ─── Auth API ────────────────────────────────────────────────────────────────
 
 export const authApi = {
+  /** Check whether email has an existing account and available auth methods */
+  async getAuthOptions(email: string): Promise<{
+    email: string;
+    exists: boolean;
+    methods: Array<'otp' | 'password'>;
+    default_method: 'otp';
+  }> {
+    const res = await fetch(`${BASE}/api/auth/options`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({ retry_after: 900 }));
+        throw new Error(`RATE_LIMIT:${body.retry_after || 900}`);
+      }
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to check account');
+    }
+    return res.json();
+  },
+
   /** Send magic link email */
   async sendMagicLink(email: string, name: string): Promise<{ message: string }> {
     const res = await fetch(`${BASE}/api/auth/magic-link`, {
@@ -228,6 +251,48 @@ export const authApi = {
       }
       const err = await res.json().catch(() => ({ error: 'Request failed' }));
       throw new Error(err.error || 'Failed to send magic link');
+    }
+    return res.json();
+  },
+
+  /** Sign in with email + password (existing users only) */
+  async signInWithPassword(
+    email: string,
+    password: string,
+  ): Promise<{ access_token: string; user: { id: string; email: string } }> {
+    const res = await fetch(`${BASE}/api/auth/password-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({ retry_after: 900 }));
+        throw new Error(`RATE_LIMIT:${body.retry_after || 900}`);
+      }
+      const err = await res.json().catch(() => ({ error: 'Login failed' }));
+      throw new Error(err.error || 'Invalid email or password');
+    }
+    const data = await res.json();
+    await storeSession(data);
+    emitSessionEvent('logged_in');
+    return data;
+  },
+
+  /** Send forgot-password email (Supabase built-in email template) */
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const res = await fetch(`${BASE}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({ retry_after: 900 }));
+        throw new Error(`RATE_LIMIT:${body.retry_after || 900}`);
+      }
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to send password reset email');
     }
     return res.json();
   },
@@ -271,6 +336,8 @@ export const authApi = {
     is_gift?: boolean;
     gift_end_date?: string | null;
     subscription_ends_at?: string | null;
+    is_family_pack?: boolean;
+    family_pack_id?: string | null;
     created_at: string;
     last_seen_at: string;
   } | null> {
