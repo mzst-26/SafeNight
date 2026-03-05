@@ -194,7 +194,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       // Corridor path (the shortest A* path from Phase 1)
       map.addLayer({ id:'viz-corridor-line', type:'line', source:'viz-corridor',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#f59e0b','line-opacity':0.85,'line-width':4,'line-dasharray':[6,3]} });
+        paint:{'line-color':'#f59e0b','line-opacity':0.9,'line-width':3,'line-dasharray':[4,1.5]} });
 
       // Safety data point layers
       map.addLayer({ id:'viz-lights-circles', type:'circle', source:'viz-lights',
@@ -715,15 +715,15 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       var oLat=Number(c.oLat), oLng=Number(c.oLng), dLat=Number(c.dLat), dLng=Number(c.dLng);
       if(!isFinite(oLat)||!isFinite(oLng)||!isFinite(dLat)||!isFinite(dLng)) return;
 
+      // Haversine straight-line distance
       var dLatRad=(dLat-oLat)*Math.PI/180;
       var dLngRad=(dLng-oLng)*Math.PI/180;
-      var oLatRad=oLat*Math.PI/180;
-      var dLatAbsRad=dLat*Math.PI/180;
+      var oLatRad=oLat*Math.PI/180, dLatAbsRad=dLat*Math.PI/180;
       var a=Math.sin(dLatRad/2)*Math.sin(dLatRad/2)
         + Math.cos(oLatRad)*Math.cos(dLatAbsRad)*Math.sin(dLngRad/2)*Math.sin(dLngRad/2);
       var straightLineDist=6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 
-      // Mirror backend: max(700, min(1000, straightLineDist * 0.3))
+      // Corridor buffer (mirrors backend)
       var corridorBufferM=Math.max(700, Math.min(1000, straightLineDist * 0.3));
       var minLat=Math.min(oLat,dLat), maxLat=Math.max(oLat,dLat);
       var minLng=Math.min(oLng,dLng), maxLng=Math.max(oLng,dLng);
@@ -737,65 +737,114 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       var fullWest=minLng-bufferLngDeg;
       var fullEast=maxLng+bufferLngDeg;
 
-      // Expand shorter side so the visualised search box is always square
+      // Square the bbox
       var heightM=(fullNorth-fullSouth)*metersPerDegLat;
       var widthM=(fullEast-fullWest)*metersPerDegLng;
       if(widthM<heightM){
         var extra=(heightM-widthM)/2/metersPerDegLng;
         fullWest-=extra; fullEast+=extra;
       }else if(heightM<widthM){
-        var extra=(widthM-heightM)/2/metersPerDegLat;
-        fullSouth-=extra; fullNorth+=extra;
+        var extra2=(widthM-heightM)/2/metersPerDegLat;
+        fullSouth-=extra2; fullNorth+=extra2;
       }
 
-      var step=0, maxSteps=60; // 60 frames over ~12s
+      // ── Seed pseudo-random number generator for deterministic scatter
+      var seed=Math.round(oLat*1000+oLng*1000+dLat*100+dLng*100);
+      function rng(mn,mx){ seed=(seed*1664525+1013904223)&0xffffffff; return mn+(((seed>>>0)/0xffffffff)*(mx-mn)); }
 
+      // ── Pre-generate organic jagged path helper
+      function makeJagged(aLat,aLng,bLat,bLng,steps,jLat,jLng){
+        var pts=[[aLng,aLat]];
+        for(var i=1;i<steps;i++){
+          var t=i/steps, env=Math.sin(t*Math.PI)*0.7;
+          pts.push([aLng+(bLng-aLng)*t+rng(-jLng,jLng)*env, aLat+(bLat-aLat)*t+rng(-jLat,jLat)*env]);
+        }
+        pts.push([bLng,bLat]);
+        return pts;
+      }
+
+      // 3 exploration branches that spread outward from origin
+      var sp=bufferLatDeg*0.6, spL=bufferLngDeg*0.6;
+      var branchTargets=[
+        [oLat+(dLat-oLat)*0.55+rng(sp*0.5,sp*1.0),  oLng+(dLng-oLng)*0.5+rng(-spL*1.2,-spL*0.4)],
+        [oLat+(dLat-oLat)*0.6+rng(-sp*0.9,-sp*0.3),  oLng+(dLng-oLng)*0.55+rng(spL*0.4,spL*1.1)],
+        [oLat+(dLat-oLat)*0.45+rng(sp*0.2,sp*0.7),   oLng+(dLng-oLng)*0.45+rng(-spL*0.3,spL*0.7)],
+      ];
+      var explorationPaths=branchTargets.map(function(end){
+        return makeJagged(oLat,oLng,end[0],end[1],9,bufferLatDeg*0.18,bufferLngDeg*0.18);
+      });
+
+      // Final route: organic path from O to D
+      var finalPath=makeJagged(oLat,oLng,dLat,dLng,13,bufferLatDeg*0.12,bufferLngDeg*0.12);
+
+      // Data point scatter (concentrated near the corridor)
+      var corridorS=fullSouth+bufferLatDeg*0.25, corridorN=fullNorth-bufferLatDeg*0.25;
+      var corridorW=fullWest+bufferLngDeg*0.25,  corridorE=fullEast-bufferLngDeg*0.25;
+      function scatter(n,s,nn,w,e){ var pts=[]; for(var i=0;i<n;i++) pts.push([rng(w,e),rng(s,nn)]); return pts; }
+      var crimesPts  = scatter(9,  corridorS, corridorN, corridorW, corridorE);
+      var lightsPts  = scatter(16, fullSouth, fullNorth, fullWest, fullEast);
+      var placesPts  = scatter(7,  corridorS, corridorN, corridorW, corridorE);
+
+      var step=0, maxSteps=65;
       var messages=[
-        'Finding walking corridor…','Loading road network…','Fetching safety data…',
-        'Analysing street lighting…','Checking crime reports…','Building safety graph…',
-        'Scoring road segments…','Running pathfinder…','Comparing routes…','Almost there…'
+        'Scanning walking corridor…','Mapping road network…','Fetching safety data…',
+        'Mapping street lighting…','Checking crime hotspots…','Finding open places…',
+        'Building safety graph…','Scoring road segments…','Running pathfinder…','Almost there…'
       ];
 
-      vizSetProgress(1, 'Search buffer: ' + Math.round(corridorBufferM) + 'm');
+      function toPointFC(pts){
+        return {type:'FeatureCollection',features:pts.map(function(p){
+          return {type:'Feature',properties:{},geometry:{type:'Point',coordinates:p}};
+        })};
+      }
 
-      vizAnimTimer = setInterval(function(){
+      vizSetProgress(1,'Search area: '+Math.round(corridorBufferM)+'m buffer');
+
+      vizAnimTimer=setInterval(function(){
         step++;
         var t=Math.min(step/maxSteps,1);
-        var pct=Math.round(t*95); // cap at 95% until real routes arrive
-        var msgIdx=Math.min(Math.floor(t*messages.length), messages.length-1);
-        vizSetProgress(pct, messages[msgIdx]);
-
+        vizSetProgress(Math.round(t*95), messages[Math.min(Math.floor(t*messages.length),messages.length-1)]);
         if(!styleReady) return;
 
-        // Expanding search bbox using real corridor buffer geometry
-        var growT=Math.min(t*1.6,1); // bbox reaches full size at ~60%
-        var south=oLat + (fullSouth - oLat) * growT;
-        var north=oLat + (fullNorth - oLat) * growT;
-        var west=oLng + (fullWest - oLng) * growT;
-        var east=oLng + (fullEast - oLng) * growT;
+        // 1. Expanding bbox
+        var gT=Math.min(t*1.5,1);
+        var south=oLat+(fullSouth-oLat)*gT, north=oLat+(fullNorth-oLat)*gT;
+        var west=oLng+(fullWest-oLng)*gT,   east=oLng+(fullEast-oLng)*gT;
         try{
-          map.getSource('viz-bbox').setData({type:'FeatureCollection',features:[
-            {type:'Feature',properties:{color:'#7C3AED'},
-              geometry:{type:'Polygon',coordinates:[[
-                [west,south],[east,south],[east,north],[west,north],[west,south]
-              ]]}}
-          ]});
+          map.getSource('viz-bbox').setData({type:'FeatureCollection',features:[{
+            type:'Feature',properties:{color:'#7C3AED'},
+            geometry:{type:'Polygon',coordinates:[[[west,south],[east,south],[east,north],[west,north],[west,south]]]}
+          }]});
         }catch(e){}
 
-        // Pulsing corridor line from origin toward destination
-        if(t>0.15){
-          var lineT=Math.min((t-0.15)/0.5,1);
-          var eLat=oLat+(dLat-oLat)*lineT, eLng=oLng+(dLng-oLng)*lineT;
-          try{
-            map.getSource('viz-corridor').setData({type:'FeatureCollection',features:[
-              {type:'Feature',properties:{},
-                geometry:{type:'LineString',coordinates:[[oLng,oLat],[eLng,eLat]]}}
-            ]});
-          }catch(e){}
-        }
+        // 2. Pathfinding exploration branches (staggered start, grow to frame ~40)
+        var branchFeats=[];
+        explorationPaths.forEach(function(path,pi){
+          var delay=pi*0.06;
+          var bt=Math.max(0,Math.min((t-delay)/0.42,1));
+          if(bt<=0) return;
+          var pts=path.slice(0,Math.max(2,Math.ceil(bt*path.length)));
+          branchFeats.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:pts}});
+        });
 
-        if(step>=maxSteps){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
-      }, 200);
+        // 3. Final path traces in from ~60%
+        if(t>0.58){
+          var pT=Math.min((t-0.58)/0.32,1);
+          var pts=finalPath.slice(0,Math.max(2,Math.ceil(pT*finalPath.length)));
+          branchFeats.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:pts}});
+        }
+        try{map.getSource('viz-corridor').setData({type:'FeatureCollection',features:branchFeats});}catch(e){}
+
+        // 4. Data points appear progressively across the animation
+        var cN=Math.min(Math.floor(t*2.4*crimesPts.length), crimesPts.length);
+        var lN=Math.min(Math.floor(t*1.8*lightsPts.length), lightsPts.length);
+        var pN=Math.min(Math.floor(t*2.8*placesPts.length), placesPts.length);
+        try{map.getSource('viz-crimes').setData(toPointFC(crimesPts.slice(0,cN)));}catch(e){}
+        try{map.getSource('viz-lights').setData(toPointFC(lightsPts.slice(0,lN)));}catch(e){}
+        try{map.getSource('viz-places').setData(toPointFC(placesPts.slice(0,pN)));}catch(e){}
+
+        if(step>=maxSteps){clearInterval(vizAnimTimer);vizAnimTimer=null;}
+      },200);
     };
   <\/script>
 </body>

@@ -12,6 +12,8 @@ interface RouteListProps {
   onSelectRoute: (id: string) => void;
   /** When true, skip the side-by-side web layout (used inside WebSidebar) */
   inSidebar?: boolean;
+  /** Node rendered inside the selected card's collapsible safety section */
+  detailsPanel?: React.ReactNode;
 }
 
 export function RouteList({
@@ -19,6 +21,7 @@ export function RouteList({
   selectedRouteId,
   onSelectRoute,
   inSidebar,
+  detailsPanel,
 }: RouteListProps) {
   return (
     <View style={[styles.column, Platform.OS === 'web' && !inSidebar && styles.columnWeb]}>
@@ -29,6 +32,7 @@ export function RouteList({
           index={index}
           isSelected={route.id === selectedRouteId}
           onSelect={() => onSelectRoute(route.id)}
+          detailsPanel={route.id === selectedRouteId ? detailsPanel : undefined}
         />
       ))}
     </View>

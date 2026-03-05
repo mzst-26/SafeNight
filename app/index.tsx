@@ -1065,22 +1065,36 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Route cards + safety panel side-by-side on web */}
-          <View style={[styles.routeSafetyRow, Platform.OS === 'web' && styles.routeSafetyRowWeb]}>
-            <RouteList
-              routes={h.safeRoutes}
-              selectedRouteId={h.selectedRouteId}
-              onSelectRoute={h.setSelectedRouteId}
-            />
-
-            {showSafety && h.safetyResult && h.selectedSafeRoute && (
-              <SafetyPanel
-                safetyResult={h.safetyResult}
-                selectedSafeRoute={h.selectedSafeRoute}
-                onCategoryPress={handleCategoryPress}
-              />
-            )}
-          </View>
+          {/* Route cards — safety details hidden behind per-card toggle */}
+          <RouteList
+            routes={h.safeRoutes}
+            selectedRouteId={h.selectedRouteId}
+            onSelectRoute={h.setSelectedRouteId}
+            detailsPanel={
+              showSafety && h.safetyResult && h.selectedSafeRoute ? (
+                <>
+                  <SafetyPanel
+                    safetyResult={h.safetyResult}
+                    selectedSafeRoute={h.selectedSafeRoute}
+                    onCategoryPress={handleCategoryPress}
+                    inSidebar
+                  />
+                  {Object.keys(h.selectedSafeRoute.safety.roadTypes).length > 0 && (
+                    <RoadTypeBreakdown roadTypes={h.selectedSafeRoute.safety.roadTypes} />
+                  )}
+                  {h.selectedSafeRoute.enrichedSegments &&
+                    h.selectedSafeRoute.enrichedSegments.length > 1 && (
+                      <SafetyProfileChart
+                        segments={h.routeSegments}
+                        enrichedSegments={h.selectedSafeRoute.enrichedSegments}
+                        roadNameChanges={h.selectedSafeRoute.routeStats?.roadNameChanges ?? []}
+                        totalDistance={h.selectedSafeRoute.distanceMeters}
+                      />
+                    )}
+                </>
+              ) : undefined
+            }
+          />
 
           {/* Start navigation — full width */}
           {h.selectedRouteId && h.nav.state === 'idle' && (
@@ -1094,25 +1108,6 @@ export default function HomeScreen() {
               <Text style={styles.startNavButtonText}>Start Navigation</Text>
             </Pressable>
           )}
-
-          {/* Road type breakdown — full width */}
-          {showSafety &&
-            h.selectedSafeRoute &&
-            Object.keys(h.selectedSafeRoute.safety.roadTypes).length > 0 && (
-              <RoadTypeBreakdown roadTypes={h.selectedSafeRoute.safety.roadTypes} />
-            )}
-
-          {/* Safety profile chart */}
-          {showSafety &&
-            h.selectedSafeRoute?.enrichedSegments &&
-            h.selectedSafeRoute.enrichedSegments.length > 1 && (
-              <SafetyProfileChart
-                segments={h.routeSegments}
-                enrichedSegments={h.selectedSafeRoute.enrichedSegments}
-                roadNameChanges={h.selectedSafeRoute.routeStats?.roadNameChanges ?? []}
-                totalDistance={h.selectedSafeRoute.distanceMeters}
-              />
-            )}
         </DraggableSheet>
         )}
 
