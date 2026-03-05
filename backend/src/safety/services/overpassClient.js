@@ -215,6 +215,38 @@ const WALKABLE_HIGHWAYS = new Set([
   'path', 'steps', 'service', 'track',
 ]);
 
+/**
+ * ── ROAD-ONLY QUERY ─────────────────────────────────────────────────────────
+ * Lightweight Overpass query that fetches ONLY the walkable road network
+ * (ways + their nodes). Used for Phase 1 corridor discovery — much faster
+ * than the combined safety query because it skips lights, CCTV, places, transit.
+ */
+async function fetchRoadNetworkOnly(bbox) {
+  const key = `roads-only:${dataCacheKey(bbox)}`;
+  const cached = dataCache.get(key);
+  if (cached && Date.now() - cached.timestamp < DATA_CACHE_TTL) {
+    console.log('[overpass] 📋 Road-only cache hit');
+    return cached.data;
+  }
+
+  const { south, west, north, east } = bbox;
+  const b = `${south},${west},${north},${east}`;
+  const query = `
+    way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|living_street|pedestrian|footway|cycleway|path|steps|service|track)$"](${b});
+    (._;>;);
+    out body qt;
+  `;
+
+  console.log('[overpass] 🌐 Fetching road network only (Phase 1)...');
+  const t0 = Date.now();
+  const raw = await overpassQuery(query, 30);
+  console.log(`[overpass] ✅ Road-only: ${raw.elements.length} elements in ${Date.now() - t0}ms`);
+
+  const data = { elements: raw.elements };
+  dataCache.set(key, { data, timestamp: Date.now() });
+  return data;
+}
+
 // Legacy individual fetchers (kept for backwards compat)
 async function fetchRoadNetwork(bbox) {
   return (await fetchAllSafetyData(bbox)).roads;
@@ -232,6 +264,7 @@ async function fetchTransitStops(bbox) {
 module.exports = {
   overpassQuery,
   fetchAllSafetyData,
+  fetchRoadNetworkOnly,
   fetchRoadNetwork,
   fetchLighting,
   fetchOpenPlaces,

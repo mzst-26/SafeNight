@@ -723,8 +723,133 @@ class MinHeap {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// DISTANCE-ONLY GRAPH & A* (Phase 1 corridor discovery)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build a lightweight distance-only graph from road data.
+ * No coverage maps, no safety scoring — just the walking network topology.
+ * Used in Phase 1 to discover the shortest walking corridor quickly.
+ */
+function buildDistanceOnlyGraph(roadData) {
+  const osmNodes = new Map();
+  for (const el of roadData.elements) {
+    if (el.type === 'node') {
+      osmNodes.set(el.id, { lat: el.lat, lng: el.lon, id: el.id });
+    }
+  }
+
+  const nodeArray = [];
+  for (const [id, node] of osmNodes) {
+    nodeArray.push({ lat: node.lat, lng: node.lng, id });
+  }
+  const nodeGrid = buildSpatialGrid(nodeArray, 'lat', 'lng', 0.001);
+
+  const edges = [];
+  const adjacency = new Map();
+
+  for (const el of roadData.elements) {
+    if (el.type !== 'way' || !el.nodes || !el.tags?.highway) continue;
+    if (!WALKABLE_HIGHWAYS.has(el.tags.highway)) continue;
+
+    const nodeIds = el.nodes;
+    for (let i = 0; i < nodeIds.length - 1; i++) {
+      const nA = osmNodes.get(nodeIds[i]);
+      const nB = osmNodes.get(nodeIds[i + 1]);
+      if (!nA || !nB) continue;
+      const dist = fastDistance(nA.lat, nA.lng, nB.lat, nB.lng);
+      if (dist < 0.5) continue;
+
+      const edgeIdx = edges.length;
+      edges.push({ from: nodeIds[i], to: nodeIds[i + 1], distance: dist });
+
+      if (!adjacency.has(nodeIds[i])) adjacency.set(nodeIds[i], []);
+      if (!adjacency.has(nodeIds[i + 1])) adjacency.set(nodeIds[i + 1], []);
+      adjacency.get(nodeIds[i]).push({ edgeIdx, neighborId: nodeIds[i + 1] });
+      adjacency.get(nodeIds[i + 1]).push({ edgeIdx, neighborId: nodeIds[i] });
+    }
+  }
+
+  return { osmNodes, edges, adjacency, nodeGrid };
+}
+
+/**
+ * Distance-only A* — finds the shortest walking path by distance.
+ * No safety scoring — purely minimises total metres walked.
+ * Used in Phase 1 to trace the walking corridor shape.
+ */
+function aStarDistance(osmNodes, edges, adjacency, startId, endId, maxDistM) {
+  if (!adjacency.has(startId) || !adjacency.has(endId)) return null;
+
+  const endNode = osmNodes.get(endId);
+  const sNode = osmNodes.get(startId);
+  if (!endNode || !sNode) return null;
+
+  const gScore = new Map();
+  const prev = new Map();
+  const closed = new Set();
+
+  gScore.set(startId, 0);
+  const h0 = fastDistance(sNode.lat, sNode.lng, endNode.lat, endNode.lng);
+  const heap = new MinHeap();
+  heap.push(startId, h0);
+
+  while (heap.size > 0) {
+    const { id: current } = heap.pop();
+    if (closed.has(current)) continue;
+    closed.add(current);
+    if (current === endId) break;
+
+    const currentG = gScore.get(current) ?? Infinity;
+    const neighbors = adjacency.get(current);
+    if (!neighbors) continue;
+
+    for (const { edgeIdx, neighborId } of neighbors) {
+      if (closed.has(neighborId)) continue;
+
+      const edge = edges[edgeIdx];
+      const tentativeG = currentG + edge.distance;
+      if (tentativeG > maxDistM) continue;
+
+      if (tentativeG < (gScore.get(neighborId) ?? Infinity)) {
+        gScore.set(neighborId, tentativeG);
+        prev.set(neighborId, { prevNode: current });
+        const nNode = osmNodes.get(neighborId);
+        const h = nNode ? fastDistance(nNode.lat, nNode.lng, endNode.lat, endNode.lng) : 0;
+        heap.push(neighborId, tentativeG + h);
+      }
+    }
+  }
+
+  if (!prev.has(endId) && startId !== endId) return null;
+
+  // Reconstruct path
+  const path = [];
+  let node = endId;
+  while (node !== startId) {
+    path.push(node);
+    const p = prev.get(node);
+    if (!p) return null;
+    node = p.prevNode;
+  }
+  path.push(startId);
+  path.reverse();
+
+  let totalDist = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = osmNodes.get(path[i]);
+    const b = osmNodes.get(path[i + 1]);
+    if (a && b) totalDist += fastDistance(a.lat, a.lng, b.lat, b.lng);
+  }
+
+  return { path, totalDist };
+}
+
 module.exports = {
   buildGraph,
+  buildDistanceOnlyGraph,
+  aStarDistance,
   findNearestNode,
   aStarSafety,
   findKSafestRoutes,
