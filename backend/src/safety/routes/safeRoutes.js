@@ -30,6 +30,23 @@ const { fetchAllSafetyData, fetchRoadNetworkOnly } = require('../services/overpa
 const { fetchCrimesInBbox } = require('../services/crimeClient');
 
 /**
+ * Strip PH (Public Holiday) rules from an opening_hours string.
+ * The opening_hours library lacks GB state holiday definitions and throws
+ * noisy errors for every PH reference, which slows down batch processing.
+ */
+function stripPH(str) {
+  if (!str) return str;
+  // Remove standalone "PH off" / "PH 08:00-20:00" clauses separated by ";"
+  return str
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => !/^\s*PH\b/.test(s))
+    .map(s => s.replace(/,\s*PH\b/g, ''))   // "Mo-Su,PH 07:00-23:00" → "Mo-Su 07:00-23:00"
+    .filter(Boolean)
+    .join('; ') || null;
+}
+
+/**
  * Check if a place is open right now using the opening_hours npm library.
  * Returns { open: boolean, nextChange: string|null }.
  *   - nextChange is a human-readable string like "closes at 22:00" or "opens at 08:00"
@@ -37,7 +54,9 @@ const { fetchCrimesInBbox } = require('../services/crimeClient');
 function checkOpenNow(hoursString) {
   if (!hoursString) return { open: null, nextChange: null };  // unknown
   try {
-    const oh = new opening_hours(hoursString, { address: { country_code: 'gb' } });
+    const cleaned = stripPH(hoursString);
+    if (!cleaned) return { open: null, nextChange: null };
+    const oh = new opening_hours(cleaned, { address: { country_code: 'gb' } });
     const now = new Date();
     const isOpen = oh.getState(now);
     let nextChange = null;
@@ -313,12 +332,12 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   // The bounding box now follows the shape of the actual walking route,
   // so curved/detoured paths get proper safety data coverage.
   // ═══════════════════════════════════════════════════════════════════════
-  // const corridorBufferM = straightLineDist < 2000 ? 1000
-  //   : straightLineDist < 4000 ? 900
-  //   : straightLineDist < 10000 ? 800
-  //   : 700;
+  const corridorBufferM = straightLineDist < 2000 ? 1000
+    : straightLineDist < 4000 ? 900
+    : straightLineDist < 10000 ? 800
+    : 700;
 
-  const corridorBufferM = 2000
+  // const corridorBufferM = 1000
 
   let corridorPoints;
   if (shortestPath) {
@@ -419,10 +438,20 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   }
 
   // ── 9b. Recorrection pass — rerun once around found routes ─────────
-  console.log('[safe-routes] ♻️ Recorrection: second-pass corridor refinement...');
-  const tRefine = Date.now();
-  let recorrectionMs = 0;
+  // Time-budget: skip recorrection if the pipeline already spent too long,
+  // so we don't risk the Render/client request timing out.
+  const elapsedSoFar = Date.now() - startTime;
+  const RECORRECTION_TIME_BUDGET_MS = 40_000; // skip if >40s already elapsed
 
+  let recorrectionMs = 0;
+  if (elapsedSoFar > RECORRECTION_TIME_BUDGET_MS) {
+    console.log(`[safe-routes] ⏩ Skipping recorrection (${elapsedSoFar}ms elapsed, budget ${RECORRECTION_TIME_BUDGET_MS}ms)`);
+  } else {
+    console.log('[safe-routes] ♻️ Recorrection: second-pass corridor refinement...');
+  }
+  const tRefine = Date.now();
+
+  if (elapsedSoFar <= RECORRECTION_TIME_BUDGET_MS) {
   try {
     const refinePoints = [
       { lat: oLatV, lng: oLngV },
@@ -516,6 +545,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   } finally {
     recorrectionMs = Date.now() - tRefine;
   }
+  } // end time-budget if
 
   const lightNodes = [];
   for (const el of allData.lights.elements) {

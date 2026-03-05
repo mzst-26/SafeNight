@@ -252,11 +252,18 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
       if (lat && lng) {
         const hoursRaw = el.tags?.opening_hours || '';
         let isOpen = null;
-        // 1) Try parsing OSM opening_hours
+        // 1) Try parsing OSM opening_hours (strip PH rules — GB state holidays undefined)
         if (hoursRaw) {
           try {
-            const oh = new opening_hours_lib(hoursRaw, { address: { country_code: 'gb' } });
-            isOpen = oh.getState(new Date());
+            const cleaned = hoursRaw
+              .split(';').map(s => s.trim())
+              .filter(s => !/^\s*PH\b/.test(s))
+              .map(s => s.replace(/,\s*PH\b/g, ''))
+              .filter(Boolean).join('; ');
+            if (cleaned) {
+              const oh = new opening_hours_lib(cleaned, { address: { country_code: 'gb' } });
+              isOpen = oh.getState(new Date());
+            }
           } catch { isOpen = null; }
         }
         // 2) Fall back to time-of-day heuristic

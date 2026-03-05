@@ -498,7 +498,7 @@ export async function fetchSafeRoutes(
   console.log(`[safeRoutes] 🔍 Fetching safe routes from ${BACKEND_BASE}...`);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000); // 60s timeout
+  const timer = setTimeout(() => controller.abort(), 120_000); // 120s timeout (cold-start + two-phase pipeline)
 
   try {
     const resp = await fetch(url, { signal: controller.signal });
