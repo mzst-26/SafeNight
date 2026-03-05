@@ -2,8 +2,8 @@
  * NavigationOverlay — Turn-by-turn UI during active navigation.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { NavigationInfo } from '@/src/hooks/useNavigation';
 import { formatDuration, formatNavDistance, maneuverIcon, stripHtml } from '@/src/utils/format';
@@ -19,11 +19,54 @@ interface NavigationOverlayProps {
   topInset: number;
   bottomInset: number;
   liveSharingNotice?: string | null;
+  showRecenter?: boolean;
+  onRecenter?: () => void;
 }
 
-export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotice }: NavigationOverlayProps) {
+export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotice, showRecenter = false, onRecenter }: NavigationOverlayProps) {
   const { isInPipMode } = _useIsInPip();
   const isActive = nav.state === 'navigating' || nav.state === 'off-route';
+  const [clockTickMs, setClockTickMs] = useState(Date.now());
+  const stopCompactAnimRef = useRef(new Animated.Value(showRecenter ? 1 : 0));
+  const stopCompactAnim = stopCompactAnimRef.current;
+
+  useEffect(() => {
+    Animated.timing(stopCompactAnim, {
+      toValue: showRecenter ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [showRecenter, stopCompactAnim]);
+
+  const stopButtonWidth = stopCompactAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [112, 44],
+  });
+  const stopTextOpacity = stopCompactAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const stopTextTranslateX = stopCompactAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 10],
+  });
+  const stopTextContainerWidth = stopCompactAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [36, 0],
+  });
+  const stopTextContainerMarginLeft = stopCompactAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [6, 0],
+  });
+
+  useEffect(() => {
+    if (!isActive) return;
+    const timer = setInterval(() => {
+      setClockTickMs(Date.now());
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [isActive]);
 
   // Measured PiP window width — gate updates to >= 6px changes to avoid
   // a re-render storm during Android's PiP window resize animation.
@@ -102,7 +145,7 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
             <Text style={[styles.pipEtaText, { fontSize: etaFont }]} numberOfLines={1}>
               {formatNavDistance(nav.remainingDistance)}
               {'  ·  ETA '}
-              {new Date(Date.now() + nav.remainingDuration * 1000)
+              {new Date(clockTickMs + nav.remainingDuration * 1000)
                 .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
           )}
@@ -150,7 +193,7 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
               <Text style={styles.eta}>
                 ETA{' '}
                 <Text style={styles.arrivalTime}>
-                  {new Date(Date.now() + nav.remainingDuration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(clockTickMs + nav.remainingDuration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
                 {' · '}{formatDuration(nav.remainingDuration)} walking
               </Text>
@@ -164,10 +207,40 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
                 </View>
               ) : null}
             </View>
-            <Pressable style={styles.stopButton} onPress={nav.stop}>
-              <Ionicons name="stop-circle" size={20} color="#ffffff" />
-              <Text style={styles.stopText}>Stop</Text>
-            </Pressable>
+            <View style={styles.actionsRow}>
+              {showRecenter && onRecenter ? (
+                <Pressable style={styles.recenterButton} onPress={onRecenter}>
+                  <Ionicons name="locate" size={16} color="#ffffff" />
+                  <Text style={styles.recenterText}>Recenter</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={nav.stop}>
+                <Animated.View style={[styles.stopButton, { width: stopButtonWidth }]}> 
+                  <Ionicons name="stop-circle" size={20} color="#ffffff" />
+                  <Animated.View
+                    style={[
+                      styles.stopTextWrap,
+                      {
+                        width: stopTextContainerWidth,
+                        marginLeft: stopTextContainerMarginLeft,
+                      },
+                    ]}
+                  >
+                    <Animated.Text
+                      style={[
+                        styles.stopText,
+                        {
+                          opacity: stopTextOpacity,
+                          transform: [{ translateX: stopTextTranslateX }],
+                        },
+                      ]}
+                    >
+                      Stop
+                    </Animated.Text>
+                  </Animated.View>
+                </Animated.View>
+              </Pressable>
+            </View>
           </View>
         </View>
       )}
@@ -349,19 +422,43 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#B54708',
   },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recenterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#1570EF',
+  },
+  recenterText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
   stopButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
+    justifyContent: 'center',
+    height: 40,
     borderRadius: 12,
     backgroundColor: '#ef4444',
+    overflow: 'hidden',
   },
   stopText: {
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 14,
+  },
+  stopTextWrap: {
+    overflow: 'hidden',
+    alignItems: 'flex-start',
   },
   arrivedBanner: {
     position: 'absolute',

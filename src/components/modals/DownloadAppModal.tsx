@@ -28,7 +28,7 @@ const downloadAndPromptInstall = async (
     const contentLength = response.headers.get('content-length');
     const total = contentLength ? parseInt(contentLength, 10) : 0;
     const reader = response.body?.getReader();
-    const chunks: Uint8Array[] = [];
+    const chunks: BlobPart[] = [];
     let received = 0;
 
     if (reader) {

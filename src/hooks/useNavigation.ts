@@ -67,10 +67,102 @@ const bearing = (a: LatLng, b: LatLng): number => {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 };
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+type ProjectedPoint = {
+  closest: LatLng;
+  distanceMeters: number;
+  segmentIndex: number;
+  segmentT: number;
+};
+
+type RouteMetrics = {
+  cumulativePathMeters: number[];
+  totalPathMeters: number;
+  stepEndPathMeters: number[];
+};
+
+const projectPointToSegment = (p: LatLng, a: LatLng, b: LatLng): ProjectedPoint => {
+  const ax = a.longitude;
+  const ay = a.latitude;
+  const bx = b.longitude;
+  const by = b.latitude;
+  const px = p.longitude;
+  const py = p.latitude;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSq = dx * dx + dy * dy;
+
+  if (lengthSq <= 1e-15) {
+    return {
+      closest: a,
+      distanceMeters: haversine(p, a),
+      segmentIndex: 0,
+      segmentT: 0,
+    };
+  }
+
+  const t = clamp01(((px - ax) * dx + (py - ay) * dy) / lengthSq);
+  const closest = {
+    latitude: ay + dy * t,
+    longitude: ax + dx * t,
+  };
+
+  return {
+    closest,
+    distanceMeters: haversine(p, closest),
+    segmentIndex: 0,
+    segmentT: t,
+  };
+};
+
+const buildCumulativePathMeters = (path: LatLng[]): number[] => {
+  const cumulative = new Array(path.length).fill(0);
+  for (let i = 1; i < path.length; i++) {
+    cumulative[i] = cumulative[i - 1] + haversine(path[i - 1], path[i]);
+  }
+  return cumulative;
+};
+
+const findNearestPathProjection = (path: LatLng[], point: LatLng): ProjectedPoint | null => {
+  if (path.length === 0) return null;
+  if (path.length === 1) {
+    return {
+      closest: path[0],
+      distanceMeters: haversine(point, path[0]),
+      segmentIndex: 0,
+      segmentT: 0,
+    };
+  }
+
+  let best: ProjectedPoint | null = null;
+  for (let i = 0; i < path.length - 1; i++) {
+    const projected = projectPointToSegment(point, path[i], path[i + 1]);
+    const candidate: ProjectedPoint = {
+      ...projected,
+      segmentIndex: i,
+    };
+    if (!best || candidate.distanceMeters < best.distanceMeters) {
+      best = candidate;
+      if (candidate.distanceMeters < 5) break;
+    }
+  }
+
+  return best;
+};
+
+const projectedPathMeters = (projection: ProjectedPoint, cumulativePathMeters: number[]) => {
+  const segmentStartMeters = cumulativePathMeters[projection.segmentIndex] ?? 0;
+  const segmentEndMeters = cumulativePathMeters[projection.segmentIndex + 1] ?? segmentStartMeters;
+  return segmentStartMeters + (segmentEndMeters - segmentStartMeters) * projection.segmentT;
+};
+
 // Thresholds
-const STEP_ARRIVAL_M = 25;   // consider a step reached when within 25 m
 const ROUTE_ARRIVAL_M = 40;  // consider arrived at destination within 40 m
 const OFF_ROUTE_M = 100;     // user is off-route if > 100 m from nearest path point
+const STEP_PROGRESS_HYSTERESIS_M = 15;
+const FALLBACK_LOCATION_POLL_MS = 2000;
+const STATIONARY_REFRESH_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -84,6 +176,7 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
   const [distanceToNextTurn, setDistanceToNextTurn] = useState(0);
   const [remainingDistance, setRemainingDistance] = useState(0);
   const [remainingDuration, setRemainingDuration] = useState(0);
+  const [stationaryRefreshTick, setStationaryRefreshTick] = useState(0);
 
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   /** Separate subscription for compass/magnetometer heading (fires instantly) */
@@ -102,6 +195,9 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
    */
   const lastEmittedHeadingRef = useRef<number | null>(null);
   const syntheticStepsRef = useRef<NavigationStep[] | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const routeMetricsRef = useRef<RouteMetrics | null>(null);
+  const lastKnownPathMetersRef = useRef(0);
   const routeRef = useRef(route);
   routeRef.current = route;
 
@@ -117,6 +213,10 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     try { headingWatchRef.current?.remove(); } catch { /* noop */ }
     watchRef.current = null;
     headingWatchRef.current = null;
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
     hasCompassRef.current = false;
 
     // Ensure we have location permission (critical on web)
@@ -191,7 +291,7 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
       const sub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 500,
+          timeInterval: 1000,
           distanceInterval: 1,
         },
         (loc) => {
@@ -207,6 +307,27 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
         },
       );
       watchRef.current = sub;
+
+      // Fallback polling keeps progress/ETA moving if platform watcher stalls.
+      pollTimerRef.current = setInterval(() => {
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+          .then((loc) => {
+            const pos: LatLng = {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            };
+            setUserLocation((prev) => {
+              if (!prev || haversine(prev, pos) >= 1.5) return pos;
+              return prev;
+            });
+            if (!hasCompassRef.current && loc.coords.heading != null && loc.coords.heading >= 0) {
+              setUserHeading(loc.coords.heading);
+            }
+          })
+          .catch(() => {
+            // ignore transient polling failures
+          });
+      }, FALLBACK_LOCATION_POLL_MS);
     } catch (watchErr) {
       console.warn('[useNavigation] watchPositionAsync failed:', watchErr);
       setState('idle');
@@ -218,6 +339,10 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     try { headingWatchRef.current?.remove(); } catch { /* expo-location web compat */ }
     watchRef.current = null;
     headingWatchRef.current = null;
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
     hasCompassRef.current = false;
     smoothedHeadingRef.current = null;
     lastEmittedHeadingRef.current = null;
@@ -249,6 +374,30 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     } else {
       syntheticStepsRef.current = null;
     }
+
+    const navSteps = syntheticStepsRef.current ?? route.steps ?? [];
+    const cumulativePathMeters = buildCumulativePathMeters(route.path);
+    const totalPathMeters = cumulativePathMeters[cumulativePathMeters.length - 1] ?? route.distanceMeters;
+    const stepEndPathMeters: number[] = [];
+
+    for (let i = 0; i < navSteps.length; i++) {
+      const projection = findNearestPathProjection(route.path, navSteps[i].endLocation);
+      if (!projection) {
+        stepEndPathMeters.push(totalPathMeters);
+        continue;
+      }
+      const stepEndMeters = projectedPathMeters(projection, cumulativePathMeters);
+      const prevMeters = stepEndPathMeters[stepEndPathMeters.length - 1] ?? 0;
+      stepEndPathMeters.push(Math.max(prevMeters, stepEndMeters));
+    }
+
+    routeMetricsRef.current = {
+      cumulativePathMeters,
+      totalPathMeters,
+      stepEndPathMeters,
+    };
+    lastKnownPathMetersRef.current = 0;
+
     setCurrentStepIndex(0);
     setRemainingDistance(route.distanceMeters);
     setRemainingDuration(route.durationSeconds);
@@ -263,6 +412,8 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     setRemainingDistance(0);
     setRemainingDuration(0);
     syntheticStepsRef.current = null;
+    routeMetricsRef.current = null;
+    lastKnownPathMetersRef.current = 0;
     stopWatching();
   }, [stopWatching]);
 
@@ -273,52 +424,52 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     const r = routeRef.current;
     const s = syntheticStepsRef.current ?? r.steps ?? [];
     if (s.length === 0) return;
+    const metrics = routeMetricsRef.current;
+    if (!metrics || r.path.length === 0) return;
+
+    const projection = findNearestPathProjection(r.path, userLocation);
+    if (!projection) return;
+
+    const rawPathMeters = projectedPathMeters(projection, metrics.cumulativePathMeters);
+    const userPathMeters = Math.max(lastKnownPathMetersRef.current, rawPathMeters);
+    lastKnownPathMetersRef.current = userPathMeters;
+
+    const remainingPathMeters = Math.max(0, metrics.totalPathMeters - userPathMeters);
 
     // Check if we've arrived at destination
     const dest = r.path[r.path.length - 1];
-    if (dest && haversine(userLocation, dest) < ROUTE_ARRIVAL_M) {
+    if (dest && (haversine(userLocation, dest) < ROUTE_ARRIVAL_M || remainingPathMeters < ROUTE_ARRIVAL_M)) {
       setState('arrived');
       stopWatching();
       return;
     }
 
-    // Find nearest path point to detect off-route
-    let minPathDist = Infinity;
-    for (let i = 0; i < r.path.length; i += 3) { // sample every 3rd for speed
-      const d = haversine(userLocation, r.path[i]);
-      if (d < minPathDist) minPathDist = d;
-      if (d < 20) break; // close enough
-    }
-    if (minPathDist > OFF_ROUTE_M) {
+    if (projection.distanceMeters > OFF_ROUTE_M) {
       setState('off-route');
       // Don't stop — keep tracking so they can get back on route
     } else if (state === 'off-route') {
       setState('navigating');
     }
 
-    // Find the current step: advance if we're close to the end of current step
-    let idx = currentStepIndex;
-    while (idx < s.length - 1) {
-      const dist = haversine(userLocation, s[idx].endLocation);
-      if (dist < STEP_ARRIVAL_M) {
-        idx++;
-      } else {
+    // Pick current step from route progress (prevents stale instructions).
+    let computedIndex = s.length - 1;
+    for (let i = 0; i < metrics.stepEndPathMeters.length; i++) {
+      if (userPathMeters < metrics.stepEndPathMeters[i] - STEP_PROGRESS_HYSTERESIS_M) {
+        computedIndex = i;
         break;
       }
     }
-    if (idx !== currentStepIndex) {
+    const idx = Math.max(currentStepIndex, computedIndex);
+    if (idx !== currentStepIndex && idx >= 0 && idx < s.length) {
       setCurrentStepIndex(idx);
     }
 
-    // Distance to the end of current step (next turn / action)
-    const dToTurn = haversine(userLocation, s[idx].endLocation);
+    const stepEndMeters = metrics.stepEndPathMeters[idx] ?? metrics.totalPathMeters;
+    const dToTurn = Math.max(0, stepEndMeters - userPathMeters);
     setDistanceToNextTurn(Math.round(dToTurn));
 
-    // Remaining distance = distance to next turn + all subsequent steps
-    let remDist = dToTurn;
-    for (let i = idx + 1; i < s.length; i++) {
-      remDist += s[i].distanceMeters;
-    }
+    // Remaining route distance from current projected position to destination.
+    const remDist = remainingPathMeters;
     setRemainingDistance(Math.round(remDist));
 
     // Walking ETA: compute from distance at average walking speed (1.4 m/s ≈ 5 km/h)
@@ -326,10 +477,18 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     setRemainingDuration(Math.round(remDist / WALKING_SPEED));
 
     // Update heading toward next step end
-    if (!userHeading) {
+    if (!userHeading && s[idx]) {
       setUserHeading(bearing(userLocation, s[idx].endLocation));
     }
-  }, [userLocation, state, currentStepIndex, stopWatching]);
+  }, [userLocation, state, currentStepIndex, stationaryRefreshTick, stopWatching]);
+
+  useEffect(() => {
+    if (state !== 'navigating' && state !== 'off-route') return;
+    const timer = setInterval(() => {
+      setStationaryRefreshTick((prev) => prev + 1);
+    }, STATIONARY_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [state]);
 
   // Cleanup on unmount
   useEffect(() => () => stopWatching(), [stopWatching]);

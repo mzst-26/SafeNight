@@ -13,6 +13,7 @@ const router = express.Router();
 // ─── 1-hour explanation cache ────────────────────────────────────────────────
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 const explanationCache = new Map(); // key → { explanation, timestamp }
+const inFlightExplanations = new Map(); // key → Promise<string>
 
 /** Evict expired entries (runs on each request, lightweight) */
 const evictExpired = () => {
@@ -47,6 +48,7 @@ const fmtTime = (s) => `${Math.max(1, Math.round(s / 60))}min`;
  * Returns: { explanation: string, cached: boolean }
  */
 router.post('/explain-route', async (req, res) => {
+  const requestStartedAt = Date.now();
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -72,8 +74,15 @@ router.post('/explain-route', async (req, res) => {
     const cacheKey = buildCacheKey(routes, bestRouteId);
     const cached = explanationCache.get(cacheKey);
     if (cached) {
-      console.log('[OpenAI] ✅ Cache hit — skipping API call');
+      console.log(`[OpenAI] ✅ Cache hit — skipping API call (${Date.now() - requestStartedAt}ms total)`);
       return res.json({ explanation: cached.explanation, cached: true });
+    }
+
+    const inFlight = inFlightExplanations.get(cacheKey);
+    if (inFlight) {
+      console.log('[OpenAI] ♻️ Reusing in-flight explanation request');
+      const explanation = await inFlight;
+      return res.json({ explanation, cached: false });
     }
 
     // ── Build compact prompt (~500-800 tokens) ──
@@ -119,50 +128,63 @@ Write 2-3 concise sentences in clear, plain English with a professional tone:
 Keep it under 100 words. No bullet points, no generic safety tips.
 End with: "Note: scores are estimates based on open data and may not reflect real-time conditions. Always stay aware of your surroundings."`;
 
+    const startedOpenAIAt = Date.now();
     console.log(`[OpenAI] 🌐 API call → gpt-4o-mini (prompt ~${prompt.length} chars)`);
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 200,
-        temperature: 0.3,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error(
-        '[OpenAI] ❌ Error:',
-        errorData?.error?.message || 'Unknown error'
-      );
-      return res.status(response.status).json({
-        error: errorData?.error?.message || 'OpenAI API call failed',
+    const requestPromise = (async () => {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 200,
+          temperature: 0.3,
+        }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const message = errorData?.error?.message || 'OpenAI API call failed';
+        const err = new Error(message);
+        err.statusCode = response.status;
+        throw err;
+      }
+
+      const data = await response.json();
+      const explanation =
+        data?.choices?.[0]?.message?.content?.trim() ||
+        'Unable to generate explanation';
+
+      explanationCache.set(cacheKey, {
+        explanation,
+        timestamp: Date.now(),
+      });
+
+      return explanation;
+    })();
+
+    inFlightExplanations.set(cacheKey, requestPromise);
+
+    let explanation;
+    try {
+      explanation = await requestPromise;
+    } finally {
+      const active = inFlightExplanations.get(cacheKey);
+      if (active === requestPromise) inFlightExplanations.delete(cacheKey);
     }
 
-    const data = await response.json();
-    const explanation =
-      data?.choices?.[0]?.message?.content?.trim() ||
-      'Unable to generate explanation';
-
-    // Cache for 1 hour
-    explanationCache.set(cacheKey, {
-      explanation,
-      timestamp: Date.now(),
-    });
-
-    console.log(`[OpenAI] ✅ Success (${explanation.length} chars), cached for 1hr`);
+    console.log(
+      `[OpenAI] ✅ Success (${explanation.length} chars), OpenAI ${Date.now() - startedOpenAIAt}ms, total ${Date.now() - requestStartedAt}ms`
+    );
 
     res.json({ explanation, cached: false });
   } catch (error) {
-    console.error('[Explain Route] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error(`[Explain Route] Error after ${Date.now() - requestStartedAt}ms:`, error.message);
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 

@@ -75,6 +75,7 @@ html,body{width:100%;height:100%;overflow:hidden}
 var isPipMode = false;
 var map,tileLayer,markers=[],polylines=[],navMarker=null,longPressTimer=null,longPressLatLng=null;
 var isNavMode=false,currentRotation=0,userInteracted=false,lastNavLL=null;
+var isFollowingNav=true;
 var rangeCircle=null;
 
 function clearArr(a){for(var i=0;i<a.length;i++)map.removeLayer(a[i]);a.length=0;}
@@ -84,6 +85,12 @@ function sendMsg(t,d){
     window.parent.postMessage(JSON.stringify(m),'*');
     window.dispatchEvent(new CustomEvent('leaflet-msg',{detail:m}));
   }catch(e){}
+}
+
+function setFollowMode(next){
+  if(isFollowingNav===next) return;
+  isFollowingNav=next;
+  sendMsg('navFollowChanged',{isFollowing:next});
 }
 
 map=L.map('map',{center:[50.3755,-4.1427],zoom:13,zoomControl:false,attributionControl:false});
@@ -99,12 +106,21 @@ map.on('mouseup',function(){if(longPressTimer){clearTimeout(longPressTimer);long
 map.on('click',function(e){if(Date.now()-(touchStart||0)<500)sendMsg('press',{lat:e.latlng.lat,lng:e.latlng.lng});});
 sendMsg('ready',{});
 
-map.on('dragstart',function(){if(isNavMode)userInteracted=true;});
+map.on('dragstart',function(){if(isNavMode){userInteracted=true;setFollowMode(false);}});
 
 // PiP setter — called from host to hide controls immediately
 window.setPipMode = function(pip){
   isPipMode = !!pip;
   var ctrl = document.querySelector('.map-ctrl'); if(ctrl) ctrl.style.display = isPipMode ? 'none' : 'flex';
+};
+
+window.recenterNavigation = function(){
+  userInteracted=false;
+  setFollowMode(true);
+  if(isNavMode&&lastNavLL){
+    map.panTo(lastNavLL);
+    if(map.getZoom()<17) map.setZoom(17);
+  }
 };
 
 function setNavView(heading,entering){
@@ -278,9 +294,9 @@ function updateMap(d){
       html:'<img src="data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg)+'" width="44" height="44"/>',
       iconSize:[44,44],iconAnchor:[22,22]});
     navMarker=L.marker(lastNavLL,{icon:ni,interactive:false,zIndexOffset:1000}).addTo(map);
-    if(!userInteracted){map.panTo(lastNavLL);if(map.getZoom()<17)map.setZoom(17);}
+    if(!userInteracted){setFollowMode(true);map.panTo(lastNavLL);if(map.getZoom()<17)map.setZoom(17);}
     setNavView(h,true);
-  }else{setNavView(0,false);}
+  }else{userInteracted=false;setFollowMode(true);setNavView(0,false);}
 }
 <\/script>
 </body></html>`;
@@ -306,9 +322,11 @@ export const RouteMap = ({
   maxDistanceKm,
   friendMarkers = [],
   isInPipMode = false,
+  recenterSignal = 0,
   onSelectRoute,
   onLongPress,
   onMapPress,
+  onNavigationFollowChange,
 }: RouteMapProps) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const readyRef = useRef(false);
@@ -317,8 +335,8 @@ export const RouteMap = ({
   const prevPanKeyRef = useRef(-1);
   const prevMapTypeRef = useRef(mapType);
 
-  const callbacksRef = useRef({ onMapPress, onLongPress, onSelectRoute });
-  callbacksRef.current = { onMapPress, onLongPress, onSelectRoute };
+  const callbacksRef = useRef({ onMapPress, onLongPress, onSelectRoute, onNavigationFollowChange });
+  callbacksRef.current = { onMapPress, onLongPress, onSelectRoute, onNavigationFollowChange };
 
   // Listen for messages from the Leaflet iframe
   useEffect(() => {
@@ -339,6 +357,9 @@ export const RouteMap = ({
             break;
           case 'selectRoute':
             cbs.onSelectRoute?.(msg.id);
+            break;
+          case 'navFollowChanged':
+            cbs.onNavigationFollowChange?.(Boolean(msg.isFollowing));
             break;
         }
       } catch { /* ignore */ }
@@ -441,6 +462,14 @@ export const RouteMap = ({
       if (win && win.setPipMode) win.setPipMode(isInPipMode ? true : false);
     } catch {}
   }, [isInPipMode]);
+
+  useEffect(() => {
+    if (!readyRef.current || !iframeRef.current?.contentWindow) return;
+    try {
+      const win = iframeRef.current.contentWindow as any;
+      if (win && win.recenterNavigation) win.recenterNavigation();
+    } catch {}
+  }, [recenterSignal]);
 
   // Blob URL for iframe src
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
