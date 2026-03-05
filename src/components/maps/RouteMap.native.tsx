@@ -737,6 +737,17 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       var fullWest=minLng-bufferLngDeg;
       var fullEast=maxLng+bufferLngDeg;
 
+      // Expand shorter side so the visualised search box is always square
+      var heightM=(fullNorth-fullSouth)*metersPerDegLat;
+      var widthM=(fullEast-fullWest)*metersPerDegLng;
+      if(widthM<heightM){
+        var extra=(heightM-widthM)/2/metersPerDegLng;
+        fullWest-=extra; fullEast+=extra;
+      }else if(heightM<widthM){
+        var extra=(widthM-heightM)/2/metersPerDegLat;
+        fullSouth-=extra; fullNorth+=extra;
+      }
+
       var step=0, maxSteps=60; // 60 frames over ~12s
 
       var messages=[

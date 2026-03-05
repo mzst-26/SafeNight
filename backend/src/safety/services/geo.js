@@ -44,14 +44,31 @@ function bboxFromPoints(points, bufferMetres = 500) {
     if (p.lng < minLng) minLng = p.lng;
     if (p.lng > maxLng) maxLng = p.lng;
   }
+  const midLat = (minLat + maxLat) / 2;
   const latDeg = bufferMetres / 111_320;
-  const lngDeg = bufferMetres / (111_320 * Math.cos(((minLat + maxLat) / 2) * DEG_TO_RAD));
-  return {
-    south: minLat - latDeg,
-    north: maxLat + latDeg,
-    west: minLng - lngDeg,
-    east: maxLng + lngDeg,
-  };
+  const metersPerLng = 111_320 * Math.cos(midLat * DEG_TO_RAD);
+  const lngDeg = bufferMetres / metersPerLng;
+
+  let south = minLat - latDeg;
+  let north = maxLat + latDeg;
+  let west  = minLng - lngDeg;
+  let east  = maxLng + lngDeg;
+
+  // Ensure the bbox is not strongly elongated — expand the shorter side
+  // so the box is always square in real-world distance.
+  const heightM = (north - south) * 111_320;
+  const widthM  = (east  - west)  * metersPerLng;
+  if (widthM < heightM) {
+    const extra = (heightM - widthM) / 2 / metersPerLng;
+    west -= extra;
+    east += extra;
+  } else if (heightM < widthM) {
+    const extra = (widthM - heightM) / 2 / 111_320;
+    south -= extra;
+    north += extra;
+  }
+
+  return { south, north, west, east };
 }
 
 /**
