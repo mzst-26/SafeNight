@@ -49,7 +49,6 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     .maplibregl-ctrl-attrib{display:none!important}
 
     /* ─── Pathfinding visualisation animations ─── */
-    @keyframes bboxExpand{0%{stroke-dashoffset:40}100%{stroke-dashoffset:0}}
     @keyframes vizPulse{0%,100%{opacity:0.85}50%{opacity:0.4}}
     .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);
       z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
@@ -58,6 +57,21 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;
       border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);
       backdrop-filter:blur(8px);transition:opacity .3s}
+    /* Viz data point DOM-marker pins */
+    @keyframes vizpin{from{transform:scale(0) translateY(3px);opacity:0}to{transform:scale(1);opacity:1}}
+    .viz-data-pin{pointer-events:none;display:flex;align-items:center;justify-content:center;
+      width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(255,255,255,.75);
+      font-size:11px;line-height:1;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.4);
+      animation:vizpin .3s ease-out forwards}
+    .viz-crime-pin{background:rgba(220,38,38,.85);color:#fff}
+    .viz-light-pin{background:rgba(234,179,8,.9);color:#1a1000}
+    .viz-place-pin{background:rgba(22,163,74,.85);color:#fff}
+    /* Search zone overlay label */
+    @keyframes vizscan{0%,100%{opacity:.95}50%{opacity:.45}}
+    .viz-search-zone{pointer-events:none;background:rgba(88,28,235,.22);border:1.5px solid rgba(167,139,250,.7);
+      border-radius:5px;padding:4px 12px;color:#ddd6fe;font-size:10px;font-weight:700;letter-spacing:.5px;
+      white-space:nowrap;display:flex;align-items:center;gap:5px;
+      animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
   </style>
 </head>
 <body>
@@ -81,6 +95,9 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     var lastData = null;
     var styleReady = false;
     var longPressTimer = null;
+    /* Viz DOM marker tracking */
+    var vizDataMarkers = [];
+    var vizSearchLabelMarker = null;
     var longPressPoint = null;
     var touchMoved = false;
 
@@ -180,38 +197,21 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       map.on('mouseleave','unselected-routes-line',function(){map.getCanvas().style.cursor=''});
 
       /* ── Visualisation layers (rendered below route layers) ── */
-      // Bounding boxes — dashed rectangles
+      // Bounding box — solid bright border + subtle fill
       map.addLayer({ id:'viz-bbox-fill', type:'fill', source:'viz-bbox',
-        paint:{'fill-color':['get','color'],'fill-opacity':0.06} });
+        paint:{'fill-color':['get','color'],'fill-opacity':0.08} });
       map.addLayer({ id:'viz-bbox-line', type:'line', source:'viz-bbox',
-        paint:{'line-color':['get','color'],'line-opacity':0.7,'line-width':2,'line-dasharray':[4,3]} });
+        paint:{'line-color':'#a855f7','line-opacity':0.9,'line-width':2.5} });
 
       // Road network edges
       map.addLayer({ id:'viz-roads-line', type:'line', source:'viz-roads',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#6366f1','line-opacity':0.25,'line-width':1.5} });
 
-      // Corridor path (the shortest A* path from Phase 1)
+      // Corridor / exploration path
       map.addLayer({ id:'viz-corridor-line', type:'line', source:'viz-corridor',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#f59e0b','line-opacity':0.9,'line-width':3,'line-dasharray':[4,1.5]} });
-
-      // Safety data point layers
-      map.addLayer({ id:'viz-lights-circles', type:'circle', source:'viz-lights',
-        paint:{'circle-radius':3.5,'circle-color':'#facc15','circle-opacity':0.8,
-          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
-      map.addLayer({ id:'viz-cctv-circles', type:'circle', source:'viz-cctv',
-        paint:{'circle-radius':4,'circle-color':'#8b5cf6','circle-opacity':0.8,
-          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
-      map.addLayer({ id:'viz-crimes-circles', type:'circle', source:'viz-crimes',
-        paint:{'circle-radius':4.5,'circle-color':'#ef4444','circle-opacity':0.75,
-          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
-      map.addLayer({ id:'viz-places-circles', type:'circle', source:'viz-places',
-        paint:{'circle-radius':3,'circle-color':'#22c55e','circle-opacity':0.7,
-          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
-      map.addLayer({ id:'viz-transit-circles', type:'circle', source:'viz-transit',
-        paint:{'circle-radius':4,'circle-color':'#3b82f6','circle-opacity':0.8,
-          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
 
       // Safety scoring — colour-coded edges
       map.addLayer({ id:'viz-scoring-line', type:'line', source:'viz-scoring',
@@ -682,10 +682,16 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       }
     }
 
+    function clearVizMarkers(){
+      vizDataMarkers.forEach(function(m){ m.remove(); });
+      vizDataMarkers=[];
+      if(vizSearchLabelMarker){ vizSearchLabelMarker.remove(); vizSearchLabelMarker=null; }
+    }
+
     function clearVisualization(){
-      var srcs=['viz-bbox','viz-corridor','viz-lights','viz-cctv','viz-crimes',
-        'viz-places','viz-transit','viz-roads','viz-scoring','viz-routes'];
+      var srcs=['viz-bbox','viz-corridor','viz-roads','viz-scoring','viz-routes'];
       srcs.forEach(function(s){ try{ if(map.getSource(s)) map.getSource(s).setData(emptyFC); }catch(e){} });
+      clearVizMarkers();
       if(vizProgressEl){ vizProgressEl.style.width='0%'; vizProgressEl.style.opacity='0'; }
       if(vizStatusEl){ vizStatusEl.style.opacity='0'; }
     }
@@ -696,7 +702,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       if(msg){ vizStatusEl.style.opacity='1'; vizStatusEl.textContent=msg; }
     }
 
-    /* Client-side search animation (no server SSE — saves 50%+ CPU) */
+    /* Client-side search animation — loops until routes arrive, then stopVizStream() clears it */
     var vizAnimTimer = null;
 
     window.stopVizStream = function(){
@@ -716,8 +722,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       if(!isFinite(oLat)||!isFinite(oLng)||!isFinite(dLat)||!isFinite(dLng)) return;
 
       // Haversine straight-line distance
-      var dLatRad=(dLat-oLat)*Math.PI/180;
-      var dLngRad=(dLng-oLng)*Math.PI/180;
+      var dLatRad=(dLat-oLat)*Math.PI/180, dLngRad=(dLng-oLng)*Math.PI/180;
       var oLatRad=oLat*Math.PI/180, dLatAbsRad=dLat*Math.PI/180;
       var a=Math.sin(dLatRad/2)*Math.sin(dLatRad/2)
         + Math.cos(oLatRad)*Math.cos(dLatAbsRad)*Math.sin(dLngRad/2)*Math.sin(dLngRad/2);
@@ -732,28 +737,43 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       var metersPerDegLng=Math.max(1000, 111320*Math.cos(midLat*Math.PI/180));
       var bufferLatDeg=corridorBufferM/metersPerDegLat;
       var bufferLngDeg=corridorBufferM/metersPerDegLng;
-      var fullSouth=minLat-bufferLatDeg;
-      var fullNorth=maxLat+bufferLatDeg;
-      var fullWest=minLng-bufferLngDeg;
-      var fullEast=maxLng+bufferLngDeg;
+      var fullSouth=minLat-bufferLatDeg, fullNorth=maxLat+bufferLatDeg;
+      var fullWest=minLng-bufferLngDeg,  fullEast=maxLng+bufferLngDeg;
 
       // Square the bbox
       var heightM=(fullNorth-fullSouth)*metersPerDegLat;
       var widthM=(fullEast-fullWest)*metersPerDegLng;
-      if(widthM<heightM){
-        var extra=(heightM-widthM)/2/metersPerDegLng;
-        fullWest-=extra; fullEast+=extra;
-      }else if(heightM<widthM){
-        var extra2=(widthM-heightM)/2/metersPerDegLat;
-        fullSouth-=extra2; fullNorth+=extra2;
+      if(widthM<heightM){ var extra=(heightM-widthM)/2/metersPerDegLng; fullWest-=extra; fullEast+=extra; }
+      else if(heightM<widthM){ var extra2=(widthM-heightM)/2/metersPerDegLat; fullSouth-=extra2; fullNorth+=extra2; }
+
+      var midLng=(fullWest+fullEast)/2, bboxMidLat=(fullSouth+fullNorth)/2;
+      var sp=bufferLatDeg*0.6, spL=bufferLngDeg*0.6;
+
+      // Draw bbox immediately — it stays for the full animation, clearly marking the search zone
+      try{
+        map.getSource('viz-bbox').setData({type:'FeatureCollection',features:[{
+          type:'Feature',properties:{color:'#7C3AED'},
+          geometry:{type:'Polygon',coordinates:[[[fullWest,fullSouth],[fullEast,fullSouth],
+            [fullEast,fullNorth],[fullWest,fullNorth],[fullWest,fullSouth]]]}
+        }]});
+      }catch(e){}
+
+      // Search zone label at bbox centre (pulsing DOM overlay)
+      if(vizSearchLabelMarker){ vizSearchLabelMarker.remove(); vizSearchLabelMarker=null; }
+      var labelEl=document.createElement('div');
+      labelEl.className='viz-search-zone';
+      labelEl.innerHTML='&#128269; Analysing area&hellip;';
+      vizSearchLabelMarker=new maplibregl.Marker({element:labelEl,anchor:'center'})
+        .setLngLat([midLng, bboxMidLat]).addTo(map);
+
+      // ── per-cycle helpers ──────────────────────────────────────────────────
+      var baseSeed=Math.round(oLat*1000+oLng*1000+dLat*100+dLng*100);
+
+      function makeSeedRng(s){
+        return function(mn,mx){ s=(s*1664525+1013904223)&0xffffffff; return mn+(((s>>>0)/0xffffffff)*(mx-mn)); };
       }
 
-      // ── Seed pseudo-random number generator for deterministic scatter
-      var seed=Math.round(oLat*1000+oLng*1000+dLat*100+dLng*100);
-      function rng(mn,mx){ seed=(seed*1664525+1013904223)&0xffffffff; return mn+(((seed>>>0)/0xffffffff)*(mx-mn)); }
-
-      // ── Pre-generate organic jagged path helper
-      function makeJagged(aLat,aLng,bLat,bLng,steps,jLat,jLng){
+      function makeJagged(rng,aLat,aLng,bLat,bLng,steps,jLat,jLng){
         var pts=[[aLng,aLat]];
         for(var i=1;i<steps;i++){
           var t=i/steps, env=Math.sin(t*Math.PI)*0.7;
@@ -763,87 +783,114 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         return pts;
       }
 
-      // 3 exploration branches that spread outward from origin
-      var sp=bufferLatDeg*0.6, spL=bufferLngDeg*0.6;
-      var branchTargets=[
-        [oLat+(dLat-oLat)*0.55+rng(sp*0.5,sp*1.0),  oLng+(dLng-oLng)*0.5+rng(-spL*1.2,-spL*0.4)],
-        [oLat+(dLat-oLat)*0.6+rng(-sp*0.9,-sp*0.3),  oLng+(dLng-oLng)*0.55+rng(spL*0.4,spL*1.1)],
-        [oLat+(dLat-oLat)*0.45+rng(sp*0.2,sp*0.7),   oLng+(dLng-oLng)*0.45+rng(-spL*0.3,spL*0.7)],
-      ];
-      var explorationPaths=branchTargets.map(function(end){
-        return makeJagged(oLat,oLng,end[0],end[1],9,bufferLatDeg*0.18,bufferLngDeg*0.18);
-      });
-
-      // Final route: organic path from O to D
-      var finalPath=makeJagged(oLat,oLng,dLat,dLng,13,bufferLatDeg*0.12,bufferLngDeg*0.12);
-
-      // Data point scatter (concentrated near the corridor)
-      var corridorS=fullSouth+bufferLatDeg*0.25, corridorN=fullNorth-bufferLatDeg*0.25;
-      var corridorW=fullWest+bufferLngDeg*0.25,  corridorE=fullEast-bufferLngDeg*0.25;
-      function scatter(n,s,nn,w,e){ var pts=[]; for(var i=0;i<n;i++) pts.push([rng(w,e),rng(s,nn)]); return pts; }
-      var crimesPts  = scatter(9,  corridorS, corridorN, corridorW, corridorE);
-      var lightsPts  = scatter(16, fullSouth, fullNorth, fullWest, fullEast);
-      var placesPts  = scatter(7,  corridorS, corridorN, corridorW, corridorE);
-
-      var step=0, maxSteps=65;
-      var messages=[
-        'Scanning walking corridor…','Mapping road network…','Fetching safety data…',
-        'Mapping street lighting…','Checking crime hotspots…','Finding open places…',
-        'Building safety graph…','Scoring road segments…','Running pathfinder…','Almost there…'
-      ];
-
-      function toPointFC(pts){
-        return {type:'FeatureCollection',features:pts.map(function(p){
-          return {type:'Feature',properties:{},geometry:{type:'Point',coordinates:p}};
-        })};
+      // cycle tracking — markers added in current cycle (removed at cycle restart)
+      var cycleMarkerObjs = [];
+      function clearCycleMarkers(){
+        cycleMarkerObjs.forEach(function(m){ m.remove(); });
+        cycleMarkerObjs=[];
+        // also remove from vizDataMarkers
+        vizDataMarkers = vizDataMarkers.filter(function(m){ return m._removed!==true; });
+      }
+      function addCycleMarker(lng,lat,cls,char){
+        var el=document.createElement('div');
+        el.className='viz-data-pin '+cls;
+        el.textContent=char;
+        var m=new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
+        vizDataMarkers.push(m);
+        cycleMarkerObjs.push(m);
+        return m;
       }
 
-      vizSetProgress(1,'Search area: '+Math.round(corridorBufferM)+'m buffer');
+      function buildCycle(cycleNum){
+        var rng=makeSeedRng(baseSeed+cycleNum*97);
+        var cS=fullSouth+bufferLatDeg*0.25, cN=fullNorth-bufferLatDeg*0.25;
+        var cW=fullWest+bufferLngDeg*0.25,  cE=fullEast-bufferLngDeg*0.25;
+        var rng2=makeSeedRng(baseSeed+cycleNum*113);
+        var branchTargets=[
+          [oLat+(dLat-oLat)*0.55+rng(sp*0.5,sp*1.0),  oLng+(dLng-oLng)*0.5+rng(-spL*1.2,-spL*0.4)],
+          [oLat+(dLat-oLat)*0.6+rng(-sp*0.9,-sp*0.3),  oLng+(dLng-oLng)*0.55+rng(spL*0.4,spL*1.1)],
+          [oLat+(dLat-oLat)*0.45+rng(sp*0.2,sp*0.7),   oLng+(dLng-oLng)*0.45+rng(-spL*0.3,spL*0.7)],
+        ];
+        var explorationPaths=branchTargets.map(function(end){
+          var r=makeSeedRng(rng(1e7,9e7)|0);
+          return makeJagged(r,oLat,oLng,end[0],end[1],9,bufferLatDeg*0.18,bufferLngDeg*0.18);
+        });
+        var finalPath=makeJagged(makeSeedRng(baseSeed+cycleNum*7),oLat,oLng,dLat,dLng,13,bufferLatDeg*0.12,bufferLngDeg*0.12);
+        var crimesPts=[], lightsPts=[], placesPts=[];
+        for(var i=0;i<9;i++) crimesPts.push([rng2(cW,cE),rng2(cS,cN)]);
+        for(var i=0;i<14;i++) lightsPts.push([rng2(fullWest,fullEast),rng2(fullSouth,fullNorth)]);
+        for(var i=0;i<7;i++) placesPts.push([rng2(cW,cE),rng2(cS,cN)]);
+        return {explorationPaths:explorationPaths, finalPath:finalPath,
+          crimesPts:crimesPts, lightsPts:lightsPts, placesPts:placesPts, shownC:0, shownL:0, shownP:0};
+      }
+
+      var CYCLE=70;
+      var messages=[
+        'Scanning walking corridor\u2026','Mapping road network\u2026','Fetching safety data\u2026',
+        'Mapping street lighting\u2026','Checking crime hotspots\u2026','Finding open places\u2026',
+        'Building safety graph\u2026','Scoring road segments\u2026','Running pathfinder\u2026'
+      ];
+
+      var step=0;
+      var cyc=buildCycle(0);
+
+      vizSetProgress(5, 'Search area: '+Math.round(corridorBufferM)+'m buffer');
 
       vizAnimTimer=setInterval(function(){
         step++;
-        var t=Math.min(step/maxSteps,1);
-        vizSetProgress(Math.round(t*95), messages[Math.min(Math.floor(t*messages.length),messages.length-1)]);
+        var phase=step % CYCLE;
+        var cycleNum=Math.floor(step/CYCLE);
+
+        // Start a new cycle — clear markers and rebuild paths/scatter
+        if(phase===0 && step>0){
+          clearCycleMarkers();
+          try{map.getSource('viz-corridor').setData({type:'FeatureCollection',features:[]});}catch(e){}
+          cyc=buildCycle(cycleNum);
+        }
+
+        var t=phase/CYCLE;
+        // Progress bar oscillates 8%→92% each cycle
+        vizSetProgress(Math.round(8+84*t), messages[Math.min(Math.floor(t*messages.length),messages.length-1)]);
         if(!styleReady) return;
 
-        // 1. Expanding bbox
-        var gT=Math.min(t*1.5,1);
-        var south=oLat+(fullSouth-oLat)*gT, north=oLat+(fullNorth-oLat)*gT;
-        var west=oLng+(fullWest-oLng)*gT,   east=oLng+(fullEast-oLng)*gT;
-        try{
-          map.getSource('viz-bbox').setData({type:'FeatureCollection',features:[{
-            type:'Feature',properties:{color:'#7C3AED'},
-            geometry:{type:'Polygon',coordinates:[[[west,south],[east,south],[east,north],[west,north],[west,south]]]}
-          }]});
-        }catch(e){}
-
-        // 2. Pathfinding exploration branches (staggered start, grow to frame ~40)
+        // 1. Exploration branches grow progressively
         var branchFeats=[];
-        explorationPaths.forEach(function(path,pi){
-          var delay=pi*0.06;
-          var bt=Math.max(0,Math.min((t-delay)/0.42,1));
+        cyc.explorationPaths.forEach(function(path,pi){
+          var delay=pi*0.07;
+          var bt=Math.max(0,Math.min((t-delay)/0.4,1));
           if(bt<=0) return;
           var pts=path.slice(0,Math.max(2,Math.ceil(bt*path.length)));
           branchFeats.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:pts}});
         });
-
-        // 3. Final path traces in from ~60%
-        if(t>0.58){
-          var pT=Math.min((t-0.58)/0.32,1);
-          var pts=finalPath.slice(0,Math.max(2,Math.ceil(pT*finalPath.length)));
-          branchFeats.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:pts}});
+        // Final route reveals at 55%+
+        if(t>0.55){
+          var pT=Math.min((t-0.55)/0.32,1);
+          var fpts=cyc.finalPath.slice(0,Math.max(2,Math.ceil(pT*cyc.finalPath.length)));
+          branchFeats.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:fpts}});
         }
         try{map.getSource('viz-corridor').setData({type:'FeatureCollection',features:branchFeats});}catch(e){}
 
-        // 4. Data points appear progressively across the animation
-        var cN=Math.min(Math.floor(t*2.4*crimesPts.length), crimesPts.length);
-        var lN=Math.min(Math.floor(t*1.8*lightsPts.length), lightsPts.length);
-        var pN=Math.min(Math.floor(t*2.8*placesPts.length), placesPts.length);
-        try{map.getSource('viz-crimes').setData(toPointFC(crimesPts.slice(0,cN)));}catch(e){}
-        try{map.getSource('viz-lights').setData(toPointFC(lightsPts.slice(0,lN)));}catch(e){}
-        try{map.getSource('viz-places').setData(toPointFC(placesPts.slice(0,pN)));}catch(e){}
-
-        if(step>=maxSteps){clearInterval(vizAnimTimer);vizAnimTimer=null;}
+        // 2. Data point DOM markers appear progressively (icon pins)
+        var wantC=Math.min(Math.floor(t*2.5*cyc.crimesPts.length),cyc.crimesPts.length);
+        var wantL=Math.min(Math.floor(t*2.0*cyc.lightsPts.length),cyc.lightsPts.length);
+        var wantP=Math.min(Math.floor(t*3.0*cyc.placesPts.length),cyc.placesPts.length);
+        while(cyc.shownC<wantC){
+          var p=cyc.crimesPts[cyc.shownC];
+          addCycleMarker(p[0],p[1],'viz-crime-pin','\u26a0'); // ⚠ crime hotspot
+          cyc.shownC++;
+        }
+        while(cyc.shownL<wantL){
+          var p=cyc.lightsPts[cyc.shownL];
+          addCycleMarker(p[0],p[1],'viz-light-pin','\u2605'); // ★ street light
+          cyc.shownL++;
+        }
+        while(cyc.shownP<wantP){
+          var p=cyc.placesPts[cyc.shownP];
+          addCycleMarker(p[0],p[1],'viz-place-pin','\u2022'); // • open place
+          cyc.shownP++;
+        }
+        // Note: no stop condition — keeps cycling until window.stopVizStream() is called
+        // when real routes arrive from the backend.
       },200);
     };
   <\/script>

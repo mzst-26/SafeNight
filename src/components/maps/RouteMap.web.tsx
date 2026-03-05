@@ -61,6 +61,26 @@ html,body{width:100%;height:100%;overflow:hidden}
 .friend-dot{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.25);
   display:flex;align-items:center;justify-content:center;font-size:12px}
 .leaflet-control-attribution{display:none!important}
+/* ─── Pathfinding visualisation ─── */
+@keyframes vizpin{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+.viz-data-pin{width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(255,255,255,.75);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
+  box-shadow:0 2px 6px rgba(0,0,0,.4);animation:vizpin .3s ease-out forwards}
+.viz-crime-pin{background:rgba(220,38,38,.85);color:#fff}
+.viz-light-pin{background:rgba(234,179,8,.9);color:#1a1000}
+.viz-place-pin{background:rgba(22,163,74,.85);color:#fff}
+@keyframes vizscan{0%,100%{opacity:.95}50%{opacity:.45}}
+.viz-search-zone{pointer-events:none;background:rgba(88,28,235,.22);border:1.5px solid rgba(167,139,250,.7);
+  border-radius:5px;padding:4px 12px;color:#ddd6fe;font-size:10px;font-weight:700;letter-spacing:.5px;
+  white-space:nowrap;animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
+.viz-progress-bar{position:fixed;top:0;left:0;height:3px;
+  background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);
+  z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
+.viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);
+  background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;
+  font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;
+  border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);
+  backdrop-filter:blur(8px);transition:opacity .3s}
 </style>
 </head><body>
 <div id="viewport">
@@ -105,6 +125,117 @@ map.on('mousemove',function(){if(longPressTimer){clearTimeout(longPressTimer);lo
 map.on('mouseup',function(){if(longPressTimer){clearTimeout(longPressTimer);longPressTimer=null;}});
 map.on('click',function(e){if(Date.now()-(touchStart||0)<500)sendMsg('press',{lat:e.latlng.lat,lng:e.latlng.lng});});
 sendMsg('ready',{});
+
+// ── Pathfinding viz animation ──────────────────────────────────────────────
+var vizBboxRect=null,vizPolylines=[],vizMarkers=[],vizSearchLabel=null;
+var vizProgressEl=null,vizStatusEl=null,vizAnimTimer=null;
+function ensureVizUI(){
+  if(!vizProgressEl){vizProgressEl=document.createElement('div');vizProgressEl.className='viz-progress-bar';
+    vizProgressEl.style.width='0%';vizProgressEl.style.opacity='0';document.body.appendChild(vizProgressEl);}
+  if(!vizStatusEl){vizStatusEl=document.createElement('div');vizStatusEl.className='viz-status';
+    vizStatusEl.style.opacity='0';document.body.appendChild(vizStatusEl);}
+}
+function vizSetProgress(pct,msg){ensureVizUI();
+  if(pct!=null){vizProgressEl.style.opacity='1';vizProgressEl.style.width=Math.min(pct,100)+'%';}
+  if(msg){vizStatusEl.style.opacity='1';vizStatusEl.textContent=msg;}
+}
+function clearVizAnimation(){
+  if(vizBboxRect){map.removeLayer(vizBboxRect);vizBboxRect=null;}
+  vizPolylines.forEach(function(p){map.removeLayer(p);});vizPolylines=[];
+  vizMarkers.forEach(function(m){map.removeLayer(m);});vizMarkers=[];
+  if(vizSearchLabel){map.removeLayer(vizSearchLabel);vizSearchLabel=null;}
+  if(vizProgressEl){vizProgressEl.style.width='0%';vizProgressEl.style.opacity='0';}
+  if(vizStatusEl){vizStatusEl.style.opacity='0';}
+}
+window.stopVizStream=function(){
+  if(vizAnimTimer){clearInterval(vizAnimTimer);vizAnimTimer=null;}
+  setTimeout(clearVizAnimation,800);
+};
+window.startVizStream=function(coordsJson){
+  window.stopVizStream();if(!coordsJson) return;
+  clearVizAnimation();ensureVizUI();
+  var c;try{c=JSON.parse(coordsJson);}catch(e){return;}
+  var oLat=Number(c.oLat),oLng=Number(c.oLng),dLat=Number(c.dLat),dLng=Number(c.dLng);
+  if(!isFinite(oLat)||!isFinite(oLng)||!isFinite(dLat)||!isFinite(dLng)) return;
+  var dLatRad=(dLat-oLat)*Math.PI/180,dLngRad=(dLng-oLng)*Math.PI/180;
+  var oLatRad=oLat*Math.PI/180,dLatAbsRad=dLat*Math.PI/180;
+  var aa=Math.sin(dLatRad/2)*Math.sin(dLatRad/2)+Math.cos(oLatRad)*Math.cos(dLatAbsRad)*Math.sin(dLngRad/2)*Math.sin(dLngRad/2);
+  var dist=6371000*2*Math.atan2(Math.sqrt(aa),Math.sqrt(1-aa));
+  var bufM=Math.max(700,Math.min(1000,dist*0.3));
+  var mPDLat=111320,mPDLng=Math.max(1000,111320*Math.cos(((oLat+dLat)/2)*Math.PI/180));
+  var bLat=bufM/mPDLat,bLng=bufM/mPDLng;
+  var fS=Math.min(oLat,dLat)-bLat,fN=Math.max(oLat,dLat)+bLat;
+  var fW=Math.min(oLng,dLng)-bLng,fE=Math.max(oLng,dLng)+bLng;
+  var hM=(fN-fS)*mPDLat,wM=(fE-fW)*mPDLng;
+  if(wM<hM){var ex=(hM-wM)/2/mPDLng;fW-=ex;fE+=ex;}
+  else if(hM<wM){var ex2=(wM-hM)/2/mPDLat;fS-=ex2;fN+=ex2;}
+  var midLng=(fW+fE)/2,midBLat=(fS+fN)/2;
+  var sp=bLat*0.6,spL=bLng*0.6;
+  var baseSeed=Math.round(oLat*1000+oLng*1000+dLat*100+dLng*100);
+  // Bbox — clearly marks the search zone
+  vizBboxRect=L.polygon([[fS,fW],[fS,fE],[fN,fE],[fN,fW]],{
+    color:'#a855f7',weight:2.5,opacity:0.9,fillColor:'#7C3AED',fillOpacity:0.08,interactive:false}).addTo(map);
+  // Search zone label
+  var lbl=L.divIcon({className:'',
+    html:'<div class="viz-search-zone">&#128269; Analysing area&hellip;</div>',
+    iconSize:null,iconAnchor:[60,12]});
+  vizSearchLabel=L.marker([midBLat,midLng],{icon:lbl,interactive:false}).addTo(map);
+  function mkRng(s){return function(mn,mx){s=(s*1664525+1013904223)&0xffffffff;return mn+(((s>>>0)/0xffffffff)*(mx-mn));};}
+  function mkJag(rng,aLat,aLng,bLat,bLng,steps,jLat,jLng){
+    var pts=[[aLat,aLng]];
+    for(var i=1;i<steps;i++){var t=i/steps,env=Math.sin(t*Math.PI)*0.7;
+      pts.push([aLat+(bLat-aLat)*t+rng(-jLat,jLat)*env,aLng+(bLng-aLng)*t+rng(-jLng,jLng)*env]);}
+    pts.push([bLat,bLng]);return pts;
+  }
+  var cycPls=[],cycMks=[];
+  function clearCyc(){cycPls.forEach(function(p){map.removeLayer(p);});cycPls=[];
+    cycMks.forEach(function(m){map.removeLayer(m);});cycMks=[];
+    vizPolylines=[];vizMarkers=[];}
+  function addPl(pts,col){var pl=L.polyline(pts,{color:col,weight:3,opacity:0.9,dashArray:'6 3',interactive:false}).addTo(map);
+    vizPolylines.push(pl);cycPls.push(pl);return pl;}
+  function addMk(lat,lng,cls,ch){
+    var ic=L.divIcon({className:'',html:'<div class="viz-data-pin '+cls+'">'+ch+'</div>',iconSize:[20,20],iconAnchor:[10,10]});
+    var m=L.marker([lat,lng],{icon:ic,interactive:false}).addTo(map);vizMarkers.push(m);cycMks.push(m);return m;}
+  function buildCyc(cn){
+    var rng=mkRng(baseSeed+cn*97),rng2=mkRng(baseSeed+cn*113);
+    var cS=fS+bLat*0.25,cN=fN-bLat*0.25,cW=fW+bLng*0.25,cE=fE-bLng*0.25;
+    var bTgts=[[oLat+(dLat-oLat)*0.55+rng(sp*0.5,sp*1.0),oLng+(dLng-oLng)*0.5+rng(-spL*1.2,-spL*0.4)],
+      [oLat+(dLat-oLat)*0.6+rng(-sp*0.9,-sp*0.3),oLng+(dLng-oLng)*0.55+rng(spL*0.4,spL*1.1)],
+      [oLat+(dLat-oLat)*0.45+rng(sp*0.2,sp*0.7),oLng+(dLng-oLng)*0.45+rng(-spL*0.3,spL*0.7)]];
+    var ep=bTgts.map(function(e){return mkJag(mkRng(rng(1e7,9e7)|0),oLat,oLng,e[0],e[1],9,bLat*0.18,bLng*0.18);});
+    var fp=mkJag(mkRng(baseSeed+cn*7),oLat,oLng,dLat,dLng,13,bLat*0.12,bLng*0.12);
+    var cr=[],li=[],pl=[];
+    for(var i=0;i<9;i++) cr.push([rng2(cS,cN),rng2(cW,cE)]);
+    for(var i=0;i<14;i++) li.push([rng2(fS,fN),rng2(fW,fE)]);
+    for(var i=0;i<7;i++) pl.push([rng2(cS,cN),rng2(cW,cE)]);
+    return {ep:ep,fp:fp,cr:cr,li:li,pl:pl,pls:[],shownC:0,shownL:0,shownP:0,finalPl:null};
+  }
+  var CYCLE=70,msgs=['Scanning walking corridor\u2026','Mapping road network\u2026','Fetching safety data\u2026',
+    'Mapping street lighting\u2026','Checking crime hotspots\u2026','Finding open places\u2026',
+    'Building safety graph\u2026','Scoring road segments\u2026','Running pathfinder\u2026'];
+  var step=0,cyc=buildCyc(0);
+  vizSetProgress(5,'Search area: '+Math.round(bufM)+'m buffer');
+  vizAnimTimer=setInterval(function(){
+    step++;var phase=step%CYCLE,cn=Math.floor(step/CYCLE);
+    if(phase===0&&step>0){clearCyc();cyc=buildCyc(cn);}
+    var t=phase/CYCLE;
+    vizSetProgress(Math.round(8+84*t),msgs[Math.min(Math.floor(t*msgs.length),msgs.length-1)]);
+    cyc.ep.forEach(function(path,pi){
+      var delay=pi*0.07,bt=Math.max(0,Math.min((t-delay)/0.4,1));
+      if(bt<=0) return;
+      var pts=path.slice(0,Math.max(2,Math.ceil(bt*path.length)));
+      if(!cyc.pls[pi]){cyc.pls[pi]=addPl(pts,'#f59e0b');}else{cyc.pls[pi].setLatLngs(pts);}
+    });
+    if(t>0.55){var pT=Math.min((t-0.55)/0.32,1);var fpts=cyc.fp.slice(0,Math.max(2,Math.ceil(pT*cyc.fp.length)));
+      if(!cyc.finalPl){cyc.finalPl=addPl(fpts,'#a855f7');}else{cyc.finalPl.setLatLngs(fpts);}}
+    var wC=Math.min(Math.floor(t*2.5*cyc.cr.length),cyc.cr.length);
+    var wL=Math.min(Math.floor(t*2.0*cyc.li.length),cyc.li.length);
+    var wP=Math.min(Math.floor(t*3.0*cyc.pl.length),cyc.pl.length);
+    while(cyc.shownC<wC){var p=cyc.cr[cyc.shownC];addMk(p[0],p[1],'viz-crime-pin','\u26a0');cyc.shownC++;}
+    while(cyc.shownL<wL){var p=cyc.li[cyc.shownL];addMk(p[0],p[1],'viz-light-pin','\u2605');cyc.shownL++;}
+    while(cyc.shownP<wP){var p=cyc.pl[cyc.shownP];addMk(p[0],p[1],'viz-place-pin','\u2022');cyc.shownP++;}
+  },200);
+};
 
 map.on('dragstart',function(){if(isNavMode){userInteracted=true;setFollowMode(false);}});
 
@@ -323,6 +454,7 @@ export const RouteMap = ({
   friendMarkers = [],
   isInPipMode = false,
   recenterSignal = 0,
+  vizStreamUrl = null,
   onSelectRoute,
   onLongPress,
   onMapPress,
@@ -334,6 +466,7 @@ export const RouteMap = ({
   const prevGeoKeyRef = useRef('');
   const prevPanKeyRef = useRef(-1);
   const prevMapTypeRef = useRef(mapType);
+  const prevVizUrlRef = useRef<string | null>(null);
 
   const callbacksRef = useRef({ onMapPress, onLongPress, onSelectRoute, onNavigationFollowChange });
   callbacksRef.current = { onMapPress, onLongPress, onSelectRoute, onNavigationFollowChange };
@@ -348,6 +481,13 @@ export const RouteMap = ({
           case 'ready':
             readyRef.current = true;
             pushUpdate();
+            // Fire any pending viz stream that arrived before ready
+            try {
+              if (vizStreamUrl && iframeRef.current?.contentWindow) {
+                const win = iframeRef.current.contentWindow as any;
+                if (win.startVizStream) win.startVizStream(vizStreamUrl);
+              }
+            } catch { /* ignore */ }
             break;
           case 'press':
             cbs.onMapPress?.({ latitude: msg.lat, longitude: msg.lng });
@@ -470,6 +610,21 @@ export const RouteMap = ({
       if (win && win.recenterNavigation) win.recenterNavigation();
     } catch {}
   }, [recenterSignal]);
+
+  // ── Start/stop pathfinding visualisation in the Leaflet iframe ──
+  useEffect(() => {
+    if (vizStreamUrl === prevVizUrlRef.current) return;
+    prevVizUrlRef.current = vizStreamUrl;
+    if (!readyRef.current || !iframeRef.current?.contentWindow) return;
+    try {
+      const win = iframeRef.current.contentWindow as any;
+      if (vizStreamUrl) {
+        if (win.startVizStream) win.startVizStream(vizStreamUrl);
+      } else {
+        if (win.stopVizStream) win.stopVizStream();
+      }
+    } catch { /* cross-origin */ }
+  }, [vizStreamUrl]);
 
   // Blob URL for iframe src
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
