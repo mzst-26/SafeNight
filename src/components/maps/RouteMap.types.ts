@@ -42,7 +42,13 @@ export type RouteMapProps = {
   friendMarkers?: FriendMapMarker[];
   /** When true, uses a lower camera zoom so the user sees more map context in PiP */
   isInPipMode?: boolean;
+  /** Increment to force map to resume navigation-follow (recenter) mode */
+  recenterSignal?: number;
   onSelectRoute?: (routeId: string) => void;
   onLongPress?: (location: LatLng) => void;
   onMapPress?: (location: LatLng) => void;
+  onNavigationFollowChange?: (isFollowing: boolean) => void;
+  /** SSE URL for real-time pathfinding visualisation — when set, the WebView
+   *  opens an EventSource to this URL and renders progress on the map. */
+  vizStreamUrl?: string | null;
 };

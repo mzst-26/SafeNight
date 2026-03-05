@@ -18,6 +18,7 @@ import { useCurrentLocation } from '@/src/hooks/useCurrentLocation';
 import { useNavigation } from '@/src/hooks/useNavigation';
 import { useOnboarding } from '@/src/hooks/useOnboarding';
 import { useSafeRoutes } from '@/src/hooks/useSafeRoutes';
+import { env } from '@/src/config/env';
 import { reverseGeocode } from '@/src/services/openStreetMap';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
@@ -103,6 +104,16 @@ export function useHomeScreen() {
   const directionsStatus = safeRoutesStatus;
   const directionsError = safeRoutesError;
   const bestRouteId = safestRoute?.id ?? null;
+
+  // ── Pathfinding visualisation (SSE stream URL for WebView) ──
+  const vizStreamUrl = useMemo(() => {
+    if (directionsStatus !== 'loading' || !effectiveOrigin || !routingDestination) return null;
+    return (
+      `${env.safetyApiUrl}/api/safe-routes/stream?` +
+      `origin_lat=${effectiveOrigin.latitude}&origin_lng=${effectiveOrigin.longitude}` +
+      `&dest_lat=${routingDestination.latitude}&dest_lng=${routingDestination.longitude}`
+    );
+  }, [directionsStatus, effectiveOrigin, routingDestination]);
 
   // ── Route scores ──
   const routeScores: Record<string, RouteScore> = useMemo(() => {
@@ -452,6 +463,9 @@ export function useHomeScreen() {
     roadLabels,
     highlightCategory,
     setHighlightCategory,
+
+    // Pathfinding visualisation
+    vizStreamUrl,
 
     // Sheet
     sheetHeight,

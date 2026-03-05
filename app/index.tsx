@@ -51,7 +51,8 @@ import { useLiveTracking } from '@/src/hooks/useLiveTracking';
 import { useSavedPlaces, type SavedPlace } from '@/src/hooks/useSavedPlaces';
 import { useWebBreakpoint } from '@/src/hooks/useWebBreakpoint';
 import { stripeApi } from '@/src/services/stripeApi';
-import { onLimitReached, type LimitInfo } from '@/src/types/limitError';
+import { subscriptionApi } from '@/src/services/userApi';
+import { LimitError, onLimitReached, type LimitInfo } from '@/src/types/limitError';
 import { formatDistance, formatDuration } from '@/src/utils/format';
 
 export default function HomeScreen() {
@@ -67,6 +68,8 @@ export default function HomeScreen() {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showFamilyPackModal, setShowFamilyPackModal] = useState(false);
   const [toast, setToast] = useState<ToastConfig | null>(null);
+  const [isNavFollowing, setIsNavFollowing] = useState(true);
+  const [recenterSignal, setRecenterSignal] = useState(0);
   const subscriptionTier = auth.user?.subscription ?? 'free';
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 1; // DB-driven, fallback to free tier
 
@@ -405,6 +408,36 @@ export default function HomeScreen() {
     }).start();
   }, [h.sheetHeight, h.sheetHeightRef, h.setHighlightCategory]);
 
+  useEffect(() => {
+    if (!h.isNavActive) setIsNavFollowing(true);
+  }, [h.isNavActive]);
+
+  const handleRecenterNavigation = useCallback(() => {
+    setIsNavFollowing(true);
+    setRecenterSignal((prev) => prev + 1);
+  }, []);
+
+  const handleStartNavigation = useCallback(async () => {
+    if (Platform.OS === 'web') {
+      setShowDownloadModal(true);
+      return;
+    }
+
+    try {
+      await subscriptionApi.ensureFeatureAllowed('navigation_start');
+      h.nav.start();
+      await subscriptionApi.consume('navigation_start');
+    } catch (err) {
+      if (err instanceof LimitError) return;
+      setToast({
+        message: err instanceof Error ? err.message : 'Unable to start navigation',
+        icon: 'alert-circle',
+        iconColor: '#EF4444',
+        duration: 2500,
+      });
+    }
+  }, [h.nav, setToast]);
+
   const isWeb = Platform.OS === 'web';
 
   return (
@@ -427,9 +460,12 @@ export default function HomeScreen() {
         highlightCategory={h.highlightCategory}
         maxDistanceKm={maxDistanceKm}
         friendMarkers={friendMarkers}
+        recenterSignal={recenterSignal}
+        vizStreamUrl={h.vizStreamUrl}
         onSelectRoute={h.setSelectedRouteId}
         onLongPress={isWebGuest ? undefined : h.handleMapLongPress}
         onMapPress={isWebGuest ? undefined : h.handleMapPress}
+        onNavigationFollowChange={setIsNavFollowing}
       />
 
       {/*
@@ -1050,7 +1086,7 @@ export default function HomeScreen() {
           {h.selectedRouteId && h.nav.state === 'idle' && (
             <Pressable
               style={styles.startNavButton}
-              onPress={Platform.OS === 'web' ? () => setShowDownloadModal(true) : h.nav.start}
+              onPress={handleStartNavigation}
               accessibilityRole="button"
               accessibilityLabel="Start navigation"
             >
@@ -1102,6 +1138,8 @@ export default function HomeScreen() {
             nav={h.nav}
             topInset={insets.top}
             bottomInset={insets.bottom}
+            showRecenter={h.isNavActive && !isNavFollowing}
+            onRecenter={handleRecenterNavigation}
           />
         )}
 

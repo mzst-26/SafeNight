@@ -47,6 +47,17 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       border-radius:8px;font-size:10px;font-weight:700;white-space:nowrap;
       box-shadow:0 1px 4px rgba(0,0,0,.3);max-width:100px;overflow:hidden;text-overflow:ellipsis}
     .maplibregl-ctrl-attrib{display:none!important}
+
+    /* ─── Pathfinding visualisation animations ─── */
+    @keyframes bboxExpand{0%{stroke-dashoffset:40}100%{stroke-dashoffset:0}}
+    @keyframes vizPulse{0%,100%{opacity:0.85}50%{opacity:0.4}}
+    .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);
+      z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
+    .viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);
+      background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;
+      font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;
+      border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);
+      backdrop-filter:blur(8px);transition:opacity .3s}
   </style>
 </head>
 <body>
@@ -62,6 +73,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     var isNavMode = false;
     var isPipMode = false;   // zooms out when in PiP
     var userInteracted = false;
+    var isFollowingNav = true;
     var lastNavCenter = null;
     var lastNavHeading = 0;
     /** Last bearing value actually applied to the camera (for dead-zone check) */
@@ -76,6 +88,11 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
 
     function clearMarkerArray(arr) { arr.forEach(function(m){m.remove()}); arr.length=0; }
     function sendMsg(t, d) { try { window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({type:t},d||{}))); } catch(e){} }
+    function setFollowMode(next){
+      if (isFollowingNav === next) return;
+      isFollowingNav = next;
+      sendMsg('navFollowChanged', { isFollowing: next });
+    }
 
     /* ── Styles (all free, no API key) ─────────────────────── */
     var mapStyles = {
@@ -113,6 +130,18 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       map.addSource('range-circle', { type:'geojson', data:emptyFC });
       map.addSource('friend-paths', { type:'geojson', data:emptyFC });
       map.addSource('friend-planned-routes', { type:'geojson', data:emptyFC });
+
+      /* Visualisation sources */
+      map.addSource('viz-bbox', { type:'geojson', data:emptyFC });
+      map.addSource('viz-corridor', { type:'geojson', data:emptyFC });
+      map.addSource('viz-lights', { type:'geojson', data:emptyFC });
+      map.addSource('viz-cctv', { type:'geojson', data:emptyFC });
+      map.addSource('viz-crimes', { type:'geojson', data:emptyFC });
+      map.addSource('viz-places', { type:'geojson', data:emptyFC });
+      map.addSource('viz-transit', { type:'geojson', data:emptyFC });
+      map.addSource('viz-roads', { type:'geojson', data:emptyFC });
+      map.addSource('viz-scoring', { type:'geojson', data:emptyFC });
+      map.addSource('viz-routes', { type:'geojson', data:emptyFC });
     }
 
     function addCustomLayers() {
@@ -149,6 +178,50 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       });
       map.on('mouseenter','unselected-routes-line',function(){map.getCanvas().style.cursor='pointer'});
       map.on('mouseleave','unselected-routes-line',function(){map.getCanvas().style.cursor=''});
+
+      /* ── Visualisation layers (rendered below route layers) ── */
+      // Bounding boxes — dashed rectangles
+      map.addLayer({ id:'viz-bbox-fill', type:'fill', source:'viz-bbox',
+        paint:{'fill-color':['get','color'],'fill-opacity':0.06} });
+      map.addLayer({ id:'viz-bbox-line', type:'line', source:'viz-bbox',
+        paint:{'line-color':['get','color'],'line-opacity':0.7,'line-width':2,'line-dasharray':[4,3]} });
+
+      // Road network edges
+      map.addLayer({ id:'viz-roads-line', type:'line', source:'viz-roads',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#6366f1','line-opacity':0.25,'line-width':1.5} });
+
+      // Corridor path (the shortest A* path from Phase 1)
+      map.addLayer({ id:'viz-corridor-line', type:'line', source:'viz-corridor',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#f59e0b','line-opacity':0.85,'line-width':4,'line-dasharray':[6,3]} });
+
+      // Safety data point layers
+      map.addLayer({ id:'viz-lights-circles', type:'circle', source:'viz-lights',
+        paint:{'circle-radius':3.5,'circle-color':'#facc15','circle-opacity':0.8,
+          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
+      map.addLayer({ id:'viz-cctv-circles', type:'circle', source:'viz-cctv',
+        paint:{'circle-radius':4,'circle-color':'#8b5cf6','circle-opacity':0.8,
+          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
+      map.addLayer({ id:'viz-crimes-circles', type:'circle', source:'viz-crimes',
+        paint:{'circle-radius':4.5,'circle-color':'#ef4444','circle-opacity':0.75,
+          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
+      map.addLayer({ id:'viz-places-circles', type:'circle', source:'viz-places',
+        paint:{'circle-radius':3,'circle-color':'#22c55e','circle-opacity':0.7,
+          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
+      map.addLayer({ id:'viz-transit-circles', type:'circle', source:'viz-transit',
+        paint:{'circle-radius':4,'circle-color':'#3b82f6','circle-opacity':0.8,
+          'circle-stroke-color':'#fff','circle-stroke-width':0.5} });
+
+      // Safety scoring — colour-coded edges
+      map.addLayer({ id:'viz-scoring-line', type:'line', source:'viz-scoring',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':['get','color'],'line-opacity':0.8,'line-width':3} });
+
+      // Route candidates
+      map.addLayer({ id:'viz-routes-line', type:'line', source:'viz-routes',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':['get','color'],'line-opacity':0.7,'line-width':5} });
     }
 
     function add3DBuildings() {
@@ -232,8 +305,25 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     map.on('dragstart',function(){
       if(isNavMode){
         userInteracted=true;
+        setFollowMode(false);
       }
     });
+
+    window.recenterNavigation = function(){
+      userInteracted = false;
+      setFollowMode(true);
+      if(lastNavCenter && isNavMode){
+        var navZoom = isPipMode ? 15 : 17;
+        lastCameraHeading = lastNavHeading;
+        map.easeTo({
+          center:lastNavCenter,
+          zoom:Math.max(map.getZoom(), navZoom),
+          pitch:0,
+          bearing:lastNavHeading,
+          duration:250,
+        });
+      }
+    };
 
     /* ── Dedicated PiP setter — called directly from RN for zero-lag zoom ── */
     window.setPipMode = function(pip){
@@ -499,6 +589,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
 
         // Camera follow — dead-zone & duration are tighter in PiP for snappy heading tracking
         if(!userInteracted){
+          setFollowMode(true);
           var bearingDiff = heading - lastCameraHeading;
           while (bearingDiff > 180) bearingDiff -= 360;
           while (bearingDiff < -180) bearingDiff += 360;
@@ -524,6 +615,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         // Enter nav mode
         if(!isNavMode){
           isNavMode=true;
+          setFollowMode(!userInteracted);
           var ctrl=document.getElementById('mapCtrl');
           if(ctrl) ctrl.style.display='none';
           map.dragRotate.enable();
@@ -546,6 +638,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         if(isNavMode){
           isNavMode=false;
           userInteracted=false;
+          setFollowMode(true);
           var ctrl=document.getElementById('mapCtrl');
           if(ctrl) ctrl.style.display = isPipMode ? 'none' : 'flex';
           map.easeTo({pitch:0,bearing:0,duration:600});
@@ -566,8 +659,167 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         addCustomLayers();
         if(type==='roadmap') add3DBuildings();
         if(lastData) updateMap(lastData);
+        // Viz stream is self-managed via EventSource, no replay needed
       });
     }
+
+    /* ── Pathfinding visualisation (SSE inside WebView) ────── */
+    var vizES = null;
+    var vizProgressEl = null;
+    var vizStatusEl = null;
+    var vizState = { bboxes:[], dataPoints:{}, corridorPath:null, scoring:null, routeCandidates:[] };
+
+    function ensureVizUI(){
+      if(!vizProgressEl){
+        vizProgressEl = document.createElement('div');
+        vizProgressEl.className = 'viz-progress-bar';
+        vizProgressEl.style.width = '0%';
+        document.body.appendChild(vizProgressEl);
+      }
+      if(!vizStatusEl){
+        vizStatusEl = document.createElement('div');
+        vizStatusEl.className = 'viz-status';
+        vizStatusEl.style.opacity = '0';
+        document.body.appendChild(vizStatusEl);
+      }
+    }
+
+    function clearVisualization(){
+      var srcs=['viz-bbox','viz-corridor','viz-lights','viz-cctv','viz-crimes',
+        'viz-places','viz-transit','viz-roads','viz-scoring','viz-routes'];
+      srcs.forEach(function(s){ try{ if(map.getSource(s)) map.getSource(s).setData(emptyFC); }catch(e){} });
+      if(vizProgressEl){ vizProgressEl.style.width='0%'; vizProgressEl.style.opacity='0'; }
+      if(vizStatusEl){ vizStatusEl.style.opacity='0'; }
+      vizState = { bboxes:[], dataPoints:{}, corridorPath:null, scoring:null, routeCandidates:[] };
+    }
+
+    function vizSetProgress(pct, msg){
+      ensureVizUI();
+      if(pct!=null){ vizProgressEl.style.opacity='1'; vizProgressEl.style.width=Math.min(pct,100)+'%'; }
+      if(msg){ vizStatusEl.style.opacity='1'; vizStatusEl.textContent=msg; }
+    }
+
+    function vizSetPointSource(srcName, dpObj){
+      if(!dpObj || !dpObj.points || !styleReady) return;
+      var feats = dpObj.points.map(function(p){
+        return {type:'Feature',properties:{},geometry:{type:'Point',coordinates:[p[1],p[0]]}};
+      });
+      try{ map.getSource(srcName).setData({type:'FeatureCollection',features:feats}); }catch(e){}
+    }
+
+    window.stopVizStream = function(){
+      if(vizES){ try{vizES.close();}catch(e){} vizES=null; }
+    };
+
+    window.startVizStream = function(url){
+      window.stopVizStream();
+      if(!url) return;
+      clearVisualization();
+      ensureVizUI();
+      vizSetProgress(0,'Connecting...');
+
+      try { vizES = new EventSource(url); } catch(e) { vizSetProgress(0,'Stream error'); return; }
+
+      vizES.addEventListener('phase', function(e){
+        try{ var d=JSON.parse(e.data); vizSetProgress(d.pct, d.message); }catch(x){}
+      });
+
+      vizES.addEventListener('bbox', function(e){
+        try{
+          var d=JSON.parse(e.data);
+          vizState.bboxes.push(d);
+          vizSetProgress(d.pct, d.message);
+          var feats = vizState.bboxes.map(function(b){
+            var bb=b.bbox;
+            var colors={corridor_discovery:'#7C3AED',safety_search:'#3b82f6',recorrection:'#06b6d4'};
+            return {type:'Feature',properties:{color:colors[b.phase]||'#7C3AED'},
+              geometry:{type:'Polygon',coordinates:[[
+                [bb.west,bb.south],[bb.east,bb.south],[bb.east,bb.north],[bb.west,bb.north],[bb.west,bb.south]
+              ]]}};
+          });
+          if(styleReady) map.getSource('viz-bbox').setData({type:'FeatureCollection',features:feats});
+        }catch(x){}
+      });
+
+      vizES.addEventListener('data_points', function(e){
+        try{
+          var d=JSON.parse(e.data);
+          vizState.dataPoints[d.kind]=d;
+          vizSetProgress(d.pct, d.kind.replace('_',' ')+': '+d.count+' points');
+          if(!styleReady) return;
+          if(d.kind==='road_network' && d.points){
+            var rf=[];
+            for(var i=0;i<d.points.length-1;i+=2){
+              if(d.points[i]&&d.points[i+1]) rf.push({type:'Feature',properties:{},
+                geometry:{type:'LineString',coordinates:[[d.points[i][1],d.points[i][0]],[d.points[i+1][1],d.points[i+1][0]]]}});
+            }
+            map.getSource('viz-roads').setData({type:'FeatureCollection',features:rf});
+          } else {
+            var srcMap={lights:'viz-lights',cctv:'viz-cctv',crimes:'viz-crimes',places:'viz-places',transit:'viz-transit'};
+            if(srcMap[d.kind]) vizSetPointSource(srcMap[d.kind], d);
+          }
+        }catch(x){}
+      });
+
+      vizES.addEventListener('corridor_path', function(e){
+        try{
+          var d=JSON.parse(e.data);
+          vizState.corridorPath=d.path;
+          vizSetProgress(d.pct, d.message);
+          if(d.path && d.path.length>=2 && styleReady){
+            var cc=d.path.map(function(p){return [p[1],p[0]]});
+            map.getSource('viz-corridor').setData({type:'FeatureCollection',features:[
+              {type:'Feature',properties:{},geometry:{type:'LineString',coordinates:cc}}
+            ]});
+          }
+        }catch(x){}
+      });
+
+      vizES.addEventListener('scoring', function(e){
+        try{
+          var d=JSON.parse(e.data);
+          vizState.scoring=d;
+          vizSetProgress(d.pct, d.message);
+          if(d.sample && styleReady){
+            var sf=d.sample.map(function(edge){
+              var s=edge.safety||0;
+              var col=s>70?'#22c55e':s>40?'#facc15':'#ef4444';
+              return {type:'Feature',properties:{color:col},
+                geometry:{type:'LineString',coordinates:[[edge.from[1],edge.from[0]],[edge.to[1],edge.to[0]]]}};
+            });
+            map.getSource('viz-scoring').setData({type:'FeatureCollection',features:sf});
+          }
+        }catch(x){}
+      });
+
+      vizES.addEventListener('route_candidate', function(e){
+        try{
+          var d=JSON.parse(e.data);
+          vizState.routeCandidates.push(d);
+          vizSetProgress(d.pct, d.message);
+          if(styleReady){
+            var hues=['#7C3AED','#3b82f6','#06b6d4','#22c55e','#f59e0b'];
+            var rf=vizState.routeCandidates.map(function(r,i){
+              var coords=r.path.map(function(p){return [p[1],p[0]]});
+              return {type:'Feature',properties:{color:hues[i%hues.length],score:r.score},
+                geometry:{type:'LineString',coordinates:coords}};
+            });
+            map.getSource('viz-routes').setData({type:'FeatureCollection',features:rf});
+          }
+        }catch(x){}
+      });
+
+      vizES.addEventListener('done', function(){
+        vizSetProgress(100,'Routes ready!');
+        window.stopVizStream();
+        setTimeout(function(){ clearVisualization(); }, 3000);
+      });
+
+      vizES.onerror = function(){
+        window.stopVizStream();
+        setTimeout(function(){ clearVisualization(); }, 1500);
+      };
+    };
   <\/script>
 </body>
 </html>
@@ -593,9 +845,12 @@ export const RouteMap = ({
   maxDistanceKm,
   friendMarkers = [],
   isInPipMode = false,
+  recenterSignal = 0,
+  vizStreamUrl = null,
   onSelectRoute,
   onLongPress,
   onMapPress,
+  onNavigationFollowChange,
 }: RouteMapProps) => {
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
@@ -619,8 +874,8 @@ export const RouteMap = ({
 
   const mapTypeRef = useRef(mapType);
 
-  const callbacksRef = useRef({ onMapPress, onLongPress, onSelectRoute });
-  callbacksRef.current = { onMapPress, onLongPress, onSelectRoute };
+  const callbacksRef = useRef({ onMapPress, onLongPress, onSelectRoute, onNavigationFollowChange });
+  callbacksRef.current = { onMapPress, onLongPress, onSelectRoute, onNavigationFollowChange };
 
   // Serialize current props → a JS call the WebView can execute
   const pushUpdate = useCallback(() => {
@@ -735,6 +990,27 @@ export const RouteMap = ({
     );
   }, [isInPipMode]);
 
+  // ── Start/stop pathfinding visualisation SSE stream inside WebView ──
+  const prevVizUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!readyRef.current || !webViewRef.current) return;
+    if (vizStreamUrl === prevVizUrlRef.current) return;
+    prevVizUrlRef.current = vizStreamUrl;
+    if (vizStreamUrl) {
+      const js = `try{window.startVizStream(${JSON.stringify(vizStreamUrl)})}catch(e){}true;`;
+      webViewRef.current.injectJavaScript(js);
+    } else {
+      webViewRef.current.injectJavaScript('try{window.stopVizStream()}catch(e){}true;');
+    }
+  }, [vizStreamUrl]);
+
+  useEffect(() => {
+    if (!readyRef.current || !webViewRef.current) return;
+    webViewRef.current.injectJavaScript(
+      'try{window.recenterNavigation&&window.recenterNavigation()}catch(e){}true;'
+    );
+  }, [recenterSignal]);
+
   // Update map type when it changes
   useEffect(() => {
     if (!readyRef.current || !webViewRef.current) return;
@@ -763,6 +1039,9 @@ export const RouteMap = ({
             break;
           case 'selectRoute':
             cbs.onSelectRoute?.(msg.id);
+            break;
+          case 'navFollowChanged':
+            cbs.onNavigationFollowChange?.(Boolean(msg.isFollowing));
             break;
         }
       } catch {
