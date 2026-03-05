@@ -281,75 +281,68 @@ router.get('/', async (req, res) => {
  * Core computation — separated for request coalescing.
  */
 async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, straightLineKm, startTime, maxDistanceKm = DEFAULT_MAX_DISTANCE_KM) {
-  console.log(`[safe-routes] 🔍 Computing (corridor mode): ${oLatV},${oLngV} → ${dLatV},${dLngV} (${straightLineKm.toFixed(1)} km)`);
-
-  const getBestRouteOverall = (routes, graphEdges, graphWeights) => {
-    if (!routes || routes.length === 0) return 0;
-    const top = routes[0];
-    return routeSafetyBreakdown(graphEdges, top.edges, graphWeights).overall;
-  };
+  console.log(`[safe-routes] 🔍 Computing: ${oLatV},${oLngV} → ${dLatV},${dLngV} (${straightLineKm.toFixed(1)} km)`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 1 — Road-only fetch + shortest walking path (corridor discovery)
-  // Instead of buffering a straight line between origin and destination,
-  // we first find the actual shortest walking path, then buffer THAT.
-  // This gives a corridor-shaped search area that follows the road network.
+  // PHASE 1 — Corridor discovery (skip for short distances to save time)
+  // For routes < 1.5 km, a straight-line corridor works fine.
+  // For longer routes, discover the actual walking corridor shape.
   // ═══════════════════════════════════════════════════════════════════════
-  console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
-  const t0p1 = Date.now();
-
-  // Generous initial bbox for road network — roads are lightweight to fetch
-  const initialBufferM = Math.max(400, Math.min(800, straightLineDist * 0.25));
-  const initialBbox = bboxFromPoints(
-    [{ lat: oLatV, lng: oLngV }, { lat: dLatV, lng: dLngV }],
-    initialBufferM,
-  );
-  console.log(`[safe-routes] 📐 Phase 1: Road fetch with ${Math.round(initialBufferM)}m buffer`);
-
-  const roadData = await fetchRoadNetworkOnly(initialBbox);
-  const distGraph = buildDistanceOnlyGraph(roadData);
-
-  const distStart = findNearestNode(distGraph.nodeGrid, distGraph.adjacency, oLatV, oLngV);
-  const distEnd = findNearestNode(distGraph.nodeGrid, distGraph.adjacency, dLatV, dLngV);
-
   let shortestPath = null;
-  if (distStart && distEnd) {
-    shortestPath = aStarDistance(
-      distGraph.osmNodes, distGraph.edges, distGraph.adjacency,
-      distStart, distEnd, straightLineDist * 3,
+  let distGraph = null;
+  let phase1Time = 0;
+
+  const SKIP_PHASE1_DIST = 1500; // skip road-only fetch for < 1.5 km
+
+  if (straightLineDist >= SKIP_PHASE1_DIST) {
+    console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
+    const t0p1 = Date.now();
+    const initialBufferM = Math.max(300, Math.min(600, straightLineDist * 0.2));
+    const initialBbox = bboxFromPoints(
+      [{ lat: oLatV, lng: oLngV }, { lat: dLatV, lng: dLngV }],
+      initialBufferM,
     );
+
+    const roadData = await fetchRoadNetworkOnly(initialBbox);
+    distGraph = buildDistanceOnlyGraph(roadData);
+
+    const distStart = findNearestNode(distGraph.nodeGrid, distGraph.adjacency, oLatV, oLngV);
+    const distEnd = findNearestNode(distGraph.nodeGrid, distGraph.adjacency, dLatV, dLngV);
+
+    if (distStart && distEnd) {
+      shortestPath = aStarDistance(
+        distGraph.osmNodes, distGraph.edges, distGraph.adjacency,
+        distStart, distEnd, straightLineDist * 3,
+      );
+    }
+    phase1Time = Date.now() - t0p1;
+    console.log(`[safe-routes] ✅ Phase 1: ${phase1Time}ms — ${
+      shortestPath
+        ? shortestPath.path.length + ' nodes, ' + Math.round(shortestPath.totalDist) + 'm'
+        : 'fallback to straight-line corridor'
+    }`);
+  } else {
+    console.log(`[safe-routes] ⏩ Phase 1: skipped (${Math.round(straightLineDist)}m < ${SKIP_PHASE1_DIST}m)`);
   }
 
-  const phase1Time = Date.now() - t0p1;
-  console.log(`[safe-routes] ✅ Phase 1: ${phase1Time}ms — ${
-    shortestPath
-      ? shortestPath.path.length + ' nodes, ' + Math.round(shortestPath.totalDist) + 'm'
-      : 'fallback to straight-line corridor'
-  }`);
-
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 2 — Build corridor bbox from shortest-path waypoints
-  // The bounding box now follows the shape of the actual walking route,
-  // so curved/detoured paths get proper safety data coverage.
+  // PHASE 2 — Build corridor bbox + fetch safety data
+  // Smaller buffers to reduce data volume and processing time.
   // ═══════════════════════════════════════════════════════════════════════
-  const corridorBufferM = straightLineDist < 2000 ? 1000
-    : straightLineDist < 4000 ? 900
-    : straightLineDist < 10000 ? 800
-    : 700;
-
-  // const corridorBufferM = 1000
+  const corridorBufferM = straightLineDist < 1500 ? 400
+    : straightLineDist < 3000 ? 500
+    : straightLineDist < 6000 ? 450
+    : 400;
 
   let corridorPoints;
-  if (shortestPath) {
-    // Use every node from the shortest path as corridor waypoints
+  if (shortestPath && distGraph) {
     corridorPoints = [];
     for (const nodeId of shortestPath.path) {
       const n = distGraph.osmNodes.get(nodeId);
       if (n) corridorPoints.push({ lat: n.lat, lng: n.lng });
     }
   } else {
-    // Fallback: interpolate points along the straight line
-    const numSamples = Math.max(10, Math.ceil(straightLineKm * 5));
+    const numSamples = Math.max(8, Math.ceil(straightLineKm * 4));
     corridorPoints = [];
     for (let i = 0; i <= numSamples; i++) {
       const t = i / numSamples;
@@ -359,7 +352,6 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
       });
     }
   }
-  // Always include origin and destination
   corridorPoints.unshift({ lat: oLatV, lng: oLngV });
   corridorPoints.push({ lat: dLatV, lng: dLngV });
 
@@ -421,7 +413,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   const t2 = Date.now();
   const maxRouteDist = straightLineDist * 2.5;
   let rawRoutes = findKSafestRoutes(
-    osmNodes, edges, adjacency, startNode, endNode, maxRouteDist, 5,
+    osmNodes, edges, adjacency, startNode, endNode, maxRouteDist, 3,
   );
   let pathfindTime = Date.now() - t2;
   console.log(`[safe-routes] 🔎 A* found ${rawRoutes.length} routes in ${pathfindTime}ms`);
@@ -437,115 +429,8 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
     );
   }
 
-  // ── 9b. Recorrection pass — rerun once around found routes ─────────
-  // Time-budget: skip recorrection if the pipeline already spent too long,
-  // so we don't risk the Render/client request timing out.
-  const elapsedSoFar = Date.now() - startTime;
-  const RECORRECTION_TIME_BUDGET_MS = 40_000; // skip if >40s already elapsed
-
-  let recorrectionMs = 0;
-  if (elapsedSoFar > RECORRECTION_TIME_BUDGET_MS) {
-    console.log(`[safe-routes] ⏩ Skipping recorrection (${elapsedSoFar}ms elapsed, budget ${RECORRECTION_TIME_BUDGET_MS}ms)`);
-  } else {
-    console.log('[safe-routes] ♻️ Recorrection: second-pass corridor refinement...');
-  }
-  const tRefine = Date.now();
-
-  if (elapsedSoFar <= RECORRECTION_TIME_BUDGET_MS) {
-  try {
-    const refinePoints = [
-      { lat: oLatV, lng: oLngV },
-      { lat: dLatV, lng: dLngV },
-    ];
-
-    // Build corridor points from the first-pass routes (top 3), not just straight-line.
-    for (const route of rawRoutes.slice(0, 3)) {
-      for (const nodeId of route.path) {
-        const n = osmNodes.get(nodeId);
-        if (n) refinePoints.push({ lat: n.lat, lng: n.lng });
-      }
-    }
-
-    // Slightly wider than pass 1 to ensure surrounding alternatives are covered.
-    const recorrectionBufferM = Math.round(corridorBufferM * 1.25);
-    const refinedBbox = bboxFromPoints(refinePoints, recorrectionBufferM);
-
-    const tRefineData = Date.now();
-    const [refinedData, refinedCrimes] = await Promise.all([
-      fetchAllSafetyData(refinedBbox),
-      fetchCrimesInBbox(refinedBbox),
-    ]);
-    const refinedDataMs = Date.now() - tRefineData;
-
-    const tRefineGraph = Date.now();
-    const refinedGraph = buildGraph(
-      refinedData.roads,
-      refinedData.lights,
-      refinedData.cctv,
-      refinedData.places,
-      refinedData.transit,
-      refinedCrimes,
-      refinedBbox,
-    );
-    const refinedGraphMs = Date.now() - tRefineGraph;
-
-    const refinedStart = findNearestNode(refinedGraph.nodeGrid, refinedGraph.adjacency, oLatV, oLngV);
-    const refinedEnd = findNearestNode(refinedGraph.nodeGrid, refinedGraph.adjacency, dLatV, dLngV);
-
-    if (refinedStart && refinedEnd) {
-      const tRefinePath = Date.now();
-      const refinedRoutes = findKSafestRoutes(
-        refinedGraph.osmNodes,
-        refinedGraph.edges,
-        refinedGraph.adjacency,
-        refinedStart,
-        refinedEnd,
-        maxRouteDist,
-        5,
-      );
-      const refinedPathMs = Date.now() - tRefinePath;
-
-      if (refinedRoutes.length > 0) {
-        const currentBest = getBestRouteOverall(rawRoutes, edges, weights);
-        const refinedBest = getBestRouteOverall(refinedRoutes, refinedGraph.edges, refinedGraph.weights);
-
-        if (refinedBest >= currentBest) {
-          allData = refinedData;
-          crimes = refinedCrimes;
-          roadCount = allData.roads.elements.filter((e) => e.type === 'way').length;
-          nodeCount = allData.roads.elements.filter((e) => e.type === 'node').length;
-          ({
-            osmNodes,
-            edges,
-            adjacency,
-            nodeGrid,
-            weights,
-            cctvNodes,
-            transitNodes,
-            nodeDegree,
-          } = refinedGraph);
-          startNode = refinedStart;
-          endNode = refinedEnd;
-          rawRoutes = refinedRoutes;
-          dataTime += refinedDataMs;
-          graphTime += refinedGraphMs;
-          pathfindTime += refinedPathMs;
-          console.log(`[safe-routes] ✅ Recorrection kept (best safety ${(refinedBest * 100).toFixed(1)} ≥ ${(currentBest * 100).toFixed(1)})`);
-        } else {
-          console.log(`[safe-routes] ↩️ Recorrection skipped (best safety ${(refinedBest * 100).toFixed(1)} < ${(currentBest * 100).toFixed(1)})`);
-        }
-      } else {
-        console.log('[safe-routes] ↩️ Recorrection produced no routes, keeping first pass');
-      }
-    } else {
-      console.log('[safe-routes] ↩️ Recorrection could not snap endpoints in refined graph');
-    }
-  } catch (refineErr) {
-    console.warn('[safe-routes] ⚠️ Recorrection failed, keeping first pass:', refineErr?.message || refineErr);
-  } finally {
-    recorrectionMs = Date.now() - tRefine;
-  }
-  } // end time-budget if
+  // Recorrection removed — too expensive for 512MB/0.1CPU.
+  const recorrectionMs = 0;
 
   const lightNodes = [];
   for (const el of allData.lights.elements) {
@@ -828,279 +713,5 @@ function collectRoutePOIs(routePath, routeEdges, allEdges, osmNodes, cctvNodes, 
 
   return pois;
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// SSE STREAMING ENDPOINT — /api/safe-routes/stream
-// Sends real-time progress events with actual data for map visualisation.
-// ═══════════════════════════════════════════════════════════════════════════
-
-router.get('/stream', async (req, res) => {
-  // SSE headers
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-  });
-  res.flushHeaders();
-
-  const emit = (event, data) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    // Flush immediately if possible (some environments buffer)
-    if (typeof res.flush === 'function') res.flush();
-  };
-
-  try {
-    // Validate
-    const oLat = validateLatitude(req.query.origin_lat);
-    const oLng = validateLongitude(req.query.origin_lng);
-    const dLat = validateLatitude(req.query.dest_lat);
-    const dLng = validateLongitude(req.query.dest_lng);
-    if (!oLat.valid || !oLng.valid || !dLat.valid || !dLng.valid) {
-      emit('error', { message: 'Invalid coordinates' });
-      res.end();
-      return;
-    }
-
-    const oLatV = oLat.value, oLngV = oLng.value, dLatV = dLat.value, dLngV = dLng.value;
-    const straightLineDist = haversine(oLatV, oLngV, dLatV, dLngV);
-    const straightLineKm = straightLineDist / 1000;
-
-    // Emit start
-    emit('phase', { phase: 'start', message: 'Finding walking corridor…', pct: 0 });
-
-    // ── Phase 1: Road-only corridor discovery ──
-    const initialBufferM = Math.max(400, Math.min(800, straightLineDist * 0.25));
-    const initialBbox = bboxFromPoints(
-      [{ lat: oLatV, lng: oLngV }, { lat: dLatV, lng: dLngV }],
-      initialBufferM,
-    );
-
-    emit('bbox', {
-      phase: 'corridor_discovery',
-      bbox: initialBbox,
-      bufferM: Math.round(initialBufferM),
-      message: `Searching for roads (${Math.round(initialBufferM)}m buffer)`,
-      pct: 5,
-    });
-
-    const roadData = await fetchRoadNetworkOnly(initialBbox);
-    const distGraph = buildDistanceOnlyGraph(roadData);
-
-    // Emit road network points sampled from graph
-    const roadNetworkPoints = [];
-    for (const [, node] of distGraph.osmNodes) {
-      roadNetworkPoints.push([node.lat, node.lng]);
-    }
-    emit('data_points', {
-      kind: 'road_network',
-      count: roadNetworkPoints.length,
-      // Sample up to 500 for efficient wire transfer
-      points: roadNetworkPoints.length > 500
-        ? roadNetworkPoints.filter((_, i) => i % Math.ceil(roadNetworkPoints.length / 500) === 0)
-        : roadNetworkPoints,
-      pct: 15,
-    });
-
-    const distStart = findNearestNode(distGraph.nodeGrid, distGraph.adjacency, oLatV, oLngV);
-    const distEnd = findNearestNode(distGraph.nodeGrid, distGraph.adjacency, dLatV, dLngV);
-
-    let shortestPath = null;
-    if (distStart && distEnd) {
-      shortestPath = aStarDistance(
-        distGraph.osmNodes, distGraph.edges, distGraph.adjacency,
-        distStart, distEnd, straightLineDist * 3,
-      );
-    }
-
-    // Emit corridor path
-    if (shortestPath) {
-      const corridorCoords = [];
-      for (const nodeId of shortestPath.path) {
-        const n = distGraph.osmNodes.get(nodeId);
-        if (n) corridorCoords.push([n.lat, n.lng]);
-      }
-      emit('corridor_path', {
-        path: corridorCoords,
-        totalDist: Math.round(shortestPath.totalDist),
-        nodeCount: shortestPath.path.length,
-        message: `Walking corridor: ${Math.round(shortestPath.totalDist)}m, ${shortestPath.path.length} nodes`,
-        pct: 20,
-      });
-    }
-
-    emit('phase', { phase: 'corridor_done', message: 'Corridor found — loading safety data…', pct: 25 });
-
-    // ── Phase 2: Corridor bbox + safety data ──
-    const corridorBufferM = 2000;
-    let corridorPoints;
-    if (shortestPath) {
-      corridorPoints = [];
-      for (const nodeId of shortestPath.path) {
-        const n = distGraph.osmNodes.get(nodeId);
-        if (n) corridorPoints.push({ lat: n.lat, lng: n.lng });
-      }
-    } else {
-      const numSamples = Math.max(10, Math.ceil(straightLineKm * 5));
-      corridorPoints = [];
-      for (let i = 0; i <= numSamples; i++) {
-        const t = i / numSamples;
-        corridorPoints.push({ lat: oLatV + (dLatV - oLatV) * t, lng: oLngV + (dLngV - oLngV) * t });
-      }
-    }
-    corridorPoints.unshift({ lat: oLatV, lng: oLngV });
-    corridorPoints.push({ lat: dLatV, lng: dLngV });
-
-    const bbox = bboxFromPoints(corridorPoints, corridorBufferM);
-
-    emit('bbox', {
-      phase: 'safety_search',
-      bbox,
-      bufferM: corridorBufferM,
-      corridorPointCount: corridorPoints.length,
-      message: `Safety search area: ${corridorBufferM}m buffer around ${corridorPoints.length} waypoints`,
-      pct: 30,
-    });
-
-    // Fetch safety data
-    const [allData, crimes] = await Promise.all([
-      fetchAllSafetyData(bbox),
-      fetchCrimesInBbox(bbox),
-    ]);
-
-    // Emit lights
-    const lightPts = [];
-    for (const el of allData.lights.elements) {
-      if (el.type === 'node' && el.tags?.highway === 'street_lamp' && el.lat && el.lon) {
-        lightPts.push([el.lat, el.lon]);
-      }
-    }
-    emit('data_points', { kind: 'lights', count: lightPts.length, points: lightPts.slice(0, 800), pct: 40 });
-
-    // Emit CCTV
-    const cctvPts = [];
-    for (const el of allData.cctv.elements) {
-      if (el.type === 'node' && el.lat && el.lon) cctvPts.push([el.lat, el.lon]);
-    }
-    emit('data_points', { kind: 'cctv', count: cctvPts.length, points: cctvPts, pct: 45 });
-
-    // Emit crimes
-    const crimePts = crimes.slice(0, 500).map(c => [c.lat, c.lng, c.severity]);
-    emit('data_points', { kind: 'crimes', count: crimes.length, points: crimePts, pct: 50 });
-
-    // Emit places
-    const placePts = [];
-    for (const el of allData.places.elements) {
-      const lat = el.lat || el.center?.lat;
-      const lng = el.lon || el.center?.lon;
-      if (lat && lng) placePts.push([lat, lng]);
-    }
-    emit('data_points', { kind: 'places', count: placePts.length, points: placePts.slice(0, 400), pct: 55 });
-
-    // Emit transit
-    const transitPts = [];
-    for (const el of allData.transit.elements) {
-      if (el.type === 'node' && el.lat && el.lon) transitPts.push([el.lat, el.lon]);
-    }
-    emit('data_points', { kind: 'transit', count: transitPts.length, points: transitPts, pct: 58 });
-
-    emit('phase', { phase: 'building_graph', message: 'Building safety graph…', pct: 60 });
-
-    // Build graph
-    const { osmNodes, edges, adjacency, nodeGrid, weights, cctvNodes, transitNodes, nodeDegree } = buildGraph(
-      allData.roads, allData.lights, allData.cctv, allData.places, allData.transit,
-      crimes, bbox,
-    );
-
-    // Emit edge scoring sample
-    const scoringSample = [];
-    const sampleStep = Math.max(1, Math.floor(edges.length / 200));
-    for (let i = 0; i < edges.length; i += sampleStep) {
-      const e = edges[i];
-      const nA = osmNodes.get(e.from);
-      const nB = osmNodes.get(e.to);
-      if (nA && nB) {
-        scoringSample.push({
-          from: [nA.lat, nA.lng],
-          to: [nB.lat, nB.lng],
-          safety: Math.round(e.safetyScore * 100),
-          light: Math.round((e.lightScore || 0) * 100),
-          crime: Math.round((e.crimeScore || 0) * 100),
-        });
-      }
-    }
-    emit('scoring', {
-      totalEdges: edges.length,
-      totalNodes: osmNodes.size,
-      sample: scoringSample,
-      message: `Scored ${edges.length} road segments across ${osmNodes.size} intersections`,
-      pct: 72,
-    });
-
-    const startNode = findNearestNode(nodeGrid, adjacency, oLatV, oLngV);
-    const endNode = findNearestNode(nodeGrid, adjacency, dLatV, dLngV);
-
-    if (!startNode || !endNode) {
-      emit('error', { message: 'No walkable road near origin or destination' });
-      res.end();
-      return;
-    }
-
-    emit('phase', { phase: 'pathfinding', message: 'Running A* pathfinding…', pct: 75 });
-
-    const maxRouteDist = straightLineDist * 2.5;
-    const rawRoutes = findKSafestRoutes(
-      osmNodes, edges, adjacency, startNode, endNode, maxRouteDist, 5,
-    );
-
-    // Emit candidate routes as they're found
-    for (let ri = 0; ri < rawRoutes.length; ri++) {
-      const route = rawRoutes[ri];
-      const coords = [];
-      for (const nodeId of route.path) {
-        const n = osmNodes.get(nodeId);
-        if (n) coords.push([n.lat, n.lng]);
-      }
-      const breakdown = routeSafetyBreakdown(edges, route.edges, weights);
-      emit('route_candidate', {
-        index: ri,
-        path: coords,
-        score: Math.round(breakdown.overall * 100),
-        totalDist: Math.round(route.totalDist),
-        message: `Route ${ri + 1}: safety ${Math.round(breakdown.overall * 100)}/100, ${Math.round(route.totalDist)}m`,
-        pct: 80 + Math.round((ri / Math.max(1, rawRoutes.length - 1)) * 10),
-      });
-    }
-
-    // Recorrection pass
-    emit('phase', { phase: 'recorrection', message: 'Verifying surrounding area…', pct: 92 });
-
-    // Build recorrection bbox from found routes
-    const refinePoints = [{ lat: oLatV, lng: oLngV }, { lat: dLatV, lng: dLngV }];
-    for (const route of rawRoutes.slice(0, 3)) {
-      for (const nodeId of route.path) {
-        const n = osmNodes.get(nodeId);
-        if (n) refinePoints.push({ lat: n.lat, lng: n.lng });
-      }
-    }
-    const recorrectionBufferM = Math.round(corridorBufferM * 1.25);
-    const refinedBbox = bboxFromPoints(refinePoints, recorrectionBufferM);
-
-    emit('bbox', {
-      phase: 'recorrection',
-      bbox: refinedBbox,
-      bufferM: recorrectionBufferM,
-      message: `Rechecking ${recorrectionBufferM}m around routes`,
-      pct: 94,
-    });
-
-    emit('phase', { phase: 'complete', message: 'Routes ready!', pct: 100 });
-    emit('done', { routeCount: rawRoutes.length });
-  } catch (err) {
-    emit('error', { message: err?.message || 'Computation failed' });
-  } finally {
-    res.end();
-  }
-});
 
 module.exports = router;

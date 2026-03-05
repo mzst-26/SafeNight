@@ -90,7 +90,7 @@ function getWeights(hour) {
 // ── Coverage maps ───────────────────────────────────────────────────────────
 // Pre-compute density grids so edge scoring is O(1) per edge.
 // Cell size ~25m for fine granularity.
-const COVERAGE_CELL_DEG = 0.00025; // ~28m
+const COVERAGE_CELL_DEG = 0.0005; // ~56m – halved resolution to save memory/CPU
 
 /**
  * Build a lighting coverage map using inverse-distance-squared weighting.

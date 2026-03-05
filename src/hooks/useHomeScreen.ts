@@ -18,7 +18,6 @@ import { useCurrentLocation } from '@/src/hooks/useCurrentLocation';
 import { useNavigation } from '@/src/hooks/useNavigation';
 import { useOnboarding } from '@/src/hooks/useOnboarding';
 import { useSafeRoutes } from '@/src/hooks/useSafeRoutes';
-import { env } from '@/src/config/env';
 import { reverseGeocode } from '@/src/services/openStreetMap';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
@@ -105,14 +104,15 @@ export function useHomeScreen() {
   const directionsError = safeRoutesError;
   const bestRouteId = safestRoute?.id ?? null;
 
-  // ── Pathfinding visualisation (SSE stream URL for WebView) ──
+  // ── Pathfinding visualisation (client-side coords for WebView animation) ──
   const vizStreamUrl = useMemo(() => {
     if (directionsStatus !== 'loading' || !effectiveOrigin || !routingDestination) return null;
-    return (
-      `${env.safetyApiUrl}/api/safe-routes/stream?` +
-      `origin_lat=${effectiveOrigin.latitude}&origin_lng=${effectiveOrigin.longitude}` +
-      `&dest_lat=${routingDestination.latitude}&dest_lng=${routingDestination.longitude}`
-    );
+    return JSON.stringify({
+      oLat: effectiveOrigin.latitude,
+      oLng: effectiveOrigin.longitude,
+      dLat: routingDestination.latitude,
+      dLng: routingDestination.longitude,
+    });
   }, [directionsStatus, effectiveOrigin, routingDestination]);
 
   // ── Route scores ──

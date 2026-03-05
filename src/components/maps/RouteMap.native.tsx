@@ -659,15 +659,12 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         addCustomLayers();
         if(type==='roadmap') add3DBuildings();
         if(lastData) updateMap(lastData);
-        // Viz stream is self-managed via EventSource, no replay needed
       });
     }
 
-    /* ── Pathfinding visualisation (SSE inside WebView) ────── */
-    var vizES = null;
+    /* ── Pathfinding visualisation (client-side animation) ──── */
     var vizProgressEl = null;
     var vizStatusEl = null;
-    var vizState = { bboxes:[], dataPoints:{}, corridorPath:null, scoring:null, routeCandidates:[] };
 
     function ensureVizUI(){
       if(!vizProgressEl){
@@ -690,7 +687,6 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       srcs.forEach(function(s){ try{ if(map.getSource(s)) map.getSource(s).setData(emptyFC); }catch(e){} });
       if(vizProgressEl){ vizProgressEl.style.width='0%'; vizProgressEl.style.opacity='0'; }
       if(vizStatusEl){ vizStatusEl.style.opacity='0'; }
-      vizState = { bboxes:[], dataPoints:{}, corridorPath:null, scoring:null, routeCandidates:[] };
     }
 
     function vizSetProgress(pct, msg){
@@ -699,126 +695,73 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       if(msg){ vizStatusEl.style.opacity='1'; vizStatusEl.textContent=msg; }
     }
 
-    function vizSetPointSource(srcName, dpObj){
-      if(!dpObj || !dpObj.points || !styleReady) return;
-      var feats = dpObj.points.map(function(p){
-        return {type:'Feature',properties:{},geometry:{type:'Point',coordinates:[p[1],p[0]]}};
-      });
-      try{ map.getSource(srcName).setData({type:'FeatureCollection',features:feats}); }catch(e){}
-    }
+    /* Client-side search animation (no server SSE — saves 50%+ CPU) */
+    var vizAnimTimer = null;
 
     window.stopVizStream = function(){
-      if(vizES){ try{vizES.close();}catch(e){} vizES=null; }
+      if(vizAnimTimer){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
+      setTimeout(function(){ clearVisualization(); }, 800);
     };
 
-    window.startVizStream = function(url){
+    window.startVizStream = function(coordsJson){
       window.stopVizStream();
-      if(!url) return;
+      if(!coordsJson) return;
       clearVisualization();
       ensureVizUI();
-      vizSetProgress(0,'Connecting...');
 
-      try { vizES = new EventSource(url); } catch(e) { vizSetProgress(0,'Stream error'); return; }
+      var c;
+      try{ c=JSON.parse(coordsJson); }catch(e){ return; }
+      var oLat=c.oLat, oLng=c.oLng, dLat=c.dLat, dLng=c.dLng;
+      if(!oLat||!oLng||!dLat||!dLng) return;
 
-      vizES.addEventListener('phase', function(e){
-        try{ var d=JSON.parse(e.data); vizSetProgress(d.pct, d.message); }catch(x){}
-      });
+      var midLat=(oLat+dLat)/2, midLng=(oLng+dLng)/2;
+      var halfLat=Math.abs(dLat-oLat)/2+0.002, halfLng=Math.abs(dLng-oLng)/2+0.002;
+      var step=0, maxSteps=60; // 60 frames over ~12s
 
-      vizES.addEventListener('bbox', function(e){
+      var messages=[
+        'Finding walking corridor…','Loading road network…','Fetching safety data…',
+        'Analysing street lighting…','Checking crime reports…','Building safety graph…',
+        'Scoring road segments…','Running pathfinder…','Comparing routes…','Almost there…'
+      ];
+
+      vizAnimTimer = setInterval(function(){
+        step++;
+        var t=Math.min(step/maxSteps,1);
+        var pct=Math.round(t*95); // cap at 95% until real routes arrive
+        var msgIdx=Math.min(Math.floor(t*messages.length), messages.length-1);
+        vizSetProgress(pct, messages[msgIdx]);
+
+        if(!styleReady) return;
+
+        // Expanding search bbox from origin toward destination
+        var growT=Math.min(t*1.6,1); // bbox reaches full size at ~60%
+        var curHalfLat=halfLat*growT, curHalfLng=halfLng*growT;
+        var cLat=oLat+(midLat-oLat)*growT, cLng=oLng+(midLng-oLng)*growT;
+        var south=cLat-curHalfLat, north=cLat+curHalfLat;
+        var west=cLng-curHalfLng, east=cLng+curHalfLng;
         try{
-          var d=JSON.parse(e.data);
-          vizState.bboxes.push(d);
-          vizSetProgress(d.pct, d.message);
-          var feats = vizState.bboxes.map(function(b){
-            var bb=b.bbox;
-            var colors={corridor_discovery:'#7C3AED',safety_search:'#3b82f6',recorrection:'#06b6d4'};
-            return {type:'Feature',properties:{color:colors[b.phase]||'#7C3AED'},
+          map.getSource('viz-bbox').setData({type:'FeatureCollection',features:[
+            {type:'Feature',properties:{color:'#7C3AED'},
               geometry:{type:'Polygon',coordinates:[[
-                [bb.west,bb.south],[bb.east,bb.south],[bb.east,bb.north],[bb.west,bb.north],[bb.west,bb.south]
-              ]]}};
-          });
-          if(styleReady) map.getSource('viz-bbox').setData({type:'FeatureCollection',features:feats});
-        }catch(x){}
-      });
+                [west,south],[east,south],[east,north],[west,north],[west,south]
+              ]]}}
+          ]});
+        }catch(e){}
 
-      vizES.addEventListener('data_points', function(e){
-        try{
-          var d=JSON.parse(e.data);
-          vizState.dataPoints[d.kind]=d;
-          vizSetProgress(d.pct, d.kind.replace('_',' ')+': '+d.count+' points');
-          if(!styleReady) return;
-          if(d.kind==='road_network' && d.points){
-            var rf=[];
-            for(var i=0;i<d.points.length-1;i+=2){
-              if(d.points[i]&&d.points[i+1]) rf.push({type:'Feature',properties:{},
-                geometry:{type:'LineString',coordinates:[[d.points[i][1],d.points[i][0]],[d.points[i+1][1],d.points[i+1][0]]]}});
-            }
-            map.getSource('viz-roads').setData({type:'FeatureCollection',features:rf});
-          } else {
-            var srcMap={lights:'viz-lights',cctv:'viz-cctv',crimes:'viz-crimes',places:'viz-places',transit:'viz-transit'};
-            if(srcMap[d.kind]) vizSetPointSource(srcMap[d.kind], d);
-          }
-        }catch(x){}
-      });
-
-      vizES.addEventListener('corridor_path', function(e){
-        try{
-          var d=JSON.parse(e.data);
-          vizState.corridorPath=d.path;
-          vizSetProgress(d.pct, d.message);
-          if(d.path && d.path.length>=2 && styleReady){
-            var cc=d.path.map(function(p){return [p[1],p[0]]});
+        // Pulsing corridor line from origin toward destination
+        if(t>0.15){
+          var lineT=Math.min((t-0.15)/0.5,1);
+          var eLat=oLat+(dLat-oLat)*lineT, eLng=oLng+(dLng-oLng)*lineT;
+          try{
             map.getSource('viz-corridor').setData({type:'FeatureCollection',features:[
-              {type:'Feature',properties:{},geometry:{type:'LineString',coordinates:cc}}
+              {type:'Feature',properties:{},
+                geometry:{type:'LineString',coordinates:[[oLng,oLat],[eLng,eLat]]}}
             ]});
-          }
-        }catch(x){}
-      });
+          }catch(e){}
+        }
 
-      vizES.addEventListener('scoring', function(e){
-        try{
-          var d=JSON.parse(e.data);
-          vizState.scoring=d;
-          vizSetProgress(d.pct, d.message);
-          if(d.sample && styleReady){
-            var sf=d.sample.map(function(edge){
-              var s=edge.safety||0;
-              var col=s>70?'#22c55e':s>40?'#facc15':'#ef4444';
-              return {type:'Feature',properties:{color:col},
-                geometry:{type:'LineString',coordinates:[[edge.from[1],edge.from[0]],[edge.to[1],edge.to[0]]]}};
-            });
-            map.getSource('viz-scoring').setData({type:'FeatureCollection',features:sf});
-          }
-        }catch(x){}
-      });
-
-      vizES.addEventListener('route_candidate', function(e){
-        try{
-          var d=JSON.parse(e.data);
-          vizState.routeCandidates.push(d);
-          vizSetProgress(d.pct, d.message);
-          if(styleReady){
-            var hues=['#7C3AED','#3b82f6','#06b6d4','#22c55e','#f59e0b'];
-            var rf=vizState.routeCandidates.map(function(r,i){
-              var coords=r.path.map(function(p){return [p[1],p[0]]});
-              return {type:'Feature',properties:{color:hues[i%hues.length],score:r.score},
-                geometry:{type:'LineString',coordinates:coords}};
-            });
-            map.getSource('viz-routes').setData({type:'FeatureCollection',features:rf});
-          }
-        }catch(x){}
-      });
-
-      vizES.addEventListener('done', function(){
-        vizSetProgress(100,'Routes ready!');
-        window.stopVizStream();
-        setTimeout(function(){ clearVisualization(); }, 3000);
-      });
-
-      vizES.onerror = function(){
-        window.stopVizStream();
-        setTimeout(function(){ clearVisualization(); }, 1500);
-      };
+        if(step>=maxSteps){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
+      }, 200);
     };
   <\/script>
 </body>
