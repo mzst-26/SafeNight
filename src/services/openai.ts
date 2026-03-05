@@ -7,6 +7,7 @@
  */
 
 import { env } from '@/src/config/env';
+import { subscriptionApi } from '@/src/services/userApi';
 import { emitLimitReached, LimitError, parseLimitResponse } from '@/src/types/limitError';
 
 /** Safety factor breakdown scores (0-100 each) */
@@ -63,11 +64,14 @@ export interface AIExplanationInput {
  * The backend also caches explanations for 1 hour.
  */
 export const fetchAIExplanation = async (input: AIExplanationInput): Promise<string> => {
+  await subscriptionApi.ensureFeatureAllowed('ai_explanation');
+
   const apiBaseUrl = env.apiBaseUrl;
   if (!apiBaseUrl) {
     throw new Error('Missing EXPO_PUBLIC_API_BASE_URL. Set it in your .env file.');
   }
 
+  const startedAt = Date.now();
   console.log(`[OpenAI] 🌐 Backend call → ${apiBaseUrl}/api/explain-route`);
 
   const response = await fetch(`${apiBaseUrl}/api/explain-route`, {
@@ -87,6 +91,7 @@ export const fetchAIExplanation = async (input: AIExplanationInput): Promise<str
         const parsed = JSON.parse(body);
         const limitInfo = parseLimitResponse(parsed);
         if (limitInfo) {
+          await subscriptionApi.syncFromLimitInfo(limitInfo);
           emitLimitReached(limitInfo);
           throw new LimitError(limitInfo);
         }
@@ -100,11 +105,15 @@ export const fetchAIExplanation = async (input: AIExplanationInput): Promise<str
   const data = await response.json();
   const explanation: string | undefined = data?.explanation;
   const wasCached: boolean = data?.cached ?? false;
-  console.log(`[OpenAI] 📦 Response: ${explanation ? explanation.length + ' chars' : 'empty'}${wasCached ? ' (cached)' : ''}`);
+  console.log(
+    `[OpenAI] 📦 Response: ${explanation ? explanation.length + ' chars' : 'empty'}${wasCached ? ' (cached)' : ''} in ${Date.now() - startedAt}ms`
+  );
 
   if (!explanation) {
     throw new Error('No explanation from backend');
   }
+
+  await subscriptionApi.consume('ai_explanation');
 
   return explanation.trim();
 };

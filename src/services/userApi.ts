@@ -22,6 +22,30 @@ const AUTH_KEYS = {
   expiresAt: 'safenight_expires_at',
 };
 
+const SUBSCRIPTION_CACHE_KEY = 'safenight_subscription_limits_cache_v1';
+const SUBSCRIPTION_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+
+type CachedFeature = {
+  description?: string;
+  limit: number;
+  per: string | null;
+  enabled: boolean;
+  unlimited: boolean;
+  used: number;
+  remaining: number;
+  resets_at?: string | null;
+};
+
+type SubscriptionSnapshot = {
+  userId: string | null;
+  tier: string;
+  features: Record<string, CachedFeature>;
+  hydratedAt: number;
+};
+
+let subscriptionSnapshotMemory: SubscriptionSnapshot | null = null;
+let subscriptionHydrationPromise: Promise<SubscriptionSnapshot | null> | null = null;
+
 // ─── Session event system ────────────────────────────────────────────────────
 
 export type SessionEvent = 'expired' | 'refreshed' | 'logged_in' | 'logged_out';
@@ -75,7 +99,92 @@ async function storeSession(session: {
 }
 
 async function clearSession(): Promise<void> {
-  await AsyncStorage.multiRemove(Object.values(AUTH_KEYS));
+  await AsyncStorage.multiRemove([...Object.values(AUTH_KEYS), SUBSCRIPTION_CACHE_KEY]);
+  subscriptionSnapshotMemory = null;
+  subscriptionHydrationPromise = null;
+}
+
+async function loadSubscriptionSnapshotFromStorage(): Promise<SubscriptionSnapshot | null> {
+  if (subscriptionSnapshotMemory) return subscriptionSnapshotMemory;
+  const raw = await AsyncStorage.getItem(SUBSCRIPTION_CACHE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as SubscriptionSnapshot;
+    if (!parsed?.tier || !parsed?.features) return null;
+    const normalized: SubscriptionSnapshot = {
+      userId: parsed.userId ?? null,
+      tier: parsed.tier,
+      features: parsed.features,
+      hydratedAt: parsed.hydratedAt ?? 0,
+    };
+    subscriptionSnapshotMemory = normalized;
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+async function persistSubscriptionSnapshot(snapshot: SubscriptionSnapshot): Promise<void> {
+  subscriptionSnapshotMemory = snapshot;
+  await AsyncStorage.setItem(SUBSCRIPTION_CACHE_KEY, JSON.stringify(snapshot));
+}
+
+function toFeatureCheckResult(feature: string, tier: string, feat: CachedFeature): FeatureCheckResult {
+  return {
+    feature,
+    tier,
+    allowed: feat.unlimited || feat.remaining > 0,
+    limit: feat.limit,
+    used: feat.used,
+    remaining: feat.remaining,
+    unlimited: feat.unlimited,
+    per: feat.per,
+    resets_at: feat.resets_at ?? null,
+    description: feat.description,
+    reason: feat.enabled ? undefined : 'upgrade_required',
+  };
+}
+
+async function consumeCachedFeatureUsage(feature: string, amount = 1): Promise<void> {
+  if (amount <= 0) return;
+  const snapshot = subscriptionSnapshotMemory ?? (await loadSubscriptionSnapshotFromStorage());
+  if (!snapshot) return;
+  const feat = snapshot.features[feature];
+  if (!feat || feat.unlimited) return;
+  const nextUsed = Math.max(0, feat.used + amount);
+  const nextRemaining = Math.max(0, feat.limit - nextUsed);
+  snapshot.features[feature] = {
+    ...feat,
+    used: nextUsed,
+    remaining: nextRemaining,
+  };
+  await persistSubscriptionSnapshot({ ...snapshot, hydratedAt: Date.now() });
+}
+
+async function syncCachedFeatureFromLimit(
+  feature: string,
+  tier: string,
+  used: number,
+  remaining: number,
+  limit: number,
+  per?: string | null,
+  resetsAt?: string | null,
+): Promise<void> {
+  const snapshot = subscriptionSnapshotMemory ?? (await loadSubscriptionSnapshotFromStorage());
+  if (!snapshot) return;
+  const current = snapshot.features[feature];
+  snapshot.tier = tier || snapshot.tier;
+  snapshot.features[feature] = {
+    description: current?.description,
+    enabled: limit !== 0,
+    unlimited: limit === -1,
+    per: per ?? current?.per ?? null,
+    limit,
+    used,
+    remaining,
+    resets_at: resetsAt ?? current?.resets_at ?? null,
+  };
+  await persistSubscriptionSnapshot({ ...snapshot, hydratedAt: Date.now() });
 }
 
 /** Returns epoch ms when the current access token expires, or null */
@@ -556,6 +665,7 @@ export const reportsApi = {
     description: string;
     metadata?: Record<string, unknown> | null;
   }): Promise<SafetyReport> {
+    await subscriptionApi.ensureFeatureAllowed('safety_reports');
     const res = await authFetch('/api/reports', {
       method: 'POST',
       body: JSON.stringify(report),
@@ -566,13 +676,16 @@ export const reportsApi = {
       if (res.status === 403) {
         const limitInfo = parseLimitResponse(err);
         if (limitInfo) {
+          await subscriptionApi.syncFromLimitInfo(limitInfo);
           emitLimitReached(limitInfo);
           throw new LimitError(limitInfo);
         }
       }
       throw new Error(err.error || 'Failed to submit report');
     }
-    return res.json();
+    const created = await res.json();
+    await subscriptionApi.consume('safety_reports');
+    return created;
   },
 
   /** Get all unresolved reports (public, no auth needed) */
@@ -734,6 +847,7 @@ export const contactsApi = {
 
   /** Send a contact request (after scanning QR) */
   async invite(contactId: string, nickname?: string): Promise<void> {
+    await subscriptionApi.ensureFeatureAllowed('emergency_contacts');
     const res = await authFetch('/api/contacts/invite', {
       method: 'POST',
       body: JSON.stringify({ contact_id: contactId, nickname: nickname || '' }),
@@ -744,6 +858,7 @@ export const contactsApi = {
       if (res.status === 403) {
         const limitInfo = parseLimitResponse(err);
         if (limitInfo) {
+          await subscriptionApi.syncFromLimitInfo(limitInfo);
           emitLimitReached(limitInfo);
           throw new LimitError(limitInfo);
         }
@@ -832,6 +947,7 @@ export const liveApi = {
     /** Planned route polyline — shown to contacts on the map */
     route_path?: Array<{ lat: number; lng: number }>;
   }): Promise<LiveSession> {
+    await subscriptionApi.ensureFeatureAllowed('live_sessions');
     const res = await authFetch('/api/live/start', {
       method: 'POST',
       body: JSON.stringify(params),
@@ -842,13 +958,16 @@ export const liveApi = {
       if (res.status === 403) {
         const limitInfo = parseLimitResponse(err);
         if (limitInfo) {
+          await subscriptionApi.syncFromLimitInfo(limitInfo);
           emitLimitReached(limitInfo);
           throw new LimitError(limitInfo);
         }
       }
       throw new Error(err.error || 'Failed to start live session');
     }
-    return res.json();
+    const session = await res.json();
+    await subscriptionApi.consume('live_sessions');
+    return session;
   },
 
   /** Update location during active session */
@@ -943,17 +1062,187 @@ export interface FeatureCheckResult {
 }
 
 export const subscriptionApi = {
+  async hydrateCache(force = false): Promise<SubscriptionSnapshot | null> {
+    const currentUserId = await AsyncStorage.getItem(AUTH_KEYS.userId);
+
+    if (!force) {
+      const cached = subscriptionSnapshotMemory ?? (await loadSubscriptionSnapshotFromStorage());
+      if (cached && (!currentUserId || !cached.userId || cached.userId === currentUserId)) {
+        return cached;
+      }
+      await this.clearCache();
+    }
+
+    if (subscriptionHydrationPromise) return subscriptionHydrationPromise;
+
+    subscriptionHydrationPromise = (async () => {
+      const token = await getAccessToken();
+      if (!token) return null;
+
+      const res = await authFetch('/api/subscriptions/my-tier');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to fetch subscription limits' }));
+        throw new Error(err.error || 'Failed to fetch subscription limits');
+      }
+
+      const data = await res.json();
+      const features = (data?.features || {}) as Record<string, CachedFeature>;
+      const snapshot: SubscriptionSnapshot = {
+        userId: currentUserId,
+        tier: data?.tier || 'free',
+        features,
+        hydratedAt: Date.now(),
+      };
+      await persistSubscriptionSnapshot(snapshot);
+      return snapshot;
+    })();
+
+    try {
+      return await subscriptionHydrationPromise;
+    } finally {
+      subscriptionHydrationPromise = null;
+    }
+  },
+
+  async clearCache(): Promise<void> {
+    subscriptionSnapshotMemory = null;
+    subscriptionHydrationPromise = null;
+    await AsyncStorage.removeItem(SUBSCRIPTION_CACHE_KEY);
+  },
+
+  async getCachedSnapshot(): Promise<SubscriptionSnapshot | null> {
+    return subscriptionSnapshotMemory ?? loadSubscriptionSnapshotFromStorage();
+  },
+
+  async refreshOnAppOpen(expectedUserId?: string | null): Promise<SubscriptionSnapshot | null> {
+    const token = await getAccessToken();
+    if (!token) return null;
+
+    const currentUserId = expectedUserId ?? (await AsyncStorage.getItem(AUTH_KEYS.userId));
+    const cached = subscriptionSnapshotMemory ?? (await loadSubscriptionSnapshotFromStorage());
+
+    if (cached?.userId && currentUserId && cached.userId !== currentUserId) {
+      await this.clearCache();
+    }
+
+    try {
+      return await this.hydrateCache(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      const userNotFoundIssue =
+        message.includes('user not found') ||
+        message.includes('profile not found') ||
+        message.includes('no rows') ||
+        message.includes('not found');
+
+      if (!userNotFoundIssue) {
+        throw error;
+      }
+
+      await this.clearCache();
+      return this.hydrateCache(true);
+    }
+  },
+
+  async ensureFeatureAllowed(feature: string): Promise<FeatureCheckResult> {
+    let snapshot = subscriptionSnapshotMemory ?? (await loadSubscriptionSnapshotFromStorage());
+
+    if (!snapshot) {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('LOGIN_REQUIRED_FOR_SUBSCRIPTION_LIMITS');
+      }
+      snapshot = await this.hydrateCache();
+      if (!snapshot) {
+        throw new Error('LOGIN_REQUIRED_FOR_SUBSCRIPTION_LIMITS');
+      }
+    } else if (Date.now() - snapshot.hydratedAt > SUBSCRIPTION_CACHE_MAX_AGE_MS) {
+      snapshot = (await this.hydrateCache(true).catch(() => snapshot)) ?? snapshot;
+    }
+
+    const feat = snapshot.features[feature];
+    if (!feat) {
+      return {
+        feature,
+        tier: snapshot.tier,
+        allowed: true,
+        limit: -1,
+        used: 0,
+        remaining: -1,
+        unlimited: true,
+      };
+    }
+
+    if (!feat.enabled || feat.limit === 0) {
+      const info = {
+        feature,
+        currentTier: snapshot.tier,
+        limit: 0,
+        used: feat.used,
+        remaining: 0,
+        per: feat.per,
+        resetsAt: feat.resets_at ?? null,
+        message: `${feature} is not available on your current plan.`,
+        errorType: 'upgrade_required' as const,
+      };
+      emitLimitReached(info);
+      throw new LimitError(info);
+    }
+
+    if (!feat.unlimited && feat.remaining <= 0) {
+      const perLabel = feat.per ? ` per ${feat.per}` : '';
+      const info = {
+        feature,
+        currentTier: snapshot.tier,
+        limit: feat.limit,
+        used: feat.used,
+        remaining: 0,
+        per: feat.per,
+        resetsAt: feat.resets_at ?? null,
+        message: `You've reached your ${snapshot.tier} limit of ${feat.limit} ${feature}${perLabel}.`,
+        errorType: 'limit_reached' as const,
+      };
+      emitLimitReached(info);
+      throw new LimitError(info);
+    }
+
+    return toFeatureCheckResult(feature, snapshot.tier, feat);
+  },
+
+  async consume(feature: string, amount = 1): Promise<void> {
+    await consumeCachedFeatureUsage(feature, amount);
+  },
+
+  async syncFromLimitInfo(limitInfo: {
+    feature: string;
+    currentTier: string;
+    used: number;
+    remaining: number;
+    limit: number;
+    per?: string | null;
+    resetsAt?: string | null;
+  }): Promise<void> {
+    await syncCachedFeatureFromLimit(
+      limitInfo.feature,
+      limitInfo.currentTier,
+      limitInfo.used,
+      limitInfo.remaining,
+      limitInfo.limit,
+      limitInfo.per ?? null,
+      limitInfo.resetsAt ?? null,
+    );
+  },
+
   /**
    * Check whether a specific feature action is allowed before performing it.
    * Returns the limit status. Throws on network/auth errors.
    */
   async checkFeature(feature: string): Promise<FeatureCheckResult> {
-    const res = await authFetch(`/api/subscriptions/check/${encodeURIComponent(feature)}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Check failed' }));
-      throw new Error(err.error || 'Failed to check feature limit');
+    const result = await this.ensureFeatureAllowed(feature);
+    if (result.unlimited || result.limit === 0 || result.remaining <= 1) {
+      this.hydrateCache(true).catch(() => {});
     }
-    return res.json();
+    return result;
   },
 };
 

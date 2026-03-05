@@ -18,6 +18,7 @@ import {
   getTokenExpiresAt,
   onSessionChange,
   refreshIfNeeded,
+  subscriptionApi,
   usageApi,
 } from '../services/userApi';
 
@@ -126,8 +127,11 @@ async function _loadSessionOnce(
     authApi.updateProfile({ app_version: APP_VERSION, platform }).catch(() => {});
   }
 
-  // Track app open (fire-and-forget)
-  usageApi.track('app_open', null, APP_VERSION).catch(() => {});
+  // Track app open before refreshing limits so usage counters can reflect latest values.
+  await usageApi.track('app_open', null, APP_VERSION).catch(() => {});
+
+  // During startup splash, always refresh subscription limits/usage for this user.
+  await subscriptionApi.refreshOnAppOpen(profile.id).catch(() => null);
 
   scheduleRefresh();
 
@@ -426,6 +430,8 @@ export function useAuth() {
       // Schedule proactive token refresh
       scheduleRefresh();
 
+      await subscriptionApi.hydrateCache(true).catch(() => null);
+
       return true;
     } catch (err: unknown) {
       const msg = friendlyError(err, 'verify');
@@ -489,6 +495,8 @@ export function useAuth() {
       usageApi.track('app_open', null, APP_VERSION);
 
       scheduleRefresh();
+
+      await subscriptionApi.hydrateCache(true).catch(() => null);
 
       return true;
     } catch (err: unknown) {
@@ -559,6 +567,7 @@ export function useAuth() {
     try {
       const profile = await authApi.getProfile();
       if (!profile) return;
+      await subscriptionApi.hydrateCache(true).catch(() => null);
       setState((s) => ({
         ...s,
         isLoggedIn: true,

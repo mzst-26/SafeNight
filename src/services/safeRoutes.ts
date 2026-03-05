@@ -8,6 +8,7 @@
  */
 
 import { env } from '@/src/config/env';
+import { subscriptionApi } from '@/src/services/userApi';
 import { AppError } from '@/src/types/errors';
 import type { DirectionsRoute, LatLng, NavigationStep, RouteSegment } from '@/src/types/google';
 import { emitLimitReached, LimitError, parseLimitResponse } from '@/src/types/limitError';
@@ -477,6 +478,8 @@ export async function fetchSafeRoutes(
   subscriptionTier: string = 'free',
   maxDistanceKmOverride?: number,
 ): Promise<SafeRoutesResponse> {
+  await subscriptionApi.ensureFeatureAllowed('route_search');
+
   const key = cacheKey(origin, destination);
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -510,6 +513,7 @@ export async function fetchSafeRoutes(
       if (resp.status === 403) {
         const limitInfo = parseLimitResponse(raw as any);
         if (limitInfo) {
+          await subscriptionApi.syncFromLimitInfo(limitInfo);
           emitLimitReached(limitInfo);
           throw new LimitError(limitInfo);
         }
@@ -635,6 +639,8 @@ export async function fetchSafeRoutes(
       routes,
       meta: raw.meta!,
     };
+
+    await subscriptionApi.consume('route_search');
 
     cache.set(key, { data: result, timestamp: Date.now() });
     console.log(
