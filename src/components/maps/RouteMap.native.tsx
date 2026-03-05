@@ -501,14 +501,15 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       });
       map.getSource('safety-markers').setData({type:'FeatureCollection',features:smF});
 
-      /* — Road labels — */
-      (data.roadLabels||[]).forEach(function(lbl){
-        var el=document.createElement('div');
-        el.className=isNavMode?'road-label-3d':'road-label';
-        if(!isNavMode) el.style.background=lbl.color;
-        el.textContent=lbl.name.slice(0,16);
-        currentMarkers.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([lbl.lng,lbl.lat]).addTo(map));
-      });
+      /* — Road labels (navigation mode only) — */
+      if(data.navLocation){
+        (data.roadLabels||[]).forEach(function(lbl){
+          var el=document.createElement('div');
+          el.className='road-label-3d';
+          el.textContent=lbl.name.slice(0,16);
+          currentMarkers.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([lbl.lng,lbl.lat]).addTo(map));
+        });
+      }
 
       /* — Fit bounds — */
       if(data.fitBounds && bounds && !data.navLocation){
