@@ -711,11 +711,31 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
 
       var c;
       try{ c=JSON.parse(coordsJson); }catch(e){ return; }
-      var oLat=c.oLat, oLng=c.oLng, dLat=c.dLat, dLng=c.dLng;
-      if(!oLat||!oLng||!dLat||!dLng) return;
+      var oLat=Number(c.oLat), oLng=Number(c.oLng), dLat=Number(c.dLat), dLng=Number(c.dLng);
+      if(!isFinite(oLat)||!isFinite(oLng)||!isFinite(dLat)||!isFinite(dLng)) return;
 
-      var midLat=(oLat+dLat)/2, midLng=(oLng+dLng)/2;
-      var halfLat=Math.abs(dLat-oLat)/2+0.002, halfLng=Math.abs(dLng-oLng)/2+0.002;
+      var dLatRad=(dLat-oLat)*Math.PI/180;
+      var dLngRad=(dLng-oLng)*Math.PI/180;
+      var oLatRad=oLat*Math.PI/180;
+      var dLatAbsRad=dLat*Math.PI/180;
+      var a=Math.sin(dLatRad/2)*Math.sin(dLatRad/2)
+        + Math.cos(oLatRad)*Math.cos(dLatAbsRad)*Math.sin(dLngRad/2)*Math.sin(dLngRad/2);
+      var straightLineDist=6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+
+      // Mirror backend: max(700, min(1000, straightLineDist * 0.3))
+      var corridorBufferM=Math.max(700, Math.min(1000, straightLineDist * 0.3));
+      var minLat=Math.min(oLat,dLat), maxLat=Math.max(oLat,dLat);
+      var minLng=Math.min(oLng,dLng), maxLng=Math.max(oLng,dLng);
+      var midLat=(oLat+dLat)/2;
+      var metersPerDegLat=111320;
+      var metersPerDegLng=Math.max(1000, 111320*Math.cos(midLat*Math.PI/180));
+      var bufferLatDeg=corridorBufferM/metersPerDegLat;
+      var bufferLngDeg=corridorBufferM/metersPerDegLng;
+      var fullSouth=minLat-bufferLatDeg;
+      var fullNorth=maxLat+bufferLatDeg;
+      var fullWest=minLng-bufferLngDeg;
+      var fullEast=maxLng+bufferLngDeg;
+
       var step=0, maxSteps=60; // 60 frames over ~12s
 
       var messages=[
@@ -723,6 +743,8 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         'Analysing street lighting…','Checking crime reports…','Building safety graph…',
         'Scoring road segments…','Running pathfinder…','Comparing routes…','Almost there…'
       ];
+
+      vizSetProgress(1, 'Search buffer: ' + Math.round(corridorBufferM) + 'm');
 
       vizAnimTimer = setInterval(function(){
         step++;
@@ -733,12 +755,12 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
 
         if(!styleReady) return;
 
-        // Expanding search bbox from origin toward destination
+        // Expanding search bbox using real corridor buffer geometry
         var growT=Math.min(t*1.6,1); // bbox reaches full size at ~60%
-        var curHalfLat=halfLat*growT, curHalfLng=halfLng*growT;
-        var cLat=oLat+(midLat-oLat)*growT, cLng=oLng+(midLng-oLng)*growT;
-        var south=cLat-curHalfLat, north=cLat+curHalfLat;
-        var west=cLng-curHalfLng, east=cLng+curHalfLng;
+        var south=oLat + (fullSouth - oLat) * growT;
+        var north=oLat + (fullNorth - oLat) * growT;
+        var west=oLng + (fullWest - oLng) * growT;
+        var east=oLng + (fullEast - oLng) * growT;
         try{
           map.getSource('viz-bbox').setData({type:'FeatureCollection',features:[
             {type:'Feature',properties:{color:'#7C3AED'},
