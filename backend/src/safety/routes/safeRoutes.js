@@ -297,7 +297,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   if (straightLineDist >= SKIP_PHASE1_DIST) {
     console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
     const t0p1 = Date.now();
-    const initialBufferM = Math.max(300, Math.min(600, straightLineDist * 0.2));
+    const initialBufferM = Math.max(400, Math.min(800, straightLineDist * 0.25));
     const initialBbox = bboxFromPoints(
       [{ lat: oLatV, lng: oLngV }, { lat: dLatV, lng: dLngV }],
       initialBufferM,
@@ -329,10 +329,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   // PHASE 2 — Build corridor bbox + fetch safety data
   // Smaller buffers to reduce data volume and processing time.
   // ═══════════════════════════════════════════════════════════════════════
-  const corridorBufferM = straightLineDist < 1500 ? 400
-    : straightLineDist < 3000 ? 500
-    : straightLineDist < 6000 ? 450
-    : 400;
+  const corridorBufferM = Math.max(700, Math.min(1000, straightLineDist * 0.3));
 
   let corridorPoints;
   if (shortestPath && distGraph) {
