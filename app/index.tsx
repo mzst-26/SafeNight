@@ -12,7 +12,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, AppState, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PageHead } from '@/src/components/seo/PageHead';
@@ -1173,25 +1173,27 @@ export default function HomeScreen() {
           {/* Re-route via a point — shown when routes are ready and not navigating */}
           {h.routes.length > 0 && h.nav.state === 'idle' && !h.isNavActive && (
             <View style={styles.viaRow}>
-              <Pressable
+              <TouchableOpacity
                 style={styles.viaButton}
                 onPress={() => h.setPinMode('via')}
+                activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel="Re-route via a point"
               >
                 <Ionicons name="git-branch-outline" size={15} color="#d946ef" />
-                <Text style={styles.viaButtonText}>Re-route via…</Text>
-              </Pressable>
+                <Text style={styles.viaButtonText}>Re-route via a point</Text>
+              </TouchableOpacity>
               {h.viaPinLocation && (
-                <Pressable
+                <TouchableOpacity
                   style={styles.viaClearButton}
-                  onPress={() => { h.clearViaPin(); }}
+                  onPress={() => h.clearViaPin()}
+                  activeOpacity={0.7}
                   accessibilityRole="button"
                   accessibilityLabel="Clear via point"
                 >
                   <Ionicons name="close-circle" size={15} color="#667085" />
-                  <Text style={styles.viaClearText}>Clear via</Text>
-                </Pressable>
+                  <Text style={styles.viaClearText}>Clear via point</Text>
+                </TouchableOpacity>
               )}
             </View>
           )}
@@ -1411,20 +1413,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   viaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexDirection: 'column',
+    gap: 6,
     marginBottom: 8,
-    marginTop: 2,
+    marginTop: 4,
   },
   viaButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    gap: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: '#d946ef',
     backgroundColor: 'rgba(217,70,239,0.06)',
@@ -1440,8 +1440,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#d0d5dd',
     backgroundColor: 'rgba(102,112,133,0.06)',
