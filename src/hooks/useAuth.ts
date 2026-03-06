@@ -127,11 +127,12 @@ async function _loadSessionOnce(
     authApi.updateProfile({ app_version: APP_VERSION, platform }).catch(() => {});
   }
 
-  // Track app open before refreshing limits so usage counters can reflect latest values.
-  await usageApi.track('app_open', null, APP_VERSION).catch(() => {});
-
-  // During startup splash, always refresh subscription limits/usage for this user.
-  await subscriptionApi.refreshOnAppOpen(profile.id).catch(() => null);
+  // Fire-and-forget: track app open and refresh subscription cache in the
+  // background so the splash screen is dismissed as soon as the profile is
+  // available.  ensureFeatureAllowed() will hydrate on-demand if the cache
+  // is still empty when a feature check happens.
+  usageApi.track('app_open', null, APP_VERSION).catch(() => {});
+  subscriptionApi.refreshOnAppOpen(profile.id).catch(() => {});
 
   scheduleRefresh();
 
@@ -373,6 +374,10 @@ export function useAuth() {
   const verify = useCallback(async (email: string, token: string) => {
     setState((s) => ({ ...s, error: null, isLoading: true }));
     try {
+      // Wipe any cached subscription data from a previous account *before*
+      // the new session is stored, preventing stale cross-account data.
+      await subscriptionApi.clearCache();
+
       const data = await authApi.verify(email, token);
 
       // Fetch full profile
@@ -443,6 +448,10 @@ export function useAuth() {
   const signInWithPassword = useCallback(async (email: string, password: string) => {
     setState((s) => ({ ...s, error: null, isLoading: true }));
     try {
+      // Wipe any cached subscription data from a previous account *before*
+      // the new session is stored, preventing stale cross-account data.
+      await subscriptionApi.clearCache();
+
       const data = await authApi.signInWithPassword(email, password);
 
       const profile = await authApi.getProfile();

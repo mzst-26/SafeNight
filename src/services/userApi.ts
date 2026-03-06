@@ -1143,6 +1143,16 @@ export const subscriptionApi = {
   async ensureFeatureAllowed(feature: string): Promise<FeatureCheckResult> {
     let snapshot = subscriptionSnapshotMemory ?? (await loadSubscriptionSnapshotFromStorage());
 
+    // Guard: if the cached snapshot belongs to a different user (e.g. after an
+    // account switch), discard it and re-hydrate for the current user.
+    if (snapshot) {
+      const currentUserId = await AsyncStorage.getItem(AUTH_KEYS.userId);
+      if (currentUserId && snapshot.userId && snapshot.userId !== currentUserId) {
+        await this.clearCache();
+        snapshot = null;
+      }
+    }
+
     if (!snapshot) {
       const token = await getAccessToken();
       if (!token) {
