@@ -705,14 +705,18 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
 
     /* Client-side search animation — loops until routes arrive, then stopVizStream() clears it */
     var vizAnimTimer = null;
+    var vizClearTimer = null;
 
     window.stopVizStream = function(){
       if(vizAnimTimer){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
-      setTimeout(function(){ clearVisualization(); }, 800);
+      if(vizClearTimer){ clearTimeout(vizClearTimer); vizClearTimer=null; }
+      vizClearTimer = setTimeout(function(){ clearVisualization(); vizClearTimer=null; }, 800);
     };
 
     window.startVizStream = function(coordsJson){
-      window.stopVizStream();
+      if(vizAnimTimer){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
+      // Cancel any pending clear from a previous stopVizStream — we're starting fresh
+      if(vizClearTimer){ clearTimeout(vizClearTimer); vizClearTimer=null; }
       if(!coordsJson) return;
       clearVisualization();
       ensureVizUI();

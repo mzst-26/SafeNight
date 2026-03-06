@@ -1413,6 +1413,7 @@ const styles = StyleSheet.create({
   viaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 8,
     marginTop: 2,
@@ -1432,6 +1433,7 @@ const styles = StyleSheet.create({
     color: '#d946ef',
     fontSize: 13,
     fontWeight: '600',
+    flexShrink: 1,
   },
   viaClearButton: {
     flexDirection: 'row',
