@@ -115,7 +115,7 @@ export const useAIExplanation = (
 
     const startedAt = Date.now();
     const existingInFlight = inFlightExplanationRequests.get(cacheKey);
-    const requestPromise =
+    const rawPromise =
       existingInFlight ??
       fetchAIExplanation({
         routes: compactRoutes,
@@ -123,8 +123,15 @@ export const useAIExplanation = (
       });
 
     if (!existingInFlight) {
-      inFlightExplanationRequests.set(cacheKey, requestPromise);
+      inFlightExplanationRequests.set(cacheKey, rawPromise);
     }
+
+    // Hard 40 s deadline — prevents spinner hanging forever on Render cold-starts
+    const DEADLINE_MS = 40_000;
+    const deadlinePromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('AI explanation timed out. Please try again.')), DEADLINE_MS),
+    );
+    const requestPromise = Promise.race([rawPromise, deadlinePromise]);
 
     requestPromise
       .then((text) => {
@@ -147,7 +154,7 @@ export const useAIExplanation = (
       .finally(() => {
         // Only clear if this exact promise is still the active in-flight one
         const active = inFlightExplanationRequests.get(cacheKey);
-        if (active === requestPromise) {
+        if (active === rawPromise) {
           inFlightExplanationRequests.delete(cacheKey);
         }
       });

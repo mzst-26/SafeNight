@@ -25,7 +25,7 @@ const BASE = env.subscriptionApiUrl;
 // Render.com free-tier cold starts can take 30-60s.
 // Without this, fetch() can hang forever and the UI spinner never stops.
 
-const DEFAULT_TIMEOUT_MS = 20_000; // 20 seconds
+const DEFAULT_TIMEOUT_MS = 50_000; // 50 seconds — Render free-tier cold starts can take 30–60 s
 
 function fetchWithTimeout(
   url: string,

@@ -40,8 +40,8 @@ export interface MobileWebSearchBarProps {
   destSearch: UseAutoPlaceSearchReturn;
   manualDest: PlaceDetails | null;
   setManualDest: (v: PlaceDetails | null) => void;
-  pinMode: 'origin' | 'destination' | null;
-  setPinMode: (v: 'origin' | 'destination' | null) => void;
+  pinMode: 'origin' | 'destination' | 'via' | null;
+  setPinMode: (v: 'origin' | 'destination' | 'via' | null) => void;
   onPanTo: (location: LatLng) => void;
   onClearRoute: () => void;
   onSwap: () => void;

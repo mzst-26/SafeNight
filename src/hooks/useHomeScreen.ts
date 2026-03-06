@@ -68,8 +68,12 @@ export function useHomeScreen() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [mapPanTo, setMapPanTo] = useState<{ location: LatLng; key: number } | null>(null);
   const [mapType, setMapType] = useState<MapType>('roadmap');
-  const [pinMode, setPinMode] = useState<'origin' | 'destination' | null>(null);
+  const [pinMode, setPinMode] = useState<'origin' | 'destination' | 'via' | null>(null);
   const [highlightCategory, setHighlightCategory] = useState<string | null>(null);
+
+  // ── Via / direction-bias waypoint ──
+  const [viaPinLocation, setViaPinLocation] = useState<LatLng | null>(null);
+  const clearViaPin = useCallback(() => setViaPinLocation(null), []);
 
   // ── AI ──
   const [showAIModal, setShowAIModal] = useState(false);
@@ -97,7 +101,17 @@ export function useHomeScreen() {
     outOfRange,
     outOfRangeMessage,
     meta: safeRoutesMeta,
-  } = useSafeRoutes(effectiveOrigin, routingDestination, subscriptionTier, routeDistanceKm);
+  } = useSafeRoutes(effectiveOrigin, routingDestination, subscriptionTier, routeDistanceKm, viaPinLocation);
+
+  // Clear via-pin whenever the destination changes so stale waypoints don't carry over
+  const prevDestRef = useRef<LatLng | null>(null);
+  useEffect(() => {
+    const d = routingDestination;
+    if (d !== prevDestRef.current) {
+      prevDestRef.current = d;
+      setViaPinLocation(null);
+    }
+  }, [routingDestination]);
 
   const routes: DirectionsRoute[] = safeRoutes;
   const directionsStatus = safeRoutesStatus;
@@ -323,6 +337,9 @@ export function useHomeScreen() {
         makePinAndResolve(coordinate, setManualDest);
         setPinMode(null);
         setSelectedRouteId(null);
+      } else if (pinMode === 'via') {
+        setViaPinLocation(coordinate);
+        setPinMode(null);
       }
     },
     [isNavActive, pinMode, originSearch, destSearch, makePinAndResolve],
@@ -455,6 +472,10 @@ export function useHomeScreen() {
     handlePanTo,
     clearSelectedRoute,
     swapOriginAndDest,
+
+    // Via / direction-bias
+    viaPinLocation,
+    clearViaPin,
 
     // Safety
     safetyResult,

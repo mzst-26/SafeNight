@@ -62,7 +62,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     .viz-data-pin{pointer-events:none;display:flex;align-items:center;justify-content:center;
       width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(255,255,255,.75);
       font-size:11px;line-height:1;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.4);
-      animation:vizpin .3s ease-out forwards}
+      animation:vizpin .3s ease-out forwards;z-index:10001}
     .viz-crime-pin{background:rgba(220,38,38,.85);color:#fff}
     .viz-light-pin{background:rgba(234,179,8,.9);color:#1a1000}
     .viz-place-pin{background:rgba(22,163,74,.85);color:#fff}
@@ -180,8 +180,9 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#4285F4','line-opacity':0.85,'line-width':6} });
       map.addLayer({ id:'safety-circles', type:'circle', source:'safety-markers',
-        paint:{'circle-radius':4,'circle-color':['get','color'],'circle-opacity':0.9,
-          'circle-stroke-color':'#fff','circle-stroke-width':1} });
+        paint:{'circle-radius':['case',['==',['get','kind'],'via'],10,4],
+          'circle-color':['get','color'],'circle-opacity':0.9,
+          'circle-stroke-color':'#fff','circle-stroke-width':['case',['==',['get','kind'],'via'],2,1]} });
       map.addLayer({ id:'friend-paths-line', type:'line', source:'friend-paths',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':['get','color'],'line-opacity':0.9,'line-width':5} });
@@ -494,7 +495,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       map.getSource('route-remaining').setData({type:'FeatureCollection',features:remF});
 
       /* — Safety markers — */
-      var mColors={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316'};
+      var mColors={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
       var smF=(data.safetyMarkers||[]).map(function(m){
         return{type:'Feature',properties:{kind:m.kind,label:m.label||m.kind,color:mColors[m.kind]||'#94a3b8'},
           geometry:{type:'Point',coordinates:[m.lng,m.lat]}};
@@ -765,6 +766,8 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       labelEl.innerHTML='&#128269; Analysing area&hellip;';
       vizSearchLabelMarker=new maplibregl.Marker({element:labelEl,anchor:'center'})
         .setLngLat([midLng, bboxMidLat]).addTo(map);
+      var labelWrapper=labelEl.parentElement;
+      if(labelWrapper) labelWrapper.style.zIndex='10000';
 
       // ── per-cycle helpers ──────────────────────────────────────────────────
       var baseSeed=Math.round(oLat*1000+oLng*1000+dLat*100+dLng*100);
@@ -795,7 +798,11 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         var el=document.createElement('div');
         el.className='viz-data-pin '+cls;
         el.textContent=char;
+        el.style.zIndex='10001';
         var m=new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
+        // Lift the MapLibre marker wrapper above all map controls
+        var wrapper=el.parentElement;
+        if(wrapper) wrapper.style.zIndex='10001';
         vizDataMarkers.push(m);
         cycleMarkerObjs.push(m);
         return m;
@@ -852,6 +859,12 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         // Progress bar oscillates 8%→92% each cycle
         vizSetProgress(Math.round(8+84*t), messages[Math.min(Math.floor(t*messages.length),messages.length-1)]);
         if(!styleReady) return;
+
+        // 0. Pulse bbox fill to breathe while scanning (period ~2 s at 200 ms tick)
+        try {
+          var bboxOp = 0.05 + 0.10 * (0.5 + 0.5 * Math.sin(step * 0.628));
+          map.setPaintProperty('viz-bbox-fill', 'fill-opacity', bboxOp);
+        } catch(e) {}
 
         // 1. Exploration branches grow progressively
         var branchFeats=[];

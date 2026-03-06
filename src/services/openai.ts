@@ -74,13 +74,25 @@ export const fetchAIExplanation = async (input: AIExplanationInput): Promise<str
   const startedAt = Date.now();
   console.log(`[OpenAI] 🌐 Backend call → ${apiBaseUrl}/api/explain-route`);
 
-  const response = await fetch(`${apiBaseUrl}/api/explain-route`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  const aiController = new AbortController();
+  const aiTimer = setTimeout(() => {
+    console.warn('[OpenAI] ⏱️ Aborting AI request after 35 s timeout');
+    aiController.abort('AI explanation timed out after 35 s');
+  }, 35_000);
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/api/explain-route`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+      signal: aiController.signal,
+    });
+  } finally {
+    clearTimeout(aiTimer);
+  }
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');

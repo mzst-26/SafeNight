@@ -65,7 +65,7 @@ html,body{width:100%;height:100%;overflow:hidden}
 @keyframes vizpin{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
 .viz-data-pin{width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(255,255,255,.75);
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
-  box-shadow:0 2px 6px rgba(0,0,0,.4);animation:vizpin .3s ease-out forwards}
+  box-shadow:0 2px 6px rgba(0,0,0,.4);animation:vizpin .3s ease-out forwards;z-index:10001}
 .viz-crime-pin{background:rgba(220,38,38,.85);color:#fff}
 .viz-light-pin{background:rgba(234,179,8,.9);color:#1a1000}
 .viz-place-pin{background:rgba(22,163,74,.85);color:#fff}
@@ -195,7 +195,7 @@ window.startVizStream=function(coordsJson){
     vizPolylines.push(pl);cycPls.push(pl);return pl;}
   function addMk(lat,lng,cls,ch){
     var ic=L.divIcon({className:'',html:'<div class="viz-data-pin '+cls+'">'+ch+'</div>',iconSize:[20,20],iconAnchor:[10,10]});
-    var m=L.marker([lat,lng],{icon:ic,interactive:false}).addTo(map);vizMarkers.push(m);cycMks.push(m);return m;}
+    var m=L.marker([lat,lng],{icon:ic,interactive:false,zIndexOffset:5000}).addTo(map);vizMarkers.push(m);cycMks.push(m);return m;}
   function buildCyc(cn){
     var rng=mkRng(baseSeed+cn*97),rng2=mkRng(baseSeed+cn*113);
     var cS=fS+bLat*0.25,cN=fN-bLat*0.25,cW=fW+bLng*0.25,cE=fE-bLng*0.25;
@@ -220,6 +220,8 @@ window.startVizStream=function(coordsJson){
     if(phase===0&&step>0){clearCyc();cyc=buildCyc(cn);}
     var t=phase/CYCLE;
     vizSetProgress(Math.round(8+84*t),msgs[Math.min(Math.floor(t*msgs.length),msgs.length-1)]);
+    // Pulse bbox fill opacity to signal active scanning (period ~2 s)
+    if(vizBboxRect){var bboxOp=0.05+0.10*(0.5+0.5*Math.sin(step*0.628));vizBboxRect.setStyle({fillOpacity:bboxOp});}
     cyc.ep.forEach(function(path,pi){
       var delay=pi*0.07,bt=Math.max(0,Math.min((t-delay)/0.4,1));
       if(bt<=0) return;
@@ -349,14 +351,14 @@ function updateMap(d){
   }
 
   /* Safety markers */
-  var mc={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316'};
+  var mc={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
   var hl=d.highlightCategory||null;
   (d.safetyMarkers||[]).forEach(function(m){
     var k=m.kind||'crime';
     var isHl=hl&&hl===k;
     var isDim=hl&&hl!==k;
     if(isDim)return;
-    var r=isHl?8:((k==='light'||k==='crime')?3:4);
+    var r=k==='via'?10:(isHl?8:((k==='light'||k==='crime')?3:4));
     var op=isHl?1:0.85;
     var w=isHl?2:1;
     markers.push(L.circleMarker([m.lat,m.lng],{radius:r,fillColor:mc[k]||'#94a3b8',

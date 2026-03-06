@@ -56,6 +56,7 @@ export function useSafeRoutes(
   destination: LatLng | null,
   subscriptionTier: string = 'free',
   maxDistanceKmOverride?: number,
+  waypoint?: LatLng | null,
 ): UseSafeRoutesState {
   const [status, setStatus] = useState<SafeRoutesStatus>('idle');
   const [routes, setRoutes] = useState<SafeRoute[]>([]);
@@ -71,6 +72,8 @@ export function useSafeRoutes(
   const oLng = origin ? round4(origin.longitude) : null;
   const dLat = destination ? round4(destination.latitude) : null;
   const dLng = destination ? round4(destination.longitude) : null;
+  const wLat = waypoint ? round4(waypoint.latitude) : null;
+  const wLng = waypoint ? round4(waypoint.longitude) : null;
 
   const stableOrigin = useMemo<LatLng | null>(
     () => (oLat != null && oLng != null ? { latitude: oLat, longitude: oLng } : null),
@@ -79,6 +82,10 @@ export function useSafeRoutes(
   const stableDest = useMemo<LatLng | null>(
     () => (dLat != null && dLng != null ? { latitude: dLat, longitude: dLng } : null),
     [dLat, dLng],
+  );
+  const stableWaypoint = useMemo<LatLng | null>(
+    () => (wLat != null && wLng != null ? { latitude: wLat, longitude: wLng } : null),
+    [wLat, wLng],
   );
 
   const refresh = useCallback(async () => {
@@ -108,7 +115,7 @@ export function useSafeRoutes(
           `${stableDest.latitude.toFixed(4)},${stableDest.longitude.toFixed(4)}`,
       );
 
-      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride);
+      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint);
 
       if (cancelRef.current !== batchId) return; // stale
 
@@ -150,7 +157,7 @@ export function useSafeRoutes(
       setError(appError);
       setStatus('error');
     }
-  }, [stableOrigin, stableDest]);
+  }, [stableOrigin, stableDest, stableWaypoint, subscriptionTier, maxDistanceKmOverride]);
 
   useEffect(() => {
     refresh().catch(() => {

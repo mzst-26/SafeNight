@@ -127,9 +127,10 @@ const WALKING_SPEED_MPS = 1.35;
 const routeCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-function getCacheKey(oLat, oLng, dLat, dLng) {
+function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng) {
   const r = (v) => Math.round(v * 1000) / 1000;
-  return `${r(oLat)},${r(oLng)}->${r(dLat)},${r(dLng)}`;
+  const base = `${r(oLat)},${r(oLng)}->${r(dLat)},${r(dLng)}`;
+  return (wpLat != null && wpLng != null) ? `${base}@${r(wpLat)},${r(wpLng)}` : base;
 }
 
 // ── Request coalescing — share computation for concurrent identical requests ─
@@ -165,6 +166,17 @@ router.get('/', async (req, res) => {
     const dLng = validateLongitude(req.query.dest_lng);
     if (!dLat.valid) return res.status(400).json({ error: dLat.error });
     if (!dLng.valid) return res.status(400).json({ error: dLng.error });
+
+    // ── Optional waypoint (direction-bias / via point) ──────────────────
+    let wpLat = null, wpLng = null;
+    if (req.query.waypoint_lat != null && req.query.waypoint_lng != null) {
+      const wpLatV = validateLatitude(req.query.waypoint_lat);
+      const wpLngV = validateLongitude(req.query.waypoint_lng);
+      if (wpLatV.valid && wpLngV.valid) {
+        wpLat = wpLatV.value;
+        wpLng = wpLngV.value;
+      }
+    }
 
     // ── 2. Distance limit ───────────────────────────────────────────────
     const straightLineDist = haversine(oLat.value, oLng.value, dLat.value, dLng.value);
@@ -203,7 +215,7 @@ router.get('/', async (req, res) => {
     }
 
     // ── 3. Check route cache ────────────────────────────────────────────
-    const cacheKey = getCacheKey(oLat.value, oLng.value, dLat.value, dLng.value);
+    const cacheKey = getCacheKey(oLat.value, oLng.value, dLat.value, dLng.value, wpLat, wpLng);
     const cached = routeCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       console.log(`[safe-routes] 📋 Route cache hit for ${cacheKey}`);
@@ -233,6 +245,7 @@ router.get('/', async (req, res) => {
       const result = await computeSafeRoutes(
         oLat.value, oLng.value, dLat.value, dLng.value,
         straightLineDist, straightLineKm, startTime, maxDistanceKm,
+        wpLat, wpLng,
       );
 
       // Cache the result
@@ -280,7 +293,7 @@ router.get('/', async (req, res) => {
 /**
  * Core computation — separated for request coalescing.
  */
-async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, straightLineKm, startTime, maxDistanceKm = DEFAULT_MAX_DISTANCE_KM) {
+async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, straightLineKm, startTime, maxDistanceKm = DEFAULT_MAX_DISTANCE_KM, wpLat = null, wpLng = null) {
   console.log(`[safe-routes] 🔍 Computing: ${oLatV},${oLngV} → ${dLatV},${dLngV} (${straightLineKm.toFixed(1)} km)`);
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -298,10 +311,9 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
     console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
     const t0p1 = Date.now();
     const initialBufferM = Math.max(400, Math.min(800, straightLineDist * 0.25));
-    const initialBbox = bboxFromPoints(
-      [{ lat: oLatV, lng: oLngV }, { lat: dLatV, lng: dLngV }],
-      initialBufferM,
-    );
+    const initialBboxPoints = [{ lat: oLatV, lng: oLngV }, { lat: dLatV, lng: dLngV }];
+    if (wpLat != null) initialBboxPoints.push({ lat: wpLat, lng: wpLng });
+    const initialBbox = bboxFromPoints(initialBboxPoints, initialBufferM);
 
     const roadData = await fetchRoadNetworkOnly(initialBbox);
     distGraph = buildDistanceOnlyGraph(roadData);
@@ -351,6 +363,8 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   }
   corridorPoints.unshift({ lat: oLatV, lng: oLngV });
   corridorPoints.push({ lat: dLatV, lng: dLngV });
+  // Ensure waypoint is also inside the bbox corridor
+  if (wpLat != null) corridorPoints.push({ lat: wpLat, lng: wpLng });
 
   const bbox = bboxFromPoints(corridorPoints, corridorBufferM);
   console.log(`[safe-routes] 📐 Phase 2: Corridor from ${corridorPoints.length} waypoints + ${corridorBufferM}m buffer`);
@@ -409,9 +423,38 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   console.log(`[safe-routes] 🔎 A* pathfinding (start=${startNode}, end=${endNode})...`);
   const t2 = Date.now();
   const maxRouteDist = straightLineDist * 2.5;
-  let rawRoutes = findKSafestRoutes(
-    osmNodes, edges, adjacency, startNode, endNode, maxRouteDist, 3,
-  );
+  let rawRoutes;
+
+  if (wpLat != null) {
+    // ── Two-leg via-waypoint pathfinding ──────────────────────────────
+    const waypointNode = findNearestNode(nodeGrid, adjacency, wpLat, wpLng);
+    if (waypointNode && waypointNode !== startNode && waypointNode !== endNode) {
+      const leg1Routes = findKSafestRoutes(
+        osmNodes, edges, adjacency, startNode, waypointNode, maxRouteDist * 0.7, 1,
+      );
+      const leg2Routes = findKSafestRoutes(
+        osmNodes, edges, adjacency, waypointNode, endNode, maxRouteDist * 0.7, 3,
+      );
+      if (leg1Routes.length > 0 && leg2Routes.length > 0) {
+        const leg1 = leg1Routes[0];
+        rawRoutes = leg2Routes.map((leg2) => ({
+          path: [...leg1.path, ...leg2.path.slice(1)],
+          edges: [...leg1.edges, ...leg2.edges],
+          totalDist: leg1.totalDist + leg2.totalDist,
+        }));
+        console.log(`[safe-routes] 📍 Via waypoint node ${waypointNode}: ${leg1.path.length}+${leg2Routes[0].path.length} nodes, ${rawRoutes.length} combined routes`);
+      } else {
+        console.log(`[safe-routes] ⚠️  Via routing failed (leg1=${leg1Routes.length}, leg2=${leg2Routes.length}), falling back to direct`);
+        rawRoutes = findKSafestRoutes(osmNodes, edges, adjacency, startNode, endNode, maxRouteDist, 3);
+      }
+    } else {
+      console.log(`[safe-routes] ⚠️  Waypoint node not found in graph, falling back to direct`);
+      rawRoutes = findKSafestRoutes(osmNodes, edges, adjacency, startNode, endNode, maxRouteDist, 3);
+    }
+  } else {
+    rawRoutes = findKSafestRoutes(osmNodes, edges, adjacency, startNode, endNode, maxRouteDist, 3);
+  }
+
   let pathfindTime = Date.now() - t2;
   console.log(`[safe-routes] 🔎 A* found ${rawRoutes.length} routes in ${pathfindTime}ms`);
 

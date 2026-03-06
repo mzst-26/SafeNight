@@ -460,8 +460,11 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 5 * 60 * 1000;
 
-function cacheKey(origin: LatLng, dest: LatLng): string {
-  return `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)}->${dest.latitude.toFixed(4)},${dest.longitude.toFixed(4)}`;
+function cacheKey(origin: LatLng, dest: LatLng, waypoint?: LatLng | null): string {
+  const base = `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)}->${dest.latitude.toFixed(4)},${dest.longitude.toFixed(4)}`;
+  return waypoint
+    ? `${base}@${waypoint.latitude.toFixed(4)},${waypoint.longitude.toFixed(4)}`
+    : base;
 }
 
 // ── Main function ────────────────────────────────────────────────────────────
@@ -477,10 +480,11 @@ export async function fetchSafeRoutes(
   destination: LatLng,
   subscriptionTier: string = 'free',
   maxDistanceKmOverride?: number,
+  waypoint?: LatLng | null,
 ): Promise<SafeRoutesResponse> {
   await subscriptionApi.ensureFeatureAllowed('route_search');
 
-  const key = cacheKey(origin, destination);
+  const key = cacheKey(origin, destination, waypoint);
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     console.log('[safeRoutes] 📋 Cache hit');
@@ -489,14 +493,18 @@ export async function fetchSafeRoutes(
 
   // Use the DB-driven override if provided, otherwise fall back to hardcoded tier lookup
   const maxDistanceKm = maxDistanceKmOverride ?? getMaxDistanceKmForTier(subscriptionTier);
+  const waypointParam = waypoint
+    ? `&waypoint_lat=${waypoint.latitude}&waypoint_lng=${waypoint.longitude}`
+    : '';
   const url =
     `${BACKEND_BASE}/api/safe-routes?` +
     `origin_lat=${origin.latitude}&origin_lng=${origin.longitude}` +
     `&dest_lat=${destination.latitude}&dest_lng=${destination.longitude}` +
-    `&max_distance=${maxDistanceKm}`;
+    `&max_distance=${maxDistanceKm}${waypointParam}`;
 
-  console.log(`[safeRoutes] 🔍 Fetching safe routes from ${BACKEND_BASE}...`);
-
+  if (waypoint) {
+    console.log(`[safeRoutes] 📍 Via waypoint: ${waypoint.latitude.toFixed(4)},${waypoint.longitude.toFixed(4)}`);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000); // 120s timeout (cold-start + two-phase pipeline)
 

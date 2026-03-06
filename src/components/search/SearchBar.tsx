@@ -44,8 +44,8 @@ export interface SearchBarProps {
   manualDest: PlaceDetails | null;
   setManualDest: (v: PlaceDetails | null) => void;
   /** Pin-drop mode */
-  pinMode: 'origin' | 'destination' | null;
-  setPinMode: (v: 'origin' | 'destination' | null) => void;
+  pinMode: 'origin' | 'destination' | 'via' | null;
+  setPinMode: (v: 'origin' | 'destination' | 'via' | null) => void;
   /** Trigger map pan */
   onPanTo: (location: LatLng) => void;
   /** Clear selected route */

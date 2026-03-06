@@ -449,7 +449,16 @@ export default function HomeScreen() {
         destination={h.effectiveDestination}
         routes={isWebGuest ? [] : h.routes}
         selectedRouteId={isWebGuest ? null : h.selectedRouteId}
-        safetyMarkers={isWebGuest ? [] : (h.poiMarkers as any)}
+        safetyMarkers={
+          isWebGuest
+            ? []
+            : [
+                ...(h.poiMarkers as any),
+                ...(h.viaPinLocation
+                  ? [{ kind: 'via', label: 'Via point', coordinate: h.viaPinLocation }]
+                  : []),
+              ]
+        }
         routeSegments={isWebGuest ? [] : h.routeSegments}
         roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
@@ -620,6 +629,31 @@ export default function HomeScreen() {
               </Pressable>
             )}
 
+            {h.routes.length > 0 && h.nav.state === 'idle' && (
+              <View style={styles.viaRow}>
+                <Pressable
+                  style={styles.viaButton}
+                  onPress={() => h.setPinMode('via')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Re-route via a point"
+                >
+                  <Ionicons name="git-branch-outline" size={15} color="#d946ef" />
+                  <Text style={styles.viaButtonText}>Re-route via…</Text>
+                </Pressable>
+                {h.viaPinLocation && (
+                  <Pressable
+                    style={styles.viaClearButton}
+                    onPress={() => h.clearViaPin()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear via point"
+                  >
+                    <Ionicons name="close-circle" size={15} color="#667085" />
+                    <Text style={styles.viaClearText}>Clear via</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
             {showSafety &&
               h.selectedSafeRoute &&
               Object.keys(h.selectedSafeRoute.safety.roadTypes).length > 0 && (
@@ -788,6 +822,31 @@ export default function HomeScreen() {
                 </Pressable>
               )}
 
+              {h.routes.length > 0 && h.nav.state === 'idle' && (
+                <View style={styles.viaRow}>
+                  <Pressable
+                    style={styles.viaButton}
+                    onPress={() => h.setPinMode('via')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Re-route via a point"
+                  >
+                    <Ionicons name="git-branch-outline" size={15} color="#d946ef" />
+                    <Text style={styles.viaButtonText}>Re-route via…</Text>
+                  </Pressable>
+                  {h.viaPinLocation && (
+                    <Pressable
+                      style={styles.viaClearButton}
+                      onPress={() => h.clearViaPin()}
+                      accessibilityRole="button"
+                      accessibilityLabel="Clear via point"
+                    >
+                      <Ionicons name="close-circle" size={15} color="#667085" />
+                      <Text style={styles.viaClearText}>Clear via</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+
               {showSafety &&
                 h.selectedSafeRoute &&
                 Object.keys(h.selectedSafeRoute.safety.roadTypes).length > 0 && (
@@ -821,7 +880,9 @@ export default function HomeScreen() {
             <View style={styles.pinBannerInner}>
               <Ionicons name="location" size={18} color="#ffffff" />
               <Text style={styles.pinBannerText}>
-                Tap anywhere on the map to set your {h.pinMode === 'origin' ? 'starting point' : 'destination'}
+                {h.pinMode === 'via'
+                  ? 'Tap the map to set a via point — routes will re-run through it'
+                  : `Tap anywhere on the map to set your ${h.pinMode === 'origin' ? 'starting point' : 'destination'}`}
               </Text>
             </View>
             <Pressable onPress={() => h.setPinMode(null)} style={styles.pinBannerCancel}>
@@ -1108,6 +1169,32 @@ export default function HomeScreen() {
               <Text style={styles.startNavButtonText}>Start Navigation</Text>
             </Pressable>
           )}
+
+          {/* Re-route via a point — shown when routes are ready and not navigating */}
+          {h.routes.length > 0 && h.nav.state === 'idle' && !h.isNavActive && (
+            <View style={styles.viaRow}>
+              <Pressable
+                style={styles.viaButton}
+                onPress={() => h.setPinMode('via')}
+                accessibilityRole="button"
+                accessibilityLabel="Re-route via a point"
+              >
+                <Ionicons name="git-branch-outline" size={15} color="#d946ef" />
+                <Text style={styles.viaButtonText}>Re-route via…</Text>
+              </Pressable>
+              {h.viaPinLocation && (
+                <Pressable
+                  style={styles.viaClearButton}
+                  onPress={() => { h.clearViaPin(); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear via point"
+                >
+                  <Ionicons name="close-circle" size={15} color="#667085" />
+                  <Text style={styles.viaClearText}>Clear via</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </DraggableSheet>
         )}
 
@@ -1322,6 +1409,45 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '700',
+  },
+  viaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    marginTop: 2,
+  },
+  viaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#d946ef',
+    backgroundColor: 'rgba(217,70,239,0.06)',
+  },
+  viaButtonText: {
+    color: '#d946ef',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  viaClearButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#d0d5dd',
+    backgroundColor: 'rgba(102,112,133,0.06)',
+  },
+  viaClearText: {
+    color: '#667085',
+    fontSize: 12,
+    fontWeight: '500',
   },
   sheetHeader: {
     flexDirection: 'row',
