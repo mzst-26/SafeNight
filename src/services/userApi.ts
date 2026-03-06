@@ -251,7 +251,7 @@ export async function refreshIfNeeded(bufferMs = 2 * 60 * 1000): Promise<boolean
 // React Native (OkHttp on Android) has NO default response timeout.
 // Render.com free-tier cold starts can take 30-60s.
 // Without this, fetch() can hang forever on Android.
-const DEFAULT_TIMEOUT_MS = 20_000; // 20 seconds
+const DEFAULT_TIMEOUT_MS = 55_000; // 55 s — enough to survive Render cold starts
 
 function fetchWithTimeout(
   url: string,
@@ -472,7 +472,7 @@ export const authApi = {
     return data;
   },
 
-  /** Get current user profile (retries once on network error) */
+  /** Get current user profile (retries on network / server error to survive Render cold starts) */
   async getProfile(): Promise<{
     id: string;
     name: string;
@@ -495,22 +495,18 @@ export const authApi = {
     const token = await getAccessToken();
     if (!token) return null;
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const delays = [2_000, 5_000, 10_000]; // waits between attempts
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
       try {
         const res = await authFetch('/api/auth/me');
         if (res.ok) return res.json();
         if (res.status === 401) return null; // genuinely unauthorized
-        // Server error (5xx) — retry once
-        if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 1500));
-          continue;
-        }
+        // Server error (5xx) — fall through to retry
       } catch {
-        // Network error — retry once
-        if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 1500));
-          continue;
-        }
+        // Network error (incl. AbortError from timeout) — fall through to retry
+      }
+      if (attempt < delays.length) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
       }
     }
     return null;

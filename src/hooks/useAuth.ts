@@ -222,7 +222,7 @@ export function useAuth() {
   // giving up and forcing a logout.
 
   const profileRetryCount = useRef(0);
-  const PROFILE_RETRY_DELAYS = [8_000, 15_000, 30_000];
+  const PROFILE_RETRY_DELAYS = [5_000, 12_000, 25_000];
 
   useEffect(() => {
     if (!state.profileFetchFailed) {
