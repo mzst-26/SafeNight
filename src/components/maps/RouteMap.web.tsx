@@ -128,7 +128,7 @@ sendMsg('ready',{});
 
 // ── Pathfinding viz animation ──────────────────────────────────────────────
 var vizBboxRect=null,vizPolylines=[],vizMarkers=[],vizSearchLabel=null;
-var vizProgressEl=null,vizStatusEl=null,vizAnimTimer=null;
+var vizProgressEl=null,vizStatusEl=null,vizAnimTimer=null,vizClearTimer=null;
 function ensureVizUI(){
   if(!vizProgressEl){vizProgressEl=document.createElement('div');vizProgressEl.className='viz-progress-bar';
     vizProgressEl.style.width='0%';vizProgressEl.style.opacity='0';document.body.appendChild(vizProgressEl);}
@@ -149,10 +149,14 @@ function clearVizAnimation(){
 }
 window.stopVizStream=function(){
   if(vizAnimTimer){clearInterval(vizAnimTimer);vizAnimTimer=null;}
-  setTimeout(clearVizAnimation,800);
+  if(vizClearTimer){clearTimeout(vizClearTimer);vizClearTimer=null;}
+  vizClearTimer=setTimeout(function(){clearVizAnimation();vizClearTimer=null;},800);
 };
 window.startVizStream=function(coordsJson){
-  window.stopVizStream();if(!coordsJson) return;
+  if(vizAnimTimer){clearInterval(vizAnimTimer);vizAnimTimer=null;}
+  // Cancel any pending clear from a previous stopVizStream — starting fresh
+  if(vizClearTimer){clearTimeout(vizClearTimer);vizClearTimer=null;}
+  if(!coordsJson) return;
   clearVizAnimation();ensureVizUI();
   var c;try{c=JSON.parse(coordsJson);}catch(e){return;}
   var oLat=Number(c.oLat),oLng=Number(c.oLng),dLat=Number(c.dLat),dLng=Number(c.dLng);
