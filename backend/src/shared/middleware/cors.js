@@ -9,10 +9,21 @@
 const cors = require('cors');
 
 function createCorsMiddleware() {
+  const isProduction = process.env.NODE_ENV === 'production';
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((o) => o.trim().replace(/\/$/, ''))  // strip trailing slashes
     .filter(Boolean);
+
+  const allowedHeaders = [
+    'Content-Type',
+    'Authorization',
+    'X-Integrity-Token',
+    'X-Requested-With',
+    'X-Search-Id',
+    'X-Search-Client',
+    'X-Search-Seq',
+  ];
 
   return cors({
     origin: (origin, callback) => {
@@ -27,7 +38,7 @@ function createCorsMiddleware() {
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Integrity-Token', 'X-Requested-With'],
+    allowedHeaders,
     credentials: true,
     optionsSuccessStatus: 200,
     preflightContinue: false,

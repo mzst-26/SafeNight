@@ -14,6 +14,7 @@
     "dev:subscription": "PORT=3004 node --watch src/subscription/server.js",
     "dev:geocode": "PORT=3005 node --watch src/geocode/server.js",
     "dev": "PORT=3001 node --watch src/gateway/server.js & PORT=3002 node --watch src/safety/server.js & PORT=3003 node --watch src/user/server.js & PORT=3004 node --watch src/subscription/server.js & PORT=3005 node --watch src/geocode/server.js",
+    "stress:safety": "node scripts/stress-safe-routes.js",
     "stop": "lsof -ti:3000,3001,3002,3003,3004,3005 | xargs kill -9 2>/dev/null; echo '✅ Ports 3000-3005 cleared'",
     "start": "PORT=3001 node src/gateway/server.js"
   },

@@ -24,6 +24,7 @@ require('dotenv').config();
 
 const express = require('express');
 const helmet = require('helmet');
+const os = require('os');
 
 const { createCorsMiddleware } = require('../shared/middleware/cors');
 const { createRateLimiter } = require('../shared/middleware/rateLimiter');
@@ -61,7 +62,12 @@ app.use(errorHandler);
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
+  const parallelism = typeof os.availableParallelism === 'function'
+    ? os.availableParallelism()
+    : Math.max(1, os.cpus()?.length || 1);
   console.log(`[safety] Safety Compute Service running on http://0.0.0.0:${PORT}`);
   console.log(`[safety] Routes: safe-routes (A* pathfinding)`);
   console.log(`[safety] Rate limit: 60 req / 15 min per IP`);
+  console.log(`[safety] Runtime: node=${process.version}, parallelism=${parallelism}`);
+  console.log(`[safety] Queue controls: maxConcurrent=${process.env.SAFE_ROUTES_MAX_CONCURRENT || 'auto'}, maxLoadUnits=${process.env.SAFE_ROUTES_MAX_SERVER_LOAD_UNITS || 'auto'}, maxQueue=${process.env.SAFE_ROUTES_MAX_QUEUE_LENGTH || 200}, maxQueueWaitMs=${process.env.SAFE_ROUTES_MAX_QUEUE_WAIT_MS || 180000}`);
 });

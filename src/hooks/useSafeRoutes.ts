@@ -9,6 +9,7 @@
  * modified Dijkstra to return 3–5 safety-ranked routes.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -19,6 +20,22 @@ import {
 import { AppError } from '@/src/types/errors';
 import type { LatLng } from '@/src/types/google';
 import { LimitError } from '@/src/types/limitError';
+
+const SEARCH_CLIENT_ID_STORAGE_KEY = 'safenight_search_client_id';
+let searchClientIdMemory: string | null = null;
+
+async function getOrCreateSearchClientId(): Promise<string> {
+  if (searchClientIdMemory) return searchClientIdMemory;
+  const stored = await AsyncStorage.getItem(SEARCH_CLIENT_ID_STORAGE_KEY);
+  if (stored) {
+    searchClientIdMemory = stored;
+    return stored;
+  }
+  const generated = `search-client-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  searchClientIdMemory = generated;
+  AsyncStorage.setItem(SEARCH_CLIENT_ID_STORAGE_KEY, generated).catch(() => {});
+  return generated;
+}
 
 /** Round to 4 decimal places (~11 m) to avoid jitter re-fetches */
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -45,6 +62,12 @@ export interface UseSafeRoutesState {
   outOfRangeMessage: string;
   /** Metadata about the computation (timing, data quality, etc.) */
   meta: SafeRoutesResponse['meta'] | null;
+  /** Current active search identifier shared with SSE stream */
+  activeSearchId: string | null;
+  /** Stable per-install client id for ordering across requests */
+  activeSearchClientId: string | null;
+  /** Monotonic sequence for active search (guards stale requests) */
+  activeSearchSeq: number | null;
   /** Re-fetch routes */
   refresh: () => Promise<void>;
 }
@@ -65,7 +88,11 @@ export function useSafeRoutes(
   const [outOfRange, setOutOfRange] = useState(false);
   const [outOfRangeMessage, setOutOfRangeMessage] = useState('');
   const [meta, setMeta] = useState<SafeRoutesResponse['meta'] | null>(null);
+  const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
+  const [activeSearchClientId, setActiveSearchClientId] = useState<string | null>(null);
+  const [activeSearchSeq, setActiveSearchSeq] = useState<number | null>(null);
   const cancelRef = useRef(0);
+  const clientSeqRef = useRef(0);
 
   // Stabilise coordinate references so the effect doesn't re-fire on every render
   const oLat = origin ? round4(origin.latitude) : null;
@@ -96,10 +123,29 @@ export function useSafeRoutes(
       setOutOfRange(false);
       setOutOfRangeMessage('');
       setMeta(null);
+      setActiveSearchId(null);
+      setActiveSearchClientId(null);
+      setActiveSearchSeq(null);
       return;
     }
 
+    const clientId = await getOrCreateSearchClientId();
     const batchId = ++cancelRef.current;
+    const nextSearchSeq = ++clientSeqRef.current;
+    const nextSearchId = [
+      'route-search',
+      String(batchId),
+      clientId,
+      String(nextSearchSeq),
+      `${stableOrigin.latitude.toFixed(5)},${stableOrigin.longitude.toFixed(5)}->${stableDest.latitude.toFixed(5)},${stableDest.longitude.toFixed(5)}`,
+      stableWaypoint
+        ? `@${stableWaypoint.latitude.toFixed(5)},${stableWaypoint.longitude.toFixed(5)}`
+        : '@none',
+    ].join(':');
+
+    setActiveSearchId(nextSearchId);
+    setActiveSearchClientId(clientId);
+    setActiveSearchSeq(nextSearchSeq);
     setStatus('loading');
     setRoutes([]);           // clear old routes so the sheet resets
     setSelectedIndex(0);
@@ -115,7 +161,16 @@ export function useSafeRoutes(
           `${stableDest.latitude.toFixed(4)},${stableDest.longitude.toFixed(4)}`,
       );
 
-      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint);
+      const result = await fetchSafeRoutes(
+        stableOrigin,
+        stableDest,
+        subscriptionTier,
+        maxDistanceKmOverride,
+        stableWaypoint,
+        nextSearchId,
+        clientId,
+        nextSearchSeq,
+      );
 
       if (cancelRef.current !== batchId) return; // stale
 
@@ -187,6 +242,9 @@ export function useSafeRoutes(
     outOfRange,
     outOfRangeMessage,
     meta,
+    activeSearchId,
+    activeSearchClientId,
+    activeSearchSeq,
     refresh,
   };
 }

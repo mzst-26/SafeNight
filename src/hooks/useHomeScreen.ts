@@ -102,6 +102,9 @@ export function useHomeScreen() {
     outOfRange,
     outOfRangeMessage,
     meta: safeRoutesMeta,
+    activeSearchId,
+    activeSearchClientId,
+    activeSearchSeq,
   } = useSafeRoutes(effectiveOrigin, routingDestination, subscriptionTier, routeDistanceKm, viaPinLocation);
 
   // Clear via-pin whenever the destination changes so stale waypoints don't carry over
@@ -134,6 +137,9 @@ export function useHomeScreen() {
     effectiveOrigin,
     routingDestination,
     directionsStatus === 'loading',
+    activeSearchId,
+    activeSearchClientId,
+    activeSearchSeq,
   );
 
   // ── Route scores ──

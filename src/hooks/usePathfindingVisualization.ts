@@ -9,12 +9,14 @@
  * support ReadableStream / response.body — XHR's onprogress fires progressively.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { env } from '@/src/config/env';
 import type { LatLng } from '@/src/types/google';
 
 const BACKEND_BASE = env.safetyApiUrl;
+const AUTH_TOKEN_STORAGE_KEY = 'safenight_access_token';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,6 +123,9 @@ export function usePathfindingVisualization(
   origin: LatLng | null,
   destination: LatLng | null,
   isSearching: boolean,
+  searchId: string | null,
+  searchClientId: string | null,
+  searchSeq: number | null,
 ) {
   const [state, setState] = useState<PathfindingVisualizationState>(EMPTY_STATE);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
@@ -146,7 +151,7 @@ export function usePathfindingVisualization(
   }, [stop]);
 
   useEffect(() => {
-    if (!isSearching || !origin || !destination) {
+    if (!isSearching || !origin || !destination || !searchId || !searchClientId || !Number.isFinite(searchSeq)) {
       if (!isSearching && activeRef.current) {
         stop();
         setState((s) => ({ ...s, active: false }));
@@ -170,12 +175,23 @@ export function usePathfindingVisualization(
 
     console.log('[viz] Opening SSE stream:', url);
 
-    const xhr = new XMLHttpRequest();
-    xhrRef.current = xhr;
+    let disposed = false;
 
-    xhr.open('GET', url, true);
-    // Ask for SSE format (avoid custom headers that trigger CORS preflight on web)
-    xhr.setRequestHeader('Accept', 'text/event-stream');
+    (async () => {
+      const memoryToken = (globalThis as any).__safenight_access_token;
+      const token = memoryToken || (await AsyncStorage.getItem(AUTH_TOKEN_STORAGE_KEY));
+      if (disposed || !activeRef.current) return;
+
+      const xhr = new XMLHttpRequest();
+      xhrRef.current = xhr;
+
+      xhr.open('GET', url, true);
+      // Ask for SSE format (avoid custom headers that trigger CORS preflight on web)
+      xhr.setRequestHeader('Accept', 'text/event-stream');
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.setRequestHeader('X-Search-Id', searchId);
+      xhr.setRequestHeader('X-Search-Client', searchClientId);
+      xhr.setRequestHeader('X-Search-Seq', String(searchSeq));
 
     /** Parse any new SSE data that appeared in responseText since last call */
     function parseNewChunks() {
@@ -212,31 +228,36 @@ export function usePathfindingVisualization(
       }
     }
 
-    xhr.onprogress = () => {
-      parseNewChunks();
-    };
+      xhr.onprogress = () => {
+        parseNewChunks();
+      };
 
-    xhr.onload = () => {
-      parseNewChunks(); // final flush
-      console.log('[viz] SSE stream completed');
+      xhr.onload = () => {
+        parseNewChunks(); // final flush
+        console.log('[viz] SSE stream completed');
+        activeRef.current = false;
+        xhrRef.current = null;
+        setState((s) => ({ ...s, active: false }));
+      };
+
+      xhr.onerror = () => {
+        console.warn('[viz] SSE stream error');
+        activeRef.current = false;
+        xhrRef.current = null;
+        setState((s) => ({ ...s, active: false }));
+      };
+
+      xhr.onabort = () => {
+        activeRef.current = false;
+        xhrRef.current = null;
+      };
+
+      xhr.send();
+    })().catch(() => {
       activeRef.current = false;
       xhrRef.current = null;
       setState((s) => ({ ...s, active: false }));
-    };
-
-    xhr.onerror = () => {
-      console.warn('[viz] SSE stream error');
-      activeRef.current = false;
-      xhrRef.current = null;
-      setState((s) => ({ ...s, active: false }));
-    };
-
-    xhr.onabort = () => {
-      activeRef.current = false;
-      xhrRef.current = null;
-    };
-
-    xhr.send();
+    });
 
     function handleEvent(event: string, data: any) {
       switch (event) {
@@ -296,9 +317,10 @@ export function usePathfindingVisualization(
     }
 
     return () => {
+      disposed = true;
       stop();
     };
-  }, [isSearching, origin?.latitude, origin?.longitude, destination?.latitude, destination?.longitude]);
+  }, [isSearching, origin?.latitude, origin?.longitude, destination?.latitude, destination?.longitude, searchId, searchClientId, searchSeq]);
 
   return { ...state, reset };
 }

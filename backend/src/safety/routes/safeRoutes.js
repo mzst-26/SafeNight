@@ -23,6 +23,7 @@
  */
 
 const express = require('express');
+const os = require('os');
 const opening_hours = require('opening_hours');
 const { validateLatitude, validateLongitude } = require('../../shared/validation/validate');
 const { haversine, bboxFromPoints, encodePolyline } = require('../services/geo');
@@ -122,6 +123,7 @@ const router = express.Router();
 // (the gateway / user-service resolves the caller's tier → distance limit)
 const DEFAULT_MAX_DISTANCE_KM = 20;
 const WALKING_SPEED_MPS = 1.35;
+const ENABLE_RESPONSE_OPENING_HOURS_PARSE = process.env.SAFE_ROUTES_PARSE_RESPONSE_OPENING_HOURS === '1';
 
 // ── Route cache (5 min TTL) ─────────────────────────────────────────────────
 const routeCache = new Map();
@@ -136,14 +138,219 @@ function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng) {
 // ── Request coalescing — share computation for concurrent identical requests ─
 const inflight = new Map();
 
+// ── Single-active-search guard (per user across devices) ──────────────────
+const activeSearchByUser = new Map();
+
+function createSearchCancelledError(message = 'Route search cancelled by a newer request on your account.') {
+  const err = new Error(message);
+  err.code = 'SEARCH_CANCELLED';
+  err.statusCode = 409;
+  return err;
+}
+
+function createCancellationToken() {
+  let cancelled = false;
+  let reason = 'Route search cancelled.';
+  const listeners = new Set();
+
+  return {
+    isCancelled: () => cancelled,
+    reason: () => reason,
+    cancel: (message) => {
+      if (cancelled) return;
+      cancelled = true;
+      reason = message || reason;
+      listeners.forEach((fn) => {
+        try {
+          fn(reason);
+        } catch {
+          // ignore listener errors
+        }
+      });
+      listeners.clear();
+    },
+    onCancel: (fn) => {
+      if (typeof fn !== 'function') return () => {};
+      if (cancelled) {
+        fn(reason);
+        return () => {};
+      }
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    throwIfCancelled: () => {
+      if (cancelled) throw createSearchCancelledError(reason);
+    },
+  };
+}
+
+function readSearchId(req) {
+  const raw = req.headers['x-search-id'];
+  if (typeof raw === 'string' && raw.trim()) return raw.trim().slice(0, 120);
+  const r = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n * 10000) / 10000 : 'x';
+  };
+  const oLat = r(req.query.origin_lat);
+  const oLng = r(req.query.origin_lng);
+  const dLat = r(req.query.dest_lat);
+  const dLng = r(req.query.dest_lng);
+  const wpLat = r(req.query.waypoint_lat);
+  const wpLng = r(req.query.waypoint_lng);
+  const maxDist = Number.isFinite(Number(req.query.max_distance))
+    ? Number(req.query.max_distance)
+    : 'x';
+  return `${oLat},${oLng}->${dLat},${dLng}@${wpLat},${wpLng}#${maxDist}`;
+}
+
+function readSearchSeq(req) {
+  const raw = req.headers['x-search-seq'];
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return Date.now();
+}
+
+function readSearchClient(req, userKey) {
+  const raw = req.headers['x-search-client'];
+  if (typeof raw === 'string' && raw.trim()) return raw.trim().slice(0, 120);
+  return `anon:${userKey}`;
+}
+
+function peekJwtUserId(req) {
+  try {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) return null;
+    const token = header.slice(7);
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+    return payload.sub || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveSearchUserKey(req) {
+  const userId = peekJwtUserId(req);
+  if (userId) return `user:${userId}`;
+  return `ip:${req.ip || 'unknown'}`;
+}
+
+function logSearchCancellation(event, details = {}) {
+  const extras = Object.entries(details)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${key}=${value}`)
+    .join(' ');
+  if (extras) {
+    console.log(`[safe-routes][cancel] ${event} ${extras}`);
+    return;
+  }
+  console.log(`[safe-routes][cancel] ${event}`);
+}
+
+function registerActiveSearch(req, cancelToken) {
+  const userKey = resolveSearchUserKey(req);
+  const searchId = readSearchId(req);
+  const searchSeq = readSearchSeq(req);
+  const clientId = readSearchClient(req, userKey);
+  const previous = activeSearchByUser.get(userKey);
+
+  if (
+    previous &&
+    previous.searchId !== searchId &&
+    previous.clientId === clientId &&
+    previous.searchSeq > searchSeq
+  ) {
+    logSearchCancellation('stale_rejected', {
+      userKey,
+      clientId,
+      staleSearchId: searchId,
+      staleSeq: searchSeq,
+      activeSearchId: previous.searchId,
+      activeSeq: previous.searchSeq,
+    });
+    cancelToken.cancel('This route search is older than another active search on your account.');
+    return {
+      userKey,
+      searchId,
+      searchSeq,
+      clientId,
+      replacedPrevious: false,
+      release: () => {},
+      stale: true,
+    };
+  }
+
+  if (previous && previous.searchId !== searchId) {
+    logSearchCancellation('previous_preempted', {
+      userKey,
+      previousClientId: previous.clientId,
+      newClientId: clientId,
+      cancelledSearchId: previous.searchId,
+      cancelledSeq: previous.searchSeq,
+      newerSearchId: searchId,
+      newerSeq: searchSeq,
+    });
+    previous.cancelToken.cancel('This route search was cancelled because a newer search started on your account.');
+  }
+
+  const entry = {
+    searchId,
+    searchSeq,
+    clientId,
+    userKey,
+    cancelToken,
+    startedAt: Date.now(),
+  };
+  activeSearchByUser.set(userKey, entry);
+
+  const release = () => {
+    const current = activeSearchByUser.get(userKey);
+    if (current === entry) {
+      activeSearchByUser.delete(userKey);
+      logSearchCancellation('active_released', {
+        userKey,
+        clientId,
+        searchId,
+        searchSeq,
+      });
+    }
+  };
+
+  return {
+    userKey,
+    searchId,
+    searchSeq,
+    clientId,
+    replacedPrevious: Boolean(previous && previous.searchId !== searchId),
+    stale: false,
+    release,
+  };
+}
+
 // ── Compute queue/load control ──────────────────────────────────────────────
-const MAX_CONCURRENT_COMPUTES = Math.max(1, Number(process.env.SAFE_ROUTES_MAX_CONCURRENT || 1));
+const AVAILABLE_PARALLELISM = typeof os.availableParallelism === 'function'
+  ? os.availableParallelism()
+  : Math.max(1, os.cpus()?.length || 1);
+const DEFAULT_MAX_CONCURRENT_COMPUTES = Math.max(1, Math.min(AVAILABLE_PARALLELISM, 8));
+const DEFAULT_MAX_SERVER_LOAD_UNITS = Math.max(4, DEFAULT_MAX_CONCURRENT_COMPUTES * 3);
+const MAX_CONCURRENT_COMPUTES = Math.max(1, Number(process.env.SAFE_ROUTES_MAX_CONCURRENT || DEFAULT_MAX_CONCURRENT_COMPUTES));
+const MAX_SERVER_LOAD_UNITS = Math.max(1, Number(process.env.SAFE_ROUTES_MAX_SERVER_LOAD_UNITS || DEFAULT_MAX_SERVER_LOAD_UNITS));
+const MAX_QUEUE_LENGTH = Math.max(1, Number(process.env.SAFE_ROUTES_MAX_QUEUE_LENGTH || 200));
+const MAX_QUEUE_WAIT_MS = Math.max(1000, Number(process.env.SAFE_ROUTES_MAX_QUEUE_WAIT_MS || 180000));
 const DEFAULT_COMPUTE_ETA_MS = Math.max(10000, Number(process.env.SAFE_ROUTES_DEFAULT_ETA_MS || 30000));
+const DEFAULT_REQUEST_LOAD_UNITS = Math.max(1, Number(process.env.SAFE_ROUTES_DEFAULT_REQUEST_LOAD_UNITS || 3));
+const LOAD_UNITS_PER_KM = Math.max(0.1, Number(process.env.SAFE_ROUTES_LOAD_UNITS_PER_KM || 0.7));
+const WAYPOINT_LOAD_BONUS = Math.max(0, Number(process.env.SAFE_ROUTES_WAYPOINT_LOAD_BONUS || 1));
+const MIN_REQUEST_LOAD_UNITS = Math.max(1, Number(process.env.SAFE_ROUTES_MIN_REQUEST_LOAD_UNITS || 1));
+const MAX_REQUEST_LOAD_UNITS = Math.max(MIN_REQUEST_LOAD_UNITS, Number(process.env.SAFE_ROUTES_MAX_REQUEST_LOAD_UNITS || MAX_SERVER_LOAD_UNITS));
 const recentComputeDurationsMs = [];
+const recentComputeMsPerLoadUnit = [];
 const MAX_RECENT_DURATIONS = 24;
 let activeComputations = 0;
+let activeLoadUnits = 0;
 let nextQueueJobId = 1;
 const computeQueue = [];
+const activeQueueJobs = new Map();
+let queueHeartbeat = null;
 
 function getAverageComputeMs() {
   if (!recentComputeDurationsMs.length) return DEFAULT_COMPUTE_ETA_MS;
@@ -158,10 +365,145 @@ function trackComputeDuration(ms) {
   }
 }
 
+function getAverageMsPerLoadUnit() {
+  if (!recentComputeMsPerLoadUnit.length) {
+    return Math.round(DEFAULT_COMPUTE_ETA_MS / DEFAULT_REQUEST_LOAD_UNITS);
+  }
+  const total = recentComputeMsPerLoadUnit.reduce((sum, ms) => sum + ms, 0);
+  return Math.max(500, Math.round(total / recentComputeMsPerLoadUnit.length));
+}
+
+function trackLoadAdjustedDuration(ms, requestLoadUnits) {
+  const safeUnits = Math.max(1, Number(requestLoadUnits || DEFAULT_REQUEST_LOAD_UNITS));
+  const msPerUnit = Math.max(500, Math.round(ms / safeUnits));
+  recentComputeMsPerLoadUnit.push(msPerUnit);
+  if (recentComputeMsPerLoadUnit.length > MAX_RECENT_DURATIONS) {
+    recentComputeMsPerLoadUnit.shift();
+  }
+}
+
+function estimateRequestLoadUnits({ straightLineKm, maxDistanceKm, hasWaypoint }) {
+  const distanceKm = Number.isFinite(maxDistanceKm) && maxDistanceKm > 0
+    ? maxDistanceKm
+    : Number.isFinite(straightLineKm)
+      ? straightLineKm
+      : 0;
+  const distanceLoad = distanceKm * LOAD_UNITS_PER_KM;
+  const raw = MIN_REQUEST_LOAD_UNITS + distanceLoad + (hasWaypoint ? WAYPOINT_LOAD_BONUS : 0);
+  const rounded = Math.round(raw);
+  return Math.max(MIN_REQUEST_LOAD_UNITS, Math.min(MAX_REQUEST_LOAD_UNITS, rounded));
+}
+
+function estimateComputeMsForLoad(requestLoadUnits) {
+  const safeUnits = Math.max(1, Number(requestLoadUnits || DEFAULT_REQUEST_LOAD_UNITS));
+  return Math.max(5000, Math.round(getAverageMsPerLoadUnit() * safeUnits));
+}
+
+function getActiveJobsSnapshot() {
+  const now = Date.now();
+  const jobs = [];
+  for (const job of activeQueueJobs.values()) {
+    const elapsed = Math.max(0, now - job.startedAt);
+    const remainingMs = Math.max(1000, job.expectedMs - elapsed);
+    jobs.push({
+      id: job.id,
+      loadUnits: job.requestLoadUnits,
+      remainingMs,
+    });
+  }
+  return jobs;
+}
+
+function tryStartWaitingJobs(activeJobs, waitingJobs) {
+  let startedOne = false;
+  while (waitingJobs.length > 0) {
+    const next = waitingJobs[0];
+    const currentLoad = activeJobs.reduce((sum, job) => sum + job.loadUnits, 0);
+    const capacityByLoad = currentLoad + next.loadUnits <= MAX_SERVER_LOAD_UNITS;
+    const capacityByConcurrency = activeJobs.length < MAX_CONCURRENT_COMPUTES;
+    if (!capacityByLoad || !capacityByConcurrency) break;
+
+    waitingJobs.shift();
+    activeJobs.push({
+      id: next.id,
+      loadUnits: next.loadUnits,
+      remainingMs: next.expectedMs,
+      target: next.target,
+    });
+    startedOne = true;
+  }
+  return startedOne;
+}
+
 function estimateQueueWaitMs(queuePosition) {
-  if (queuePosition < 0) return 0;
-  const batchesBeforeStart = Math.floor(queuePosition / MAX_CONCURRENT_COMPUTES) + 1;
-  return batchesBeforeStart * getAverageComputeMs();
+  if (queuePosition < 0 || queuePosition >= computeQueue.length) return 0;
+
+  const activeJobs = getActiveJobsSnapshot();
+  const waitingJobs = computeQueue
+    .slice(0, queuePosition + 1)
+    .map((job, index) => ({
+      id: job.id,
+      loadUnits: Math.max(1, Number(job.requestLoadUnits || DEFAULT_REQUEST_LOAD_UNITS)),
+      expectedMs: estimateComputeMsForLoad(job.requestLoadUnits),
+      target: index === queuePosition,
+    }));
+
+  let elapsedMs = 0;
+  const MAX_SIM_STEPS = 1000;
+  let steps = 0;
+
+  while (steps < MAX_SIM_STEPS) {
+    steps += 1;
+
+    tryStartWaitingJobs(activeJobs, waitingJobs);
+    if (activeJobs.some(job => job.target)) {
+      return Math.max(0, elapsedMs);
+    }
+
+    if (activeJobs.length === 0) {
+      return elapsedMs + getAverageComputeMs();
+    }
+
+    const nextFinishMs = Math.min(...activeJobs.map(job => job.remainingMs));
+    elapsedMs += nextFinishMs;
+
+    for (const job of activeJobs) {
+      job.remainingMs = Math.max(0, job.remainingMs - nextFinishMs);
+    }
+    for (let i = activeJobs.length - 1; i >= 0; i -= 1) {
+      if (activeJobs[i].remainingMs <= 0) {
+        activeJobs.splice(i, 1);
+      }
+    }
+  }
+
+  return elapsedMs + getAverageComputeMs();
+}
+
+function ensureQueueHeartbeat() {
+  if (queueHeartbeat) return;
+  queueHeartbeat = setInterval(() => {
+    if (computeQueue.length === 0) {
+      clearInterval(queueHeartbeat);
+      queueHeartbeat = null;
+      return;
+    }
+    notifyQueuedJobs();
+  }, 1000);
+}
+
+function canStartJobNow(job) {
+  const requestLoadUnits = Math.max(1, Number(job.requestLoadUnits || DEFAULT_REQUEST_LOAD_UNITS));
+  const hasLoadCapacity = activeLoadUnits + requestLoadUnits <= MAX_SERVER_LOAD_UNITS;
+  const hasConcurrencyCapacity = activeComputations < MAX_CONCURRENT_COMPUTES;
+  return hasLoadCapacity && hasConcurrencyCapacity;
+}
+
+function formatWaitMmSs(waitMs) {
+  const totalSec = Math.max(0, Math.round(waitMs / 1000));
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
 function notifyQueuedJobs() {
@@ -174,19 +516,42 @@ function notifyQueuedJobs() {
     job.onQueueUpdate({
       queuePosition: index,
       waitMs,
+      waitLabel: formatWaitMmSs(waitMs),
       activeCount: activeComputations,
+      activeLoadUnits,
       queuedCount: computeQueue.length,
+      maxServerLoadUnits: MAX_SERVER_LOAD_UNITS,
+      maxQueueLength: MAX_QUEUE_LENGTH,
+      requestLoadUnits: Math.max(1, Number(job.requestLoadUnits || DEFAULT_REQUEST_LOAD_UNITS)),
       avgComputeMs: getAverageComputeMs(),
     });
   });
 }
 
 function startComputeJob(job) {
+  if (job.cancelled) {
+    if (typeof job.cancelUnsub === 'function') job.cancelUnsub();
+    return;
+  }
+  const requestLoadUnits = Math.max(1, Number(job.requestLoadUnits || DEFAULT_REQUEST_LOAD_UNITS));
+  const expectedMs = estimateComputeMsForLoad(requestLoadUnits);
   activeComputations += 1;
+  activeLoadUnits += requestLoadUnits;
+  activeQueueJobs.set(job.id, {
+    id: job.id,
+    requestLoadUnits,
+    startedAt: Date.now(),
+    expectedMs,
+  });
   if (typeof job.onStart === 'function') {
     job.onStart({
       activeCount: activeComputations,
+      activeLoadUnits,
       queuedCount: computeQueue.length,
+      maxServerLoadUnits: MAX_SERVER_LOAD_UNITS,
+      maxQueueLength: MAX_QUEUE_LENGTH,
+      requestLoadUnits,
+      expectedMs,
       avgComputeMs: getAverageComputeMs(),
     });
   }
@@ -195,29 +560,56 @@ function startComputeJob(job) {
   Promise.resolve()
     .then(job.run)
     .then((result) => {
-      trackComputeDuration(Date.now() - startedAt);
+      const totalMs = Date.now() - startedAt;
+      trackComputeDuration(totalMs);
+      trackLoadAdjustedDuration(totalMs, requestLoadUnits);
       job.resolve(result);
     })
     .catch((err) => {
       job.reject(err);
     })
     .finally(() => {
+      if (typeof job.cancelUnsub === 'function') job.cancelUnsub();
+      activeQueueJobs.delete(job.id);
       activeComputations = Math.max(0, activeComputations - 1);
+      activeLoadUnits = Math.max(0, activeLoadUnits - requestLoadUnits);
       notifyQueuedJobs();
       runQueuedComputes();
     });
 }
 
 function runQueuedComputes() {
-  while (activeComputations < MAX_CONCURRENT_COMPUTES && computeQueue.length > 0) {
+  while (computeQueue.length > 0) {
     const nextJob = computeQueue.shift();
-    if (!nextJob || nextJob.cancelled) continue;
+    if (!nextJob || nextJob.cancelled) {
+      if (nextJob && typeof nextJob.cancelUnsub === 'function') nextJob.cancelUnsub();
+      continue;
+    }
+    const queuedForMs = Math.max(0, Date.now() - (nextJob.enqueuedAt || Date.now()));
+    if (queuedForMs > MAX_QUEUE_WAIT_MS) {
+      if (typeof nextJob.cancelUnsub === 'function') nextJob.cancelUnsub();
+      nextJob.reject(Object.assign(
+        new Error('Server queue timeout. Please retry with a shorter route or lower load.'),
+        {
+          statusCode: 503,
+          code: 'QUEUE_TIMEOUT',
+          queuedForMs,
+          maxQueueWaitMs: MAX_QUEUE_WAIT_MS,
+        },
+      ));
+      continue;
+    }
+    if (!canStartJobNow(nextJob)) {
+      computeQueue.unshift(nextJob);
+      break;
+    }
     startComputeJob(nextJob);
   }
+  if (computeQueue.length > 0) ensureQueueHeartbeat();
   notifyQueuedJobs();
 }
 
-function enqueueComputeJob({ run, onQueueUpdate, onStart }) {
+function enqueueComputeJob({ run, onQueueUpdate, onStart, cancelToken = null, requestLoadUnits = DEFAULT_REQUEST_LOAD_UNITS }) {
   return new Promise((resolve, reject) => {
     const job = {
       id: nextQueueJobId++,
@@ -226,17 +618,53 @@ function enqueueComputeJob({ run, onQueueUpdate, onStart }) {
       reject,
       onQueueUpdate,
       onStart,
+      requestLoadUnits: Math.max(1, Number(requestLoadUnits || DEFAULT_REQUEST_LOAD_UNITS)),
       cancelled: false,
+      enqueuedAt: Date.now(),
       lastNotifiedPosition: -1,
       lastNotifiedWaitMs: -1,
+      cancelUnsub: null,
     };
 
-    if (activeComputations < MAX_CONCURRENT_COMPUTES && computeQueue.length === 0) {
+    if (cancelToken?.isCancelled?.()) {
+      job.cancelled = true;
+      reject(createSearchCancelledError(cancelToken.reason?.() || 'Route search cancelled.'));
+      return;
+    }
+
+    if (cancelToken?.onCancel) {
+      job.cancelUnsub = cancelToken.onCancel((reason) => {
+        job.cancelled = true;
+        const queueIndex = computeQueue.findIndex(queuedJob => queuedJob.id === job.id);
+        if (queueIndex >= 0) {
+          computeQueue.splice(queueIndex, 1);
+          notifyQueuedJobs();
+        }
+        reject(createSearchCancelledError(reason));
+      });
+    }
+
+    if (computeQueue.length === 0 && canStartJobNow(job)) {
       startComputeJob(job);
       return;
     }
 
+    if (computeQueue.length >= MAX_QUEUE_LENGTH) {
+      if (typeof job.cancelUnsub === 'function') job.cancelUnsub();
+      reject(Object.assign(
+        new Error('Server is at capacity. Please retry shortly.'),
+        {
+          statusCode: 503,
+          code: 'QUEUE_FULL',
+          queueLength: computeQueue.length,
+          maxQueueLength: MAX_QUEUE_LENGTH,
+        },
+      ));
+      return;
+    }
+
     computeQueue.push(job);
+    ensureQueueHeartbeat();
     notifyQueuedJobs();
   });
 }
@@ -251,6 +679,24 @@ function emitInflightProgress(entry, phase, message, pct) {
       // best-effort listener fanout
     }
   });
+}
+
+async function waitWithCancellation(promise, cancelToken) {
+  if (!cancelToken?.onCancel) return promise;
+  cancelToken.throwIfCancelled?.();
+
+  let unsubscribe = null;
+  const cancelPromise = new Promise((_, reject) => {
+    unsubscribe = cancelToken.onCancel((reason) => {
+      reject(createSearchCancelledError(reason));
+    });
+  });
+
+  try {
+    return await Promise.race([promise, cancelPromise]);
+  } finally {
+    if (typeof unsubscribe === 'function') unsubscribe();
+  }
 }
 
 function pruneRouteCache() {
@@ -272,7 +718,9 @@ async function resolveSafeRoutesRequest({
   wpLat,
   wpLng,
   onProgress,
+  cancelToken = null,
 }) {
+  cancelToken?.throwIfCancelled?.();
   const cacheKey = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng);
   const cached = routeCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
@@ -292,9 +740,14 @@ async function resolveSafeRoutesRequest({
       }
     }
 
-    const result = await entry.promise;
+    let result;
+    try {
+      result = await waitWithCancellation(entry.promise, cancelToken);
+    } finally {
+      if (subscribed) entry.progressListeners.delete(onProgress);
+    }
 
-    if (subscribed) entry.progressListeners.delete(onProgress);
+    cancelToken?.throwIfCancelled?.();
     if (!result) {
       throw Object.assign(new Error('Computation failed.'), {
         statusCode: 500,
@@ -311,6 +764,11 @@ async function resolveSafeRoutesRequest({
   };
   if (typeof onProgress === 'function') inflightEntry.progressListeners.add(onProgress);
   inflight.set(cacheKey, inflightEntry);
+  const requestLoadUnits = estimateRequestLoadUnits({
+    straightLineKm,
+    maxDistanceKm,
+    hasWaypoint: Number.isFinite(wpLat) && Number.isFinite(wpLng),
+  });
 
   try {
     inflightEntry.promise = enqueueComputeJob({
@@ -325,37 +783,40 @@ async function resolveSafeRoutesRequest({
         maxDistanceKm,
         wpLat,
         wpLng,
+        cancelToken,
         (phase, message, pct) => emitInflightProgress(inflightEntry, phase, message, pct),
       ),
-      onQueueUpdate: ({ queuePosition, waitMs, activeCount, queuedCount }) => {
-        const etaSec = Math.max(1, Math.round(waitMs / 1000));
+      onQueueUpdate: ({ queuePosition, waitLabel, activeCount, activeLoadUnits, queuedCount, maxServerLoadUnits, requestLoadUnits: queuedLoadUnits }) => {
         const ahead = queuePosition + 1;
         emitInflightProgress(
           inflightEntry,
           'queued',
-          `Server busy — queued (${ahead} ahead, ${activeCount} active). Est. ${etaSec}s`,
+          `Server busy — queued (${ahead} ahead, ${activeCount} active, load ${activeLoadUnits}/${maxServerLoadUnits}). Est. ${waitLabel}`,
           20,
         );
         if (queuedCount > 0) {
           emitInflightProgress(
             inflightEntry,
             'queue_stats',
-            `Queue size: ${queuedCount} requests`,
+            `Queue size: ${queuedCount} requests • this route load ${queuedLoadUnits}/${maxServerLoadUnits}`,
             20,
           );
         }
       },
-      onStart: ({ activeCount, queuedCount }) => {
+      onStart: ({ activeCount, activeLoadUnits, queuedCount, maxServerLoadUnits, expectedMs, requestLoadUnits: startedLoadUnits }) => {
+        const expectedLabel = formatWaitMmSs(expectedMs);
         emitInflightProgress(
           inflightEntry,
           'queue_start',
-          `Starting safety analysis (${activeCount} active, ${queuedCount} queued)…`,
+          `Starting safety analysis (${activeCount} active, ${queuedCount} queued, load ${activeLoadUnits}/${maxServerLoadUnits}, route load ${startedLoadUnits}). Est. ${expectedLabel}`,
           22,
         );
       },
+      requestLoadUnits,
+      cancelToken,
     });
 
-    const result = await inflightEntry.promise;
+    const result = await waitWithCancellation(inflightEntry.promise, cancelToken);
     if (!result) {
       throw Object.assign(new Error('Computation failed.'), {
         statusCode: 500,
@@ -390,6 +851,28 @@ function segmentColor(safetyScore) {
 
 // ── GET /api/safe-routes ────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
+  const cancelToken = createCancellationToken();
+  const activeSearch = registerActiveSearch(req, cancelToken);
+  if (activeSearch.stale) {
+    logSearchCancellation('http_stale_response', {
+      userKey: activeSearch.userKey,
+      searchId: activeSearch.searchId,
+      searchSeq: activeSearch.searchSeq,
+    });
+    return res.status(409).json({
+      error: 'SEARCH_CANCELLED',
+      message: 'This route search is older than another active search on your account.',
+    });
+  }
+  req.on('close', () => {
+    logSearchCancellation('http_client_disconnected', {
+      userKey: activeSearch.userKey,
+      searchId: activeSearch.searchId,
+      searchSeq: activeSearch.searchSeq,
+    });
+    cancelToken.cancel('Route search was cancelled because the client disconnected.');
+  });
+
   try {
     // ── 1. Validate inputs ──────────────────────────────────────────────
     const oLat = validateLatitude(req.query.origin_lat);
@@ -459,10 +942,26 @@ router.get('/', async (req, res) => {
       maxDistanceKm,
       wpLat,
       wpLng,
+      cancelToken,
     });
 
     res.json(result);
   } catch (err) {
+    if (err?.code === 'SEARCH_CANCELLED') {
+      logSearchCancellation('http_cancelled_response', {
+        userKey: activeSearch.userKey,
+        searchId: activeSearch.searchId,
+        searchSeq: activeSearch.searchSeq,
+        reason: err.message,
+      });
+      if (!res.headersSent) {
+        return res.status(409).json({
+          error: 'SEARCH_CANCELLED',
+          message: err.message,
+        });
+      }
+      return;
+    }
     console.error(`[safe-routes] ❌ Error:`, err);
     if (!res.headersSent) {
       res.status(500).json({
@@ -471,6 +970,8 @@ router.get('/', async (req, res) => {
         detail: 'This is usually a temporary issue with one of our data sources (OpenStreetMap or the Police crime API). Please wait a moment and try again.',
       });
     }
+  } finally {
+    activeSearch.release();
   }
 });
 
@@ -478,6 +979,23 @@ router.get('/', async (req, res) => {
 router.get('/stream', async (req, res) => {
   let closed = false;
   let keepAliveTimer = null;
+  const cancelToken = createCancellationToken();
+  const activeSearch = registerActiveSearch(req, cancelToken);
+
+  if (activeSearch.stale) {
+    logSearchCancellation('sse_stale_response', {
+      userKey: activeSearch.userKey,
+      searchId: activeSearch.searchId,
+      searchSeq: activeSearch.searchSeq,
+    });
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    res.write('event: error\n');
+    res.write(`data: ${JSON.stringify({ code: 'SEARCH_CANCELLED', message: 'This route search is older than another active search on your account.', pct: 0 })}\n\n`);
+    return res.end();
+  }
 
   const cleanup = () => {
     if (keepAliveTimer) {
@@ -488,7 +1006,33 @@ router.get('/stream', async (req, res) => {
 
   req.on('close', () => {
     closed = true;
+    logSearchCancellation('sse_client_disconnected', {
+      userKey: activeSearch.userKey,
+      searchId: activeSearch.searchId,
+      searchSeq: activeSearch.searchSeq,
+    });
+    cancelToken.cancel('Route search was cancelled because the client disconnected.');
+    activeSearch.release();
     cleanup();
+  });
+
+  cancelToken.onCancel((reason) => {
+    if (closed) return;
+    logSearchCancellation('sse_cancel_signal', {
+      userKey: activeSearch.userKey,
+      searchId: activeSearch.searchId,
+      searchSeq: activeSearch.searchSeq,
+      reason,
+    });
+    send('error', { code: 'SEARCH_CANCELLED', message: reason, pct: 0 });
+    closed = true;
+    cleanup();
+    try {
+      res.end();
+    } catch {
+      // ignore
+    }
+    activeSearch.release();
   });
 
   const send = (event, data) => {
@@ -575,6 +1119,7 @@ router.get('/stream', async (req, res) => {
       wpLat,
       wpLng,
       onProgress,
+      cancelToken,
     });
 
     if (source === 'cache') {
@@ -583,13 +1128,27 @@ router.get('/stream', async (req, res) => {
 
     send('done', { pct: 100, message: 'Routes ready!' });
     cleanup();
+    activeSearch.release();
     res.end();
   } catch (err) {
+    if (err?.code === 'SEARCH_CANCELLED') {
+      logSearchCancellation('sse_cancelled_response', {
+        userKey: activeSearch.userKey,
+        searchId: activeSearch.searchId,
+        searchSeq: activeSearch.searchSeq,
+        reason: err.message,
+      });
+      send('error', { code: 'SEARCH_CANCELLED', message: err.message, pct: 0 });
+      cleanup();
+      activeSearch.release();
+      return res.end();
+    }
     send('error', {
       message: err?.message || 'Something went wrong while streaming route progress.',
       pct: 0,
     });
     cleanup();
+    activeSearch.release();
     res.end();
   }
 });
@@ -608,10 +1167,22 @@ async function computeSafeRoutes(
   maxDistanceKm = DEFAULT_MAX_DISTANCE_KM,
   wpLat = null,
   wpLng = null,
+  cancelToken = null,
   onProgress = null,
 ) {
+  cancelToken?.throwIfCancelled?.();
+  const upstreamAbortController = new AbortController();
+  const cancelUnsub = cancelToken?.onCancel?.(() => {
+    try {
+      upstreamAbortController.abort();
+    } catch {
+      // ignore abort errors
+    }
+  });
+
   const progress = (phase, message, pct) => {
     if (typeof onProgress !== 'function') return;
+    if (cancelToken?.isCancelled?.()) return;
     try {
       onProgress(phase, message, pct);
     } catch {
@@ -622,6 +1193,7 @@ async function computeSafeRoutes(
   progress('start', 'Preparing route analysis…', 20);
   console.log(`[safe-routes] 🔍 Computing: ${oLatV},${oLngV} → ${dLatV},${dLngV} (${straightLineKm.toFixed(1)} km)`);
 
+  try {
   // ═══════════════════════════════════════════════════════════════════════
   // PHASE 1 — Corridor discovery (skip for short distances to save time)
   // For routes < 1.5 km, a straight-line corridor works fine.
@@ -634,6 +1206,7 @@ async function computeSafeRoutes(
   const SKIP_PHASE1_DIST = 1500; // skip road-only fetch for < 1.5 km
 
   if (straightLineDist >= SKIP_PHASE1_DIST) {
+    cancelToken?.throwIfCancelled?.();
     progress('phase1', 'Discovering walking corridor…', 28);
     console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
     const t0p1 = Date.now();
@@ -642,7 +1215,7 @@ async function computeSafeRoutes(
     if (wpLat != null) initialBboxPoints.push({ lat: wpLat, lng: wpLng });
     const initialBbox = bboxFromPoints(initialBboxPoints, initialBufferM);
 
-    const roadData = await fetchRoadNetworkOnly(initialBbox);
+    const roadData = await fetchRoadNetworkOnly(initialBbox, { signal: upstreamAbortController.signal });
     distGraph = buildDistanceOnlyGraph(roadData);
 
     const distStart = findNearestNode(distGraph.nodeGrid, distGraph.adjacency, oLatV, oLngV);
@@ -655,6 +1228,7 @@ async function computeSafeRoutes(
       );
     }
     phase1Time = Date.now() - t0p1;
+    cancelToken?.throwIfCancelled?.();
     progress('phase1_done', 'Walking corridor discovered.', 38);
     console.log(`[safe-routes] ✅ Phase 1: ${phase1Time}ms — ${
       shortestPath
@@ -696,6 +1270,7 @@ async function computeSafeRoutes(
   if (wpLat != null) corridorPoints.push({ lat: wpLat, lng: wpLng });
 
   const bbox = bboxFromPoints(corridorPoints, corridorBufferM);
+  cancelToken?.throwIfCancelled?.();
   progress('phase2', 'Fetching safety data in route corridor…', 50);
   console.log(`[safe-routes] 📐 Phase 2: Corridor from ${corridorPoints.length} waypoints + ${corridorBufferM}m buffer`);
 
@@ -704,11 +1279,12 @@ async function computeSafeRoutes(
   const t0 = Date.now();
 
   let [allData, crimes] = await Promise.all([
-    fetchAllSafetyData(bbox),
-    fetchCrimesInBbox(bbox),
+    fetchAllSafetyData(bbox, { signal: upstreamAbortController.signal }),
+    fetchCrimesInBbox(bbox, { signal: upstreamAbortController.signal }),
   ]);
 
   let dataTime = Date.now() - t0;
+  cancelToken?.throwIfCancelled?.();
   progress('phase2_done', 'Safety data loaded.', 66);
   console.log(`[safe-routes] 📡 Corridor data fetched in ${dataTime}ms`);
 
@@ -719,13 +1295,16 @@ async function computeSafeRoutes(
   // ── 6b. Extract light & place node positions for POI markers ────────
   // ── 7. Build safety-weighted graph (with coverage maps) ─────────────
   console.log(`[safe-routes] 🏗️  Building graph + coverage maps...`);
+  cancelToken?.throwIfCancelled?.();
   progress('graph_build', 'Building safety graph…', 74);
   const t1 = Date.now();
   let { osmNodes, edges, adjacency, nodeGrid, weights, cctvNodes, transitNodes, nodeDegree } = buildGraph(
     allData.roads, allData.lights, allData.cctv, allData.places, allData.transit,
     crimes, bbox,
+    { shouldCancel: () => cancelToken?.isCancelled?.() === true },
   );
   let graphTime = Date.now() - t1;
+  cancelToken?.throwIfCancelled?.();
   progress('graph_ready', 'Running safest path search…', 82);
   console.log(`[safe-routes] 📊 Graph: ${osmNodes.size} nodes, ${edges.length} edges (built in ${graphTime}ms)`);
 
@@ -754,6 +1333,7 @@ async function computeSafeRoutes(
 
   // ── 9. Find 3–5 safest routes (A* — much faster than Dijkstra) ─────
   console.log(`[safe-routes] 🔎 A* pathfinding (start=${startNode}, end=${endNode})...`);
+  cancelToken?.throwIfCancelled?.();
   progress('pathfind', 'Computing route candidates…', 86);
   const t2 = Date.now();
   const maxRouteDist = straightLineDist * 2.5;
@@ -790,6 +1370,7 @@ async function computeSafeRoutes(
   }
 
   let pathfindTime = Date.now() - t2;
+  cancelToken?.throwIfCancelled?.();
   progress('pathfind_done', 'Scoring and formatting best routes…', 89);
   console.log(`[safe-routes] 🔎 A* found ${rawRoutes.length} routes in ${pathfindTime}ms`);
 
@@ -821,9 +1402,15 @@ async function computeSafeRoutes(
       const name = el.tags?.name || el.tags?.['name:en'] || el.tags?.brand || el.tags?.operator || '';
       const amenity = el.tags?.amenity || el.tags?.shop || el.tags?.leisure || el.tags?.tourism || '';
       const hoursRaw = el.tags?.opening_hours || '';
-      // 1) Try OSM opening_hours tag (most accurate)
-      let { open, nextChange } = checkOpenNow(hoursRaw);
-      // 2) Fall back to type-based heuristic if no hours data
+      let open = null;
+      let nextChange = null;
+      // Optional strict parser for opening_hours (off by default under load).
+      if (ENABLE_RESPONSE_OPENING_HOURS_PARSE && hoursRaw) {
+        const parsed = checkOpenNow(hoursRaw);
+        open = parsed.open;
+        nextChange = parsed.nextChange;
+      }
+      // Default to fast heuristic to reduce CPU and parser noise.
       if (open === null) {
         const h = heuristicOpen(amenity);
         open = h.open;
@@ -958,6 +1545,7 @@ async function computeSafeRoutes(
   const responseRoutes = routes.slice(0, Math.max(minRoutes, routes.length));
 
   const elapsed = Date.now() - startTime;
+  cancelToken?.throwIfCancelled?.();
   progress('finalize', 'Finalizing route output…', 90);
   console.log(`[safe-routes] 🏁 Done in ${elapsed}ms (corridor:${phase1Time}ms, data:${dataTime}ms, graph:${graphTime}ms, A*:${pathfindTime}ms, recorrection:${recorrectionMs}ms) — ${responseRoutes.length} routes, safest: ${responseRoutes[0]?.safety?.score}`);
 
@@ -987,6 +1575,9 @@ async function computeSafeRoutes(
       computeTimeMs: elapsed,
     },
   };
+  } finally {
+    if (typeof cancelUnsub === 'function') cancelUnsub();
+  }
 }
 
 /**
@@ -1007,6 +1598,52 @@ const NEARBY_M = 30;
 function collectRoutePOIs(routePath, routeEdges, allEdges, osmNodes, cctvNodes, transitNodes, nodeDegree, lightNodes, placeNodes, crimeNodes) {
   const pois = { cctv: [], transit: [], deadEnds: [], lights: [], places: [], crimes: [] };
   const seen = new Set();
+  const DEG_PER_M = 1 / 111320;
+  const CELL_DEG = NEARBY_M * DEG_PER_M;
+  const routeGrid = new Map();
+
+  function gridKey(r, c) {
+    return `${r}:${c}`;
+  }
+
+  function toCell(lat, lng) {
+    return {
+      r: Math.floor(lat / CELL_DEG),
+      c: Math.floor(lng / CELL_DEG),
+    };
+  }
+
+  function indexRoutePoint(lat, lng) {
+    const { r, c } = toCell(lat, lng);
+    const key = gridKey(r, c);
+    const arr = routeGrid.get(key);
+    const point = { lat, lng };
+    if (arr) {
+      arr.push(point);
+    } else {
+      routeGrid.set(key, [point]);
+    }
+  }
+
+  function isNearRoute(lat, lng) {
+    const maxDelta = NEARBY_M * DEG_PER_M;
+    const maxDeltaSq = maxDelta * maxDelta;
+    const { r, c } = toCell(lat, lng);
+    for (let rr = r - 1; rr <= r + 1; rr += 1) {
+      for (let cc = c - 1; cc <= c + 1; cc += 1) {
+        const bucket = routeGrid.get(gridKey(rr, cc));
+        if (!bucket) continue;
+        for (const p of bucket) {
+          const dLat = lat - p.lat;
+          const dLng = lng - p.lng;
+          if ((dLat * dLat) + (dLng * dLng) <= maxDeltaSq) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
 
   // Collect dead-end nodes on the route
   for (const nid of routePath) {
@@ -1024,19 +1661,9 @@ function collectRoutePOIs(routePath, routeEdges, allEdges, osmNodes, cctvNodes, 
   }
 
   // Build sample points from EVERY node on the route — full coverage, no gaps.
-  const samplePoints = [];
   for (let i = 0; i < routePath.length; i++) {
     const n = osmNodes.get(routePath[i]);
-    if (n) samplePoints.push({ lat: n.lat, lng: n.lng });
-  }
-
-  // Helper: check if a point is within 30m of any point on the route
-  function isNearRoute(lat, lng) {
-    for (const sp of samplePoints) {
-      const d = Math.sqrt((lat - sp.lat) ** 2 + (lng - sp.lng) ** 2) * 111320;
-      if (d < NEARBY_M) return true;
-    }
-    return false;
+    if (n) indexRoutePoint(n.lat, n.lng);
   }
 
   // Collect CCTV near route

@@ -3,14 +3,10 @@
     "name": "SafeNight",
     "slug": "safenight",
     "version": "1.0.30",
-    "orientation": "portrait",
+    "orientation": "default",
     "scheme": "safenight",
     "icon": "./assets/images/logo.png",
     "userInterfaceStyle": "automatic",
-    "androidNavigationBar": {
-      "backgroundColor": "#ffffff",
-      "barStyle": "dark-content"
-    },
     "newArchEnabled": true,
     "runtimeVersion": "1.0.2",
     "updates": {
@@ -38,7 +34,7 @@
         "backgroundColor": "#E6F4FE",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": false,
+      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "config": {
         "googleMaps": {

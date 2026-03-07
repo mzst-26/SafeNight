@@ -44,7 +44,8 @@ function crimeCacheKey(bbox) {
  * Fetch street-level crimes within a bounding box.
  * Returns array of { lat, lng, category, severity, month }.
  */
-async function fetchCrimesInBbox(bbox) {
+async function fetchCrimesInBbox(bbox, options = {}) {
+  const { signal = null } = options;
   const key = crimeCacheKey(bbox);
   const cached = crimeCache.get(key);
   if (cached && Date.now() - cached.timestamp < CRIME_CACHE_TTL) {
@@ -63,12 +64,15 @@ async function fetchCrimesInBbox(bbox) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
+    const abortFromParent = () => controller.abort();
+    if (signal) signal.addEventListener('abort', abortFromParent, { once: true });
 
     const resp = await fetch(
       `${POLICE_API_BASE}/crimes-street/all-crime?poly=${poly}`,
       { signal: controller.signal },
     );
     clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', abortFromParent);
 
     if (resp.status === 503) {
       console.warn('[crimeClient] Police API returned 503 — skipping');
@@ -110,6 +114,9 @@ async function fetchCrimesInBbox(bbox) {
     return result;
   } catch (err) {
     if (err.name === 'AbortError') {
+      if (signal?.aborted) {
+        throw err;
+      }
       console.warn('[crimeClient] Police API timed out');
     } else {
       console.warn('[crimeClient] Police API error:', err.message);

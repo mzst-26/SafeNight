@@ -31,7 +31,7 @@ function dataCacheKey(bbox) {
 /**
  * Run an Overpass QL query with automatic retry & server rotation.
  */
-async function overpassQuery(query, timeout = 90) {
+async function overpassQuery(query, timeout = 90, signal = null) {
   const fullQuery = `[out:json][timeout:${timeout}];${query}`;
   let lastError;
 
@@ -40,6 +40,8 @@ async function overpassQuery(query, timeout = 90) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), (timeout + 15) * 1000);
+      const abortFromParent = () => controller.abort();
+      if (signal) signal.addEventListener('abort', abortFromParent, { once: true });
 
       const resp = await fetch(server, {
         method: 'POST',
@@ -48,6 +50,7 @@ async function overpassQuery(query, timeout = 90) {
         signal: controller.signal,
       });
       clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', abortFromParent);
 
       if (resp.status === 429 || resp.status >= 500) {
         lastError = new Error(`Overpass ${server} returned ${resp.status}`);
@@ -64,6 +67,11 @@ async function overpassQuery(query, timeout = 90) {
     } catch (err) {
       lastError = err;
       if (err.name === 'AbortError') {
+        if (signal?.aborted) {
+          const abortErr = new Error('Search cancelled');
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
         lastError = new Error(`Overpass ${server} timed out`);
       }
     }
@@ -83,7 +91,8 @@ async function overpassQuery(query, timeout = 90) {
  * Returns pre-split categorised data.
  * This replaces the old 4-query approach and cuts latency ~70%.
  */
-async function fetchAllSafetyData(bbox) {
+async function fetchAllSafetyData(bbox, options = {}) {
+  const { signal = null } = options;
   const key = dataCacheKey(bbox);
   const cached = dataCache.get(key);
   if (cached && Date.now() - cached.timestamp < DATA_CACHE_TTL) {
@@ -132,7 +141,7 @@ async function fetchAllSafetyData(bbox) {
 
   console.log('[overpass] 🌐 Fetching ALL safety data in single query...');
   const t0 = Date.now();
-  const raw = await overpassQuery(query, 30);
+  const raw = await overpassQuery(query, 30, signal);
   console.log(`[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`);
 
   const result = splitElements(raw.elements);
@@ -221,7 +230,8 @@ const WALKABLE_HIGHWAYS = new Set([
  * (ways + their nodes). Used for Phase 1 corridor discovery — much faster
  * than the combined safety query because it skips lights, CCTV, places, transit.
  */
-async function fetchRoadNetworkOnly(bbox) {
+async function fetchRoadNetworkOnly(bbox, options = {}) {
+  const { signal = null } = options;
   const key = `roads-only:${dataCacheKey(bbox)}`;
   const cached = dataCache.get(key);
   if (cached && Date.now() - cached.timestamp < DATA_CACHE_TTL) {
@@ -239,7 +249,7 @@ async function fetchRoadNetworkOnly(bbox) {
 
   console.log('[overpass] 🌐 Fetching road network only (Phase 1)...');
   const t0 = Date.now();
-  const raw = await overpassQuery(query, 30);
+  const raw = await overpassQuery(query, 30, signal);
   console.log(`[overpass] ✅ Road-only: ${raw.elements.length} elements in ${Date.now() - t0}ms`);
 
   const data = { elements: raw.elements };

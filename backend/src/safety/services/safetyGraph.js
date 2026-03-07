@@ -29,6 +29,21 @@
 const { haversine, fastDistance, buildSpatialGrid, findNearby, countNearby } = require('./geo');
 const opening_hours_lib = require('opening_hours');
 
+const ENABLE_PLACE_OPENING_HOURS_PARSE = process.env.SAFE_ROUTES_PARSE_PLACE_OPENING_HOURS === '1';
+
+function createSearchCancelledError(message = 'Route search cancelled.') {
+  const err = new Error(message);
+  err.code = 'SEARCH_CANCELLED';
+  err.statusCode = 409;
+  return err;
+}
+
+function throwIfCancelled(shouldCancel) {
+  if (typeof shouldCancel === 'function' && shouldCancel()) {
+    throw createSearchCancelledError('Route search cancelled during graph computation.');
+  }
+}
+
 // ── Road hierarchy scoring ──────────────────────────────────────────────────
 const ROAD_TYPE_SCORES = {
   trunk: 0.90,
@@ -96,16 +111,18 @@ const COVERAGE_CELL_DEG = 0.0005; // ~56m – halved resolution to save memory/C
  * Build a lighting coverage map using inverse-distance-squared weighting.
  * Each cell gets a "brightness" value 0–1 based on nearby lamps.
  */
-function buildLightingCoverage(lightNodes, litWayNodePositions, bbox) {
+function buildLightingCoverage(lightNodes, litWayNodePositions, bbox, shouldCancel) {
   const rows = Math.ceil((bbox.north - bbox.south) / COVERAGE_CELL_DEG);
   const cols = Math.ceil((bbox.east - bbox.west) / COVERAGE_CELL_DEG);
   const grid = new Float32Array(rows * cols); // flat 2D array
 
   const LAMP_RADIUS = 60; // metres — effective illumination range
   const LAMP_RADIUS_DEG = LAMP_RADIUS / 111320;
+  let iterations = 0;
 
   // Stamp each lamp's influence into the grid
   for (const lamp of lightNodes) {
+    if ((iterations & 1023) === 0) throwIfCancelled(shouldCancel);
     const rMin = Math.max(0, Math.floor((lamp.lat - LAMP_RADIUS_DEG - bbox.south) / COVERAGE_CELL_DEG));
     const rMax = Math.min(rows - 1, Math.ceil((lamp.lat + LAMP_RADIUS_DEG - bbox.south) / COVERAGE_CELL_DEG));
     const cMin = Math.max(0, Math.floor((lamp.lng - LAMP_RADIUS_DEG - bbox.west) / COVERAGE_CELL_DEG));
@@ -122,17 +139,20 @@ function buildLightingCoverage(lightNodes, litWayNodePositions, bbox) {
           const idx = r * cols + c;
           grid[idx] = Math.min(1.0, grid[idx] + intensity);
         }
+        iterations += 1;
       }
     }
   }
 
   // Mark lit-way positions
   for (const pos of litWayNodePositions) {
+    if ((iterations & 1023) === 0) throwIfCancelled(shouldCancel);
     const r = Math.floor((pos.lat - bbox.south) / COVERAGE_CELL_DEG);
     const c = Math.floor((pos.lng - bbox.west) / COVERAGE_CELL_DEG);
     if (r >= 0 && r < rows && c >= 0 && c < cols) {
       grid[r * cols + c] = Math.min(1.0, grid[r * cols + c] + 0.7);
     }
+    iterations += 1;
   }
 
   return { grid, rows, cols, bbox };
@@ -142,15 +162,17 @@ function buildLightingCoverage(lightNodes, litWayNodePositions, bbox) {
  * Build a crime severity density map.
  * Each cell accumulates severity-weighted crime density.
  */
-function buildCrimeCoverage(crimes, bbox) {
+function buildCrimeCoverage(crimes, bbox, shouldCancel) {
   const rows = Math.ceil((bbox.north - bbox.south) / COVERAGE_CELL_DEG);
   const cols = Math.ceil((bbox.east - bbox.west) / COVERAGE_CELL_DEG);
   const grid = new Float32Array(rows * cols);
 
   const CRIME_RADIUS = 120; // metres — crime influence radius
   const CRIME_RADIUS_DEG = CRIME_RADIUS / 111320;
+  let iterations = 0;
 
   for (const crime of crimes) {
+    if ((iterations & 1023) === 0) throwIfCancelled(shouldCancel);
     const rMin = Math.max(0, Math.floor((crime.lat - CRIME_RADIUS_DEG - bbox.south) / COVERAGE_CELL_DEG));
     const rMax = Math.min(rows - 1, Math.ceil((crime.lat + CRIME_RADIUS_DEG - bbox.south) / COVERAGE_CELL_DEG));
     const cMin = Math.max(0, Math.floor((crime.lng - CRIME_RADIUS_DEG - bbox.west) / COVERAGE_CELL_DEG));
@@ -168,6 +190,7 @@ function buildCrimeCoverage(crimes, bbox) {
           const impact = severity / (1 + (d / 30) ** 1.5);
           grid[r * cols + c] += impact;
         }
+        iterations += 1;
       }
     }
   }
@@ -195,16 +218,22 @@ function sampleCoverage(coverage, lat, lng) {
  * Uses coverage maps for lighting and crime (O(1) per edge) instead of
  * per-edge findNearby calls (which were thousands of spatial lookups).
  */
-function buildGraph(roadData, lightData, cctvData, placeData, transitData, crimes, bbox) {
+function buildGraph(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options = {}) {
+  const shouldCancel = options && typeof options.shouldCancel === 'function'
+    ? options.shouldCancel
+    : null;
   const hour = new Date().getHours();
   const weights = getWeights(hour);
 
   // 1. Index all OSM nodes by ID
   const osmNodes = new Map();
+  let workCounter = 0;
   for (const el of roadData.elements) {
+    if ((workCounter & 2047) === 0) throwIfCancelled(shouldCancel);
     if (el.type === 'node') {
       osmNodes.set(el.id, { lat: el.lat, lng: el.lon, id: el.id });
     }
+    workCounter += 1;
   }
 
   // 2. Build coverage maps (batch pre-computation)
@@ -213,6 +242,7 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
   const litWayNodeIds = new Set();
   if (lightData) {
     for (const el of lightData.elements) {
+      if ((workCounter & 2047) === 0) throwIfCancelled(shouldCancel);
       if (el.type === 'node' && el.tags?.highway === 'street_lamp') {
         lightNodes.push({ lat: el.lat, lng: el.lon });
       }
@@ -223,22 +253,25 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
           if (n) litWayNodePositions.push({ lat: n.lat, lng: n.lng });
         }
       }
+      workCounter += 1;
     }
   }
 
   console.log(`[graph] Building lighting coverage map (${lightNodes.length} lamps)...`);
-  const lightCoverage = buildLightingCoverage(lightNodes, litWayNodePositions, bbox);
+  const lightCoverage = buildLightingCoverage(lightNodes, litWayNodePositions, bbox, shouldCancel);
 
   console.log(`[graph] Building crime coverage map (${crimes.length} crimes)...`);
-  const crimeCoverage = buildCrimeCoverage(crimes, bbox);
+  const crimeCoverage = buildCrimeCoverage(crimes, bbox, shouldCancel);
 
   // 3. Build spatial grids for CCTV, places, transit (still need proximity)
   const cctvNodes = [];
   if (cctvData) {
     for (const el of cctvData.elements) {
+      if ((workCounter & 2047) === 0) throwIfCancelled(shouldCancel);
       if (el.type === 'node' && el.lat && el.lon) {
         cctvNodes.push({ lat: el.lat, lng: el.lon });
       }
+      workCounter += 1;
     }
   }
   const cctvGrid = buildSpatialGrid(cctvNodes);
@@ -247,13 +280,14 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
   if (placeData) {
     const hour = new Date().getHours();
     for (const el of placeData.elements) {
+      if ((workCounter & 2047) === 0) throwIfCancelled(shouldCancel);
       const lat = el.lat || el.center?.lat;
       const lng = el.lon || el.center?.lon;
       if (lat && lng) {
         const hoursRaw = el.tags?.opening_hours || '';
         let isOpen = null;
-        // 1) Try parsing OSM opening_hours (strip PH rules — GB state holidays undefined)
-        if (hoursRaw) {
+        // 1) Optional: parse OSM opening_hours when explicitly enabled.
+        if (ENABLE_PLACE_OPENING_HOURS_PARSE && hoursRaw) {
           try {
             const cleaned = hoursRaw
               .split(';').map(s => s.trim())
@@ -282,6 +316,7 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
           opening_hours: hoursRaw,
         });
       }
+      workCounter += 1;
     }
   }
   const placeGrid = buildSpatialGrid(placeNodes);
@@ -299,7 +334,9 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
   // 4. Build node spatial grid for O(1) nearest-node lookup
   const nodeArray = [];
   for (const [id, node] of osmNodes) {
+    if ((workCounter & 4095) === 0) throwIfCancelled(shouldCancel);
     nodeArray.push({ lat: node.lat, lng: node.lng, id });
+    workCounter += 1;
   }
   const nodeGrid = buildSpatialGrid(nodeArray, 'lat', 'lng', 0.001); // ~110m cells
 
@@ -311,6 +348,7 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
   const adjacency = new Map();
 
   for (const el of roadData.elements) {
+    if ((workCounter & 1023) === 0) throwIfCancelled(shouldCancel);
     if (el.type !== 'way' || !el.nodes || !el.tags?.highway) continue;
     const highway = el.tags.highway;
     if (!WALKABLE_HIGHWAYS.has(highway)) continue;
@@ -319,6 +357,7 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
     const nodeIds = el.nodes;
 
     for (let i = 0; i < nodeIds.length - 1; i++) {
+      if ((workCounter & 1023) === 0) throwIfCancelled(shouldCancel);
       const nA = osmNodes.get(nodeIds[i]);
       const nB = osmNodes.get(nodeIds[i + 1]);
       if (!nA || !nB) continue;
@@ -418,11 +457,14 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
       // Track node degree for dead-end detection
       nodeDegree.set(nodeIds[i], (nodeDegree.get(nodeIds[i]) || 0) + 1);
       nodeDegree.set(nodeIds[i + 1], (nodeDegree.get(nodeIds[i + 1]) || 0) + 1);
+      workCounter += 1;
     }
+    workCounter += 1;
   }
 
   // 7. Apply dead-end penalty — edges leading to degree-1 nodes are less safe
   for (const edge of edges) {
+    if ((workCounter & 2047) === 0) throwIfCancelled(shouldCancel);
     const fromDeg = nodeDegree.get(edge.from) || 0;
     const toDeg = nodeDegree.get(edge.to) || 0;
     const isDeadEnd = fromDeg <= 1 || toDeg <= 1;
@@ -430,6 +472,7 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
       edge.safetyScore = Math.max(0.01, edge.safetyScore - 0.08);
     }
     edge.isDeadEnd = isDeadEnd;
+    workCounter += 1;
   }
 
   return { osmNodes, edges, adjacency, nodeGrid, weights, cctvNodes, transitNodes, nodeDegree };
