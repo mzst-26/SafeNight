@@ -52,7 +52,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     @keyframes vizPulse{0%,100%{opacity:0.85}50%{opacity:0.4}}
     .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);
       z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
-    .viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);
+    .viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:none;
       background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;
       font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;
       border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);
@@ -703,6 +703,13 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       if(msg){ vizStatusEl.style.opacity='1'; vizStatusEl.textContent=msg; }
     }
 
+    var vizExternalPct = null;
+    window.setVizProgress = function(pct, _msg){
+      if(pct==null || !isFinite(Number(pct))){ vizExternalPct = null; return; }
+      vizExternalPct = Math.max(0, Math.min(100, Number(pct)));
+      vizSetProgress(vizExternalPct, null);
+    };
+
     /* Client-side search animation — loops until routes arrive, then stopVizStream() clears it */
     var vizAnimTimer = null;
     var vizClearTimer = null;
@@ -710,6 +717,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
     window.stopVizStream = function(){
       if(vizAnimTimer){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
       if(vizClearTimer){ clearTimeout(vizClearTimer); vizClearTimer=null; }
+      vizExternalPct = null;
       vizClearTimer = setTimeout(function(){ clearVisualization(); vizClearTimer=null; }, 800);
     };
 
@@ -836,32 +844,25 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       }
 
       var CYCLE=70;
-      var messages=[
-        'Scanning walking corridor\u2026','Mapping road network\u2026','Fetching safety data\u2026',
-        'Mapping street lighting\u2026','Checking crime hotspots\u2026','Finding open places\u2026',
-        'Building safety graph\u2026','Scoring road segments\u2026','Running pathfinder\u2026'
-      ];
 
       var step=0;
       var cyc=buildCycle(0);
 
-      vizSetProgress(5, 'Search area: '+Math.round(corridorBufferM)+'m buffer');
+      vizSetProgress(5, null);
 
       vizAnimTimer=setInterval(function(){
         step++;
         var phase=step % CYCLE;
         var cycleNum=Math.floor(step/CYCLE);
 
-        // Start a new cycle — clear markers and rebuild paths/scatter
+        // Start a new cycle — rebuild exploration paths
         if(phase===0 && step>0){
-          clearCycleMarkers();
           try{map.getSource('viz-corridor').setData({type:'FeatureCollection',features:[]});}catch(e){}
           cyc=buildCycle(cycleNum);
         }
 
         var t=phase/CYCLE;
-        // Progress bar oscillates 8%→92% each cycle
-        vizSetProgress(Math.round(8+84*t), messages[Math.min(Math.floor(t*messages.length),messages.length-1)]);
+        if(vizExternalPct!=null){ vizSetProgress(vizExternalPct, null); }
         if(!styleReady) return;
 
         // 0. Pulse bbox fill to breathe while scanning (period ~2 s at 200 ms tick)
@@ -887,25 +888,7 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
         }
         try{map.getSource('viz-corridor').setData({type:'FeatureCollection',features:branchFeats});}catch(e){}
 
-        // 2. Data point DOM markers appear progressively (icon pins)
-        var wantC=Math.min(Math.floor(t*2.5*cyc.crimesPts.length),cyc.crimesPts.length);
-        var wantL=Math.min(Math.floor(t*2.0*cyc.lightsPts.length),cyc.lightsPts.length);
-        var wantP=Math.min(Math.floor(t*3.0*cyc.placesPts.length),cyc.placesPts.length);
-        while(cyc.shownC<wantC){
-          var p=cyc.crimesPts[cyc.shownC];
-          addCycleMarker(p[0],p[1],'viz-crime-pin','\u26a0'); // ⚠ crime hotspot
-          cyc.shownC++;
-        }
-        while(cyc.shownL<wantL){
-          var p=cyc.lightsPts[cyc.shownL];
-          addCycleMarker(p[0],p[1],'viz-light-pin','\u2605'); // ★ street light
-          cyc.shownL++;
-        }
-        while(cyc.shownP<wantP){
-          var p=cyc.placesPts[cyc.shownP];
-          addCycleMarker(p[0],p[1],'viz-place-pin','\u2022'); // • open place
-          cyc.shownP++;
-        }
+        // No floating data-point pin icons during scan; keep the box + line animation focused.
         // Note: no stop condition — keeps cycling until window.stopVizStream() is called
         // when real routes arrive from the backend.
       },200);
@@ -937,6 +920,8 @@ export const RouteMap = ({
   isInPipMode = false,
   recenterSignal = 0,
   vizStreamUrl = null,
+  vizProgressPct = null,
+  vizProgressMessage = null,
   onSelectRoute,
   onLongPress,
   onMapPress,
@@ -1093,6 +1078,16 @@ export const RouteMap = ({
       webViewRef.current.injectJavaScript('try{window.stopVizStream()}catch(e){}true;');
     }
   }, [vizStreamUrl]);
+
+  useEffect(() => {
+    if (!readyRef.current || !webViewRef.current) return;
+    const pct =
+      typeof vizProgressPct === 'number' && Number.isFinite(vizProgressPct)
+        ? Math.max(0, Math.min(100, vizProgressPct))
+        : null;
+    const js = `try{window.setVizProgress&&window.setVizProgress(${pct == null ? 'null' : pct},${JSON.stringify(vizProgressMessage ?? '')})}catch(e){}true;`;
+    webViewRef.current.injectJavaScript(js);
+  }, [vizProgressPct, vizProgressMessage]);
 
   useEffect(() => {
     if (!readyRef.current || !webViewRef.current) return;

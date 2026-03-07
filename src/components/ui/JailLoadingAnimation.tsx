@@ -4,6 +4,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
+type JailLoadingAnimationProps = {
+  progressPct?: number | null;
+  statusMessage?: string | null;
+};
+
 const LOADING_STAGES = [
   { icon: '🔍', text: 'Scanning the streets…' },
   { icon: '🗺️', text: 'Mapping every dark alley…' },
@@ -17,13 +22,18 @@ const LOADING_STAGES = [
   { icon: '✅', text: 'Almost there…' },
 ];
 
-export function JailLoadingAnimation() {
+export function JailLoadingAnimation({ progressPct = null, statusMessage = null }: JailLoadingAnimationProps) {
   const [stageIdx, setStageIdx] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const barWidth = useRef(new Animated.Value(0)).current;
   const bounceAnim = useRef(new Animated.Value(0)).current;
+  const hasLiveProgress = typeof progressPct === 'number' && Number.isFinite(progressPct);
+  const clampedProgress = hasLiveProgress
+    ? Math.max(0, Math.min(100, Math.round(progressPct as number)))
+    : null;
 
   useEffect(() => {
+    if (hasLiveProgress) return;
     const interval = setInterval(() => {
       Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
         setStageIdx((prev) => (prev + 1) % LOADING_STAGES.length);
@@ -31,27 +41,37 @@ export function JailLoadingAnimation() {
       });
     }, 2200);
     return () => clearInterval(interval);
-  }, []);
+  }, [fadeAnim, hasLiveProgress]);
 
   useEffect(() => {
-    Animated.loop(
+    if (hasLiveProgress) return;
+    const anim = Animated.loop(
       Animated.sequence([
         Animated.timing(barWidth, { toValue: 1, duration: 3000, useNativeDriver: false }),
         Animated.timing(barWidth, { toValue: 0, duration: 0, useNativeDriver: false }),
       ]),
-    ).start();
-  }, []);
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [barWidth, hasLiveProgress]);
 
   useEffect(() => {
-    Animated.loop(
+    if (hasLiveProgress) return;
+    const anim = Animated.loop(
       Animated.sequence([
         Animated.timing(bounceAnim, { toValue: -6, duration: 400, useNativeDriver: true }),
         Animated.timing(bounceAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
       ]),
-    ).start();
-  }, []);
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [bounceAnim, hasLiveProgress]);
 
   const stage = LOADING_STAGES[stageIdx];
+  const effectiveStatus = hasLiveProgress
+    ? (statusMessage?.trim() || (clampedProgress === 100 ? 'Finalizing your route…' : 'Analyzing your route…'))
+    : stage.text;
+  const remainingPct = hasLiveProgress ? Math.max(0, 100 - (clampedProgress ?? 0)) : null;
 
   return (
     <View style={styles.container}>
@@ -61,29 +81,41 @@ export function JailLoadingAnimation() {
         ))}
       </View>
 
-      <Animated.View style={[styles.iconWrap, { transform: [{ translateY: bounceAnim }] }]}>
-        <Text style={styles.icon}>{stage.icon}</Text>
+      <Animated.View style={[styles.iconWrap, !hasLiveProgress && { transform: [{ translateY: bounceAnim }] }]}> 
+        <Text style={styles.icon}>{hasLiveProgress ? '🛡️' : stage.icon}</Text>
       </Animated.View>
 
-      <Animated.Text style={[styles.statusText, { opacity: fadeAnim }]}>
-        {stage.text}
-      </Animated.Text>
+      {hasLiveProgress ? (
+        <Text style={styles.statusText}>{effectiveStatus}</Text>
+      ) : (
+        <Animated.Text style={[styles.statusText, { opacity: fadeAnim }]}> 
+          {effectiveStatus}
+        </Animated.Text>
+      )}
 
       <View style={styles.progressTrack}>
-        <Animated.View
-          style={[
-            styles.progressFill,
-            {
-              width: barWidth.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0%', '100%'],
-              }),
-            },
-          ]}
-        />
+        {hasLiveProgress ? (
+          <View style={[styles.progressFill, { width: `${clampedProgress}%` }]} />
+        ) : (
+          <Animated.View
+            style={[
+              styles.progressFill,
+              {
+                width: barWidth.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]}
+          />
+        )}
       </View>
 
-      <Text style={styles.subtitle}>Finding the safest path for you</Text>
+      <Text style={styles.subtitle}>
+        {hasLiveProgress
+          ? `${remainingPct}% left`
+          : 'Finding the safest path for you'}
+      </Text>
     </View>
   );
 }

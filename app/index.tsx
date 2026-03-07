@@ -471,6 +471,8 @@ export default function HomeScreen() {
         friendMarkers={friendMarkers}
         recenterSignal={recenterSignal}
         vizStreamUrl={h.vizStreamUrl}
+        vizProgressPct={h.vizProgressPct}
+        vizProgressMessage={h.vizProgressMessage}
         onSelectRoute={h.setSelectedRouteId}
         onLongPress={isWebGuest ? undefined : h.handleMapLongPress}
         onMapPress={isWebGuest ? undefined : h.handleMapPress}
@@ -530,7 +532,12 @@ export default function HomeScreen() {
               {!hasError && <Text style={styles.sheetMeta}>{distanceLabel} · {durationLabel}</Text>}
             </View>
 
-            {h.directionsStatus === 'loading' && <JailLoadingAnimation />}
+            {h.directionsStatus === 'loading' && (
+              <JailLoadingAnimation
+                progressPct={h.vizProgressPct}
+                statusMessage={h.vizProgressMessage}
+              />
+            )}
 
             {h.outOfRange && (
               <View style={styles.warningBanner}>
@@ -726,7 +733,12 @@ export default function HomeScreen() {
                 )}
               </View>
 
-              {h.directionsStatus === 'loading' && <JailLoadingAnimation />}
+              {h.directionsStatus === 'loading' && (
+                <JailLoadingAnimation
+                  progressPct={h.vizProgressPct}
+                  statusMessage={h.vizProgressMessage}
+                />
+              )}
 
               {h.outOfRange && (
                 <View style={styles.warningBanner}>
@@ -1053,7 +1065,12 @@ export default function HomeScreen() {
           </View>
 
           {/* Loading state */}
-          {h.directionsStatus === 'loading' && <JailLoadingAnimation />}
+          {h.directionsStatus === 'loading' && (
+            <JailLoadingAnimation
+              progressPct={h.vizProgressPct}
+              statusMessage={h.vizProgressMessage}
+            />
+          )}
 
           {/* Out-of-range warning */}
           {h.outOfRange && (

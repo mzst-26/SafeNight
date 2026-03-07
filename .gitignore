@@ -64,6 +64,7 @@ android/.gradle/
 android/app/release.keystore
 android/local.properties
 .env
+.env.production
 
 # IDE settings (user-specific, should not be committed)
 .vscode/

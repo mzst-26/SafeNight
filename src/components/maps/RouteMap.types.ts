@@ -51,4 +51,8 @@ export type RouteMapProps = {
   /** SSE URL for real-time pathfinding visualisation — when set, the WebView
    *  opens an EventSource to this URL and renders progress on the map. */
   vizStreamUrl?: string | null;
+  /** Real backend progress percentage (0-100) for visualisation progress bar. */
+  vizProgressPct?: number | null;
+  /** Real backend progress message (shown in bottom-sheet loader, not on map). */
+  vizProgressMessage?: string | null;
 };

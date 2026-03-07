@@ -76,7 +76,7 @@ html,body{width:100%;height:100%;overflow:hidden}
 .viz-progress-bar{position:fixed;top:0;left:0;height:3px;
   background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);
   z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
-.viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);
+.viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:none;
   background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;
   font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;
   border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);
@@ -129,6 +129,7 @@ sendMsg('ready',{});
 // ── Pathfinding viz animation ──────────────────────────────────────────────
 var vizBboxRect=null,vizPolylines=[],vizMarkers=[],vizSearchLabel=null;
 var vizProgressEl=null,vizStatusEl=null,vizAnimTimer=null,vizClearTimer=null;
+var vizExternalPct=null;
 function ensureVizUI(){
   if(!vizProgressEl){vizProgressEl=document.createElement('div');vizProgressEl.className='viz-progress-bar';
     vizProgressEl.style.width='0%';vizProgressEl.style.opacity='0';document.body.appendChild(vizProgressEl);}
@@ -138,6 +139,11 @@ function ensureVizUI(){
 function vizSetProgress(pct,msg){ensureVizUI();
   if(pct!=null){vizProgressEl.style.opacity='1';vizProgressEl.style.width=Math.min(pct,100)+'%';}
   if(msg){vizStatusEl.style.opacity='1';vizStatusEl.textContent=msg;}
+}
+window.setVizProgress=function(pct,_msg){
+  if(pct==null||!isFinite(Number(pct))){vizExternalPct=null;return;}
+  vizExternalPct=Math.max(0,Math.min(100,Number(pct)));
+  vizSetProgress(vizExternalPct,null);
 }
 function clearVizAnimation(){
   if(vizBboxRect){map.removeLayer(vizBboxRect);vizBboxRect=null;}
@@ -150,6 +156,7 @@ function clearVizAnimation(){
 window.stopVizStream=function(){
   if(vizAnimTimer){clearInterval(vizAnimTimer);vizAnimTimer=null;}
   if(vizClearTimer){clearTimeout(vizClearTimer);vizClearTimer=null;}
+  vizExternalPct=null;
   vizClearTimer=setTimeout(function(){clearVizAnimation();vizClearTimer=null;},800);
 };
 window.startVizStream=function(coordsJson){
@@ -214,16 +221,14 @@ window.startVizStream=function(coordsJson){
     for(var i=0;i<7;i++) pl.push([rng2(cS,cN),rng2(cW,cE)]);
     return {ep:ep,fp:fp,cr:cr,li:li,pl:pl,pls:[],shownC:0,shownL:0,shownP:0,finalPl:null};
   }
-  var CYCLE=70,msgs=['Scanning walking corridor\u2026','Mapping road network\u2026','Fetching safety data\u2026',
-    'Mapping street lighting\u2026','Checking crime hotspots\u2026','Finding open places\u2026',
-    'Building safety graph\u2026','Scoring road segments\u2026','Running pathfinder\u2026'];
+  var CYCLE=70;
   var step=0,cyc=buildCyc(0);
-  vizSetProgress(5,'Search area: '+Math.round(bufM)+'m buffer');
+  vizSetProgress(5,null);
   vizAnimTimer=setInterval(function(){
     step++;var phase=step%CYCLE,cn=Math.floor(step/CYCLE);
     if(phase===0&&step>0){clearCyc();cyc=buildCyc(cn);}
     var t=phase/CYCLE;
-    vizSetProgress(Math.round(8+84*t),msgs[Math.min(Math.floor(t*msgs.length),msgs.length-1)]);
+    if(vizExternalPct!=null){vizSetProgress(vizExternalPct,null);}
     // Pulse bbox fill opacity to signal active scanning (period ~2 s)
     if(vizBboxRect){var bboxOp=0.05+0.10*(0.5+0.5*Math.sin(step*0.628));vizBboxRect.setStyle({fillOpacity:bboxOp});}
     cyc.ep.forEach(function(path,pi){
@@ -234,12 +239,7 @@ window.startVizStream=function(coordsJson){
     });
     if(t>0.55){var pT=Math.min((t-0.55)/0.32,1);var fpts=cyc.fp.slice(0,Math.max(2,Math.ceil(pT*cyc.fp.length)));
       if(!cyc.finalPl){cyc.finalPl=addPl(fpts,'#a855f7');}else{cyc.finalPl.setLatLngs(fpts);}}
-    var wC=Math.min(Math.floor(t*2.5*cyc.cr.length),cyc.cr.length);
-    var wL=Math.min(Math.floor(t*2.0*cyc.li.length),cyc.li.length);
-    var wP=Math.min(Math.floor(t*3.0*cyc.pl.length),cyc.pl.length);
-    while(cyc.shownC<wC){var p=cyc.cr[cyc.shownC];addMk(p[0],p[1],'viz-crime-pin','\u26a0');cyc.shownC++;}
-    while(cyc.shownL<wL){var p=cyc.li[cyc.shownL];addMk(p[0],p[1],'viz-light-pin','\u2605');cyc.shownL++;}
-    while(cyc.shownP<wP){var p=cyc.pl[cyc.shownP];addMk(p[0],p[1],'viz-place-pin','\u2022');cyc.shownP++;}
+    // No floating data-point pin icons during scan; keep the box + line animation focused.
   },200);
 };
 
@@ -461,6 +461,8 @@ export const RouteMap = ({
   isInPipMode = false,
   recenterSignal = 0,
   vizStreamUrl = null,
+  vizProgressPct = null,
+  vizProgressMessage = null,
   onSelectRoute,
   onLongPress,
   onMapPress,
@@ -492,6 +494,7 @@ export const RouteMap = ({
               if (vizStreamUrl && iframeRef.current?.contentWindow) {
                 const win = iframeRef.current.contentWindow as any;
                 if (win.startVizStream) win.startVizStream(vizStreamUrl);
+                if (win.setVizProgress) win.setVizProgress(vizProgressPct, vizProgressMessage || '');
               }
             } catch { /* ignore */ }
             break;
@@ -631,6 +634,14 @@ export const RouteMap = ({
       }
     } catch { /* cross-origin */ }
   }, [vizStreamUrl]);
+
+  useEffect(() => {
+    if (!readyRef.current || !iframeRef.current?.contentWindow) return;
+    try {
+      const win = iframeRef.current.contentWindow as any;
+      if (win.setVizProgress) win.setVizProgress(vizProgressPct, vizProgressMessage || '');
+    } catch { /* ignore */ }
+  }, [vizProgressPct, vizProgressMessage]);
 
   // Blob URL for iframe src
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
