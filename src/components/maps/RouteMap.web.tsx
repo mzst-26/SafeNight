@@ -181,8 +181,6 @@ window.startVizStream=function(coordsJson){
   if(wM<hM){var ex=(hM-wM)/2/mPDLng;fW-=ex;fE+=ex;}
   else if(hM<wM){var ex2=(wM-hM)/2/mPDLat;fS-=ex2;fN+=ex2;}
   var midLng=(fW+fE)/2,midBLat=(fS+fN)/2;
-  var sp=bLat*0.6,spL=bLng*0.6;
-  var baseSeed=Math.round(oLat*1000+oLng*1000+dLat*100+dLng*100);
   // Bbox — clearly marks the search zone
   vizBboxRect=L.polygon([[fS,fW],[fS,fE],[fN,fE],[fN,fW]],{
     color:'#a855f7',weight:2.5,opacity:0.9,fillColor:'#7C3AED',fillOpacity:0.08,interactive:false}).addTo(map);
@@ -191,56 +189,14 @@ window.startVizStream=function(coordsJson){
     html:'<div class="viz-search-zone">&#128269; Analysing area&hellip;</div>',
     iconSize:null,iconAnchor:[60,12]});
   vizSearchLabel=L.marker([midBLat,midLng],{icon:lbl,interactive:false}).addTo(map);
-  function mkRng(s){return function(mn,mx){s=(s*1664525+1013904223)&0xffffffff;return mn+(((s>>>0)/0xffffffff)*(mx-mn));};}
-  function mkJag(rng,aLat,aLng,bLat,bLng,steps,jLat,jLng){
-    var pts=[[aLat,aLng]];
-    for(var i=1;i<steps;i++){var t=i/steps,env=Math.sin(t*Math.PI)*0.7;
-      pts.push([aLat+(bLat-aLat)*t+rng(-jLat,jLat)*env,aLng+(bLng-aLng)*t+rng(-jLng,jLng)*env]);}
-    pts.push([bLat,bLng]);return pts;
-  }
-  var cycPls=[],cycMks=[];
-  function clearCyc(){cycPls.forEach(function(p){map.removeLayer(p);});cycPls=[];
-    cycMks.forEach(function(m){map.removeLayer(m);});cycMks=[];
-    vizPolylines=[];vizMarkers=[];}
-  function addPl(pts,col){var pl=L.polyline(pts,{color:col,weight:3,opacity:0.9,dashArray:'6 3',interactive:false}).addTo(map);
-    vizPolylines.push(pl);cycPls.push(pl);return pl;}
-  function addMk(lat,lng,cls,ch){
-    var ic=L.divIcon({className:'',html:'<div class="viz-data-pin '+cls+'">'+ch+'</div>',iconSize:[20,20],iconAnchor:[10,10]});
-    var m=L.marker([lat,lng],{icon:ic,interactive:false,zIndexOffset:5000}).addTo(map);vizMarkers.push(m);cycMks.push(m);return m;}
-  function buildCyc(cn){
-    var rng=mkRng(baseSeed+cn*97),rng2=mkRng(baseSeed+cn*113);
-    var cS=fS+bLat*0.25,cN=fN-bLat*0.25,cW=fW+bLng*0.25,cE=fE-bLng*0.25;
-    var bTgts=[[oLat+(dLat-oLat)*0.55+rng(sp*0.5,sp*1.0),oLng+(dLng-oLng)*0.5+rng(-spL*1.2,-spL*0.4)],
-      [oLat+(dLat-oLat)*0.6+rng(-sp*0.9,-sp*0.3),oLng+(dLng-oLng)*0.55+rng(spL*0.4,spL*1.1)],
-      [oLat+(dLat-oLat)*0.45+rng(sp*0.2,sp*0.7),oLng+(dLng-oLng)*0.45+rng(-spL*0.3,spL*0.7)]];
-    var ep=bTgts.map(function(e){return mkJag(mkRng(rng(1e7,9e7)|0),oLat,oLng,e[0],e[1],9,bLat*0.18,bLng*0.18);});
-    var fp=mkJag(mkRng(baseSeed+cn*7),oLat,oLng,dLat,dLng,13,bLat*0.12,bLng*0.12);
-    var cr=[],li=[],pl=[];
-    for(var i=0;i<9;i++) cr.push([rng2(cS,cN),rng2(cW,cE)]);
-    for(var i=0;i<14;i++) li.push([rng2(fS,fN),rng2(fW,fE)]);
-    for(var i=0;i<7;i++) pl.push([rng2(cS,cN),rng2(cW,cE)]);
-    return {ep:ep,fp:fp,cr:cr,li:li,pl:pl,pls:[],shownC:0,shownL:0,shownP:0,finalPl:null};
-  }
-  var CYCLE=70;
-  var step=0,cyc=buildCyc(0);
   vizSetProgress(5,null);
+  // Pulse bbox fill only — no line animation during analysis (saves CPU/RAM).
+  var pulseStep=0;
   vizAnimTimer=setInterval(function(){
-    step++;var phase=step%CYCLE,cn=Math.floor(step/CYCLE);
-    if(phase===0&&step>0){clearCyc();cyc=buildCyc(cn);}
-    var t=phase/CYCLE;
+    pulseStep++;
     if(vizExternalPct!=null){vizSetProgress(vizExternalPct,null);}
-    // Pulse bbox fill opacity to signal active scanning (period ~2 s)
-    if(vizBboxRect){var bboxOp=0.05+0.10*(0.5+0.5*Math.sin(step*0.628));vizBboxRect.setStyle({fillOpacity:bboxOp});}
-    cyc.ep.forEach(function(path,pi){
-      var delay=pi*0.07,bt=Math.max(0,Math.min((t-delay)/0.4,1));
-      if(bt<=0) return;
-      var pts=path.slice(0,Math.max(2,Math.ceil(bt*path.length)));
-      if(!cyc.pls[pi]){cyc.pls[pi]=addPl(pts,'#f59e0b');}else{cyc.pls[pi].setLatLngs(pts);}
-    });
-    if(t>0.55){var pT=Math.min((t-0.55)/0.32,1);var fpts=cyc.fp.slice(0,Math.max(2,Math.ceil(pT*cyc.fp.length)));
-      if(!cyc.finalPl){cyc.finalPl=addPl(fpts,'#a855f7');}else{cyc.finalPl.setLatLngs(fpts);}}
-    // No floating data-point pin icons during scan; keep the box + line animation focused.
-  },200);
+    if(vizBboxRect){var bboxOp=0.05+0.10*(0.5+0.5*Math.sin(pulseStep*0.314));vizBboxRect.setStyle({fillOpacity:bboxOp});}
+  },1000);
 };
 
 map.on('dragstart',function(){if(isNavMode){userInteracted=true;setFollowMode(false);}});

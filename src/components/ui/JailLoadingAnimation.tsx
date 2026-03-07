@@ -1,8 +1,16 @@
 /**
- * JailLoadingAnimation — Animated "Jailing Criminals" loading indicator.
+ * JailLoadingAnimation — Animated loading indicator with rotating safety facts.
+ *
+ * Progress bar strategy:
+ *   1. A smooth time-based simulation eases from 0 → 88 % while loading.
+ *   2. If the backend SSE stream delivers real progress, we use max(simulated, real).
+ *   3. This prevents the bar ever being frozen at 0 %.
+ * Text strategy:
+ *   – Rotates through 35 educational safety facts, one every 5 s.
+ *   – Keeps running regardless of backend progress state.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 type JailLoadingAnimationProps = {
   progressPct?: number | null;
@@ -10,68 +18,80 @@ type JailLoadingAnimationProps = {
 };
 
 const LOADING_STAGES = [
-  { icon: '🔍', text: 'Scanning the streets…' },
-  { icon: '🗺️', text: 'Mapping every dark alley…' },
-  { icon: '💡', text: 'Counting street lights…' },
-  { icon: '📹', text: 'Locating CCTV cameras…' },
-  { icon: '🚨', text: 'Checking crime reports…' },
-  { icon: '🔒', text: 'Locking down unsafe zones…' },
-  { icon: '👮', text: 'Dispatching safety patrol…' },
-  { icon: '⛓️', text: 'Jailing the criminals…' },
-  { icon: '🛡️', text: 'Building your safe route…' },
-  { icon: '✅', text: 'Almost there…' },
+  { icon: '🗺️', text: 'Building a walkable road graph from OpenStreetMap geometry around your route.' },
+  { icon: '🧭', text: 'Tracing realistic corridor boundaries so we score the streets you can actually walk.' },
+  { icon: '💡', text: 'Street-light density matters: better-lit segments usually reduce nighttime risk.' },
+  { icon: '📹', text: 'Nearby CCTV coverage can raise confidence and improve segment safety weighting.' },
+  { icon: '🚨', text: 'Recent crime patterns are weighted by category, not every incident equally.' },
+  { icon: '🏪', text: 'Open venues add passive guardianship by increasing eyes-on-street at night.' },
+  { icon: '🚌', text: 'Transit stops can improve safety by keeping routes in active, visible corridors.' },
+  { icon: '🧱', text: 'Dead-end heavy stretches are penalized because escape options are limited.' },
+  { icon: '🛣️', text: 'Main-road exposure is balanced with comfort so the route is safer, not just shorter.' },
+  { icon: '👣', text: 'Sidewalk presence is scored because separated walking space reduces conflict with traffic.' },
+  { icon: '🌙', text: 'Night routing prioritizes visibility and activity where possible.' },
+  { icon: '📐', text: 'Distance-only shortest paths are compared against safety-optimized alternatives.' },
+  { icon: '🧠', text: 'We rank candidates by multi-factor safety score, then keep practical travel time in check.' },
+  { icon: '🔍', text: 'Sampling node connectivity to avoid sending you through isolated fragments.' },
+  { icon: '🚶', text: 'Footway and pedestrian segments are evaluated differently from vehicle-heavy roads.' },
+  { icon: '⚖️', text: 'No single signal dominates: lighting, crime, roads, and activity are blended together.' },
+  { icon: '📊', text: 'Each segment receives a local score before total route safety is computed.' },
+  { icon: '🛰️', text: 'Map data quality varies by area, so confidence is considered during route ranking.' },
+  { icon: '🧯', text: 'Higher-risk micro-segments are softened by finding nearby safer alternatives.' },
+  { icon: '🧵', text: 'We stitch safe segments into continuous paths that still feel natural to walk.' },
+  { icon: '🏙️', text: 'Urban routes often gain from denser lighting and services after dark.' },
+  { icon: '🌳', text: 'Quiet park or path segments may be scenic but can score lower at night if isolated.' },
+  { icon: '📈', text: 'Progress updates reflect backend phases so your progress bar is deterministic.' },
+  { icon: '🧪', text: 'Route candidates are validated for connectivity before final ranking.' },
+  { icon: '🧰', text: 'If one data source slows down, fallback logic keeps routing resilient.' },
+  { icon: '⏱️', text: 'Caching helps repeated searches complete faster with less redundant computation.' },
+  { icon: '🔐', text: 'Safety scoring is computed server-side so your device stays responsive.' },
+  { icon: '🌍', text: 'Local context matters: the same distance can have very different night risk by street.' },
+  { icon: '🏁', text: 'Final candidates are compared side-by-side before the safest practical route is returned.' },
+  { icon: '🛡️', text: 'Goal: reduce exposure to low-light and high-risk segments without huge detours.' },
+  { icon: '📌', text: 'Longer trips trigger wider corridor analysis to capture realistic route options.' },
+  { icon: '🔄', text: 'Dynamic weighting keeps route selection consistent even when data density changes.' },
+  { icon: '🕸️', text: 'Graph search explores multiple branches, not just one straight-line guess.' },
+  { icon: '🚦', text: 'Road class influences comfort and predictability during nighttime walking.' },
+  { icon: '📚', text: 'Safety score is interpretable: road type, lighting, crime, CCTV, and activity all contribute.' },
+  { icon: '✅', text: 'Assembling your final options now and preparing map overlays.' },
 ];
 
 export function JailLoadingAnimation({ progressPct = null, statusMessage = null }: JailLoadingAnimationProps) {
   const [stageIdx, setStageIdx] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const barWidth = useRef(new Animated.Value(0)).current;
-  const bounceAnim = useRef(new Animated.Value(0)).current;
-  const hasLiveProgress = typeof progressPct === 'number' && Number.isFinite(progressPct);
-  const clampedProgress = hasLiveProgress
-    ? Math.max(0, Math.min(100, Math.round(progressPct as number)))
-    : null;
+  // Displayed progress 0→100 (driven directly by server progressPct)
+  const barAnim = useRef(new Animated.Value(0)).current;
+  const [displayPct, setDisplayPct] = useState(0);
 
+  // ── Fact rotation: every 5 s, cross-fade to next fact ──
   useEffect(() => {
-    if (hasLiveProgress) return;
     const interval = setInterval(() => {
-      Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
         setStageIdx((prev) => (prev + 1) % LOADING_STAGES.length);
-        Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
       });
-    }, 2200);
+    }, 5000);
     return () => clearInterval(interval);
-  }, [fadeAnim, hasLiveProgress]);
+  }, [fadeAnim]);
 
+  // ── Progress driven directly from server progressPct — no simulation interval ──
   useEffect(() => {
-    if (hasLiveProgress) return;
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(barWidth, { toValue: 1, duration: 3000, useNativeDriver: false }),
-        Animated.timing(barWidth, { toValue: 0, duration: 0, useNativeDriver: false }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [barWidth, hasLiveProgress]);
-
-  useEffect(() => {
-    if (hasLiveProgress) return;
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(bounceAnim, { toValue: -6, duration: 400, useNativeDriver: true }),
-        Animated.timing(bounceAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [bounceAnim, hasLiveProgress]);
+    const target =
+      typeof progressPct === 'number' && Number.isFinite(progressPct) && progressPct > 0
+        ? Math.min(99, Math.round(progressPct))
+        : 0;
+    setDisplayPct(target);
+    Animated.timing(barAnim, {
+      toValue: target / 100,
+      duration: 400,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+  }, [progressPct, barAnim]);
 
   const stage = LOADING_STAGES[stageIdx];
-  const effectiveStatus = hasLiveProgress
-    ? (statusMessage?.trim() || (clampedProgress === 100 ? 'Finalizing your route…' : 'Analyzing your route…'))
-    : stage.text;
-  const remainingPct = hasLiveProgress ? Math.max(0, 100 - (clampedProgress ?? 0)) : null;
+  const backendStatus = statusMessage?.trim() || null;
+  const remainingPct = Math.max(0, 100 - displayPct);
 
   return (
     <View style={styles.container}>
@@ -81,41 +101,31 @@ export function JailLoadingAnimation({ progressPct = null, statusMessage = null 
         ))}
       </View>
 
-      <Animated.View style={[styles.iconWrap, !hasLiveProgress && { transform: [{ translateY: bounceAnim }] }]}> 
-        <Text style={styles.icon}>{hasLiveProgress ? '🛡️' : stage.icon}</Text>
-      </Animated.View>
+      <Text style={styles.icon}>{stage.icon}</Text>
 
-      {hasLiveProgress ? (
-        <Text style={styles.statusText}>{effectiveStatus}</Text>
-      ) : (
-        <Animated.Text style={[styles.statusText, { opacity: fadeAnim }]}> 
-          {effectiveStatus}
-        </Animated.Text>
-      )}
+      <Animated.Text style={[styles.statusText, { opacity: fadeAnim }]}>
+        {stage.text}
+      </Animated.Text>
+
+      {backendStatus ? (
+        <Text style={styles.backendStatusText}>{backendStatus}</Text>
+      ) : null}
 
       <View style={styles.progressTrack}>
-        {hasLiveProgress ? (
-          <View style={[styles.progressFill, { width: `${clampedProgress}%` }]} />
-        ) : (
-          <Animated.View
-            style={[
-              styles.progressFill,
-              {
-                width: barWidth.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0%', '100%'],
-                }),
-              },
-            ]}
-          />
-        )}
+        <Animated.View
+          style={[
+            styles.progressFill,
+            {
+              width: barAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '100%'],
+              }),
+            },
+          ]}
+        />
       </View>
 
-      <Text style={styles.subtitle}>
-        {hasLiveProgress
-          ? `${remainingPct}% left`
-          : 'Finding the safest path for you'}
-      </Text>
+      <Text style={styles.subtitle}>{remainingPct}% left to analyse</Text>
     </View>
   );
 }
@@ -143,36 +153,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e293b',
     borderRadius: 2,
   },
-  iconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#eff6ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#bfdbfe',
-  },
   icon: {
-    fontSize: 30,
+    fontSize: 40,
+    marginBottom: 4,
   },
   statusText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#1e293b',
     textAlign: 'center',
+    lineHeight: 22,
+  },
+  backendStatusText: {
+    fontSize: 12,
+    color: '#475467',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   progressTrack: {
-    width: '80%',
-    height: 5,
+    width: '85%',
+    height: 7,
     backgroundColor: '#e2e8f0',
-    borderRadius: 3,
+    borderRadius: 4,
+    marginTop: 4,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     backgroundColor: '#3b82f6',
-    borderRadius: 3,
+    borderRadius: 4,
   },
   subtitle: {
     fontSize: 12,

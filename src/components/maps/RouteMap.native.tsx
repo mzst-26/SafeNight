@@ -760,7 +760,6 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       else if(heightM<widthM){ var extra2=(widthM-heightM)/2/metersPerDegLat; fullSouth-=extra2; fullNorth+=extra2; }
 
       var midLng=(fullWest+fullEast)/2, bboxMidLat=(fullSouth+fullNorth)/2;
-      var sp=bufferLatDeg*0.6, spL=bufferLngDeg*0.6;
 
       // Draw bbox immediately — it stays for the full animation, clearly marking the search zone
       try{
@@ -781,117 +780,19 @@ const buildMapHtml = (_mapType: string = 'roadmap') => `
       var labelWrapper=labelEl.parentElement;
       if(labelWrapper) labelWrapper.style.zIndex='10000';
 
-      // ── per-cycle helpers ──────────────────────────────────────────────────
-      var baseSeed=Math.round(oLat*1000+oLng*1000+dLat*100+dLng*100);
-
-      function makeSeedRng(s){
-        return function(mn,mx){ s=(s*1664525+1013904223)&0xffffffff; return mn+(((s>>>0)/0xffffffff)*(mx-mn)); };
-      }
-
-      function makeJagged(rng,aLat,aLng,bLat,bLng,steps,jLat,jLng){
-        var pts=[[aLng,aLat]];
-        for(var i=1;i<steps;i++){
-          var t=i/steps, env=Math.sin(t*Math.PI)*0.7;
-          pts.push([aLng+(bLng-aLng)*t+rng(-jLng,jLng)*env, aLat+(bLat-aLat)*t+rng(-jLat,jLat)*env]);
-        }
-        pts.push([bLng,bLat]);
-        return pts;
-      }
-
-      // cycle tracking — markers added in current cycle (removed at cycle restart)
-      var cycleMarkerObjs = [];
-      function clearCycleMarkers(){
-        cycleMarkerObjs.forEach(function(m){ m.remove(); });
-        cycleMarkerObjs=[];
-        // also remove from vizDataMarkers
-        vizDataMarkers = vizDataMarkers.filter(function(m){ return m._removed!==true; });
-      }
-      function addCycleMarker(lng,lat,cls,char){
-        var el=document.createElement('div');
-        el.className='viz-data-pin '+cls;
-        el.textContent=char;
-        el.style.zIndex='10001';
-        var m=new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
-        // Lift the MapLibre marker wrapper above all map controls
-        var wrapper=el.parentElement;
-        if(wrapper) wrapper.style.zIndex='10001';
-        vizDataMarkers.push(m);
-        cycleMarkerObjs.push(m);
-        return m;
-      }
-
-      function buildCycle(cycleNum){
-        var rng=makeSeedRng(baseSeed+cycleNum*97);
-        var cS=fullSouth+bufferLatDeg*0.25, cN=fullNorth-bufferLatDeg*0.25;
-        var cW=fullWest+bufferLngDeg*0.25,  cE=fullEast-bufferLngDeg*0.25;
-        var rng2=makeSeedRng(baseSeed+cycleNum*113);
-        var branchTargets=[
-          [oLat+(dLat-oLat)*0.55+rng(sp*0.5,sp*1.0),  oLng+(dLng-oLng)*0.5+rng(-spL*1.2,-spL*0.4)],
-          [oLat+(dLat-oLat)*0.6+rng(-sp*0.9,-sp*0.3),  oLng+(dLng-oLng)*0.55+rng(spL*0.4,spL*1.1)],
-          [oLat+(dLat-oLat)*0.45+rng(sp*0.2,sp*0.7),   oLng+(dLng-oLng)*0.45+rng(-spL*0.3,spL*0.7)],
-        ];
-        var explorationPaths=branchTargets.map(function(end){
-          var r=makeSeedRng(rng(1e7,9e7)|0);
-          return makeJagged(r,oLat,oLng,end[0],end[1],9,bufferLatDeg*0.18,bufferLngDeg*0.18);
-        });
-        var finalPath=makeJagged(makeSeedRng(baseSeed+cycleNum*7),oLat,oLng,dLat,dLng,13,bufferLatDeg*0.12,bufferLngDeg*0.12);
-        var crimesPts=[], lightsPts=[], placesPts=[];
-        for(var i=0;i<9;i++) crimesPts.push([rng2(cW,cE),rng2(cS,cN)]);
-        for(var i=0;i<14;i++) lightsPts.push([rng2(fullWest,fullEast),rng2(fullSouth,fullNorth)]);
-        for(var i=0;i<7;i++) placesPts.push([rng2(cW,cE),rng2(cS,cN)]);
-        return {explorationPaths:explorationPaths, finalPath:finalPath,
-          crimesPts:crimesPts, lightsPts:lightsPts, placesPts:placesPts, shownC:0, shownL:0, shownP:0};
-      }
-
-      var CYCLE=70;
-
-      var step=0;
-      var cyc=buildCycle(0);
-
       vizSetProgress(5, null);
 
+      // Pulse bbox fill only — no line animation during analysis (saves CPU/RAM).
+      var pulseStep=0;
       vizAnimTimer=setInterval(function(){
-        step++;
-        var phase=step % CYCLE;
-        var cycleNum=Math.floor(step/CYCLE);
-
-        // Start a new cycle — rebuild exploration paths
-        if(phase===0 && step>0){
-          try{map.getSource('viz-corridor').setData({type:'FeatureCollection',features:[]});}catch(e){}
-          cyc=buildCycle(cycleNum);
-        }
-
-        var t=phase/CYCLE;
+        pulseStep++;
         if(vizExternalPct!=null){ vizSetProgress(vizExternalPct, null); }
         if(!styleReady) return;
-
-        // 0. Pulse bbox fill to breathe while scanning (period ~2 s at 200 ms tick)
         try {
-          var bboxOp = 0.05 + 0.10 * (0.5 + 0.5 * Math.sin(step * 0.628));
+          var bboxOp = 0.05 + 0.10 * (0.5 + 0.5 * Math.sin(pulseStep * 0.314));
           map.setPaintProperty('viz-bbox-fill', 'fill-opacity', bboxOp);
         } catch(e) {}
-
-        // 1. Exploration branches grow progressively
-        var branchFeats=[];
-        cyc.explorationPaths.forEach(function(path,pi){
-          var delay=pi*0.07;
-          var bt=Math.max(0,Math.min((t-delay)/0.4,1));
-          if(bt<=0) return;
-          var pts=path.slice(0,Math.max(2,Math.ceil(bt*path.length)));
-          branchFeats.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:pts}});
-        });
-        // Final route reveals at 55%+
-        if(t>0.55){
-          var pT=Math.min((t-0.55)/0.32,1);
-          var fpts=cyc.finalPath.slice(0,Math.max(2,Math.ceil(pT*cyc.finalPath.length)));
-          branchFeats.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:fpts}});
-        }
-        try{map.getSource('viz-corridor').setData({type:'FeatureCollection',features:branchFeats});}catch(e){}
-
-        // No floating data-point pin icons during scan; keep the box + line animation focused.
-        // Note: no stop condition — keeps cycling until window.stopVizStream() is called
-        // when real routes arrive from the backend.
-      },200);
+      },1000);
     };
   <\/script>
 </body>
