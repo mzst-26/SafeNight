@@ -127,6 +127,10 @@ export function usePathfindingVisualization(
   const activeRef = useRef(false);
   /** How many characters of XHR responseText we've already parsed */
   const parsedLenRef = useRef(0);
+  /** Partial trailing SSE line between onprogress chunks */
+  const lineBufferRef = useRef('');
+  /** Current SSE event name being assembled */
+  const currentEventRef = useRef('');
 
   const stop = useCallback(() => {
     if (xhrRef.current) {
@@ -154,6 +158,8 @@ export function usePathfindingVisualization(
     if (activeRef.current) return;
     activeRef.current = true;
     parsedLenRef.current = 0;
+    lineBufferRef.current = '';
+    currentEventRef.current = '';
 
     setState({ ...EMPTY_STATE, active: true });
 
@@ -180,22 +186,29 @@ export function usePathfindingVisualization(
       const newText = text.slice(parsedLenRef.current);
       parsedLenRef.current = text.length;
 
-      // Split into lines
-      const lines = newText.split('\n');
+      lineBufferRef.current += newText;
+      const lines = lineBufferRef.current.split(/\r?\n/);
+      lineBufferRef.current = lines.pop() ?? '';
 
-      let currentEvent = '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('event:')) {
-          currentEvent = trimmed.slice(6).trim();
-        } else if (trimmed.startsWith('data:') && currentEvent) {
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith(':')) {
+          if (!line) currentEventRef.current = '';
+          continue;
+        }
+        if (line.startsWith('event:')) {
+          currentEventRef.current = line.slice(6).trim();
+          continue;
+        }
+        if (line.startsWith('data:')) {
+          const eventName = currentEventRef.current || 'message';
           try {
-            const data = JSON.parse(trimmed.slice(5).trim());
-            handleEvent(currentEvent, data);
+            const data = JSON.parse(line.slice(5).trim());
+            handleEvent(eventName, data);
           } catch {
-            // partial JSON — ignore
+            // malformed payload — ignore this event
           }
-          currentEvent = '';
+          currentEventRef.current = '';
         }
       }
     }

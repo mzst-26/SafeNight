@@ -310,7 +310,23 @@ router.get('/', async (req, res) => {
 
 // ── GET /api/safe-routes/stream (SSE progress, low-overhead) ──────────────
 router.get('/stream', async (req, res) => {
+  let closed = false;
+  let keepAliveTimer = null;
+
+  const cleanup = () => {
+    if (keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+    }
+  };
+
+  req.on('close', () => {
+    closed = true;
+    cleanup();
+  });
+
   const send = (event, data) => {
+    if (closed) return;
     try {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -325,6 +341,15 @@ router.get('/stream', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    keepAliveTimer = setInterval(() => {
+      if (closed) return;
+      try {
+        res.write(': keepalive\n\n');
+      } catch {
+        // ignore write failures
+      }
+    }, 15000);
 
     send('phase', { phase: 'init', message: 'Starting route analysis…', pct: 2 });
 
@@ -369,6 +394,7 @@ router.get('/stream', async (req, res) => {
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       send('phase', { phase: 'cache_hit', message: 'Using cached route analysis…', pct: 98 });
       send('done', { pct: 100, message: 'Routes ready!' });
+      cleanup();
       return res.end();
     }
 
@@ -394,12 +420,14 @@ router.get('/stream', async (req, res) => {
     });
 
     send('done', { pct: 100, message: 'Routes ready!' });
+    cleanup();
     res.end();
   } catch (err) {
     send('error', {
       message: err?.message || 'Something went wrong while streaming route progress.',
       pct: 0,
     });
+    cleanup();
     res.end();
   }
 });
