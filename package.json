@@ -10,7 +10,7 @@
     "build:web": "npx expo export --platform web",
     "lint": "expo lint",
     "build:android": "eas build --platform android --profile production",
-    "build:android:local": "eas build --platform android --profile production --local",
+    "build:android:local": "ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk eas build --platform android --profile production --local",
     "submit:android": "eas submit --platform android",
     "update": "eas update --branch production",
     "update:android": "eas update --platform android --branch production"
