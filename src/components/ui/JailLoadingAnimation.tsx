@@ -2,9 +2,9 @@
  * JailLoadingAnimation — Animated loading indicator with rotating safety facts.
  *
  * Progress bar strategy:
- *   1. A smooth time-based simulation eases from 0 → 88 % while loading.
- *   2. If the backend SSE stream delivers real progress, we use max(simulated, real).
- *   3. This prevents the bar ever being frozen at 0 %.
+ *   1. Starts immediately at 20% to confirm work has begun.
+ *   2. Then follows backend SSE progress only (no synthetic progress ticks).
+ *   3. While loading, progress is clamped to 20–90 and completes at 100 on done.
  * Text strategy:
  *   – Rotates through 35 educational safety facts, one every 5 s.
  *   – Keeps running regardless of backend progress state.
@@ -57,11 +57,14 @@ const LOADING_STAGES = [
 ];
 
 export function JailLoadingAnimation({ progressPct = null, statusMessage = null }: JailLoadingAnimationProps) {
+  const MIN_START_PCT = 20;
+  const MAX_LOADING_PCT = 90;
+
   const [stageIdx, setStageIdx] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   // Displayed progress 0→100 (driven directly by server progressPct)
   const barAnim = useRef(new Animated.Value(0)).current;
-  const [displayPct, setDisplayPct] = useState(0);
+  const [displayPct, setDisplayPct] = useState(MIN_START_PCT);
 
   // ── Fact rotation: every 5 s, cross-fade to next fact ──
   useEffect(() => {
@@ -74,15 +77,34 @@ export function JailLoadingAnimation({ progressPct = null, statusMessage = null 
     return () => clearInterval(interval);
   }, [fadeAnim]);
 
-  // ── Progress driven directly from server progressPct — no simulation interval ──
+  // Start instantly at 20% so users see immediate feedback.
   useEffect(() => {
-    const target =
-      typeof progressPct === 'number' && Number.isFinite(progressPct) && progressPct > 0
-        ? Math.min(99, Math.round(progressPct))
-        : 0;
-    setDisplayPct(target);
     Animated.timing(barAnim, {
-      toValue: target / 100,
+      toValue: MIN_START_PCT / 100,
+      duration: 250,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Prefer real server progress, clamped to 20..90 while loading ──
+  useEffect(() => {
+    const hasServerPct = typeof progressPct === 'number' && Number.isFinite(progressPct) && progressPct >= 0;
+    const incoming = !hasServerPct
+      ? MIN_START_PCT
+      : progressPct >= 100
+        ? 100
+        : Math.max(MIN_START_PCT, Math.min(MAX_LOADING_PCT, Math.round(progressPct)));
+
+    let nextPct = incoming;
+    setDisplayPct((prev) => {
+      nextPct = Math.max(prev, incoming);
+      return nextPct;
+    });
+
+    Animated.timing(barAnim, {
+      toValue: nextPct / 100,
       duration: 400,
       easing: Easing.out(Easing.quad),
       useNativeDriver: false,
@@ -91,7 +113,6 @@ export function JailLoadingAnimation({ progressPct = null, statusMessage = null 
 
   const stage = LOADING_STAGES[stageIdx];
   const backendStatus = statusMessage?.trim() || null;
-  const remainingPct = Math.max(0, 100 - displayPct);
 
   return (
     <View style={styles.container}>
@@ -125,7 +146,7 @@ export function JailLoadingAnimation({ progressPct = null, statusMessage = null 
         />
       </View>
 
-      <Text style={styles.subtitle}>{remainingPct}% left to analyse</Text>
+      <Text style={styles.subtitle}>{displayPct}% analysed</Text>
     </View>
   );
 }

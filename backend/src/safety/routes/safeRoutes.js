@@ -136,6 +136,123 @@ function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng) {
 // ── Request coalescing — share computation for concurrent identical requests ─
 const inflight = new Map();
 
+// ── Compute queue/load control ──────────────────────────────────────────────
+const MAX_CONCURRENT_COMPUTES = Math.max(1, Number(process.env.SAFE_ROUTES_MAX_CONCURRENT || 1));
+const DEFAULT_COMPUTE_ETA_MS = Math.max(10000, Number(process.env.SAFE_ROUTES_DEFAULT_ETA_MS || 30000));
+const recentComputeDurationsMs = [];
+const MAX_RECENT_DURATIONS = 24;
+let activeComputations = 0;
+let nextQueueJobId = 1;
+const computeQueue = [];
+
+function getAverageComputeMs() {
+  if (!recentComputeDurationsMs.length) return DEFAULT_COMPUTE_ETA_MS;
+  const total = recentComputeDurationsMs.reduce((sum, ms) => sum + ms, 0);
+  return Math.round(total / recentComputeDurationsMs.length);
+}
+
+function trackComputeDuration(ms) {
+  recentComputeDurationsMs.push(ms);
+  if (recentComputeDurationsMs.length > MAX_RECENT_DURATIONS) {
+    recentComputeDurationsMs.shift();
+  }
+}
+
+function estimateQueueWaitMs(queuePosition) {
+  if (queuePosition < 0) return 0;
+  const batchesBeforeStart = Math.floor(queuePosition / MAX_CONCURRENT_COMPUTES) + 1;
+  return batchesBeforeStart * getAverageComputeMs();
+}
+
+function notifyQueuedJobs() {
+  computeQueue.forEach((job, index) => {
+    if (typeof job.onQueueUpdate !== 'function') return;
+    const waitMs = estimateQueueWaitMs(index);
+    if (job.lastNotifiedPosition === index && job.lastNotifiedWaitMs === waitMs) return;
+    job.lastNotifiedPosition = index;
+    job.lastNotifiedWaitMs = waitMs;
+    job.onQueueUpdate({
+      queuePosition: index,
+      waitMs,
+      activeCount: activeComputations,
+      queuedCount: computeQueue.length,
+      avgComputeMs: getAverageComputeMs(),
+    });
+  });
+}
+
+function startComputeJob(job) {
+  activeComputations += 1;
+  if (typeof job.onStart === 'function') {
+    job.onStart({
+      activeCount: activeComputations,
+      queuedCount: computeQueue.length,
+      avgComputeMs: getAverageComputeMs(),
+    });
+  }
+
+  const startedAt = Date.now();
+  Promise.resolve()
+    .then(job.run)
+    .then((result) => {
+      trackComputeDuration(Date.now() - startedAt);
+      job.resolve(result);
+    })
+    .catch((err) => {
+      job.reject(err);
+    })
+    .finally(() => {
+      activeComputations = Math.max(0, activeComputations - 1);
+      notifyQueuedJobs();
+      runQueuedComputes();
+    });
+}
+
+function runQueuedComputes() {
+  while (activeComputations < MAX_CONCURRENT_COMPUTES && computeQueue.length > 0) {
+    const nextJob = computeQueue.shift();
+    if (!nextJob || nextJob.cancelled) continue;
+    startComputeJob(nextJob);
+  }
+  notifyQueuedJobs();
+}
+
+function enqueueComputeJob({ run, onQueueUpdate, onStart }) {
+  return new Promise((resolve, reject) => {
+    const job = {
+      id: nextQueueJobId++,
+      run,
+      resolve,
+      reject,
+      onQueueUpdate,
+      onStart,
+      cancelled: false,
+      lastNotifiedPosition: -1,
+      lastNotifiedWaitMs: -1,
+    };
+
+    if (activeComputations < MAX_CONCURRENT_COMPUTES && computeQueue.length === 0) {
+      startComputeJob(job);
+      return;
+    }
+
+    computeQueue.push(job);
+    notifyQueuedJobs();
+  });
+}
+
+function emitInflightProgress(entry, phase, message, pct) {
+  const payload = { phase, message, pct };
+  entry.lastProgress = payload;
+  entry.progressListeners.forEach((listener) => {
+    try {
+      listener(phase, message, pct);
+    } catch {
+      // best-effort listener fanout
+    }
+  });
+}
+
 function pruneRouteCache() {
   if (routeCache.size <= 100) return;
   const now = Date.now();
@@ -165,7 +282,19 @@ async function resolveSafeRoutesRequest({
 
   if (inflight.has(cacheKey)) {
     console.log(`[safe-routes] ⏳ Coalescing with in-flight request for ${cacheKey}`);
-    const result = await inflight.get(cacheKey);
+    const entry = inflight.get(cacheKey);
+    let subscribed = false;
+    if (entry && typeof onProgress === 'function') {
+      entry.progressListeners.add(onProgress);
+      subscribed = true;
+      if (entry.lastProgress) {
+        onProgress(entry.lastProgress.phase, entry.lastProgress.message, entry.lastProgress.pct);
+      }
+    }
+
+    const result = await entry.promise;
+
+    if (subscribed) entry.progressListeners.delete(onProgress);
     if (!result) {
       throw Object.assign(new Error('Computation failed.'), {
         statusCode: 500,
@@ -175,31 +304,68 @@ async function resolveSafeRoutesRequest({
     return { result, source: 'inflight' };
   }
 
-  let resolveInflight;
-  const inflightPromise = new Promise((resolve) => {
-    resolveInflight = resolve;
-  });
-  inflight.set(cacheKey, inflightPromise);
+  const inflightEntry = {
+    promise: null,
+    progressListeners: new Set(),
+    lastProgress: null,
+  };
+  if (typeof onProgress === 'function') inflightEntry.progressListeners.add(onProgress);
+  inflight.set(cacheKey, inflightEntry);
 
   try {
-    const result = await computeSafeRoutes(
-      oLat,
-      oLng,
-      dLat,
-      dLng,
-      straightLineDist,
-      straightLineKm,
-      Date.now(),
-      maxDistanceKm,
-      wpLat,
-      wpLng,
-      onProgress,
-    );
+    inflightEntry.promise = enqueueComputeJob({
+      run: () => computeSafeRoutes(
+        oLat,
+        oLng,
+        dLat,
+        dLng,
+        straightLineDist,
+        straightLineKm,
+        Date.now(),
+        maxDistanceKm,
+        wpLat,
+        wpLng,
+        (phase, message, pct) => emitInflightProgress(inflightEntry, phase, message, pct),
+      ),
+      onQueueUpdate: ({ queuePosition, waitMs, activeCount, queuedCount }) => {
+        const etaSec = Math.max(1, Math.round(waitMs / 1000));
+        const ahead = queuePosition + 1;
+        emitInflightProgress(
+          inflightEntry,
+          'queued',
+          `Server busy — queued (${ahead} ahead, ${activeCount} active). Est. ${etaSec}s`,
+          20,
+        );
+        if (queuedCount > 0) {
+          emitInflightProgress(
+            inflightEntry,
+            'queue_stats',
+            `Queue size: ${queuedCount} requests`,
+            20,
+          );
+        }
+      },
+      onStart: ({ activeCount, queuedCount }) => {
+        emitInflightProgress(
+          inflightEntry,
+          'queue_start',
+          `Starting safety analysis (${activeCount} active, ${queuedCount} queued)…`,
+          22,
+        );
+      },
+    });
+
+    const result = await inflightEntry.promise;
+    if (!result) {
+      throw Object.assign(new Error('Computation failed.'), {
+        statusCode: 500,
+        code: 'INTERNAL_ERROR',
+      });
+    }
+
     routeCache.set(cacheKey, { data: result, timestamp: Date.now() });
-    resolveInflight(result);
     return { result, source: 'computed' };
   } catch (err) {
-    resolveInflight(null);
     throw err;
   } finally {
     inflight.delete(cacheKey);
@@ -312,16 +478,11 @@ router.get('/', async (req, res) => {
 router.get('/stream', async (req, res) => {
   let closed = false;
   let keepAliveTimer = null;
-  let coalescedProgressTimer = null;
 
   const cleanup = () => {
     if (keepAliveTimer) {
       clearInterval(keepAliveTimer);
       keepAliveTimer = null;
-    }
-    if (coalescedProgressTimer) {
-      clearInterval(coalescedProgressTimer);
-      coalescedProgressTimer = null;
     }
   };
 
@@ -356,7 +517,7 @@ router.get('/stream', async (req, res) => {
       }
     }, 15000);
 
-    send('phase', { phase: 'init', message: 'Starting route analysis…', pct: 2 });
+    send('phase', { phase: 'init', message: 'Starting route analysis…', pct: 20 });
 
     const oLat = validateLatitude(req.query.origin_lat);
     const oLng = validateLongitude(req.query.origin_lng);
@@ -395,35 +556,15 @@ router.get('/stream', async (req, res) => {
     }
 
     const cacheKey = getCacheKey(oLat.value, oLng.value, dLat.value, dLng.value, wpLat, wpLng);
-    const cached = routeCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      send('phase', { phase: 'cache_hit', message: 'Using cached route analysis…', pct: 98 });
-      send('done', { pct: 100, message: 'Routes ready!' });
-      cleanup();
-      return res.end();
-    }
-
-    const isCoalesced = inflight.has(cacheKey);
-    if (isCoalesced) {
-      send('phase', { phase: 'coalesced', message: 'Joining active route computation…', pct: 35 });
-
-      let coalescedPct = 35;
-      coalescedProgressTimer = setInterval(() => {
-        if (closed) return;
-        coalescedPct = Math.min(94, coalescedPct + 4);
-        send('phase', {
-          phase: 'coalesced_wait',
-          message: 'Computing route candidates…',
-          pct: coalescedPct,
-        });
-      }, 2500);
+    if (inflight.has(cacheKey)) {
+      send('phase', { phase: 'coalesced', message: 'Joining active route computation…', pct: 20 });
     }
 
     const onProgress = (phase, message, pct) => {
       send('phase', { phase, message, pct });
     };
 
-    await resolveSafeRoutesRequest({
+    const { source } = await resolveSafeRoutesRequest({
       oLat: oLat.value,
       oLng: oLng.value,
       dLat: dLat.value,
@@ -435,6 +576,10 @@ router.get('/stream', async (req, res) => {
       wpLng,
       onProgress,
     });
+
+    if (source === 'cache') {
+      send('phase', { phase: 'cache_hit', message: 'Using cached route analysis…', pct: 96 });
+    }
 
     send('done', { pct: 100, message: 'Routes ready!' });
     cleanup();
@@ -474,7 +619,7 @@ async function computeSafeRoutes(
     }
   };
 
-  progress('start', 'Preparing route analysis…', 5);
+  progress('start', 'Preparing route analysis…', 20);
   console.log(`[safe-routes] 🔍 Computing: ${oLatV},${oLngV} → ${dLatV},${dLngV} (${straightLineKm.toFixed(1)} km)`);
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -489,7 +634,7 @@ async function computeSafeRoutes(
   const SKIP_PHASE1_DIST = 1500; // skip road-only fetch for < 1.5 km
 
   if (straightLineDist >= SKIP_PHASE1_DIST) {
-    progress('phase1', 'Discovering walking corridor…', 16);
+    progress('phase1', 'Discovering walking corridor…', 28);
     console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
     const t0p1 = Date.now();
     const initialBufferM = Math.max(400, Math.min(800, straightLineDist * 0.25));
@@ -510,14 +655,14 @@ async function computeSafeRoutes(
       );
     }
     phase1Time = Date.now() - t0p1;
-    progress('phase1_done', 'Walking corridor discovered.', 28);
+    progress('phase1_done', 'Walking corridor discovered.', 38);
     console.log(`[safe-routes] ✅ Phase 1: ${phase1Time}ms — ${
       shortestPath
         ? shortestPath.path.length + ' nodes, ' + Math.round(shortestPath.totalDist) + 'm'
         : 'fallback to straight-line corridor'
     }`);
   } else {
-    progress('phase1_skipped', 'Skipping corridor discovery for short route.', 24);
+    progress('phase1_skipped', 'Skipping corridor discovery for short route.', 34);
     console.log(`[safe-routes] ⏩ Phase 1: skipped (${Math.round(straightLineDist)}m < ${SKIP_PHASE1_DIST}m)`);
   }
 
@@ -551,7 +696,7 @@ async function computeSafeRoutes(
   if (wpLat != null) corridorPoints.push({ lat: wpLat, lng: wpLng });
 
   const bbox = bboxFromPoints(corridorPoints, corridorBufferM);
-  progress('phase2', 'Fetching safety data in route corridor…', 40);
+  progress('phase2', 'Fetching safety data in route corridor…', 50);
   console.log(`[safe-routes] 📐 Phase 2: Corridor from ${corridorPoints.length} waypoints + ${corridorBufferM}m buffer`);
 
   // ── Fetch ALL safety data within the corridor ───────────────────────
@@ -564,7 +709,7 @@ async function computeSafeRoutes(
   ]);
 
   let dataTime = Date.now() - t0;
-  progress('phase2_done', 'Safety data loaded.', 60);
+  progress('phase2_done', 'Safety data loaded.', 66);
   console.log(`[safe-routes] 📡 Corridor data fetched in ${dataTime}ms`);
 
   let roadCount = allData.roads.elements.filter((e) => e.type === 'way').length;
@@ -574,14 +719,14 @@ async function computeSafeRoutes(
   // ── 6b. Extract light & place node positions for POI markers ────────
   // ── 7. Build safety-weighted graph (with coverage maps) ─────────────
   console.log(`[safe-routes] 🏗️  Building graph + coverage maps...`);
-  progress('graph_build', 'Building safety graph…', 70);
+  progress('graph_build', 'Building safety graph…', 74);
   const t1 = Date.now();
   let { osmNodes, edges, adjacency, nodeGrid, weights, cctvNodes, transitNodes, nodeDegree } = buildGraph(
     allData.roads, allData.lights, allData.cctv, allData.places, allData.transit,
     crimes, bbox,
   );
   let graphTime = Date.now() - t1;
-  progress('graph_ready', 'Running safest path search…', 78);
+  progress('graph_ready', 'Running safest path search…', 82);
   console.log(`[safe-routes] 📊 Graph: ${osmNodes.size} nodes, ${edges.length} edges (built in ${graphTime}ms)`);
 
   if (edges.length === 0) {
@@ -609,7 +754,7 @@ async function computeSafeRoutes(
 
   // ── 9. Find 3–5 safest routes (A* — much faster than Dijkstra) ─────
   console.log(`[safe-routes] 🔎 A* pathfinding (start=${startNode}, end=${endNode})...`);
-  progress('pathfind', 'Computing route candidates…', 84);
+  progress('pathfind', 'Computing route candidates…', 86);
   const t2 = Date.now();
   const maxRouteDist = straightLineDist * 2.5;
   let rawRoutes;
@@ -645,7 +790,7 @@ async function computeSafeRoutes(
   }
 
   let pathfindTime = Date.now() - t2;
-  progress('pathfind_done', 'Scoring and formatting best routes…', 92);
+  progress('pathfind_done', 'Scoring and formatting best routes…', 89);
   console.log(`[safe-routes] 🔎 A* found ${rawRoutes.length} routes in ${pathfindTime}ms`);
 
   if (rawRoutes.length === 0) {
@@ -813,7 +958,7 @@ async function computeSafeRoutes(
   const responseRoutes = routes.slice(0, Math.max(minRoutes, routes.length));
 
   const elapsed = Date.now() - startTime;
-  progress('finalize', 'Finalizing route output…', 97);
+  progress('finalize', 'Finalizing route output…', 90);
   console.log(`[safe-routes] 🏁 Done in ${elapsed}ms (corridor:${phase1Time}ms, data:${dataTime}ms, graph:${graphTime}ms, A*:${pathfindTime}ms, recorrection:${recorrectionMs}ms) — ${responseRoutes.length} routes, safest: ${responseRoutes[0]?.safety?.score}`);
 
   return {
