@@ -136,6 +136,77 @@ function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng) {
 // ── Request coalescing — share computation for concurrent identical requests ─
 const inflight = new Map();
 
+function pruneRouteCache() {
+  if (routeCache.size <= 100) return;
+  const now = Date.now();
+  for (const [key, val] of routeCache) {
+    if (now - val.timestamp > CACHE_TTL_MS) routeCache.delete(key);
+  }
+}
+
+async function resolveSafeRoutesRequest({
+  oLat,
+  oLng,
+  dLat,
+  dLng,
+  straightLineDist,
+  straightLineKm,
+  maxDistanceKm,
+  wpLat,
+  wpLng,
+  onProgress,
+}) {
+  const cacheKey = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng);
+  const cached = routeCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    console.log(`[safe-routes] 📋 Route cache hit for ${cacheKey}`);
+    return { result: cached.data, source: 'cache' };
+  }
+
+  if (inflight.has(cacheKey)) {
+    console.log(`[safe-routes] ⏳ Coalescing with in-flight request for ${cacheKey}`);
+    const result = await inflight.get(cacheKey);
+    if (!result) {
+      throw Object.assign(new Error('Computation failed.'), {
+        statusCode: 500,
+        code: 'INTERNAL_ERROR',
+      });
+    }
+    return { result, source: 'inflight' };
+  }
+
+  let resolveInflight;
+  const inflightPromise = new Promise((resolve) => {
+    resolveInflight = resolve;
+  });
+  inflight.set(cacheKey, inflightPromise);
+
+  try {
+    const result = await computeSafeRoutes(
+      oLat,
+      oLng,
+      dLat,
+      dLng,
+      straightLineDist,
+      straightLineKm,
+      Date.now(),
+      maxDistanceKm,
+      wpLat,
+      wpLng,
+      onProgress,
+    );
+    routeCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    resolveInflight(result);
+    return { result, source: 'computed' };
+  } catch (err) {
+    resolveInflight(null);
+    throw err;
+  } finally {
+    inflight.delete(cacheKey);
+    pruneRouteCache();
+  }
+}
+
 function safetyLabel(score) {
   if (score >= 75) return { label: 'Very Safe', color: '#2E7D32' };
   if (score >= 55) return { label: 'Safe', color: '#558B2F' };
@@ -153,8 +224,6 @@ function segmentColor(safetyScore) {
 
 // ── GET /api/safe-routes ────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
-  const startTime = Date.now();
-
   try {
     // ── 1. Validate inputs ──────────────────────────────────────────────
     const oLat = validateLatitude(req.query.origin_lat);
@@ -214,70 +283,19 @@ router.get('/', async (req, res) => {
       });
     }
 
-    // ── 3. Check route cache ────────────────────────────────────────────
-    const cacheKey = getCacheKey(oLat.value, oLng.value, dLat.value, dLng.value, wpLat, wpLng);
-    const cached = routeCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      console.log(`[safe-routes] 📋 Route cache hit for ${cacheKey}`);
-      return res.json(cached.data);
-    }
-
-    // ── 4. Request coalescing ───────────────────────────────────────────
-    if (inflight.has(cacheKey)) {
-      console.log(`[safe-routes] ⏳ Coalescing with in-flight request for ${cacheKey}`);
-      try {
-        const result = await inflight.get(cacheKey);
-        return res.json(result);
-      } catch (err) {
-        return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Computation failed.' });
-      }
-    }
-
-    // Create a shared promise for concurrent requests
-    let resolveInflight, rejectInflight;
-    const inflightPromise = new Promise((resolve, reject) => {
-      resolveInflight = resolve;
-      rejectInflight = reject;
+    const { result } = await resolveSafeRoutesRequest({
+      oLat: oLat.value,
+      oLng: oLng.value,
+      dLat: dLat.value,
+      dLng: dLng.value,
+      straightLineDist,
+      straightLineKm,
+      maxDistanceKm,
+      wpLat,
+      wpLng,
     });
-    inflight.set(cacheKey, inflightPromise);
 
-    try {
-      const result = await computeSafeRoutes(
-        oLat.value, oLng.value, dLat.value, dLng.value,
-        straightLineDist, straightLineKm, startTime, maxDistanceKm,
-        wpLat, wpLng,
-      );
-
-      // Cache the result
-      routeCache.set(cacheKey, { data: result, timestamp: Date.now() });
-      resolveInflight(result);
-      res.json(result);
-    } catch (err) {
-      // Resolve (not reject) the inflight promise with the error to avoid
-      // unhandled rejection crashes when concurrent requests are waiting.
-      resolveInflight(null);
-
-      if (err.statusCode && err.code) {
-        return res.status(err.statusCode).json({
-          error: err.code,
-          message: err.message,
-          ...(err.graphNodes != null && { graphNodes: err.graphNodes, graphEdges: err.graphEdges }),
-          ...(err.roadCount != null && { roadCount: err.roadCount }),
-          ...(err.which != null && { which: err.which }),
-        });
-      }
-      throw err;
-    } finally {
-      inflight.delete(cacheKey);
-    }
-
-    // Clean stale route cache entries
-    if (routeCache.size > 100) {
-      const now = Date.now();
-      for (const [key, val] of routeCache) {
-        if (now - val.timestamp > CACHE_TTL_MS) routeCache.delete(key);
-      }
-    }
+    res.json(result);
   } catch (err) {
     console.error(`[safe-routes] ❌ Error:`, err);
     if (!res.headersSent) {
@@ -290,10 +308,128 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── GET /api/safe-routes/stream (SSE progress, low-overhead) ──────────────
+router.get('/stream', async (req, res) => {
+  const send = (event, data) => {
+    try {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch {
+      // Client disconnected
+    }
+  };
+
+  try {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    send('phase', { phase: 'init', message: 'Starting route analysis…', pct: 2 });
+
+    const oLat = validateLatitude(req.query.origin_lat);
+    const oLng = validateLongitude(req.query.origin_lng);
+    if (!oLat.valid) return send('error', { message: oLat.error, pct: 0 }), res.end();
+    if (!oLng.valid) return send('error', { message: oLng.error, pct: 0 }), res.end();
+
+    const dLat = validateLatitude(req.query.dest_lat);
+    const dLng = validateLongitude(req.query.dest_lng);
+    if (!dLat.valid) return send('error', { message: dLat.error, pct: 0 }), res.end();
+    if (!dLng.valid) return send('error', { message: dLng.error, pct: 0 }), res.end();
+
+    let wpLat = null, wpLng = null;
+    if (req.query.waypoint_lat != null && req.query.waypoint_lng != null) {
+      const wpLatV = validateLatitude(req.query.waypoint_lat);
+      const wpLngV = validateLongitude(req.query.waypoint_lng);
+      if (wpLatV.valid && wpLngV.valid) {
+        wpLat = wpLatV.value;
+        wpLng = wpLngV.value;
+      }
+    }
+
+    const straightLineDist = haversine(oLat.value, oLng.value, dLat.value, dLng.value);
+    const straightLineKm = straightLineDist / 1000;
+    const maxDistanceKm = req.query.max_distance
+      ? Math.min(Number(req.query.max_distance), DEFAULT_MAX_DISTANCE_KM)
+      : DEFAULT_MAX_DISTANCE_KM;
+
+    if (straightLineKm > maxDistanceKm) {
+      const maxDistanceMi = maxDistanceKm * 0.621371;
+      const straightLineMi = straightLineKm * 0.621371;
+      send('error', {
+        message: `That destination is ${straightLineMi.toFixed(1)} mi away — your limit is ${maxDistanceMi.toFixed(1)} mi.`,
+        pct: 0,
+      });
+      return res.end();
+    }
+
+    const cacheKey = getCacheKey(oLat.value, oLng.value, dLat.value, dLng.value, wpLat, wpLng);
+    const cached = routeCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      send('phase', { phase: 'cache_hit', message: 'Using cached route analysis…', pct: 98 });
+      send('done', { pct: 100, message: 'Routes ready!' });
+      return res.end();
+    }
+
+    if (inflight.has(cacheKey)) {
+      send('phase', { phase: 'coalesced', message: 'Joining active route computation…', pct: 35 });
+    }
+
+    const onProgress = (phase, message, pct) => {
+      send('phase', { phase, message, pct });
+    };
+
+    await resolveSafeRoutesRequest({
+      oLat: oLat.value,
+      oLng: oLng.value,
+      dLat: dLat.value,
+      dLng: dLng.value,
+      straightLineDist,
+      straightLineKm,
+      maxDistanceKm,
+      wpLat,
+      wpLng,
+      onProgress,
+    });
+
+    send('done', { pct: 100, message: 'Routes ready!' });
+    res.end();
+  } catch (err) {
+    send('error', {
+      message: err?.message || 'Something went wrong while streaming route progress.',
+      pct: 0,
+    });
+    res.end();
+  }
+});
+
 /**
  * Core computation — separated for request coalescing.
  */
-async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, straightLineKm, startTime, maxDistanceKm = DEFAULT_MAX_DISTANCE_KM, wpLat = null, wpLng = null) {
+async function computeSafeRoutes(
+  oLatV,
+  oLngV,
+  dLatV,
+  dLngV,
+  straightLineDist,
+  straightLineKm,
+  startTime,
+  maxDistanceKm = DEFAULT_MAX_DISTANCE_KM,
+  wpLat = null,
+  wpLng = null,
+  onProgress = null,
+) {
+  const progress = (phase, message, pct) => {
+    if (typeof onProgress !== 'function') return;
+    try {
+      onProgress(phase, message, pct);
+    } catch {
+      // no-op: progress is best-effort
+    }
+  };
+
+  progress('start', 'Preparing route analysis…', 5);
   console.log(`[safe-routes] 🔍 Computing: ${oLatV},${oLngV} → ${dLatV},${dLngV} (${straightLineKm.toFixed(1)} km)`);
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -308,6 +444,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   const SKIP_PHASE1_DIST = 1500; // skip road-only fetch for < 1.5 km
 
   if (straightLineDist >= SKIP_PHASE1_DIST) {
+    progress('phase1', 'Discovering walking corridor…', 16);
     console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
     const t0p1 = Date.now();
     const initialBufferM = Math.max(400, Math.min(800, straightLineDist * 0.25));
@@ -328,12 +465,14 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
       );
     }
     phase1Time = Date.now() - t0p1;
+    progress('phase1_done', 'Walking corridor discovered.', 28);
     console.log(`[safe-routes] ✅ Phase 1: ${phase1Time}ms — ${
       shortestPath
         ? shortestPath.path.length + ' nodes, ' + Math.round(shortestPath.totalDist) + 'm'
         : 'fallback to straight-line corridor'
     }`);
   } else {
+    progress('phase1_skipped', 'Skipping corridor discovery for short route.', 24);
     console.log(`[safe-routes] ⏩ Phase 1: skipped (${Math.round(straightLineDist)}m < ${SKIP_PHASE1_DIST}m)`);
   }
 
@@ -367,6 +506,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   if (wpLat != null) corridorPoints.push({ lat: wpLat, lng: wpLng });
 
   const bbox = bboxFromPoints(corridorPoints, corridorBufferM);
+  progress('phase2', 'Fetching safety data in route corridor…', 40);
   console.log(`[safe-routes] 📐 Phase 2: Corridor from ${corridorPoints.length} waypoints + ${corridorBufferM}m buffer`);
 
   // ── Fetch ALL safety data within the corridor ───────────────────────
@@ -379,6 +519,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   ]);
 
   let dataTime = Date.now() - t0;
+  progress('phase2_done', 'Safety data loaded.', 60);
   console.log(`[safe-routes] 📡 Corridor data fetched in ${dataTime}ms`);
 
   let roadCount = allData.roads.elements.filter((e) => e.type === 'way').length;
@@ -388,12 +529,14 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   // ── 6b. Extract light & place node positions for POI markers ────────
   // ── 7. Build safety-weighted graph (with coverage maps) ─────────────
   console.log(`[safe-routes] 🏗️  Building graph + coverage maps...`);
+  progress('graph_build', 'Building safety graph…', 70);
   const t1 = Date.now();
   let { osmNodes, edges, adjacency, nodeGrid, weights, cctvNodes, transitNodes, nodeDegree } = buildGraph(
     allData.roads, allData.lights, allData.cctv, allData.places, allData.transit,
     crimes, bbox,
   );
   let graphTime = Date.now() - t1;
+  progress('graph_ready', 'Running safest path search…', 78);
   console.log(`[safe-routes] 📊 Graph: ${osmNodes.size} nodes, ${edges.length} edges (built in ${graphTime}ms)`);
 
   if (edges.length === 0) {
@@ -421,6 +564,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
 
   // ── 9. Find 3–5 safest routes (A* — much faster than Dijkstra) ─────
   console.log(`[safe-routes] 🔎 A* pathfinding (start=${startNode}, end=${endNode})...`);
+  progress('pathfind', 'Computing route candidates…', 84);
   const t2 = Date.now();
   const maxRouteDist = straightLineDist * 2.5;
   let rawRoutes;
@@ -456,6 +600,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   }
 
   let pathfindTime = Date.now() - t2;
+  progress('pathfind_done', 'Scoring and formatting best routes…', 92);
   console.log(`[safe-routes] 🔎 A* found ${rawRoutes.length} routes in ${pathfindTime}ms`);
 
   if (rawRoutes.length === 0) {
@@ -623,6 +768,7 @@ async function computeSafeRoutes(oLatV, oLngV, dLatV, dLngV, straightLineDist, s
   const responseRoutes = routes.slice(0, Math.max(minRoutes, routes.length));
 
   const elapsed = Date.now() - startTime;
+  progress('finalize', 'Finalizing route output…', 97);
   console.log(`[safe-routes] 🏁 Done in ${elapsed}ms (corridor:${phase1Time}ms, data:${dataTime}ms, graph:${graphTime}ms, A*:${pathfindTime}ms, recorrection:${recorrectionMs}ms) — ${responseRoutes.length} routes, safest: ${responseRoutes[0]?.safety?.score}`);
 
   return {
