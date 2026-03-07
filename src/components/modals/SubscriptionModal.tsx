@@ -79,7 +79,7 @@ const TIER_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, subscriptionEndsAt, onClose, onSubscriptionChanged, onOpenFamilyPack }: Props) {
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -98,31 +98,27 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
     if (!visible) return;
 
     const controller = new AbortController();
-    setLoading(true);
+    setStatusLoading(true);
     setError(null);
     setSuccess(null);
-
-    // console.log('[SubscriptionModal] Modal opened, fetching status...');
-    // console.log('[SubscriptionModal] Platform:', Platform.OS);
 
     const startTime = Date.now();
     stripeApi.getStatus(controller.signal)
       .then((fetchedStatus) => {
-        console.log(`[SubscriptionModal] getStatus SUCCESS (${Date.now() - startTime}ms):`, JSON.stringify(fetchedStatus).substring(0, 200));
+        console.log(`[SubscriptionModal] getStatus SUCCESS (${Date.now() - startTime}ms):`);
         if (!controller.signal.aborted) {
           setStatus(fetchedStatus);
         }
       })
       .catch((err) => {
-        console.error(`[SubscriptionModal] getStatus FAILED (${Date.now() - startTime}ms):`, err?.message ?? err, '| name:', err?.name);
+        console.error(`[SubscriptionModal] getStatus FAILED (${Date.now() - startTime}ms):`, err?.message ?? err);
         if (!controller.signal.aborted) {
           const msg = friendlyError(err, 'Failed to load subscription status');
           setError(msg);
         }
       })
       .finally(() => {
-        console.log(`[SubscriptionModal] getStatus FINALLY (${Date.now() - startTime}ms), aborted=${controller.signal.aborted}`);
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) setStatusLoading(false);
       });
 
     return () => {
@@ -241,14 +237,7 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
             </Pressable>
           </View>
 
-          {loading ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator size="large" color="#7C3AED" />
-              <Text style={styles.loadingText}>Loading plans...</Text>
-
-            </View>
-          ) : (
-            <ScrollView
+          <ScrollView
               style={styles.scroll}
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
@@ -305,8 +294,16 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
                 </View>
               )}
 
+              {/* Subscription details — inline loader while status is fetching */}
+              {statusLoading && (
+                <View style={styles.statusLoadingRow}>
+                  <ActivityIndicator size="small" color="#7C3AED" />
+                  <Text style={styles.statusLoadingText}>Loading subscription details…</Text>
+                </View>
+              )}
+
               {/* Active Stripe subscription info */}
-              {stripeSub && (
+              {!statusLoading && stripeSub && (
                 <View style={styles.subInfoCard}>
                   <Text style={styles.subInfoTitle}>Subscription Details</Text>
                   <View style={styles.subInfoRow}>
@@ -425,7 +422,7 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
                 ))}
 
               {/* Family Pack sub-user: show info notice instead of cancel */}
-              {isPaid && isFamilyPack && !stripeSub && (
+              {!statusLoading && isPaid && isFamilyPack && !stripeSub && (
                 <View style={styles.familyNotice}>
                   <Ionicons name="information-circle" size={20} color="#7C3AED" />
                   <Text style={styles.familyNoticeText}>
@@ -435,7 +432,7 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
               )}
 
               {/* Cancel / downgrade for paid users without Stripe sub info (non-family) */}
-              {isPaid && !isFamilyPack && !stripeSub && (
+              {!statusLoading && isPaid && !isFamilyPack && !stripeSub && (
                 <Pressable
                   style={styles.cancelButton}
                   onPress={handleCancel}
@@ -505,7 +502,6 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
                 14-day cooling-off: cancel within 14 days for a full refund (first subscription only).
               </Text>
             </ScrollView>
-          )}
         </View>
       </View>
     </Modal>
@@ -562,6 +558,18 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
+    color: '#6B7280',
+  },
+  statusLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+  },
+  statusLoadingText: {
+    fontSize: 13,
     color: '#6B7280',
   },
   scroll: {
