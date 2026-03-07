@@ -174,9 +174,8 @@ export function usePathfindingVisualization(
     xhrRef.current = xhr;
 
     xhr.open('GET', url, true);
-    // Prevent RN from buffering entire response
+    // Ask for SSE format (avoid custom headers that trigger CORS preflight on web)
     xhr.setRequestHeader('Accept', 'text/event-stream');
-    xhr.setRequestHeader('Cache-Control', 'no-cache');
 
     /** Parse any new SSE data that appeared in responseText since last call */
     function parseNewChunks() {

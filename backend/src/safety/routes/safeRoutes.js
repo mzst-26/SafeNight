@@ -312,11 +312,16 @@ router.get('/', async (req, res) => {
 router.get('/stream', async (req, res) => {
   let closed = false;
   let keepAliveTimer = null;
+  let coalescedProgressTimer = null;
 
   const cleanup = () => {
     if (keepAliveTimer) {
       clearInterval(keepAliveTimer);
       keepAliveTimer = null;
+    }
+    if (coalescedProgressTimer) {
+      clearInterval(coalescedProgressTimer);
+      coalescedProgressTimer = null;
     }
   };
 
@@ -398,8 +403,20 @@ router.get('/stream', async (req, res) => {
       return res.end();
     }
 
-    if (inflight.has(cacheKey)) {
+    const isCoalesced = inflight.has(cacheKey);
+    if (isCoalesced) {
       send('phase', { phase: 'coalesced', message: 'Joining active route computation…', pct: 35 });
+
+      let coalescedPct = 35;
+      coalescedProgressTimer = setInterval(() => {
+        if (closed) return;
+        coalescedPct = Math.min(94, coalescedPct + 4);
+        send('phase', {
+          phase: 'coalesced_wait',
+          message: 'Computing route candidates…',
+          pct: coalescedPct,
+        });
+      }, 2500);
     }
 
     const onProgress = (phase, message, pct) => {
