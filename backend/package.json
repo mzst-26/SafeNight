@@ -16,7 +16,21 @@
     "dev": "PORT=3001 node --watch src/gateway/server.js & PORT=3002 node --watch src/safety/server.js & PORT=3003 node --watch src/user/server.js & PORT=3004 node --watch src/subscription/server.js & PORT=3005 node --watch src/geocode/server.js",
     "stress:safety": "node scripts/stress-safe-routes.js",
     "stop": "lsof -ti:3000,3001,3002,3003,3004,3005 | xargs kill -9 2>/dev/null; echo '✅ Ports 3000-3005 cleared'",
-    "start": "PORT=3001 node src/gateway/server.js"
+    "start": "PORT=3001 node src/gateway/server.js",
+    "docker:build": "docker compose build",
+    "docker:build:gateway": "docker compose build gateway",
+    "docker:build:safety": "docker compose build safety",
+    "docker:build:user": "docker compose build user",
+    "docker:build:subscription": "docker compose build subscription",
+    "docker:build:geocode": "docker compose build geocode",
+    "docker:up": "docker compose up -d",
+    "docker:up:gateway": "docker compose up -d gateway",
+    "docker:up:safety": "docker compose up -d safety",
+    "docker:up:user": "docker compose up -d user",
+    "docker:up:subscription": "docker compose up -d subscription",
+    "docker:up:geocode": "docker compose up -d geocode",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f --tail=200"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

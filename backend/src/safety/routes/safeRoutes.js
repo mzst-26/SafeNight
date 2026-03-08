@@ -255,8 +255,6 @@ function registerActiveSearch(req, cancelToken) {
 
   if (
     previous &&
-    previous.searchId !== searchId &&
-    previous.clientId === clientId &&
     previous.searchSeq > searchSeq
   ) {
     logSearchCancellation('stale_rejected', {
@@ -279,7 +277,7 @@ function registerActiveSearch(req, cancelToken) {
     };
   }
 
-  if (previous && previous.searchId !== searchId) {
+  if (previous) {
     logSearchCancellation('previous_preempted', {
       userKey,
       previousClientId: previous.clientId,
@@ -320,7 +318,7 @@ function registerActiveSearch(req, cancelToken) {
     searchId,
     searchSeq,
     clientId,
-    replacedPrevious: Boolean(previous && previous.searchId !== searchId),
+    replacedPrevious: Boolean(previous),
     stale: false,
     release,
   };

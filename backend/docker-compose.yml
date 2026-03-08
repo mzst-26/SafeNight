@@ -1,0 +1,75 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    image: safenight/gateway:latest
+    container_name: safenight-gateway
+    env_file:
+      - .env
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  safety:
+    build:
+      context: .
+      dockerfile: Dockerfile.safety
+    image: safenight/safety:latest
+    container_name: safenight-safety
+    env_file:
+      - .env
+    environment:
+      - PORT=3002
+      - NODE_ENV=production
+    ports:
+      - "3002:3002"
+    restart: unless-stopped
+
+  user:
+    build:
+      context: .
+      dockerfile: Dockerfile.user
+    image: safenight/user:latest
+    container_name: safenight-user
+    env_file:
+      - .env
+    environment:
+      - PORT=3003
+      - NODE_ENV=production
+    ports:
+      - "3003:3003"
+    restart: unless-stopped
+
+  subscription:
+    build:
+      context: .
+      dockerfile: Dockerfile.subscription
+    image: safenight/subscription:latest
+    container_name: safenight-subscription
+    env_file:
+      - .env
+    environment:
+      - PORT=3004
+      - NODE_ENV=production
+    ports:
+      - "3004:3004"
+    restart: unless-stopped
+
+  geocode:
+    build:
+      context: .
+      dockerfile: Dockerfile.geocode
+    image: safenight/geocode:latest
+    container_name: safenight-geocode
+    env_file:
+      - .env
+    environment:
+      - PORT=3005
+      - NODE_ENV=production
+    ports:
+      - "3005:3005"
+    restart: unless-stopped
