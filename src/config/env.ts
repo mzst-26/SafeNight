@@ -79,7 +79,7 @@ const osmBaseUrl =
   process.env.EXPO_PUBLIC_OSM_BASE_URL ?? "https://nominatim.openstreetmap.org";
 const osmTileUrl =
   process.env.EXPO_PUBLIC_OSM_TILE_URL ??
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+  "https://tile.opentopomap.org/{z}/{x}/{y}.png";
 // TODO: Set EXPO_PUBLIC_OSM_USER_AGENT in .env / EAS env vars.
 const osmUserAgent = process.env.EXPO_PUBLIC_OSM_USER_AGENT ?? "";
 const osmEmail = process.env.EXPO_PUBLIC_OSM_EMAIL ?? "";

@@ -11,8 +11,8 @@ import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import type {
-    MapType,
-    RouteMapProps,
+  MapType,
+  RouteMapProps,
 } from "@/src/components/maps/RouteMap.types";
 
 // ── Tile URLs for different map styles (all free / no key) ───────────────────
@@ -20,8 +20,7 @@ import type {
 // without an accepted Referer header.
 
 const TILE_URLS: Record<MapType, string> = {
-  roadmap:
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  roadmap: "https://tile.opentopomap.org/{z}/{x}/{y}.png",
   satellite:
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   hybrid:
@@ -30,7 +29,8 @@ const TILE_URLS: Record<MapType, string> = {
 };
 
 const TILE_ATTR: Record<MapType, string> = {
-  roadmap: "&copy; Esri, HERE, Garmin, Intermap, INCREMENT P, USGS",
+  roadmap:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
   satellite: "&copy; Esri, Maxar, Earthstar Geographics",
   hybrid:
     '&copy; Esri | &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
@@ -101,6 +101,9 @@ var map,tileLayer,markers=[],polylines=[],navMarker=null,longPressTimer=null,lon
 var isNavMode=false,currentRotation=0,userInteracted=false,lastNavLL=null;
 var isFollowingNav=true;
 var rangeCircle=null;
+var SAFE_TILE_URL='https://tile.opentopomap.org/{z}/{x}/{y}.png';
+var SAFE_TILE_ATTR='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a>';
+var OSM_TILE_BLOCKED_RE=/^https?:\/\/(?:[a-z0-9-]+\.)?tile\.openstreetmap\.org\//i;
 
 function clearArr(a){for(var i=0;i<a.length;i++)map.removeLayer(a[i]);a.length=0;}
 
@@ -111,6 +114,27 @@ function sendMsg(t,d){
   }catch(e){}
 }
 
+function sanitizeTileUrl(u){
+  if(!u||OSM_TILE_BLOCKED_RE.test(String(u))) return SAFE_TILE_URL;
+  return u;
+}
+
+function sanitizeTileAttr(u,a){
+  if(!u||OSM_TILE_BLOCKED_RE.test(String(u))) return SAFE_TILE_ATTR;
+  return a||SAFE_TILE_ATTR;
+}
+
+function bindTileFallback(layer){
+  if(!layer||layer.__snhTileFallbackBound) return;
+  layer.__snhTileFallbackBound=true;
+  layer.on('tileerror',function(e){
+    var src=(e&&e.tile&&e.tile.src)||'';
+    if(src&&OSM_TILE_BLOCKED_RE.test(src)){
+      setTileUrl(SAFE_TILE_URL,SAFE_TILE_ATTR);
+    }
+  });
+}
+
 function setFollowMode(next){
   if(isFollowingNav===next) return;
   isFollowingNav=next;
@@ -118,8 +142,9 @@ function setFollowMode(next){
 }
 
 map=L.map('map',{center:[50.3755,-4.1427],zoom:13,zoomControl:false,attributionControl:false});
-tileLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{
-  attribution:'&copy; Esri, HERE, Garmin, Intermap, INCREMENT P, USGS',maxZoom:19}).addTo(map);
+tileLayer=L.tileLayer(sanitizeTileUrl('https://tile.opentopomap.org/{z}/{x}/{y}.png'),{
+  attribution:sanitizeTileAttr('https://tile.opentopomap.org/{z}/{x}/{y}.png','&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a>'),maxZoom:19}).addTo(map);
+bindTileFallback(tileLayer);
 
 map.on('contextmenu',function(e){sendMsg('longpress',{lat:e.latlng.lat,lng:e.latlng.lng});});
 var touchStart=null;
@@ -236,7 +261,9 @@ function setNavView(heading,entering){
 }
 
 function setTileUrl(u,a){if(tileLayer)map.removeLayer(tileLayer);
-  tileLayer=L.tileLayer(u,{attribution:a,maxZoom:19}).addTo(map);}
+  var nextUrl=sanitizeTileUrl(u),nextAttr=sanitizeTileAttr(u,a);
+  tileLayer=L.tileLayer(nextUrl,{attribution:nextAttr,maxZoom:19}).addTo(map);
+  bindTileFallback(tileLayer);}
 
 /* ── On-route helpers (used for friend path coloring) ────────────── */
 function haversineM(a,b){
