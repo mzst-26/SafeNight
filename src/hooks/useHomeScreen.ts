@@ -5,46 +5,51 @@
  * and AI explanation into a single hook.  The screen component just renders
  * the returned state — zero business logic in the JSX tree.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, Keyboard, Platform } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Dimensions, Keyboard, Platform } from "react-native";
 
-import type { MapType } from '@/src/components/maps/RouteMap.types';
-import { SHEET_DEFAULT } from '@/src/components/sheets/DraggableSheet';
-import { useAIExplanation } from '@/src/hooks/useAIExplanation';
-import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
-import { useAuth } from '@/src/hooks/useAuth';
-import { useAutoPlaceSearch } from '@/src/hooks/useAutoPlaceSearch';
-import { useCurrentLocation } from '@/src/hooks/useCurrentLocation';
-import { useNavigation } from '@/src/hooks/useNavigation';
-import { useOnboarding } from '@/src/hooks/useOnboarding';
-import { useSafeRoutes } from '@/src/hooks/useSafeRoutes';
-import { reverseGeocode } from '@/src/services/openStreetMap';
-import type { SafeRoute } from '@/src/services/safeRoutes';
-import type { SafetyMapResult } from '@/src/services/safetyMapData';
-import type { DirectionsRoute, LatLng, PlaceDetails } from '@/src/types/google';
+import type { MapType } from "@/src/components/maps/RouteMap.types";
+import { SHEET_DEFAULT } from "@/src/components/sheets/DraggableSheet";
+import { useAIExplanation } from "@/src/hooks/useAIExplanation";
+import type { RouteScore } from "@/src/hooks/useAllRoutesSafety";
+import { useAuth } from "@/src/hooks/useAuth";
+import { useAutoPlaceSearch } from "@/src/hooks/useAutoPlaceSearch";
+import { useCurrentLocation } from "@/src/hooks/useCurrentLocation";
+import { useNavigation } from "@/src/hooks/useNavigation";
+import { useOnboarding } from "@/src/hooks/useOnboarding";
+import { useSafeRoutes } from "@/src/hooks/useSafeRoutes";
+import { reverseGeocode } from "@/src/services/openStreetMap";
+import type { SafeRoute } from "@/src/services/safeRoutes";
+import type { SafetyMapResult } from "@/src/services/safetyMapData";
+import type { DirectionsRoute, LatLng, PlaceDetails } from "@/src/types/google";
 
 // ── Public interface ────────────────────────────────────────────────────────
 
 export function useHomeScreen() {
   // ── Onboarding ──
-  const { status: onboardingStatus, hasAccepted, error: onboardingError, accept } = useOnboarding();
+  const {
+    status: onboardingStatus,
+    hasAccepted,
+    error: onboardingError,
+    accept,
+  } = useOnboarding();
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   // ── Auth ──
   const { user } = useAuth();
-  const subscriptionTier = user?.subscription ?? 'free';
+  const subscriptionTier = user?.subscription ?? "free";
   const routeDistanceKm = user?.routeDistanceKm;
 
   // ── Web guest detection (must be before onboarding effect) ──
-  const isWebGuest = Platform.OS === 'web' && !user;
+  const isWebGuest = Platform.OS === "web" && !user;
 
   // Auto-accept onboarding for web guests (no modal needed)
   useEffect(() => {
-    if (isWebGuest && onboardingStatus === 'ready' && !hasAccepted) {
+    if (isWebGuest && onboardingStatus === "ready" && !hasAccepted) {
       accept();
       return;
     }
-    if (onboardingStatus === 'ready' && !hasAccepted) setShowOnboarding(true);
+    if (onboardingStatus === "ready" && !hasAccepted) setShowOnboarding(true);
   }, [onboardingStatus, hasAccepted, isWebGuest, accept]);
 
   // ── Location ──
@@ -66,10 +71,17 @@ export function useHomeScreen() {
 
   // ── Route selection ──
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  const [mapPanTo, setMapPanTo] = useState<{ location: LatLng; key: number } | null>(null);
-  const [mapType, setMapType] = useState<MapType>('roadmap');
-  const [pinMode, setPinMode] = useState<'origin' | 'destination' | 'via' | null>(null);
-  const [highlightCategory, setHighlightCategory] = useState<string | null>(null);
+  const [mapPanTo, setMapPanTo] = useState<{
+    location: LatLng;
+    key: number;
+  } | null>(null);
+  const [mapType, setMapType] = useState<MapType>("roadmap");
+  const [pinMode, setPinMode] = useState<
+    "origin" | "destination" | "via" | null
+  >(null);
+  const [highlightCategory, setHighlightCategory] = useState<string | null>(
+    null,
+  );
 
   // ── Via / direction-bias waypoint ──
   const [viaPinLocation, setViaPinLocation] = useState<LatLng | null>(null);
@@ -79,15 +91,16 @@ export function useHomeScreen() {
   const [showAIModal, setShowAIModal] = useState(false);
 
   // ── Bottom sheet ──
-  const SCREEN_HEIGHT = Dimensions.get('window').height;
+  const SCREEN_HEIGHT = Dimensions.get("window").height;
   const sheetHeight = useRef(new Animated.Value(SHEET_DEFAULT)).current;
   const sheetHeightRef = useRef(SHEET_DEFAULT);
 
   // ── Derived origins / destinations ──
   const effectiveOrigin = isUsingCurrentLocation
     ? location
-    : manualOrigin?.location ?? originSearch.place?.location ?? null;
-  const effectiveDestination = manualDest?.location ?? destSearch.place?.location ?? null;
+    : (manualOrigin?.location ?? originSearch.place?.location ?? null);
+  const effectiveDestination =
+    manualDest?.location ?? destSearch.place?.location ?? null;
 
   // For web guests, don't pass destination to safe routes API (no real fetch)
   const routingDestination = isWebGuest ? null : effectiveDestination;
@@ -101,7 +114,13 @@ export function useHomeScreen() {
     outOfRange,
     outOfRangeMessage,
     meta: safeRoutesMeta,
-  } = useSafeRoutes(effectiveOrigin, routingDestination, subscriptionTier, routeDistanceKm, viaPinLocation);
+  } = useSafeRoutes(
+    effectiveOrigin,
+    routingDestination,
+    subscriptionTier,
+    routeDistanceKm,
+    viaPinLocation,
+  );
 
   // Clear via-pin whenever the destination changes so stale waypoints don't carry over
   const prevDestRef = useRef<LatLng | null>(null);
@@ -120,7 +139,12 @@ export function useHomeScreen() {
 
   // ── Pathfinding visualisation (client-side coords for WebView animation) ──
   const vizStreamUrl = useMemo(() => {
-    if (directionsStatus !== 'loading' || !effectiveOrigin || !routingDestination) return null;
+    if (
+      directionsStatus !== "loading" ||
+      !effectiveOrigin ||
+      !routingDestination
+    )
+      return null;
     return JSON.stringify({
       oLat: effectiveOrigin.latitude,
       oLng: effectiveOrigin.longitude,
@@ -141,7 +165,7 @@ export function useHomeScreen() {
         color: r.safety.color,
         mainRoadRatio: r.safety.mainRoadRatio / 100,
         dataConfidence: 1,
-        status: 'done',
+        status: "done",
       };
     }
     return scores;
@@ -152,7 +176,10 @@ export function useHomeScreen() {
   // Reset sheet when routes change
   useEffect(() => {
     if (routes.length > 0) {
-      Animated.spring(sheetHeight, { toValue: SHEET_DEFAULT, useNativeDriver: false }).start();
+      Animated.spring(sheetHeight, {
+        toValue: SHEET_DEFAULT,
+        useNativeDriver: false,
+      }).start();
       sheetHeightRef.current = SHEET_DEFAULT;
     }
   }, [routes.length]);
@@ -182,7 +209,8 @@ export function useHomeScreen() {
   );
 
   const selectedSafeRoute = useMemo<SafeRoute | null>(
-    () => (safeRoutes as SafeRoute[]).find((r) => r.id === selectedRouteId) ?? null,
+    () =>
+      (safeRoutes as SafeRoute[]).find((r) => r.id === selectedRouteId) ?? null,
     [safeRoutes, selectedRouteId],
   );
 
@@ -190,19 +218,64 @@ export function useHomeScreen() {
   const poiMarkers = useMemo(() => {
     const pois = selectedSafeRoute?.routePOIs;
     if (!pois) return [];
-    const markers: Array<{ id: string; kind: string; coordinate: { latitude: number; longitude: number }; label: string }> = [];
-    pois.cctv?.forEach((c, i) => markers.push({ id: `poi-cctv-${i}`, kind: 'cctv', coordinate: { latitude: c.lat, longitude: c.lng }, label: 'CCTV Camera' }));
-    pois.transit?.forEach((t, i) => markers.push({ id: `poi-transit-${i}`, kind: 'bus_stop', coordinate: { latitude: t.lat, longitude: t.lng }, label: 'Transit Stop' }));
-    pois.deadEnds?.forEach((d, i) => markers.push({ id: `poi-deadend-${i}`, kind: 'dead_end', coordinate: { latitude: d.lat, longitude: d.lng }, label: 'Dead End' }));
-    pois.lights?.forEach((l, i) => markers.push({ id: `poi-light-${i}`, kind: 'light', coordinate: { latitude: l.lat, longitude: l.lng }, label: 'Street Light' }));
+    const markers: Array<{
+      id: string;
+      kind: string;
+      coordinate: { latitude: number; longitude: number };
+      label: string;
+    }> = [];
+    pois.cctv?.forEach((c, i) =>
+      markers.push({
+        id: `poi-cctv-${i}`,
+        kind: "cctv",
+        coordinate: { latitude: c.lat, longitude: c.lng },
+        label: "CCTV Camera",
+      }),
+    );
+    pois.transit?.forEach((t, i) =>
+      markers.push({
+        id: `poi-transit-${i}`,
+        kind: "bus_stop",
+        coordinate: { latitude: t.lat, longitude: t.lng },
+        label: "Transit Stop",
+      }),
+    );
+    pois.deadEnds?.forEach((d, i) =>
+      markers.push({
+        id: `poi-deadend-${i}`,
+        kind: "dead_end",
+        coordinate: { latitude: d.lat, longitude: d.lng },
+        label: "Dead End",
+      }),
+    );
+    pois.lights?.forEach((l, i) =>
+      markers.push({
+        id: `poi-light-${i}`,
+        kind: "light",
+        coordinate: { latitude: l.lat, longitude: l.lng },
+        label: "Street Light",
+      }),
+    );
     pois.places?.forEach((p: any, i: number) => {
       // Only show confirmed-open places
       if (p.open !== true) return;
-      const name = p.name || p.amenity || 'Place';
-      const status = p.nextChange ? ` · Open, ${p.nextChange}` : ' · Open now';
-      markers.push({ id: `poi-place-${i}`, kind: 'shop', coordinate: { latitude: p.lat, longitude: p.lng }, label: `${name}${status}` });
+      const name = p.name || p.amenity || "Place";
+      const status = p.nextChange ? ` · Open, ${p.nextChange}` : " · Open now";
+      markers.push({
+        id: `poi-place-${i}`,
+        kind: "shop",
+        coordinate: { latitude: p.lat, longitude: p.lng },
+        label: `${name}${status}`,
+      });
     });
-    pois.crimes?.forEach((cr, i) => markers.push({ id: `poi-crime-${i}`, kind: 'crime', coordinate: { latitude: cr.lat, longitude: cr.lng }, label: cr.category || 'Crime' }));
+    pois.crimes?.forEach((cr, i) =>
+      markers.push({
+        id: `poi-crime-${i}`,
+        kind: "crime",
+        coordinate: { latitude: cr.lat, longitude: cr.lng },
+        label: cr.category || "Crime",
+      }),
+    );
     return markers;
   }, [selectedSafeRoute]);
 
@@ -270,11 +343,22 @@ export function useHomeScreen() {
   const roadLabels = useMemo(() => {
     if (!selectedSafeRoute?.enrichedSegments) return [];
     const seen = new Set<string>();
-    const labels: Array<{ id: string; coordinate: { latitude: number; longitude: number }; roadType: string; displayName: string; color: string }> = [];
+    const labels: Array<{
+      id: string;
+      coordinate: { latitude: number; longitude: number };
+      roadType: string;
+      displayName: string;
+      color: string;
+    }> = [];
     const typeColors: Record<string, string> = {
-      primary: '#2563eb', secondary: '#3b82f6', tertiary: '#60a5fa',
-      residential: '#64748b', footway: '#f59e0b', path: '#f59e0b',
-      pedestrian: '#34d399', service: '#94a3b8',
+      primary: "#2563eb",
+      secondary: "#3b82f6",
+      tertiary: "#60a5fa",
+      residential: "#64748b",
+      footway: "#f59e0b",
+      path: "#f59e0b",
+      pedestrian: "#34d399",
+      service: "#94a3b8",
     };
     for (const seg of selectedSafeRoute.enrichedSegments) {
       if (seg.roadName && !seen.has(seg.roadName)) {
@@ -284,7 +368,7 @@ export function useHomeScreen() {
           coordinate: seg.midpointCoord,
           roadType: seg.highway,
           displayName: seg.roadName,
-          color: typeColors[seg.highway] || '#64748b',
+          color: typeColors[seg.highway] || "#64748b",
         });
       }
     }
@@ -293,10 +377,16 @@ export function useHomeScreen() {
 
   // ── Navigation ──
   const nav = useNavigation(selectedRoute);
-  const isNavActive = nav.state === 'navigating' || nav.state === 'off-route';
+  const isNavActive = nav.state === "navigating" || nav.state === "off-route";
 
   // ── AI Explanation ──
-  const ai = useAIExplanation(safetyResult, routes, routeScores, bestRouteId, safeRoutes as SafeRoute[]);
+  const ai = useAIExplanation(
+    safetyResult,
+    routes,
+    routeScores,
+    bestRouteId,
+    safeRoutes as SafeRoute[],
+  );
 
   // ── Map interaction handlers ──
 
@@ -305,7 +395,7 @@ export function useHomeScreen() {
     (coordinate: LatLng, setter: (pin: PlaceDetails) => void) => {
       const pin: PlaceDetails = {
         placeId: `pin:${coordinate.latitude.toFixed(6)},${coordinate.longitude.toFixed(6)}`,
-        name: 'Dropped pin',
+        name: "Dropped pin",
         location: coordinate,
       };
       setter(pin);
@@ -314,7 +404,9 @@ export function useHomeScreen() {
         .then((resolved) => {
           if (resolved) setter({ ...resolved, location: coordinate });
         })
-        .catch(() => {/* keep fallback */});
+        .catch(() => {
+          /* keep fallback */
+        });
     },
     [],
   );
@@ -324,7 +416,7 @@ export function useHomeScreen() {
       Keyboard.dismiss();
       if (isNavActive) return;
 
-      if (pinMode === 'origin') {
+      if (pinMode === "origin") {
         setIsUsingCurrentLocation(false);
         originSearch.clear();
         destSearch.clear();
@@ -332,12 +424,12 @@ export function useHomeScreen() {
         makePinAndResolve(coordinate, setManualOrigin);
         setPinMode(null);
         setSelectedRouteId(null);
-      } else if (pinMode === 'destination') {
+      } else if (pinMode === "destination") {
         destSearch.clear();
         makePinAndResolve(coordinate, setManualDest);
         setPinMode(null);
         setSelectedRouteId(null);
-      } else if (pinMode === 'via') {
+      } else if (pinMode === "via") {
         setViaPinLocation(coordinate);
         setPinMode(null);
       }
@@ -369,6 +461,14 @@ export function useHomeScreen() {
   const clearSelectedRoute = useCallback(() => {
     setSelectedRouteId(null);
   }, []);
+
+  const clearRouteResults = useCallback(() => {
+    destSearch.clear();
+    setManualDest(null);
+    setSelectedRouteId(null);
+    setViaPinLocation(null);
+    setHighlightCategory(null);
+  }, [destSearch]);
 
   /** Swap origin and destination (like Google Maps). */
   const swapOriginAndDest = useCallback(() => {
@@ -412,7 +512,7 @@ export function useHomeScreen() {
       // GPS was origin — create a pin from current coords
       setManualDest({
         placeId: `gps-${Date.now()}`,
-        name: 'Your location',
+        name: "Your location",
         location,
       });
       destSearch.clear();
@@ -423,7 +523,14 @@ export function useHomeScreen() {
     }
 
     setSelectedRouteId(null);
-  }, [isUsingCurrentLocation, originSearch, manualOrigin, destSearch, manualDest, location]);
+  }, [
+    isUsingCurrentLocation,
+    originSearch,
+    manualOrigin,
+    destSearch,
+    manualDest,
+    location,
+  ]);
 
   return {
     // Onboarding
@@ -471,6 +578,7 @@ export function useHomeScreen() {
     handleMapLongPress,
     handlePanTo,
     clearSelectedRoute,
+    clearRouteResults,
     swapOriginAndDest,
 
     // Via / direction-bias
