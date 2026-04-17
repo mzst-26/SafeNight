@@ -65,6 +65,13 @@ function friendlyError(err: unknown, action: 'send' | 'verify' | 'options' | 'pa
   return 'Something went wrong. Give it another go.';
 }
 
+function fallbackRouteDistanceKm(tier?: string | null): number {
+  const normalized = String(tier || 'free').toLowerCase();
+  if (normalized === 'premium') return 20;
+  if (normalized === 'pro') return 10;
+  return 3;
+}
+
 interface AuthState {
   isLoggedIn: boolean;
   isLoading: boolean;
@@ -135,6 +142,9 @@ async function _loadSessionOnce(
   subscriptionApi.refreshOnAppOpen(profile.id).catch(() => {});
 
   scheduleRefresh();
+  const routeDistanceKm =
+    profile.route_distance_km ??
+    fallbackRouteDistanceKm(profile.subscription_details?.tier ?? profile.subscription);
 
   return {
     isLoggedIn: true,
@@ -149,7 +159,7 @@ async function _loadSessionOnce(
       app_version: profile.app_version,
       disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
       subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
-      routeDistanceKm: profile.route_distance_km ?? 1, // DB-driven, fallback to free tier
+      routeDistanceKm,
       isGift: profile.is_gift ?? false,
       giftEndDate: profile.gift_end_date ?? null,
       subscriptionEndsAt: profile.subscription_ends_at ?? null,
@@ -397,7 +407,9 @@ export function useAuth() {
               app_version: profile.app_version,
               disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
               subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
-              routeDistanceKm: profile.route_distance_km ?? 1,
+              routeDistanceKm:
+                profile.route_distance_km ??
+                fallbackRouteDistanceKm(profile.subscription_details?.tier ?? profile.subscription),
               isGift: profile.is_gift ?? false,
               giftEndDate: profile.gift_end_date ?? null,
               subscriptionEndsAt: profile.subscription_ends_at ?? null,
@@ -470,7 +482,9 @@ export function useAuth() {
               app_version: profile.app_version,
               disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
               subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
-              routeDistanceKm: profile.route_distance_km ?? 1,
+              routeDistanceKm:
+                profile.route_distance_km ??
+                fallbackRouteDistanceKm(profile.subscription_details?.tier ?? profile.subscription),
               isGift: profile.is_gift ?? false,
               giftEndDate: profile.gift_end_date ?? null,
               subscriptionEndsAt: profile.subscription_ends_at ?? null,
@@ -589,7 +603,9 @@ export function useAuth() {
           app_version: profile.app_version,
           disclaimer_accepted_at: profile.disclaimer_accepted_at ?? null,
           subscription: profile.subscription_details?.tier ?? profile.subscription ?? 'free',
-          routeDistanceKm: profile.route_distance_km ?? 1,
+          routeDistanceKm:
+            profile.route_distance_km ??
+            fallbackRouteDistanceKm(profile.subscription_details?.tier ?? profile.subscription),
           isGift: profile.is_gift ?? false,
           giftEndDate: profile.gift_end_date ?? null,
           subscriptionEndsAt: profile.subscription_ends_at ?? null,

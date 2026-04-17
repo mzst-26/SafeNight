@@ -17,7 +17,6 @@ import { useAutoPlaceSearch } from '@/src/hooks/useAutoPlaceSearch';
 import { useCurrentLocation } from '@/src/hooks/useCurrentLocation';
 import { useNavigation } from '@/src/hooks/useNavigation';
 import { useOnboarding } from '@/src/hooks/useOnboarding';
-import { usePathfindingVisualization } from '@/src/hooks/usePathfindingVisualization';
 import { useSafeRoutes } from '@/src/hooks/useSafeRoutes';
 import { reverseGeocode } from '@/src/services/openStreetMap';
 import type { SafeRoute } from '@/src/services/safeRoutes';
@@ -102,9 +101,6 @@ export function useHomeScreen() {
     outOfRange,
     outOfRangeMessage,
     meta: safeRoutesMeta,
-    activeSearchId,
-    activeSearchClientId,
-    activeSearchSeq,
   } = useSafeRoutes(effectiveOrigin, routingDestination, subscriptionTier, routeDistanceKm, viaPinLocation);
 
   // Clear via-pin whenever the destination changes so stale waypoints don't carry over
@@ -132,15 +128,6 @@ export function useHomeScreen() {
       dLng: routingDestination.longitude,
     });
   }, [directionsStatus, effectiveOrigin, routingDestination]);
-
-  const pathViz = usePathfindingVisualization(
-    effectiveOrigin,
-    routingDestination,
-    directionsStatus === 'loading',
-    activeSearchId,
-    activeSearchClientId,
-    activeSearchSeq,
-  );
 
   // ── Route scores ──
   const routeScores: Record<string, RouteScore> = useMemo(() => {
@@ -500,8 +487,6 @@ export function useHomeScreen() {
 
     // Pathfinding visualisation
     vizStreamUrl,
-    vizProgressPct: directionsStatus === 'loading' ? pathViz.pct : null,
-    vizProgressMessage: directionsStatus === 'loading' ? pathViz.message : null,
 
     // Sheet
     sheetHeight,

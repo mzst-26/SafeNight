@@ -13,17 +13,8 @@ import { AppError } from '@/src/types/errors';
 import type { DirectionsRoute, LatLng, NavigationStep, RouteSegment } from '@/src/types/google';
 import { emitLimitReached, LimitError, parseLimitResponse } from '@/src/types/limitError';
 import { decodePolyline } from '@/src/utils/polyline';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BACKEND_BASE = env.safetyApiUrl;
-const AUTH_TOKEN_STORAGE_KEY = 'safenight_access_token';
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const memoryToken = (globalThis as any).__safenight_access_token;
-  const token = memoryToken || (await AsyncStorage.getItem(AUTH_TOKEN_STORAGE_KEY));
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
 
 // ── Geo helper for bearing (used to detect turn direction) ───────────────────
 const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -279,7 +270,7 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
 
 // ── Subscription tier distance limits (fallback only — prefer DB value) ──────
 const DISTANCE_LIMITS_KM: Record<string, number> = {
-  free: 1,      // 1 km for free users
+  free: 3,      // 3 km for free users
   pro: 10,      // 10 km for pro users
   premium: 20,  // 20 km for premium users
 };
@@ -490,9 +481,6 @@ export async function fetchSafeRoutes(
   subscriptionTier: string = 'free',
   maxDistanceKmOverride?: number,
   waypoint?: LatLng | null,
-  searchId?: string,
-  searchClientId?: string,
-  searchSeq?: number,
 ): Promise<SafeRoutesResponse> {
   await subscriptionApi.ensureFeatureAllowed('route_search');
 
@@ -521,16 +509,7 @@ export async function fetchSafeRoutes(
   const timer = setTimeout(() => controller.abort(), 120_000); // 120s timeout (cold-start + two-phase pipeline)
 
   try {
-    const authHeaders = await getAuthHeaders();
-    const resp = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        ...authHeaders,
-        ...(searchId ? { 'X-Search-Id': searchId } : {}),
-        ...(searchClientId ? { 'X-Search-Client': searchClientId } : {}),
-        ...(Number.isFinite(searchSeq) ? { 'X-Search-Seq': String(searchSeq) } : {}),
-      },
-    });
+    const resp = await fetch(url, { signal: controller.signal });
     console.log(`[safeRoutes] ✅ Got response: ${resp.status} ${resp.statusText}`);
     clearTimeout(timer);
 
@@ -564,14 +543,6 @@ export async function fetchSafeRoutes(
         throw new AppError(
           'DESTINATION_OUT_OF_RANGE',
           raw.message || 'Destination is too far away. Maximum walking distance is 6 miles.',
-          undefined,
-          details,
-        );
-      }
-      if (raw.error === 'SEARCH_CANCELLED') {
-        throw new AppError(
-          'SEARCH_CANCELLED',
-          raw.message || 'Route search was cancelled because a newer search started on your account.',
           undefined,
           details,
         );

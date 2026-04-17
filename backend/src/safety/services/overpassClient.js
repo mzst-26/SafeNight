@@ -11,11 +11,25 @@
  *   • Retry with server rotation
  */
 
-const OVERPASS_SERVERS = [
+const DEFAULT_OVERPASS_SERVERS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
+
+const OVERPASS_SERVERS = (process.env.OVERPASS_SERVERS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+if (OVERPASS_SERVERS.length === 0) {
+  OVERPASS_SERVERS.push(...DEFAULT_OVERPASS_SERVERS);
+}
+
+const OSM_USER_AGENT =
+  process.env.OSM_USER_AGENT ||
+  'SafeNightHome/1.0 (safety-service; contact: support@safenight.app)';
+const OSM_REFERER = process.env.OSM_REFERER || process.env.WEB_ORIGIN || process.env.PUBLIC_WEB_URL || '';
 
 let serverIdx = 0;
 
@@ -35,6 +49,14 @@ async function overpassQuery(query, timeout = 90, signal = null) {
   const fullQuery = `[out:json][timeout:${timeout}];${query}`;
   let lastError;
 
+  const requestHeaders = {
+    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    Accept: 'application/json, text/plain;q=0.9, */*;q=0.8',
+    'Accept-Language': 'en-GB,en;q=0.9',
+    'User-Agent': OSM_USER_AGENT,
+  };
+  if (OSM_REFERER) requestHeaders.Referer = OSM_REFERER;
+
   for (let attempt = 0; attempt < OVERPASS_SERVERS.length; attempt++) {
     const server = OVERPASS_SERVERS[(serverIdx + attempt) % OVERPASS_SERVERS.length];
     try {
@@ -45,15 +67,18 @@ async function overpassQuery(query, timeout = 90, signal = null) {
 
       const resp = await fetch(server, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: requestHeaders,
         body: `data=${encodeURIComponent(fullQuery)}`,
         signal: controller.signal,
       });
       clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', abortFromParent);
 
-      if (resp.status === 429 || resp.status >= 500) {
-        lastError = new Error(`Overpass ${server} returned ${resp.status}`);
+      if (resp.status === 403 || resp.status === 429 || resp.status >= 500) {
+        const snippet = (await resp.text()).slice(0, 220);
+        lastError = new Error(`Overpass ${server} returned ${resp.status}: ${snippet}`);
+        // Small stagger so we don't hammer servers in rapid succession.
+        await new Promise((resolve) => setTimeout(resolve, 300 + attempt * 250));
         continue;
       }
       if (!resp.ok) {
@@ -74,9 +99,75 @@ async function overpassQuery(query, timeout = 90, signal = null) {
         }
         lastError = new Error(`Overpass ${server} timed out`);
       }
+      await new Promise((resolve) => setTimeout(resolve, 300 + attempt * 250));
     }
   }
   throw lastError || new Error('All Overpass servers failed');
+}
+
+function toBBoxString(bbox) {
+  return `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+}
+
+async function fetchSafetyDataSplitFallback(bbox, signal = null) {
+  const b = toBBoxString(bbox);
+
+  const roadQuery = `
+    way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|living_street|pedestrian|footway|cycleway|path|steps|service|track)$"](${b});
+    (._;>;);
+    out body qt;
+  `;
+
+  const lightsQuery = `
+    (
+      node["highway"="street_lamp"](${b});
+      way["lit"="yes"](${b});
+    );
+    (._;>;);
+    out body qt;
+  `;
+
+  const cctvQuery = `
+    node["man_made"="surveillance"](${b});
+    out body;
+  `;
+
+  const placesQuery = `
+    (
+      node["amenity"](${b});
+      node["shop"](${b});
+      node["leisure"](${b});
+      node["tourism"](${b});
+      way["amenity"](${b});
+      way["shop"](${b});
+    );
+    out center;
+  `;
+
+  const transitQuery = `
+    (
+      node["highway"="bus_stop"](${b});
+      node["public_transport"="stop_position"](${b});
+      node["public_transport"="platform"](${b});
+    );
+    out body;
+  `;
+
+  const [roads, lights, cctv, places, transit] = await Promise.all([
+    overpassQuery(roadQuery, 30, signal),
+    overpassQuery(lightsQuery, 30, signal),
+    overpassQuery(cctvQuery, 30, signal),
+    overpassQuery(placesQuery, 30, signal),
+    overpassQuery(transitQuery, 30, signal),
+  ]);
+
+  return {
+    roads,
+    lights,
+    cctv,
+    places,
+    transit,
+  };
 }
 
 /**
@@ -141,10 +232,32 @@ async function fetchAllSafetyData(bbox, options = {}) {
 
   console.log('[overpass] 🌐 Fetching ALL safety data in single query...');
   const t0 = Date.now();
-  const raw = await overpassQuery(query, 30, signal);
-  console.log(`[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`);
+  let result;
+  try {
+    const raw = await overpassQuery(query, 30, signal);
+    console.log(`[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`);
+    result = splitElements(raw.elements);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    const shouldFallback =
+      msg.includes(' 403') ||
+      msg.includes(' 429') ||
+      msg.includes('timed out') ||
+      msg.includes('All Overpass servers failed');
 
-  const result = splitElements(raw.elements);
+    if (!shouldFallback) throw err;
+
+    console.warn(`[overpass] ⚠️ Single query failed (${msg.slice(0, 160)}). Falling back to split queries.`);
+    const splitData = await fetchSafetyDataSplitFallback(bbox, signal);
+    const totalElements =
+      (splitData.roads.elements?.length || 0) +
+      (splitData.lights.elements?.length || 0) +
+      (splitData.cctv.elements?.length || 0) +
+      (splitData.places.elements?.length || 0) +
+      (splitData.transit.elements?.length || 0);
+    console.log(`[overpass] ✅ Split fallback: ${totalElements} elements in ${Date.now() - t0}ms`);
+    result = splitData;
+  }
 
   // Cache the split result
   dataCache.set(key, { data: result, timestamp: Date.now() });
