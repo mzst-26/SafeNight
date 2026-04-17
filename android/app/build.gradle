@@ -114,10 +114,15 @@ android {
             keyPassword 'android'
         }
         release {
-            storeFile file('release.keystore')
-            storePassword 'SafeNight2026!'
-            keyAlias 'safenight-release'
-            keyPassword 'SafeNight2026!'
+            def releaseStoreFile = findProperty('RELEASE_STORE_FILE') ?: '../upload-keystore.jks'
+            def releaseStorePassword = findProperty('RELEASE_STORE_PASSWORD') ?: 'SafeNight2026!'
+            def releaseKeyAlias = findProperty('RELEASE_KEY_ALIAS') ?: 'safenight-release'
+            def releaseKeyPassword = findProperty('RELEASE_KEY_PASSWORD') ?: 'SafeNight2026!'
+
+            storeFile rootProject.file(releaseStoreFile)
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
         }
     }
     buildTypes {
