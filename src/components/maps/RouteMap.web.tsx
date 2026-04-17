@@ -449,7 +449,6 @@ export const RouteMap = ({
   const [hasError, setHasError] = useState(false);
   const prevGeoKeyRef = useRef("");
   const prevPanKeyRef = useRef(-1);
-  const prevMapTypeRef = useRef(mapType);
   const prevVizUrlRef = useRef<string | null>(null);
 
   const callbacksRef = useRef({

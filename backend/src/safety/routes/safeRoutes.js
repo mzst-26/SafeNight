@@ -1145,10 +1145,6 @@ router.get("/", async (req, res) => {
           "This is usually a temporary issue with one of our data sources (OpenStreetMap or the Police crime API). Please wait a moment and try again.",
       });
     }
-  } finally {
-    activeSearch.release();
-  }
-});
 
 // ── GET /api/safe-routes/stream (SSE progress, low-overhead) ──────────────
 router.get("/stream", async (req, res) => {
@@ -1179,7 +1175,6 @@ router.get("/stream", async (req, res) => {
       clearInterval(keepAliveTimer);
       keepAliveTimer = null;
     }
-  };
 
   req.on("close", () => {
     closed = true;
@@ -1269,6 +1264,9 @@ router.get("/stream", async (req, res) => {
         wpLat = wpLatV.value;
         wpLng = wpLngV.value;
       }
+      throw err;
+    } finally {
+      inflight.delete(cacheKey);
     }
 
     const straightLineDist = haversine(
@@ -2055,9 +2053,19 @@ function collectRoutePOIs(
   }
 
   // Build sample points from EVERY node on the route — full coverage, no gaps.
+  const samplePoints = [];
   for (let i = 0; i < routePath.length; i++) {
     const n = osmNodes.get(routePath[i]);
-    if (n) indexRoutePoint(n.lat, n.lng);
+    if (n) samplePoints.push({ lat: n.lat, lng: n.lng });
+  }
+
+  // Helper: check if a point is within 30m of any point on the route
+  function isNearRoute(lat, lng) {
+    for (const sp of samplePoints) {
+      const d = Math.sqrt((lat - sp.lat) ** 2 + (lng - sp.lng) ** 2) * 111320;
+      if (d < NEARBY_M) return true;
+    }
+    return false;
   }
 
   // Collect CCTV near route

@@ -7,23 +7,23 @@
  * by overall safety.
  */
 
-import { env } from '@/src/config/env';
-import { subscriptionApi } from '@/src/services/userApi';
-import { AppError } from '@/src/types/errors';
-import type { DirectionsRoute, LatLng, NavigationStep, RouteSegment } from '@/src/types/google';
-import { emitLimitReached, LimitError, parseLimitResponse } from '@/src/types/limitError';
-import { decodePolyline } from '@/src/utils/polyline';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { env } from "@/src/config/env";
+import { subscriptionApi } from "@/src/services/userApi";
+import { AppError } from "@/src/types/errors";
+import type {
+    DirectionsRoute,
+    LatLng,
+    NavigationStep,
+    RouteSegment,
+} from "@/src/types/google";
+import {
+    emitLimitReached,
+    LimitError,
+    parseLimitResponse,
+} from "@/src/types/limitError";
+import { decodePolyline } from "@/src/utils/polyline";
 
 const BACKEND_BASE = env.safetyApiUrl;
-const AUTH_TOKEN_STORAGE_KEY = 'safenight_access_token';
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const memoryToken = (globalThis as any).__safenight_access_token;
-  const token = memoryToken || (await AsyncStorage.getItem(AUTH_TOKEN_STORAGE_KEY));
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
 
 // ── Geo helper for bearing (used to detect turn direction) ───────────────────
 const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -66,15 +66,15 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
 
   const groups: SegGroup[] = [];
   let cur: SegGroup = {
-    roadName: segments[0].roadName || '',
+    roadName: segments[0].roadName || "",
     segs: [segments[0]],
     totalDist: segments[0].distance,
     highways: new Set([segments[0].highway]),
   };
   for (let i = 1; i < segments.length; i++) {
-    const name = segments[i].roadName || '';
+    const name = segments[i].roadName || "";
     // Only group if BOTH have a non-empty matching name
-    if (name !== '' && name === cur.roadName) {
+    if (name !== "" && name === cur.roadName) {
       cur.segs.push(segments[i]);
       cur.totalDist += segments[i].distance;
       cur.highways.add(segments[i].highway);
@@ -143,12 +143,24 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
     let totalTurn = 0;
     for (let i = 1; i < grp.segs.length; i++) {
       const brg1 = bearing(
-        { latitude: grp.segs[i - 1].startCoord.latitude, longitude: grp.segs[i - 1].startCoord.longitude },
-        { latitude: grp.segs[i - 1].endCoord.latitude, longitude: grp.segs[i - 1].endCoord.longitude },
+        {
+          latitude: grp.segs[i - 1].startCoord.latitude,
+          longitude: grp.segs[i - 1].startCoord.longitude,
+        },
+        {
+          latitude: grp.segs[i - 1].endCoord.latitude,
+          longitude: grp.segs[i - 1].endCoord.longitude,
+        },
       );
       const brg2 = bearing(
-        { latitude: grp.segs[i].startCoord.latitude, longitude: grp.segs[i].startCoord.longitude },
-        { latitude: grp.segs[i].endCoord.latitude, longitude: grp.segs[i].endCoord.longitude },
+        {
+          latitude: grp.segs[i].startCoord.latitude,
+          longitude: grp.segs[i].startCoord.longitude,
+        },
+        {
+          latitude: grp.segs[i].endCoord.latitude,
+          longitude: grp.segs[i].endCoord.longitude,
+        },
       );
       let d = brg2 - brg1;
       if (d > 180) d -= 360;
@@ -167,21 +179,21 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
     for (let g = fromG; g < groups.length; g++) {
       if (groups[g].roadName) return groups[g].roadName;
     }
-    return '';
+    return "";
   };
 
   for (let g = 0; g < groups.length; g++) {
     const grp = groups[g];
     const firstSeg = grp.segs[0];
-    const lastSeg  = grp.segs[grp.segs.length - 1];
+    const lastSeg = grp.segs[grp.segs.length - 1];
 
     let instruction: string;
     let maneuver: string;
 
     if (g === groups.length - 1) {
       // Last group → arrive
-      instruction = 'Arrive at your destination';
-      maneuver = 'straight';
+      instruction = "Arrive at your destination";
+      maneuver = "straight";
     } else {
       const nextGrp = groups[g + 1];
       const nextFirst = nextGrp.segs[0];
@@ -191,13 +203,25 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
 
       // Approach bearing = direction of last segment in current group
       const approachBrg = bearing(
-        { latitude: lastSeg.startCoord.latitude, longitude: lastSeg.startCoord.longitude },
-        { latitude: lastSeg.endCoord.latitude,   longitude: lastSeg.endCoord.longitude },
+        {
+          latitude: lastSeg.startCoord.latitude,
+          longitude: lastSeg.startCoord.longitude,
+        },
+        {
+          latitude: lastSeg.endCoord.latitude,
+          longitude: lastSeg.endCoord.longitude,
+        },
       );
       // Departure bearing = direction of first segment of next group
       const departBrg = bearing(
-        { latitude: nextFirst.startCoord.latitude, longitude: nextFirst.startCoord.longitude },
-        { latitude: nextFirst.endCoord.latitude,   longitude: nextFirst.endCoord.longitude },
+        {
+          latitude: nextFirst.startCoord.latitude,
+          longitude: nextFirst.startCoord.longitude,
+        },
+        {
+          latitude: nextFirst.endCoord.latitude,
+          longitude: nextFirst.endCoord.longitude,
+        },
       );
 
       let diff = departBrg - approachBrg;
@@ -209,38 +233,38 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
       if (nextIsRoundabout) {
         // Find which road comes AFTER the roundabout
         const afterRoundabout = findNextNamedRoad(g + 2);
-        maneuver = 'roundabout-right';
+        maneuver = "roundabout-right";
         instruction = afterRoundabout
           ? `At the roundabout, continue onto ${afterRoundabout}`
-          : 'Continue on the roundabout';
+          : "Continue on the roundabout";
       } else if (g === 0) {
         // First step: "Continue towards [first landmark ahead]"
         const towards = findNextNamedRoad(g + 1);
-        maneuver = 'straight';
+        maneuver = "straight";
         instruction = towards
           ? `Continue towards ${towards}`
-          : 'Continue on route';
+          : "Continue on route";
       } else if (diff > 30 && diff <= 70) {
-        maneuver = 'turn-slight-right';
-        instruction = `Turn slight right${nextRoad ? ' onto ' + nextRoad : ''}`;
+        maneuver = "turn-slight-right";
+        instruction = `Turn slight right${nextRoad ? " onto " + nextRoad : ""}`;
       } else if (diff > 70 && diff <= 150) {
-        maneuver = 'turn-right';
-        instruction = `Turn right${nextRoad ? ' onto ' + nextRoad : ''}`;
+        maneuver = "turn-right";
+        instruction = `Turn right${nextRoad ? " onto " + nextRoad : ""}`;
       } else if (diff > 150) {
-        maneuver = 'turn-sharp-right';
-        instruction = `Turn sharp right${nextRoad ? ' onto ' + nextRoad : ''}`;
+        maneuver = "turn-sharp-right";
+        instruction = `Turn sharp right${nextRoad ? " onto " + nextRoad : ""}`;
       } else if (diff < -30 && diff >= -70) {
-        maneuver = 'turn-slight-left';
-        instruction = `Turn slight left${nextRoad ? ' onto ' + nextRoad : ''}`;
+        maneuver = "turn-slight-left";
+        instruction = `Turn slight left${nextRoad ? " onto " + nextRoad : ""}`;
       } else if (diff < -70 && diff >= -150) {
-        maneuver = 'turn-left';
-        instruction = `Turn left${nextRoad ? ' onto ' + nextRoad : ''}`;
+        maneuver = "turn-left";
+        instruction = `Turn left${nextRoad ? " onto " + nextRoad : ""}`;
       } else if (diff < -150) {
-        maneuver = 'turn-sharp-left';
-        instruction = `Turn sharp left${nextRoad ? ' onto ' + nextRoad : ''}`;
+        maneuver = "turn-sharp-left";
+        instruction = `Turn sharp left${nextRoad ? " onto " + nextRoad : ""}`;
       } else {
-        maneuver = 'straight';
-        instruction = nextRoad ? `Continue onto ${nextRoad}` : 'Continue';
+        maneuver = "straight";
+        instruction = nextRoad ? `Continue onto ${nextRoad}` : "Continue";
       }
     }
 
@@ -279,9 +303,9 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
 
 // ── Subscription tier distance limits (fallback only — prefer DB value) ──────
 const DISTANCE_LIMITS_KM: Record<string, number> = {
-  free: 1,      // 1 km for free users
-  pro: 10,      // 10 km for pro users
-  premium: 20,  // 20 km for premium users
+  free: 3, // 3 km for free users
+  pro: 10, // 10 km for pro users
+  premium: 20, // 20 km for premium users
 };
 
 /** Fallback: compute limit from tier when DB value is not available */
@@ -292,21 +316,21 @@ export function getMaxDistanceKmForTier(tier: string): number {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SafetyBreakdown {
-  roadType: number;    // 0-100
-  lighting: number;    // 0-100
-  crime: number;       // 0-100 (higher = safer)
-  cctv: number;        // 0-100 (CCTV/surveillance coverage)
-  openPlaces: number;  // 0-100
-  traffic: number;     // 0-100
+  roadType: number; // 0-100
+  lighting: number; // 0-100
+  crime: number; // 0-100 (higher = safer)
+  cctv: number; // 0-100 (CCTV/surveillance coverage)
+  openPlaces: number; // 0-100
+  traffic: number; // 0-100
 }
 
 export interface RouteSafety {
-  score: number;            // 0-100
-  label: string;            // "Very Safe" | "Safe" | "Moderate" | "Use Caution"
-  color: string;            // hex colour
+  score: number; // 0-100
+  label: string; // "Very Safe" | "Safe" | "Moderate" | "Use Caution"
+  color: string; // hex colour
   breakdown: SafetyBreakdown;
-  roadTypes: Record<string, number>;  // e.g. { primary: 40, residential: 35, footway: 25 }
-  mainRoadRatio: number;    // 0-100
+  roadTypes: Record<string, number>; // e.g. { primary: 40, residential: 35, footway: 25 }
+  mainRoadRatio: number; // 0-100
 }
 
 export interface SafeRoute extends DirectionsRoute {
@@ -325,7 +349,11 @@ export interface RouteStats {
   unpavedPct: number;
   transitStopsNearby: number;
   cctvCamerasNearby: number;
-  roadNameChanges: Array<{ segmentIndex: number; name: string; distance: number }>;
+  roadNameChanges: Array<{
+    segmentIndex: number;
+    name: string;
+    distance: number;
+  }>;
 }
 
 export interface RoutePOIs {
@@ -430,7 +458,11 @@ interface RawSafeRoute {
     unpavedPct: number;
     transitStopsNearby: number;
     cctvCamerasNearby: number;
-    roadNameChanges: Array<{ segmentIndex: number; name: string; distance: number }>;
+    roadNameChanges: Array<{
+      segmentIndex: number;
+      name: string;
+      distance: number;
+    }>;
   };
   routePOIs?: {
     cctv: Array<{ lat: number; lng: number }>;
@@ -445,7 +477,7 @@ interface RawSafeRoute {
 interface RawResponse {
   status: string;
   routes?: RawSafeRoute[];
-  meta?: SafeRoutesResponse['meta'];
+  meta?: SafeRoutesResponse["meta"];
   error?: string;
   message?: string;
   detail?: string;
@@ -469,7 +501,11 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 5 * 60 * 1000;
 
-function cacheKey(origin: LatLng, dest: LatLng, waypoint?: LatLng | null): string {
+function cacheKey(
+  origin: LatLng,
+  dest: LatLng,
+  waypoint?: LatLng | null,
+): string {
   const base = `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)}->${dest.latitude.toFixed(4)},${dest.longitude.toFixed(4)}`;
   return waypoint
     ? `${base}@${waypoint.latitude.toFixed(4)},${waypoint.longitude.toFixed(4)}`
@@ -487,27 +523,25 @@ function cacheKey(origin: LatLng, dest: LatLng, waypoint?: LatLng | null): strin
 export async function fetchSafeRoutes(
   origin: LatLng,
   destination: LatLng,
-  subscriptionTier: string = 'free',
+  subscriptionTier: string = "free",
   maxDistanceKmOverride?: number,
   waypoint?: LatLng | null,
-  searchId?: string,
-  searchClientId?: string,
-  searchSeq?: number,
 ): Promise<SafeRoutesResponse> {
-  await subscriptionApi.ensureFeatureAllowed('route_search');
+  await subscriptionApi.ensureFeatureAllowed("route_search");
 
   const key = cacheKey(origin, destination, waypoint);
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    console.log('[safeRoutes] 📋 Cache hit');
+    console.log("[safeRoutes] 📋 Cache hit");
     return cached.data;
   }
 
   // Use the DB-driven override if provided, otherwise fall back to hardcoded tier lookup
-  const maxDistanceKm = maxDistanceKmOverride ?? getMaxDistanceKmForTier(subscriptionTier);
+  const maxDistanceKm =
+    maxDistanceKmOverride ?? getMaxDistanceKmForTier(subscriptionTier);
   const waypointParam = waypoint
     ? `&waypoint_lat=${waypoint.latitude}&waypoint_lng=${waypoint.longitude}`
-    : '';
+    : "";
   const url =
     `${BACKEND_BASE}/api/safe-routes?` +
     `origin_lat=${origin.latitude}&origin_lng=${origin.longitude}` +
@@ -515,27 +549,24 @@ export async function fetchSafeRoutes(
     `&max_distance=${maxDistanceKm}${waypointParam}`;
 
   if (waypoint) {
-    console.log(`[safeRoutes] 📍 Via waypoint: ${waypoint.latitude.toFixed(4)},${waypoint.longitude.toFixed(4)}`);
+    console.log(
+      `[safeRoutes] 📍 Via waypoint: ${waypoint.latitude.toFixed(4)},${waypoint.longitude.toFixed(4)}`,
+    );
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000); // 120s timeout (cold-start + two-phase pipeline)
 
   try {
-    const authHeaders = await getAuthHeaders();
-    const resp = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        ...authHeaders,
-        ...(searchId ? { 'X-Search-Id': searchId } : {}),
-        ...(searchClientId ? { 'X-Search-Client': searchClientId } : {}),
-        ...(Number.isFinite(searchSeq) ? { 'X-Search-Seq': String(searchSeq) } : {}),
-      },
-    });
-    console.log(`[safeRoutes] ✅ Got response: ${resp.status} ${resp.statusText}`);
+    const resp = await fetch(url, { signal: controller.signal });
+    console.log(
+      `[safeRoutes] ✅ Got response: ${resp.status} ${resp.statusText}`,
+    );
     clearTimeout(timer);
 
     const raw: RawResponse = await resp.json();
-    console.log(`[safeRoutes] ✅ Parsed JSON - routes: ${raw.routes?.length || 0}`);
+    console.log(
+      `[safeRoutes] ✅ Parsed JSON - routes: ${raw.routes?.length || 0}`,
+    );
 
     if (!resp.ok) {
       // Check for subscription limit error (403)
@@ -551,7 +582,8 @@ export async function fetchSafeRoutes(
       // Collect all extra fields from the backend into a details object
       const details: Record<string, unknown> = {};
       if (raw.detail) details.detail = raw.detail;
-      if (raw.estimatedDataPoints) details.estimatedDataPoints = raw.estimatedDataPoints;
+      if (raw.estimatedDataPoints)
+        details.estimatedDataPoints = raw.estimatedDataPoints;
       if (raw.areaKm2) details.areaKm2 = raw.areaKm2;
       if (raw.maxDistanceKm) details.maxDistanceKm = raw.maxDistanceKm;
       if (raw.actualDistanceKm) details.actualDistanceKm = raw.actualDistanceKm;
@@ -560,56 +592,49 @@ export async function fetchSafeRoutes(
       if (raw.roadCount != null) details.roadCount = raw.roadCount;
       if (raw.which) details.which = raw.which;
 
-      if (raw.error === 'DESTINATION_OUT_OF_RANGE') {
+      if (raw.error === "DESTINATION_OUT_OF_RANGE") {
         throw new AppError(
-          'DESTINATION_OUT_OF_RANGE',
-          raw.message || 'Destination is too far away. Maximum walking distance is 6 miles.',
+          "DESTINATION_OUT_OF_RANGE",
+          raw.message ||
+            "Destination is too far away. Maximum walking distance is 6 miles.",
           undefined,
           details,
         );
       }
-      if (raw.error === 'SEARCH_CANCELLED') {
+      if (raw.error === "NO_ROUTE_FOUND") {
         throw new AppError(
-          'SEARCH_CANCELLED',
-          raw.message || 'Route search was cancelled because a newer search started on your account.',
+          "NO_ROUTE_FOUND",
+          raw.message || "No walking route found between these points.",
           undefined,
           details,
         );
       }
-      if (raw.error === 'NO_ROUTE_FOUND') {
+      if (raw.error === "NO_NEARBY_ROAD") {
         throw new AppError(
-          'NO_ROUTE_FOUND',
-          raw.message || 'No walking route found between these points.',
-          undefined,
-          details,
-        );
-      }
-      if (raw.error === 'NO_NEARBY_ROAD') {
-        throw new AppError(
-          'NO_NEARBY_ROAD',
-          raw.message || 'No walkable road found near one of your locations.',
+          "NO_NEARBY_ROAD",
+          raw.message || "No walkable road found near one of your locations.",
           undefined,
           details,
         );
       }
       throw new AppError(
-        raw.error || 'safe_routes_error',
+        raw.error || "safe_routes_error",
         raw.message || `Server returned ${resp.status}`,
         undefined,
         details,
       );
     }
 
-    if (raw.status !== 'OK' || !raw.routes || raw.routes.length === 0) {
+    if (raw.status !== "OK" || !raw.routes || raw.routes.length === 0) {
       throw new AppError(
-        'safe_routes_no_results',
-        raw.message || 'No safe routes found between these points.',
+        "safe_routes_no_results",
+        raw.message || "No safe routes found between these points.",
       );
     }
 
     // Map raw response into our typed SafeRoute objects
     const routes: SafeRoute[] = raw.routes.map((r, idx) => {
-      const encoded = r.overview_polyline?.points ?? '';
+      const encoded = r.overview_polyline?.points ?? "";
       const path = decodePolyline(encoded);
       const leg = r.legs?.[0];
 
@@ -622,35 +647,38 @@ export async function fetchSafeRoutes(
           longitude: (seg.start.lng + seg.end.lng) / 2,
         },
         distanceMeters: seg.distance ?? 0,
-        lightingScore: (seg.lightScore ?? (r.safety?.breakdown?.lighting ?? 0) / 100),
-        crimeScore: (seg.crimeScore ?? (r.safety?.breakdown?.crime ?? 0) / 100),
+        lightingScore:
+          seg.lightScore ?? (r.safety?.breakdown?.lighting ?? 0) / 100,
+        crimeScore: seg.crimeScore ?? (r.safety?.breakdown?.crime ?? 0) / 100,
         activityScore: (r.safety?.breakdown?.openPlaces ?? 0) / 100,
         combinedScore: seg.safetyScore,
         color: seg.color,
       }));
 
       // Map enriched segments for the chart
-      const enrichedSegments: EnrichedSegment[] = (r.segments || []).map((seg) => ({
-        startCoord: { latitude: seg.start.lat, longitude: seg.start.lng },
-        endCoord: { latitude: seg.end.lat, longitude: seg.end.lng },
-        midpointCoord: {
-          latitude: (seg.start.lat + seg.end.lat) / 2,
-          longitude: (seg.start.lng + seg.end.lng) / 2,
-        },
-        safetyScore: seg.safetyScore,
-        color: seg.color,
-        highway: seg.highway,
-        roadName: seg.roadName ?? '',
-        isDeadEnd: seg.isDeadEnd ?? false,
-        hasSidewalk: seg.hasSidewalk ?? false,
-        surfaceType: seg.surfaceType ?? 'paved',
-        lightScore: seg.lightScore ?? 0,
-        crimeScore: seg.crimeScore ?? 0,
-        cctvScore: seg.cctvScore ?? 0,
-        placeScore: seg.placeScore ?? 0,
-        trafficScore: seg.trafficScore ?? 0,
-        distance: seg.distance ?? 0,
-      }));
+      const enrichedSegments: EnrichedSegment[] = (r.segments || []).map(
+        (seg) => ({
+          startCoord: { latitude: seg.start.lat, longitude: seg.start.lng },
+          endCoord: { latitude: seg.end.lat, longitude: seg.end.lng },
+          midpointCoord: {
+            latitude: (seg.start.lat + seg.end.lat) / 2,
+            longitude: (seg.start.lng + seg.end.lng) / 2,
+          },
+          safetyScore: seg.safetyScore,
+          color: seg.color,
+          highway: seg.highway,
+          roadName: seg.roadName ?? "",
+          isDeadEnd: seg.isDeadEnd ?? false,
+          hasSidewalk: seg.hasSidewalk ?? false,
+          surfaceType: seg.surfaceType ?? "paved",
+          lightScore: seg.lightScore ?? 0,
+          crimeScore: seg.crimeScore ?? 0,
+          cctvScore: seg.cctvScore ?? 0,
+          placeScore: seg.placeScore ?? 0,
+          trafficScore: seg.trafficScore ?? 0,
+          distance: seg.distance ?? 0,
+        }),
+      );
 
       return {
         id: `safe-route-${idx}`,
@@ -672,12 +700,12 @@ export async function fetchSafeRoutes(
     });
 
     const result: SafeRoutesResponse = {
-      status: 'OK',
+      status: "OK",
       routes,
       meta: raw.meta!,
     };
 
-    await subscriptionApi.consume('route_search');
+    await subscriptionApi.consume("route_search");
 
     cache.set(key, { data: result, timestamp: Date.now() });
     console.log(
@@ -687,9 +715,12 @@ export async function fetchSafeRoutes(
   } catch (err) {
     clearTimeout(timer);
     if (err instanceof AppError) throw err;
-    if ((err as Error).name === 'AbortError') {
-      throw new AppError('safe_routes_timeout', 'Safe routes request timed out. Please try again.');
+    if ((err as Error).name === "AbortError") {
+      throw new AppError(
+        "safe_routes_timeout",
+        "Safe routes request timed out. Please try again.",
+      );
     }
-    throw new AppError('safe_routes_error', 'Failed to fetch safe routes', err);
+    throw new AppError("safe_routes_error", "Failed to fetch safe routes", err);
   }
 }

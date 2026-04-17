@@ -13,6 +13,11 @@ if (versionPropsFile.exists()) {
 def appVersionCode = (versionProps['VERSION_CODE'] ?: '1').toInteger()
 def appVersionName = versionProps['VERSION_NAME'] ?: '1.0.0'
 
+def releaseStoreFile = findProperty('RELEASE_STORE_FILE') ?: System.getenv('RELEASE_STORE_FILE') ?: 'release.keystore'
+def releaseStorePassword = findProperty('RELEASE_STORE_PASSWORD') ?: System.getenv('RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = findProperty('RELEASE_KEY_ALIAS') ?: System.getenv('RELEASE_KEY_ALIAS') ?: 'safenight-release'
+def releaseKeyPassword = findProperty('RELEASE_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD')
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -114,15 +119,10 @@ android {
             keyPassword 'android'
         }
         release {
-            def releaseStoreFile = findProperty('RELEASE_STORE_FILE') ?: '../upload-keystore.jks'
-            def releaseStorePassword = findProperty('RELEASE_STORE_PASSWORD') ?: 'SafeNight2026!'
-            def releaseKeyAlias = findProperty('RELEASE_KEY_ALIAS') ?: 'safenight-release'
-            def releaseKeyPassword = findProperty('RELEASE_KEY_PASSWORD') ?: 'SafeNight2026!'
-
-            storeFile rootProject.file(releaseStoreFile)
-            storePassword releaseStorePassword
+            storeFile file(releaseStoreFile)
+            storePassword releaseStorePassword ?: ''
             keyAlias releaseKeyAlias
-            keyPassword releaseKeyPassword
+            keyPassword releaseKeyPassword ?: ''
         }
     }
     buildTypes {
@@ -130,6 +130,9 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
+            if (!releaseStorePassword || !releaseKeyPassword) {
+                throw new GradleException('Missing Android release signing secrets. Set RELEASE_STORE_PASSWORD and RELEASE_KEY_PASSWORD via env vars or gradle.properties.')
+            }
             signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
