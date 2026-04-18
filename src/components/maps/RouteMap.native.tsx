@@ -17,7 +17,10 @@ import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
 // Build the HTML page that runs MapLibre GL JS inside the WebView
 // ---------------------------------------------------------------------------
 
-const buildMapHtml = (_mapType: string = "roadmap") => `
+const buildMapHtml = (
+  _mapType: string = "roadmap",
+  showZoomControls: boolean = true,
+) => `
 <!DOCTYPE html>
 <html>
 <head>
@@ -107,6 +110,7 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     var longPressTimer = null;
     var lastOutOfRangeCueToken = 0;
     var outOfRangeBlinkTimers = [];
+    var outOfRangeCameraHoldUntil = 0;
     /* Viz DOM marker tracking */
     var vizDataMarkers = [];
     var vizSearchLabelMarker = null;
@@ -164,6 +168,9 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     function triggerOutOfRangeCue(data){
       if(!data || !data.origin || !data.maxDistanceKm) return false;
 
+      // Hold camera updates briefly so regular fit/pan updates cannot override this cue.
+      outOfRangeCameraHoldUntil = Date.now() + 2200;
+
       clearOutOfRangeBlink();
 
       // Ensure the range ring exists before blinking.
@@ -184,9 +191,9 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       };
 
       map.once('moveend', function(){
-        outOfRangeBlinkTimers.push(setTimeout(startBlink, 1500));
+        outOfRangeBlinkTimers.push(setTimeout(startBlink, 500));
       });
-      outOfRangeBlinkTimers.push(setTimeout(startBlink, 2500));
+      outOfRangeBlinkTimers.push(setTimeout(startBlink, 1300));
       return true;
     }
 
@@ -209,9 +216,11 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       attributionControl: false,
     });
 
+    ${showZoomControls ? `
     try {
       map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), 'top-left');
     } catch (e) {}
+    ` : ""}
 
     // Faster zoom responsiveness for wheel and pinch interactions.
     try {
@@ -679,19 +688,19 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       }
 
       /* — Fit bounds — */
-      if(data.fitBounds && bounds && !data.navLocation){
+      var isOutOfRangeCameraHold = Date.now() < outOfRangeCameraHoldUntil;
+
+      if(!isOutOfRangeCameraHold && data.fitBounds && bounds && !data.navLocation){
         map.fitBounds(bounds,{padding:40,maxZoom:16,duration:700});
       }
 
       /* — Pan to — */
-      if(data.panTo){
+      if(!isOutOfRangeCameraHold && data.panTo){
         map.easeTo({center:[data.panTo.lng,data.panTo.lat],zoom:Math.max(map.getZoom(),16),duration:650});
       }
 
-      // Keep London as default focus until a real pinpoint location is available.
-      if(!hasPinpoint && !bounds && !data.panTo){
-        map.easeTo({center:londonCenter,zoom:13,duration:420});
-      }
+      // Native/phone behavior: do not force a default-city recenter when location is cleared.
+      // Keep the current camera instead; web handles default-city fallback independently.
 
       /* — Range circle — */
       if(data.origin&&data.maxDistanceKm&&data.maxDistanceKm>0&&!data.navLocation){
@@ -1007,6 +1016,7 @@ export const RouteMap = ({
   onMapPress,
   onNavigationFollowChange,
   onUserInteraction,
+  showZoomControls = true,
 }: RouteMapProps) => {
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
@@ -1279,7 +1289,7 @@ export const RouteMap = ({
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
-        source={{ html: buildMapHtml(mapType) }}
+        source={{ html: buildMapHtml(mapType, showZoomControls) }}
         style={{ flex: 1 }}
         originWhitelist={["*"]}
         javaScriptEnabled
