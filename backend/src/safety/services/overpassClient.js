@@ -13,8 +13,8 @@
 
 const DEFAULT_OVERPASS_SERVERS = [
   "https://overpass-api.de/api/interpreter",
+  "https://lz4.overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 
 const OVERPASS_SERVERS = (process.env.OVERPASS_SERVERS || "")
@@ -82,9 +82,14 @@ async function overpassQuery(query, timeout = 90, signal = null) {
 
       if (resp.status === 403 || resp.status === 429 || resp.status >= 500) {
         const snippet = (await resp.text()).slice(0, 220);
-        lastError = new Error(
+        const upstreamErr = new Error(
           `Overpass ${server} returned ${resp.status}: ${snippet}`,
         );
+        upstreamErr.code = "UPSTREAM_UNAVAILABLE";
+        upstreamErr.statusCode = 503;
+        upstreamErr.isServerBusy = true;
+        upstreamErr.upstreamStatus = resp.status;
+        lastError = upstreamErr;
         // Small stagger so we don't hammer servers in rapid succession.
         await new Promise((resolve) =>
           setTimeout(resolve, 300 + attempt * 250),
@@ -107,12 +112,22 @@ async function overpassQuery(query, timeout = 90, signal = null) {
           abortErr.name = "AbortError";
           throw abortErr;
         }
-        lastError = new Error(`Overpass ${server} timed out`);
+        const timeoutErr = new Error(`Overpass ${server} timed out`);
+        timeoutErr.code = "UPSTREAM_UNAVAILABLE";
+        timeoutErr.statusCode = 503;
+        timeoutErr.isServerBusy = true;
+        timeoutErr.upstreamStatus = 504;
+        lastError = timeoutErr;
       }
       await new Promise((resolve) => setTimeout(resolve, 300 + attempt * 250));
     }
   }
-  throw lastError || new Error("All Overpass servers failed");
+  if (lastError) throw lastError;
+  const allFailedErr = new Error("All Overpass servers failed");
+  allFailedErr.code = "UPSTREAM_UNAVAILABLE";
+  allFailedErr.statusCode = 503;
+  allFailedErr.isServerBusy = true;
+  throw allFailedErr;
 }
 
 function toBBoxString(bbox) {
@@ -163,20 +178,42 @@ async function fetchSafetyDataSplitFallback(bbox, signal = null) {
     out body;
   `;
 
-  const [roads, lights, cctv, places, transit] = await Promise.all([
-    overpassQuery(roadQuery, 30, signal),
-    overpassQuery(lightsQuery, 30, signal),
-    overpassQuery(cctvQuery, 30, signal),
-    overpassQuery(placesQuery, 30, signal),
-    overpassQuery(transitQuery, 30, signal),
-  ]);
+  // Required query: route computation cannot proceed without walkable roads.
+  const roads = await overpassQuery(roadQuery, 30, signal);
+
+  // Optional categories: degrade to empty data when an upstream provider fails.
+  const optionalQueries = [
+    { name: "lights", query: lightsQuery },
+    { name: "cctv", query: cctvQuery },
+    { name: "places", query: placesQuery },
+    { name: "transit", query: transitQuery },
+  ];
+
+  const optionalResults = await Promise.all(
+    optionalQueries.map(async ({ name, query }) => {
+      try {
+        const data = await overpassQuery(query, 30, signal);
+        return [name, data];
+      } catch (err) {
+        if (err?.name === "AbortError" || signal?.aborted) {
+          throw err;
+        }
+        console.warn(
+          `[overpass] ⚠️ Split fallback optional '${name}' failed: ${String(err?.message || err).slice(0, 220)}. Continuing with empty '${name}'.`,
+        );
+        return [name, { elements: [] }];
+      }
+    }),
+  );
+
+  const optionalMap = Object.fromEntries(optionalResults);
 
   return {
     roads,
-    lights,
-    cctv,
-    places,
-    transit,
+    lights: optionalMap.lights,
+    cctv: optionalMap.cctv,
+    places: optionalMap.places,
+    transit: optionalMap.transit,
   };
 }
 
@@ -244,16 +281,22 @@ async function fetchAllSafetyData(bbox, options = {}) {
   const t0 = Date.now();
   let result;
   try {
-    const raw = await overpassQuery(query, 30, signal);
+    // Combined query is heavier than split queries; allow a longer timeout.
+    const raw = await overpassQuery(query, 45, signal);
     console.log(
       `[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`,
     );
     result = splitElements(raw.elements);
   } catch (err) {
-    const msg = String(err?.message || err);
+    const msg = String(err?.message || "");
     const shouldFallback =
+      err?.code === "UPSTREAM_UNAVAILABLE" ||
+      err?.statusCode === 503 ||
+      (typeof err?.upstreamStatus === "number" && err.upstreamStatus >= 500) ||
+      /returned\s+(403|429|5\d\d)/i.test(msg) ||
       msg.includes(" 403") ||
       msg.includes(" 429") ||
+      msg.includes(" 504") ||
       msg.includes("timed out") ||
       msg.includes("All Overpass servers failed");
 

@@ -30,6 +30,8 @@ const { haversine, fastDistance, buildSpatialGrid, findNearby, countNearby } = r
 const opening_hours_lib = require('opening_hours');
 
 const ENABLE_PLACE_OPENING_HOURS_PARSE = process.env.SAFE_ROUTES_PARSE_PLACE_OPENING_HOURS === '1';
+const DEBUG_SAFE_ROUTES = process.env.SAFE_ROUTES_DEBUG === '1';
+const debugLog = DEBUG_SAFE_ROUTES ? (...args) => console.log(...args) : () => {};
 
 function createSearchCancelledError(message = 'Route search cancelled.') {
   const err = new Error(message);
@@ -132,6 +134,13 @@ function buildLightingCoverage(lightNodes, litWayNodePositions, bbox, shouldCanc
       for (let c = cMin; c <= cMax; c++) {
         const cellLat = bbox.south + (r + 0.5) * COVERAGE_CELL_DEG;
         const cellLng = bbox.west + (c + 0.5) * COVERAGE_CELL_DEG;
+        if (
+          Math.abs(cellLat - lamp.lat) > LAMP_RADIUS_DEG ||
+          Math.abs(cellLng - lamp.lng) > LAMP_RADIUS_DEG
+        ) {
+          iterations += 1;
+          continue;
+        }
         const d = fastDistance(lamp.lat, lamp.lng, cellLat, cellLng);
         if (d < LAMP_RADIUS) {
           // Inverse-distance-squared falloff: light at 5m >> light at 50m
@@ -184,6 +193,13 @@ function buildCrimeCoverage(crimes, bbox, shouldCancel) {
       for (let c = cMin; c <= cMax; c++) {
         const cellLat = bbox.south + (r + 0.5) * COVERAGE_CELL_DEG;
         const cellLng = bbox.west + (c + 0.5) * COVERAGE_CELL_DEG;
+        if (
+          Math.abs(cellLat - crime.lat) > CRIME_RADIUS_DEG ||
+          Math.abs(cellLng - crime.lng) > CRIME_RADIUS_DEG
+        ) {
+          iterations += 1;
+          continue;
+        }
         const d = fastDistance(crime.lat, crime.lng, cellLat, cellLng);
         if (d < CRIME_RADIUS) {
           // Distance-weighted severity: closer crime = more impact
@@ -257,10 +273,10 @@ function buildGraph(roadData, lightData, cctvData, placeData, transitData, crime
     }
   }
 
-  console.log(`[graph] Building lighting coverage map (${lightNodes.length} lamps)...`);
+  debugLog(`[graph] Building lighting coverage map (${lightNodes.length} lamps)...`);
   const lightCoverage = buildLightingCoverage(lightNodes, litWayNodePositions, bbox, shouldCancel);
 
-  console.log(`[graph] Building crime coverage map (${crimes.length} crimes)...`);
+  debugLog(`[graph] Building crime coverage map (${crimes.length} crimes)...`);
   const crimeCoverage = buildCrimeCoverage(crimes, bbox, shouldCancel);
 
   // 3. Build spatial grids for CCTV, places, transit (still need proximity)
@@ -505,23 +521,23 @@ function findNearestNode(nodeGrid, adjacency, lat, lng, maxDist = 500) {
  */
 function aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM) {
   if (!adjacency.has(startId) || !adjacency.has(endId)) {
-    console.log(`[A*] ❌ Start or end not in adjacency: start=${adjacency.has(startId)}, end=${adjacency.has(endId)}`);
+    debugLog(`[A*] ❌ Start or end not in adjacency: start=${adjacency.has(startId)}, end=${adjacency.has(endId)}`);
     return null;
   }
 
   const endNode = osmNodes.get(endId);
   if (!endNode) {
-    console.log(`[A*] ❌ End node not in osmNodes`);
+    debugLog(`[A*] ❌ End node not in osmNodes`);
     return null;
   }
 
   const sNode = osmNodes.get(startId);
   if (!sNode) {
-    console.log(`[A*] ❌ Start node not in osmNodes`);
+    debugLog(`[A*] ❌ Start node not in osmNodes`);
     return null;
   }
 
-  console.log(`[A*] Start neighbors: ${adjacency.get(startId)?.length}, End neighbors: ${adjacency.get(endId)?.length}, maxDist: ${maxDistM}m`);
+  debugLog(`[A*] Start neighbors: ${adjacency.get(startId)?.length}, End neighbors: ${adjacency.get(endId)?.length}, maxDist: ${maxDistM}m`);
 
   const gScore = new Map();
   const fScore = new Map();
@@ -577,7 +593,7 @@ function aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM) {
   }
 
   if (!prev.has(endId) && startId !== endId) {
-    console.log(`[A*] ❌ No path found. Visited ${closed.size} nodes, heap size at end: ${heap.size}`);
+    debugLog(`[A*] ❌ No path found. Visited ${closed.size} nodes, heap size at end: ${heap.size}`);
     return null;
   }
 

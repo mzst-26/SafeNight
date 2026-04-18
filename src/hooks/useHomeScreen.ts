@@ -23,6 +23,14 @@ import type { SafeRoute } from "@/src/services/safeRoutes";
 import type { SafetyMapResult } from "@/src/services/safetyMapData";
 import type { DirectionsRoute, LatLng, PlaceDetails } from "@/src/types/google";
 
+const FAKE_PROGRESS_MESSAGES = [
+  "Preparing route analysis…",
+  "Discovering nearby walkable roads…",
+  "Building route corridor…",
+  "Scoring lighting and crime factors…",
+  "Ranking safest route options…",
+];
+
 // ── Public interface ────────────────────────────────────────────────────────
 
 export function useHomeScreen() {
@@ -136,21 +144,45 @@ export function useHomeScreen() {
   const directionsError = safeRoutesError;
   const bestRouteId = safestRoute?.id ?? null;
 
+  // ── Local-only progress for loading animation (no backend stream dependency) ──
+  const [vizProgressPct, setVizProgressPct] = useState<number | null>(null);
+  const [vizProgressMessage, setVizProgressMessage] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (directionsStatus !== "loading") {
+      setVizProgressPct(null);
+      setVizProgressMessage(null);
+      return;
+    }
+
+    setVizProgressPct(20);
+    setVizProgressMessage(FAKE_PROGRESS_MESSAGES[0]);
+
+    let stageIdx = 0;
+    const tick = setInterval(() => {
+      setVizProgressPct((prev) => {
+        const current = typeof prev === "number" ? prev : 20;
+        if (current >= 90) return 90;
+        const inc = current < 50 ? 3 : current < 75 ? 2 : 1;
+        return Math.min(90, current + inc);
+      });
+    }, 700);
+
+    const rotate = setInterval(() => {
+      stageIdx = (stageIdx + 1) % FAKE_PROGRESS_MESSAGES.length;
+      setVizProgressMessage(FAKE_PROGRESS_MESSAGES[stageIdx]);
+    }, 2200);
+
+    return () => {
+      clearInterval(tick);
+      clearInterval(rotate);
+    };
+  }, [directionsStatus]);
+
   // ── Pathfinding visualisation (client-side coords for WebView animation) ──
-  const vizStreamUrl = useMemo(() => {
-    if (
-      directionsStatus !== "loading" ||
-      !effectiveOrigin ||
-      !routingDestination
-    )
-      return null;
-    return JSON.stringify({
-      oLat: effectiveOrigin.latitude,
-      oLng: effectiveOrigin.longitude,
-      dLat: routingDestination.latitude,
-      dLng: routingDestination.longitude,
-    });
-  }, [directionsStatus, effectiveOrigin, routingDestination]);
+  const vizStreamUrl = null;
 
   // ── Route scores ──
   const routeScores: Record<string, RouteScore> = useMemo(() => {
@@ -594,6 +626,8 @@ export function useHomeScreen() {
 
     // Pathfinding visualisation
     vizStreamUrl,
+    vizProgressPct,
+    vizProgressMessage,
 
     // Sheet
     sheetHeight,

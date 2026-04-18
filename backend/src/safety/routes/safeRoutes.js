@@ -67,6 +67,25 @@ const router = express.Router();
 const DEFAULT_MAX_DISTANCE_KM = 20;
 const ENABLE_RESPONSE_OPENING_HOURS_PARSE =
   process.env.SAFE_ROUTES_PARSE_RESPONSE_OPENING_HOURS === "1";
+const DEBUG_SAFE_ROUTES = process.env.SAFE_ROUTES_DEBUG === "1";
+const debugLog = DEBUG_SAFE_ROUTES ? (...args) => console.log(...args) : () => {};
+const debugLogger = DEBUG_SAFE_ROUTES
+  ? console
+  : { log: () => {}, warn: () => {}, error: () => {} };
+
+function isServerBusyError(err) {
+  if (!err) return false;
+  if (err.statusCode === 503 || err.isServerBusy || err.code === "UPSTREAM_UNAVAILABLE") {
+    return true;
+  }
+
+  const msg = String(err.message || "");
+  return (
+    /Overpass .* returned (403|429|5\d\d)/i.test(msg) ||
+    /Overpass .* timed out/i.test(msg) ||
+    /All Overpass servers failed/i.test(msg)
+  );
+}
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const { resolveSafeRoutesRequest, hasInflightRequest } = createSafeRoutesOrchestrator({
@@ -170,6 +189,20 @@ router.get("/", async (req, res) => {
       }
       return;
     }
+
+    if (isServerBusyError(err)) {
+      console.warn(`[safe-routes] ⚠️ Server busy / upstream unavailable:`, err?.message || err);
+      if (!res.headersSent) {
+        return res.status(503).json({
+          error: "SERVER_BUSY",
+          message: "Our routing providers are temporarily busy. Please retry in a moment.",
+          detail:
+            "This is usually temporary (mapping or crime data provider overload). Please try again shortly.",
+        });
+      }
+      return;
+    }
+
     console.error(`[safe-routes] ❌ Error:`, err);
     if (!res.headersSent) {
       res.status(500).json({
@@ -361,6 +394,18 @@ router.get("/stream", async (req, res) => {
       activeSearch.release();
       return res.end();
     }
+
+    if (isServerBusyError(err)) {
+      send("error", {
+        code: "SERVER_BUSY",
+        message: "Our routing providers are temporarily busy. Please retry in a moment.",
+        pct: 0,
+      });
+      cleanup();
+      activeSearch.release();
+      return res.end();
+    }
+
     send("error", {
       message:
         err?.message || "Something went wrong while streaming route progress.",
@@ -410,7 +455,7 @@ async function computeSafeRoutes(
   };
 
   progress("start", "Preparing route analysis…", 20);
-  console.log(
+  debugLog(
     `[safe-routes] 🔍 Computing: ${oLatV},${oLngV} → ${dLatV},${dLngV} (${straightLineKm.toFixed(1)} km)`,
   );
 
@@ -429,7 +474,7 @@ async function computeSafeRoutes(
     if (straightLineDist >= SKIP_PHASE1_DIST) {
       cancelToken?.throwIfCancelled?.();
       progress("phase1", "Discovering walking corridor…", 28);
-      console.log(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
+      debugLog(`[safe-routes] 🛤️  Phase 1: Discovering walking corridor...`);
       const t0p1 = Date.now();
       const initialBufferM = Math.max(
         400,
@@ -473,7 +518,7 @@ async function computeSafeRoutes(
       phase1Time = Date.now() - t0p1;
       cancelToken?.throwIfCancelled?.();
       progress("phase1_done", "Walking corridor discovered.", 38);
-      console.log(
+      debugLog(
         `[safe-routes] ✅ Phase 1: ${phase1Time}ms — ${
           shortestPath
             ? shortestPath.path.length +
@@ -489,7 +534,7 @@ async function computeSafeRoutes(
         "Skipping corridor discovery for short route.",
         34,
       );
-      console.log(
+      debugLog(
         `[safe-routes] ⏩ Phase 1: skipped (${Math.round(straightLineDist)}m < ${SKIP_PHASE1_DIST}m)`,
       );
     }
@@ -529,12 +574,12 @@ async function computeSafeRoutes(
     const bbox = bboxFromPoints(corridorPoints, corridorBufferM);
     cancelToken?.throwIfCancelled?.();
     progress("phase2", "Fetching safety data in route corridor…", 50);
-    console.log(
+    debugLog(
       `[safe-routes] 📐 Phase 2: Corridor from ${corridorPoints.length} waypoints + ${corridorBufferM}m buffer`,
     );
 
     // ── Fetch ALL safety data within the corridor ───────────────────────
-    console.log(
+    debugLog(
       `[safe-routes] 📡 Fetching safety data in corridor (Overpass + Crime)...`,
     );
     const t0 = Date.now();
@@ -547,7 +592,7 @@ async function computeSafeRoutes(
     let dataTime = Date.now() - t0;
     cancelToken?.throwIfCancelled?.();
     progress("phase2_done", "Safety data loaded.", 66);
-    console.log(`[safe-routes] 📡 Corridor data fetched in ${dataTime}ms`);
+    debugLog(`[safe-routes] 📡 Corridor data fetched in ${dataTime}ms`);
 
     let roadCount = allData.roads.elements.filter(
       (e) => e.type === "way",
@@ -555,13 +600,13 @@ async function computeSafeRoutes(
     let nodeCount = allData.roads.elements.filter(
       (e) => e.type === "node",
     ).length;
-    console.log(
+    debugLog(
       `[safe-routes] 📊 Data: ${roadCount} roads, ${nodeCount} nodes, ${crimes.length} crimes, ${allData.lights.elements.length} lights, ${allData.cctv.elements.length} CCTV`,
     );
 
     // ── 6b. Extract light & place node positions for POI markers ────────
     // ── 7. Build safety-weighted graph (with coverage maps) ─────────────
-    console.log(`[safe-routes] 🏗️  Building graph + coverage maps...`);
+    debugLog(`[safe-routes] 🏗️  Building graph + coverage maps...`);
     cancelToken?.throwIfCancelled?.();
     progress("graph_build", "Building safety graph…", 74);
     const t1 = Date.now();
@@ -587,7 +632,7 @@ async function computeSafeRoutes(
     let graphTime = Date.now() - t1;
     cancelToken?.throwIfCancelled?.();
     progress("graph_ready", "Running safest path search…", 82);
-    console.log(
+    debugLog(
       `[safe-routes] 📊 Graph: ${osmNodes.size} nodes, ${edges.length} edges (built in ${graphTime}ms)`,
     );
 
@@ -617,7 +662,7 @@ async function computeSafeRoutes(
     }
 
     // ── 9. Find 3–5 safest routes (A* — much faster than Dijkstra) ─────
-    console.log(
+    debugLog(
       `[safe-routes] 🔎 A* pathfinding (start=${startNode}, end=${endNode})...`,
     );
     cancelToken?.throwIfCancelled?.();
@@ -636,13 +681,13 @@ async function computeSafeRoutes(
       maxRouteDist,
       findNearestNode,
       findKSafestRoutes,
-      logger: console,
+      logger: debugLogger,
     });
 
     let pathfindTime = Date.now() - t2;
     cancelToken?.throwIfCancelled?.();
     progress("pathfind_done", "Scoring and formatting route options…", 89);
-    console.log(
+    debugLog(
       `[safe-routes] 🔎 A* found ${rawRoutes.length} routes in ${pathfindTime}ms`,
     );
 
@@ -685,7 +730,7 @@ async function computeSafeRoutes(
     const elapsed = Date.now() - startTime;
     cancelToken?.throwIfCancelled?.();
     progress("finalize", "Finalizing route output…", 90);
-    console.log(
+    debugLog(
       `[safe-routes] 🏁 Done in ${elapsed}ms (corridor:${phase1Time}ms, data:${dataTime}ms, graph:${graphTime}ms, A*:${pathfindTime}ms, recorrection:${recorrectionMs}ms) — ${responseRoutes.length} routes, safest: ${responseRoutes[0]?.safety?.score}`,
     );
 
