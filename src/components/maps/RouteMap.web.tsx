@@ -9,7 +9,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
 
-const buildLeafletHtml = () => `<!DOCTYPE html>
+const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8"/>
@@ -281,7 +281,7 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
 
     function init(){
       map = L.map('map', {
-        zoomControl:true,
+        zoomControl:${showZoomControls ? "true" : "false"},
         attributionControl:true,
         zoomSnap:0,
         zoomDelta:1,
@@ -534,6 +534,7 @@ export const RouteMap = ({
   roadLabels = [],
   panTo,
   fitCandidateBoundsToken = 0,
+  showZoomControls = true,
   isNavigating = false,
   navigationLocation,
   navigationHeading,
@@ -866,7 +867,7 @@ export const RouteMap = ({
     }
   }, [vizProgressPct, vizProgressMessage]);
 
-  const mapHtml = useMemo(() => buildLeafletHtml(), []);
+  const mapHtml = useMemo(() => buildLeafletHtml(showZoomControls), [showZoomControls]);
 
   return (
     <View style={styles.container}>
