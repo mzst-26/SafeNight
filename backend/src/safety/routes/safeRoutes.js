@@ -50,6 +50,8 @@ const {
   buildOutOfRangePayload,
 } = require("./safeRoutesRequestPolicy");
 const { buildRouteResponses } = require("./safeRoutesResponseFormatter");
+const { buildSafeRoutesMeta } = require("./safeRoutesMetaBuilder");
+const { findRouteCandidates } = require("./safeRoutesCandidateFinder");
 const {
   buildGraph,
   buildDistanceOnlyGraph,
@@ -622,83 +624,20 @@ async function computeSafeRoutes(
     progress("pathfind", "Computing route candidates…", 86);
     const t2 = Date.now();
     const maxRouteDist = straightLineDist * 2.5;
-    let rawRoutes;
-
-    if (wpLat != null) {
-      // ── Two-leg via-waypoint pathfinding ──────────────────────────────
-      const waypointNode = findNearestNode(nodeGrid, adjacency, wpLat, wpLng);
-      if (
-        waypointNode &&
-        waypointNode !== startNode &&
-        waypointNode !== endNode
-      ) {
-        const leg1Routes = findKSafestRoutes(
-          osmNodes,
-          edges,
-          adjacency,
-          startNode,
-          waypointNode,
-          maxRouteDist * 0.7,
-          1,
-        );
-        const leg2Routes = findKSafestRoutes(
-          osmNodes,
-          edges,
-          adjacency,
-          waypointNode,
-          endNode,
-          maxRouteDist * 0.7,
-          3,
-        );
-        if (leg1Routes.length > 0 && leg2Routes.length > 0) {
-          const leg1 = leg1Routes[0];
-          rawRoutes = leg2Routes.map((leg2) => ({
-            path: [...leg1.path, ...leg2.path.slice(1)],
-            edges: [...leg1.edges, ...leg2.edges],
-            totalDist: leg1.totalDist + leg2.totalDist,
-          }));
-          console.log(
-            `[safe-routes] 📍 Via waypoint node ${waypointNode}: ${leg1.path.length}+${leg2Routes[0].path.length} nodes, ${rawRoutes.length} combined routes`,
-          );
-        } else {
-          console.log(
-            `[safe-routes] ⚠️  Via routing failed (leg1=${leg1Routes.length}, leg2=${leg2Routes.length}), falling back to direct`,
-          );
-          rawRoutes = findKSafestRoutes(
-            osmNodes,
-            edges,
-            adjacency,
-            startNode,
-            endNode,
-            maxRouteDist,
-            3,
-          );
-        }
-      } else {
-        console.log(
-          `[safe-routes] ⚠️  Waypoint node not found in graph, falling back to direct`,
-        );
-        rawRoutes = findKSafestRoutes(
-          osmNodes,
-          edges,
-          adjacency,
-          startNode,
-          endNode,
-          maxRouteDist,
-          3,
-        );
-      }
-    } else {
-      rawRoutes = findKSafestRoutes(
-        osmNodes,
-        edges,
-        adjacency,
-        startNode,
-        endNode,
-        maxRouteDist,
-        3,
-      );
-    }
+    const rawRoutes = findRouteCandidates({
+      wpLat,
+      wpLng,
+      nodeGrid,
+      adjacency,
+      startNode,
+      endNode,
+      osmNodes,
+      edges,
+      maxRouteDist,
+      findNearestNode,
+      findKSafestRoutes,
+      logger: console,
+    });
 
     let pathfindTime = Date.now() - t2;
     cancelToken?.throwIfCancelled?.();
@@ -753,28 +692,20 @@ async function computeSafeRoutes(
     return {
       status: "OK",
       routes: responseRoutes,
-      meta: {
-        straightLineDistanceKm: Math.round(straightLineKm * 10) / 10,
-        maxDistanceKm: maxDistanceKm,
-        routeCount: responseRoutes.length,
-        dataQuality: {
-          roads: roadCount,
-          crimes: crimes.length,
-          lightElements: allData.lights.elements.length,
-          cctvCameras: allData.cctv.elements.length,
-          places: allData.places.elements.length,
-          transitStops: allData.transit.elements.length,
-        },
-        timing: {
-          totalMs: elapsed,
-          corridorDiscoveryMs: phase1Time,
-          safetyDataFetchMs: dataTime,
-          graphBuildMs: graphTime,
-          pathfindMs: pathfindTime,
-          recorrectionMs,
-        },
-        computeTimeMs: elapsed,
-      },
+      meta: buildSafeRoutesMeta({
+        straightLineKm,
+        maxDistanceKm,
+        responseRoutes,
+        roadCount,
+        crimes,
+        allData,
+        elapsed,
+        phase1Time,
+        dataTime,
+        graphTime,
+        pathfindTime,
+        recorrectionMs,
+      }),
     };
   } finally {
     if (typeof cancelUnsub === "function") cancelUnsub();
