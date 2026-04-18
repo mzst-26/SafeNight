@@ -46,6 +46,7 @@ const {
   collectOpenPlaceNodes,
   buildRouteResponses,
 } = require('../../../../src/safety/routes/safeRoutesResponseFormatter');
+const safeRoutesUtils = require('../../../../src/safety/routes/safeRoutesUtils');
 
 describe('safeRoutesResponseFormatter', () => {
   afterEach(() => {
@@ -86,6 +87,53 @@ describe('safeRoutesResponseFormatter', () => {
       amenity: 'cafe',
       open: true,
     });
+  });
+
+  test('collectOpenPlaceNodes filters closed places when heuristic reports closed', () => {
+    safeRoutesUtils.heuristicOpen.mockReturnValueOnce({
+      open: false,
+      nextChange: 'opens at 07:00',
+    });
+
+    const result = collectOpenPlaceNodes(
+      [
+        {
+          lat: 50.37,
+          lon: -4.14,
+          tags: {
+            name: 'Night Closed Cafe',
+            amenity: 'cafe',
+          },
+        },
+      ],
+      false,
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  test('collectOpenPlaceNodes uses heuristic branch when parser is disabled', () => {
+    safeRoutesUtils.heuristicOpen.mockReturnValueOnce({
+      open: true,
+      nextChange: 'closes at 20:00',
+    });
+
+    const result = collectOpenPlaceNodes(
+      [
+        {
+          lat: 50.37,
+          lon: -4.14,
+          tags: {
+            name: 'Heuristic Place',
+            amenity: 'library',
+          },
+        },
+      ],
+      false,
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].nextChange).toBe('closes at 20:00');
   });
 
   test('buildRouteResponses returns route payload with expected shape', () => {
