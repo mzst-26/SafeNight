@@ -181,8 +181,25 @@ export function useHomeScreen() {
     };
   }, [directionsStatus]);
 
-  // ── Pathfinding visualisation (client-side coords for WebView animation) ──
-  const vizStreamUrl = null;
+  // ── Pathfinding visualisation (client-side coords for map animation) ──
+  const vizStreamUrl = useMemo(() => {
+    if (directionsStatus !== "loading" || !effectiveOrigin || !routingDestination) {
+      return null;
+    }
+
+    return JSON.stringify({
+      oLat: effectiveOrigin.latitude,
+      oLng: effectiveOrigin.longitude,
+      dLat: routingDestination.latitude,
+      dLng: routingDestination.longitude,
+    });
+  }, [
+    directionsStatus,
+    effectiveOrigin?.latitude,
+    effectiveOrigin?.longitude,
+    routingDestination?.latitude,
+    routingDestination?.longitude,
+  ]);
 
   // ── Route scores ──
   const routeScores: Record<string, RouteScore> = useMemo(() => {

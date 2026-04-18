@@ -23,6 +23,15 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
     .friend-chip{display:flex;align-items:center;gap:4px;background:#7C3AED;color:#fff;border:2px solid #fff;border-radius:14px;padding:2px 6px 2px 2px;font-size:10px;font-weight:600;white-space:nowrap}
     .friend-dot{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:10px}
     .nav-dot{width:18px;height:18px;border-radius:50%;background:#1570EF;border:3px solid #fff;box-shadow:0 0 0 2px rgba(21,112,239,.25)}
+    .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
+    .viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:none;background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);backdrop-filter:blur(8px);transition:opacity .3s}
+    .leaflet-control-zoom{border:none!important;box-shadow:0 6px 20px rgba(15,23,42,.25)!important}
+    .leaflet-control-zoom a{width:136px!important;height:136px!important;line-height:136px!important;font-size:80px!important;font-weight:700!important;border-radius:24px!important;background:#ffffff!important;color:#0f172a!important;border:1px solid rgba(15,23,42,.18)!important}
+    .leaflet-control-zoom a:hover{background:#f8fafc!important}
+    .leaflet-control-zoom a.leaflet-disabled{opacity:.45!important}
+    .leaflet-top.leaflet-left{margin-top:10px;margin-left:10px}
+    @keyframes vizscan{0%,100%{opacity:.95}50%{opacity:.45}}
+    .viz-search-zone{pointer-events:none;background:rgba(88,28,235,.22);border:1.5px solid rgba(167,139,250,.7);border-radius:5px;padding:4px 12px;color:#ddd6fe;font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap;display:flex;align-items:center;gap:5px;animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
   </style>
 </head>
 <body>
@@ -42,6 +51,16 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
     var layerFriends = null;
     var layerLabels = null;
     var layerRange = null;
+    var vizRect = null;
+    var vizLabel = null;
+    var vizAnimTimer = null;
+    var vizClearTimer = null;
+    var vizExternalPct = null;
+    var vizProgressEl = null;
+    var vizStatusEl = null;
+    var lastOutOfRangeCueToken = 0;
+    var outOfRangeCameraHoldUntil = 0;
+    var outOfRangeBlinkTimers = [];
 
     function sendMsg(t, d){
       try{
@@ -77,6 +96,158 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
       layerRange.clearLayers();
     }
 
+    function clearOutOfRangeBlink(){
+      while(outOfRangeBlinkTimers.length){
+        clearTimeout(outOfRangeBlinkTimers.pop());
+      }
+      try{
+        var ring = layerRange && layerRange.getLayers ? layerRange.getLayers()[0] : null;
+        if(ring && ring.setStyle){
+          ring.setStyle({color:'#22c55e',fillColor:'#22c55e',fillOpacity:0.04});
+        }
+      }catch(e){}
+    }
+
+    function triggerOutOfRangeCue(d){
+      if(!d || !d.origin || !d.maxDistanceKm) return false;
+
+      // Hold camera updates briefly so regular pan/fit updates cannot undo this cue.
+      outOfRangeCameraHoldUntil = Date.now() + 2200;
+
+      clearOutOfRangeBlink();
+
+      // Ensure range ring exists before blink, even if this update did not draw it yet.
+      if(layerRange){
+        layerRange.clearLayers();
+        L.polygon(makeCirclePolygon(d.origin.lat,d.origin.lng,d.maxDistanceKm,64),{color:'#22c55e',weight:2.5,fillColor:'#22c55e',fillOpacity:0.04,dashArray:'6 4'}).addTo(layerRange);
+      }
+
+      map.stop();
+      var center = d.navLocation || d.origin;
+      map.flyTo([center.lat, center.lng], 13.5, {
+        animate:true,
+        duration:0.85,
+        easeLinearity:0.2,
+      });
+
+      var blinkStarted = false;
+      var startBlink = function(){
+        if(blinkStarted) return;
+        blinkStarted = true;
+        var ring = layerRange && layerRange.getLayers ? layerRange.getLayers()[0] : null;
+        if(!ring || !ring.setStyle) return;
+
+        var red = function(){ ring.setStyle({color:'#ef4444',fillColor:'#ef4444',fillOpacity:0.12}); };
+        var normal = function(){ ring.setStyle({color:'#22c55e',fillColor:'#22c55e',fillOpacity:0.04}); };
+
+        red();
+        outOfRangeBlinkTimers.push(setTimeout(normal, 180));
+        outOfRangeBlinkTimers.push(setTimeout(red, 360));
+        outOfRangeBlinkTimers.push(setTimeout(normal, 540));
+      };
+
+      map.once('moveend', function(){
+        outOfRangeBlinkTimers.push(setTimeout(startBlink, 1500));
+      });
+      outOfRangeBlinkTimers.push(setTimeout(startBlink, 2500));
+      return true;
+    }
+
+    function ensureVizUI(){
+      if(!vizProgressEl){
+        vizProgressEl = document.createElement('div');
+        vizProgressEl.className = 'viz-progress-bar';
+        vizProgressEl.style.width = '0%';
+        vizProgressEl.style.opacity = '0';
+        document.body.appendChild(vizProgressEl);
+      }
+      if(!vizStatusEl){
+        vizStatusEl = document.createElement('div');
+        vizStatusEl.className = 'viz-status';
+        vizStatusEl.style.opacity = '0';
+        document.body.appendChild(vizStatusEl);
+      }
+    }
+
+    function vizSetProgress(pct, msg){
+      ensureVizUI();
+      if(pct!=null && isFinite(Number(pct))){
+        vizProgressEl.style.opacity='1';
+        vizProgressEl.style.width=Math.max(0,Math.min(100,Number(pct)))+'%';
+      }
+      if(msg){
+        vizStatusEl.style.display='block';
+        vizStatusEl.style.opacity='1';
+        vizStatusEl.textContent=msg;
+      }
+    }
+
+    function clearVisualization(){
+      if(vizAnimTimer){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
+      if(vizRect){ map.removeLayer(vizRect); vizRect=null; }
+      if(vizLabel){ map.removeLayer(vizLabel); vizLabel=null; }
+      if(vizProgressEl){ vizProgressEl.style.width='0%'; vizProgressEl.style.opacity='0'; }
+      if(vizStatusEl){ vizStatusEl.style.opacity='0'; vizStatusEl.style.display='none'; }
+    }
+
+    function drawSearchZoneFromCoords(coords){
+      var oLat=Number(coords.oLat), oLng=Number(coords.oLng), dLat=Number(coords.dLat), dLng=Number(coords.dLng);
+      if(!isFinite(oLat)||!isFinite(oLng)||!isFinite(dLat)||!isFinite(dLng)) return;
+
+      var dLatRad=(dLat-oLat)*Math.PI/180, dLngRad=(dLng-oLng)*Math.PI/180;
+      var oLatRad=oLat*Math.PI/180, dLatAbsRad=dLat*Math.PI/180;
+      var a=Math.sin(dLatRad/2)*Math.sin(dLatRad/2)
+        + Math.cos(oLatRad)*Math.cos(dLatAbsRad)*Math.sin(dLngRad/2)*Math.sin(dLngRad/2);
+      var straightLineDist=6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+
+      var corridorBufferM=Math.max(700, Math.min(1000, straightLineDist * 0.3));
+      var minLat=Math.min(oLat,dLat), maxLat=Math.max(oLat,dLat);
+      var minLng=Math.min(oLng,dLng), maxLng=Math.max(oLng,dLng);
+      var midLat=(oLat+dLat)/2;
+      var metersPerDegLat=111320;
+      var metersPerDegLng=Math.max(1000, 111320*Math.cos(midLat*Math.PI/180));
+      var bufferLatDeg=corridorBufferM/metersPerDegLat;
+      var bufferLngDeg=corridorBufferM/metersPerDegLng;
+      var south=minLat-bufferLatDeg, north=maxLat+bufferLatDeg;
+      var west=minLng-bufferLngDeg,  east=maxLng+bufferLngDeg;
+
+      var heightM=(north-south)*metersPerDegLat;
+      var widthM=(east-west)*metersPerDegLng;
+      if(widthM<heightM){ var extra=(heightM-widthM)/2/metersPerDegLng; west-=extra; east+=extra; }
+      else if(heightM<widthM){ var extra2=(widthM-heightM)/2/metersPerDegLat; south-=extra2; north+=extra2; }
+
+      if(vizRect){ map.removeLayer(vizRect); vizRect=null; }
+      vizRect = L.rectangle([[south,west],[north,east]], {
+        color:'#a78bfa',
+        weight:2,
+        fillColor:'#7C3AED',
+        fillOpacity:0.10,
+        interactive:false,
+      }).addTo(map);
+
+      if(vizLabel){ map.removeLayer(vizLabel); vizLabel=null; }
+      var icon=L.divIcon({
+        className:'',
+        html:'<div class="viz-search-zone">&#128269; Analysing area&hellip;</div>',
+        iconSize:[180,28],
+        iconAnchor:[90,14],
+      });
+      vizLabel = L.marker([(south+north)/2,(west+east)/2],{icon:icon,interactive:false}).addTo(map);
+
+      vizSetProgress(vizExternalPct != null ? vizExternalPct : 8, null);
+
+      var pulseStep=0;
+      if(vizAnimTimer){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
+      vizAnimTimer = setInterval(function(){
+        pulseStep++;
+        if(vizRect){
+          var op = 0.06 + 0.10 * (0.5 + 0.5 * Math.sin(pulseStep * 0.314));
+          vizRect.setStyle({ fillOpacity: op });
+        }
+        if(vizExternalPct!=null){ vizSetProgress(vizExternalPct, null); }
+      }, 1000);
+    }
+
     function addFriendMarker(f){
       var initial=((f.name||'?').charAt(0)||'?').toUpperCase();
       var label=(f.name||'Friend').slice(0,14);
@@ -96,9 +267,24 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
     }
 
     function init(){
-      map = L.map('map', { zoomControl:true, attributionControl:true }).setView([51.5074,-0.1278], 13);
+      map = L.map('map', {
+        zoomControl:true,
+        attributionControl:true,
+        zoomSnap:0,
+        zoomDelta:1,
+        wheelPxPerZoomLevel:20,
+        wheelDebounceTime:10,
+        zoomAnimation:true,
+        fadeAnimation:true,
+        markerZoomAnimation:true,
+      }).setView([51.5074,-0.1278], 13);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
+        maxNativeZoom: 19,
+        detectRetina: true,
+        keepBuffer: 8,
+        updateWhenZooming: true,
+        updateInterval: 100,
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
@@ -126,9 +312,16 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
       map.on('mousemove', function(){ if(longPressTimer) clearTimeout(longPressTimer); });
 
       map.on('dragstart', function(){
+        sendMsg('userInteracted', {});
         if(lastNavLL){
           userInteracted = true;
           setFollowMode(false);
+        }
+      });
+
+      map.on('zoomstart', function(e){
+        if(e && e.originalEvent){
+          sendMsg('userInteracted', {});
         }
       });
 
@@ -208,13 +401,22 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
         L.polygon(makeCirclePolygon(d.origin.lat,d.origin.lng,d.maxDistanceKm,64),{color:'#22c55e',weight:2.5,fillColor:'#22c55e',fillOpacity:0.04,dashArray:'6 4'}).addTo(layerRange);
       }
 
+      var isOutOfRangeCameraHold = Date.now() < outOfRangeCameraHoldUntil;
+
       if(d.navLocation){
         lastNavLL=[d.navLocation.lat,d.navLocation.lng];
         var navIcon=L.divIcon({className:'',html:'<div class="nav-dot"></div>',iconSize:[18,18],iconAnchor:[9,9]});
         L.marker(lastNavLL,{icon:navIcon}).addTo(layerMarkers);
-        if(!userInteracted){
+        if(!userInteracted && !isOutOfRangeCameraHold){
           setFollowMode(true);
-          map.setView(lastNavLL,isPipMode?15:17,{animate:true});
+          var navZoom=isPipMode?15:17;
+          if(Math.abs(map.getZoom()-navZoom)>0.05){
+            map.stop();
+            map.flyTo(lastNavLL,navZoom,{animate:true,duration:0.45,easeLinearity:0.2,noMoveStart:true});
+          }else{
+            map.stop();
+            map.panTo(lastNavLL,{animate:true,duration:0.35,easeLinearity:0.2,noMoveStart:true});
+          }
         }
       } else {
         lastNavLL=null;
@@ -222,12 +424,32 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
         setFollowMode(true);
       }
 
-      if(d.panTo){
-        map.setView([d.panTo.lat,d.panTo.lng], Math.max(map.getZoom(),16), { animate:true });
-      } else if(d.fitBounds && bounds.length>0 && !d.navLocation){
-        map.fitBounds(bounds, { padding:[40,40], maxZoom:16, animate:true });
-      } else if(!d.origin && !d.navLocation && bounds.length===0){
-        map.setView(london,13,{animate:true});
+      if(!isOutOfRangeCameraHold && d.panTo){
+        map.stop();
+        map.flyTo([d.panTo.lat,d.panTo.lng], Math.max(map.getZoom(),16), {
+          animate:true,
+          duration:0.45,
+          easeLinearity:0.2,
+        });
+      } else if(!isOutOfRangeCameraHold && d.fitBounds && bounds.length>0 && !d.navLocation){
+        map.stop();
+        map.fitBounds(bounds, {
+          padding:[40,40],
+          maxZoom:16,
+          animate:true,
+          duration:0.55,
+          easeLinearity:0.2,
+        });
+      } else if(!isOutOfRangeCameraHold && !d.origin && !d.navLocation && bounds.length===0){
+        map.stop();
+        map.flyTo(london,13,{animate:true,duration:0.45,easeLinearity:0.2});
+      }
+
+      // Apply out-of-range cue last so it cannot be overridden by regular camera updates.
+      if(d.outOfRangeCueToken && d.outOfRangeCueToken !== lastOutOfRangeCueToken){
+        if(triggerOutOfRangeCue(d)){
+          lastOutOfRangeCueToken = d.outOfRangeCueToken;
+        }
       }
     }
 
@@ -237,11 +459,27 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
     window.recenterNavigation = function(){
       userInteracted=false;
       setFollowMode(true);
-      if(lastNavLL) map.setView(lastNavLL,isPipMode?15:17,{animate:true});
+      if(lastNavLL){
+        map.stop();
+        map.flyTo(lastNavLL,isPipMode?15:17,{animate:true,duration:0.45,easeLinearity:0.2});
+      }
     };
-    window.setVizProgress = function(_pct,_msg){};
-    window.startVizStream = function(_v){};
-    window.stopVizStream = function(){};
+    window.setVizProgress = function(pct,msg){
+      if(pct==null || !isFinite(Number(pct))){ vizExternalPct = null; return; }
+      vizExternalPct = Math.max(0, Math.min(100, Number(pct)));
+      vizSetProgress(vizExternalPct, msg || null);
+    };
+    window.startVizStream = function(v){
+      if(vizClearTimer){ clearTimeout(vizClearTimer); vizClearTimer=null; }
+      clearVisualization();
+      if(!v) return;
+      try{ drawSearchZoneFromCoords(JSON.parse(v)); }catch(e){}
+    };
+    window.stopVizStream = function(){
+      if(vizClearTimer){ clearTimeout(vizClearTimer); vizClearTimer=null; }
+      vizExternalPct = null;
+      vizClearTimer = setTimeout(function(){ clearVisualization(); vizClearTimer=null; }, 700);
+    };
 
     init();
   <\/script>
@@ -266,6 +504,7 @@ export const RouteMap = ({
   friendMarkers = [],
   isInPipMode = false,
   recenterSignal = 0,
+  outOfRangeCueSignal = 0,
   vizStreamUrl = null,
   vizProgressPct = null,
   vizProgressMessage = null,
@@ -273,6 +512,7 @@ export const RouteMap = ({
   onLongPress,
   onMapPress,
   onNavigationFollowChange,
+  onUserInteraction,
 }: RouteMapProps) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const readyRef = useRef(false);
@@ -286,12 +526,14 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onNavigationFollowChange,
+    onUserInteraction,
   });
   callbacksRef.current = {
     onMapPress,
     onLongPress,
     onSelectRoute,
     onNavigationFollowChange,
+    onUserInteraction,
   };
 
   const vizStateRef = useRef({
@@ -321,6 +563,7 @@ export const RouteMap = ({
     maxDistanceKm,
     friendMarkers,
     isInPipMode,
+    outOfRangeCueSignal,
   });
   propsRef.current = {
     origin,
@@ -338,6 +581,7 @@ export const RouteMap = ({
     maxDistanceKm,
     friendMarkers,
     isInPipMode,
+    outOfRangeCueSignal,
   };
 
   const pushUpdate = useCallback(() => {
@@ -412,6 +656,7 @@ export const RouteMap = ({
         routePath: f.routePath ?? [],
       })),
       isInPipMode: p.isInPipMode || false,
+      outOfRangeCueToken: p.outOfRangeCueSignal || 0,
     };
 
     try {
@@ -461,6 +706,9 @@ export const RouteMap = ({
           case "navFollowChanged":
             cbs.onNavigationFollowChange?.(Boolean(msg.isFollowing));
             break;
+          case "userInteracted":
+            cbs.onUserInteraction?.();
+            break;
           case "styleError":
             setHasError(true);
             break;
@@ -499,6 +747,7 @@ export const RouteMap = ({
     maxDistanceKm,
     friendMarkers,
     isInPipMode,
+    outOfRangeCueSignal,
     pushUpdate,
   ]);
 

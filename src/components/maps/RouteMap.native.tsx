@@ -29,7 +29,10 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;overflow:hidden;background:#e8eaed}
     #map{width:100%;height:100%;position:absolute;top:0;left:0}
-    /* Zoom controls removed */
+    .maplibregl-ctrl-group{border:none!important;box-shadow:0 6px 20px rgba(15,23,42,.25)!important;background:transparent!important}
+    .maplibregl-ctrl-group button{width:72px!important;height:72px!important;line-height:72px!important;background:#ffffff!important;border:1px solid rgba(15,23,42,.18)!important;color:#0f172a!important}
+    .maplibregl-ctrl-group button span{transform:scale(2)}
+    .maplibregl-ctrl-top-left{margin-top:10px!important;margin-left:10px!important}
 
     .road-label{background:rgba(0,0,0,.7);color:#fff;padding:2px 8px;border-radius:9px;
       font-size:9px;font-weight:600;white-space:nowrap}
@@ -98,6 +101,8 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     var lastData = null;
     var styleReady = false;
     var longPressTimer = null;
+    var lastOutOfRangeCueToken = 0;
+    var outOfRangeBlinkTimers = [];
     /* Viz DOM marker tracking */
     var vizDataMarkers = [];
     var vizSearchLabelMarker = null;
@@ -112,6 +117,65 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       if (isFollowingNav === next) return;
       isFollowingNav = next;
       sendMsg('navFollowChanged', { isFollowing: next });
+    }
+
+    function clearOutOfRangeBlink(){
+      while(outOfRangeBlinkTimers.length){
+        clearTimeout(outOfRangeBlinkTimers.pop());
+      }
+      if(!styleReady) return;
+      try{
+        map.setPaintProperty('range-circle-fill', 'fill-color', '#22c55e');
+        map.setPaintProperty('range-circle-fill', 'fill-opacity', 0.04);
+        map.setPaintProperty('range-circle-line', 'line-color', '#22c55e');
+        map.setPaintProperty('range-circle-line', 'line-opacity', 0.8);
+      }catch(e){}
+    }
+
+    function setOutOfRangeBlinkStyle(red){
+      if(!styleReady) return;
+      try{
+        if(red){
+          map.setPaintProperty('range-circle-fill', 'fill-color', '#ef4444');
+          map.setPaintProperty('range-circle-fill', 'fill-opacity', 0.12);
+          map.setPaintProperty('range-circle-line', 'line-color', '#ef4444');
+          map.setPaintProperty('range-circle-line', 'line-opacity', 0.95);
+        }else{
+          map.setPaintProperty('range-circle-fill', 'fill-color', '#22c55e');
+          map.setPaintProperty('range-circle-fill', 'fill-opacity', 0.04);
+          map.setPaintProperty('range-circle-line', 'line-color', '#22c55e');
+          map.setPaintProperty('range-circle-line', 'line-opacity', 0.8);
+        }
+      }catch(e){}
+    }
+
+    function triggerOutOfRangeCue(data){
+      if(!data || !data.origin || !data.maxDistanceKm) return false;
+
+      clearOutOfRangeBlink();
+
+      // Ensure the range ring exists before blinking.
+      var cf = makeCirclePolygon(data.origin.lng, data.origin.lat, data.maxDistanceKm, 64);
+      map.getSource('range-circle').setData({type:'FeatureCollection',features:[cf]});
+
+      var center = data.navLocation || data.origin;
+      map.easeTo({center:[center.lng,center.lat],zoom:13.5,duration:850});
+
+      var blinkStarted = false;
+      var startBlink = function(){
+        if(blinkStarted) return;
+        blinkStarted = true;
+        setOutOfRangeBlinkStyle(true);
+        outOfRangeBlinkTimers.push(setTimeout(function(){ setOutOfRangeBlinkStyle(false); }, 180));
+        outOfRangeBlinkTimers.push(setTimeout(function(){ setOutOfRangeBlinkStyle(true); }, 360));
+        outOfRangeBlinkTimers.push(setTimeout(function(){ setOutOfRangeBlinkStyle(false); }, 540));
+      };
+
+      map.once('moveend', function(){
+        outOfRangeBlinkTimers.push(setTimeout(startBlink, 1500));
+      });
+      outOfRangeBlinkTimers.push(setTimeout(startBlink, 2500));
+      return true;
     }
 
     /* ── Styles ─────────── */
@@ -129,8 +193,26 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       bearing: 0,
       maxPitch: 70,
       antialias: true,
+      fadeDuration: 250,
       attributionControl: false,
     });
+
+    try {
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), 'top-left');
+    } catch (e) {}
+
+    // Faster zoom responsiveness for wheel and pinch interactions.
+    try {
+      if (map.scrollZoom && map.scrollZoom.setWheelZoomRate) {
+        map.scrollZoom.setWheelZoomRate(1 / 120);
+      }
+      if (map.scrollZoom && map.scrollZoom.setZoomRate) {
+        map.scrollZoom.setZoomRate(1 / 22);
+      }
+      if (map.touchZoomRotate && map.touchZoomRotate.setZoomRate) {
+        map.touchZoomRotate.setZoomRate(1 / 16);
+      }
+    } catch (e) {}
 
     // Disable rotation in normal mode (enable only in nav mode)
     map.dragRotate.disable();
@@ -333,9 +415,16 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
 
     /* ── Drag tracking ────────────────────────────────────────── */
     map.on('dragstart',function(){
+      sendMsg('userInteracted', {});
       if(isNavMode){
         userInteracted=true;
         setFollowMode(false);
+      }
+    });
+
+    map.on('zoomstart',function(e){
+      if(e && e.originalEvent){
+        sendMsg('userInteracted', {});
       }
     });
 
@@ -545,17 +634,17 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
 
       /* — Fit bounds — */
       if(data.fitBounds && bounds && !data.navLocation){
-        map.fitBounds(bounds,{padding:40,maxZoom:16,duration:600});
+        map.fitBounds(bounds,{padding:40,maxZoom:16,duration:700});
       }
 
       /* — Pan to — */
       if(data.panTo){
-        map.easeTo({center:[data.panTo.lng,data.panTo.lat],zoom:Math.max(map.getZoom(),16),duration:500});
+        map.easeTo({center:[data.panTo.lng,data.panTo.lat],zoom:Math.max(map.getZoom(),16),duration:650});
       }
 
       // Keep London as default focus until a real pinpoint location is available.
       if(!hasPinpoint && !bounds && !data.panTo){
-        map.easeTo({center:londonCenter,zoom:13,duration:300});
+        map.easeTo({center:londonCenter,zoom:13,duration:420});
       }
 
       /* — Range circle — */
@@ -564,6 +653,12 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
         map.getSource('range-circle').setData({type:'FeatureCollection',features:[cf]});
       }else{
         map.getSource('range-circle').setData(emptyFC);
+      }
+
+      if(data.outOfRangeCueToken && data.outOfRangeCueToken !== lastOutOfRangeCueToken){
+        if(triggerOutOfRangeCue(data)){
+          lastOutOfRangeCueToken = data.outOfRangeCueToken;
+        }
       }
 
       /* — Friend planned routes (dashed purple — the route they clicked navigate on) — */
@@ -855,6 +950,7 @@ export const RouteMap = ({
   friendMarkers = [],
   isInPipMode = false,
   recenterSignal = 0,
+  outOfRangeCueSignal = 0,
   vizStreamUrl = null,
   vizProgressPct = null,
   vizProgressMessage = null,
@@ -862,6 +958,7 @@ export const RouteMap = ({
   onLongPress,
   onMapPress,
   onNavigationFollowChange,
+  onUserInteraction,
 }: RouteMapProps) => {
   const webViewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
@@ -885,6 +982,7 @@ export const RouteMap = ({
     maxDistanceKm,
     friendMarkers,
     isInPipMode,
+    outOfRangeCueSignal,
   });
   propsRef.current = {
     origin,
@@ -901,6 +999,7 @@ export const RouteMap = ({
     maxDistanceKm,
     friendMarkers,
     isInPipMode,
+    outOfRangeCueSignal,
   };
 
   const callbacksRef = useRef({
@@ -908,12 +1007,14 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onNavigationFollowChange,
+    onUserInteraction,
   });
   callbacksRef.current = {
     onMapPress,
     onLongPress,
     onSelectRoute,
     onNavigationFollowChange,
+    onUserInteraction,
   };
 
   // Serialize current props → a JS call the WebView can execute
@@ -985,6 +1086,7 @@ export const RouteMap = ({
           : null,
       navHeading: p.navigationHeading,
       maxDistanceKm: p.maxDistanceKm || null,
+      outOfRangeCueToken: p.outOfRangeCueSignal || 0,
       isInPipMode: p.isInPipMode ?? false,
       friendMarkers: p.friendMarkers.map((f) => ({
         userId: f.userId,
@@ -1018,6 +1120,7 @@ export const RouteMap = ({
     maxDistanceKm,
     friendMarkers,
     isInPipMode,
+    outOfRangeCueSignal,
     pushUpdate,
   ]);
 
@@ -1093,6 +1196,9 @@ export const RouteMap = ({
             break;
           case "navFollowChanged":
             cbs.onNavigationFollowChange?.(Boolean(msg.isFollowing));
+            break;
+          case "userInteracted":
+            cbs.onUserInteraction?.();
             break;
         }
       } catch {

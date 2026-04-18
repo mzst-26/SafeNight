@@ -88,7 +88,11 @@ export default function HomeScreen() {
   const [showFamilyPackModal, setShowFamilyPackModal] = useState(false);
   const [toast, setToast] = useState<ToastConfig | null>(null);
   const [isNavFollowing, setIsNavFollowing] = useState(true);
+  const [isAtCurrentLocation, setIsAtCurrentLocation] = useState(false);
+  const [isFindingCurrentLocation, setIsFindingCurrentLocation] =
+    useState(false);
   const [recenterSignal, setRecenterSignal] = useState(0);
+  const [outOfRangeCueSignal, setOutOfRangeCueSignal] = useState(0);
   const subscriptionTier = auth.user?.subscription ?? "free";
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 3; // DB-driven, fallback to free tier
 
@@ -528,6 +532,79 @@ export default function HomeScreen() {
     }
   }, [h.nav, setToast]);
 
+  const handleMoveToCurrentLocation = useCallback(() => {
+    setIsFindingCurrentLocation(true);
+    if (!h.location) return;
+    h.handlePanTo(h.location);
+  }, [h.location, h.handlePanTo]);
+
+  const handleMapPress = useCallback(
+    (coordinate: { latitude: number; longitude: number }) => {
+      setIsAtCurrentLocation(false);
+      setIsFindingCurrentLocation(false);
+      h.handleMapPress(coordinate);
+    },
+    [h.handleMapPress],
+  );
+
+  const handleMapLongPress = useCallback(
+    (coordinate: { latitude: number; longitude: number }) => {
+      setIsAtCurrentLocation(false);
+      setIsFindingCurrentLocation(false);
+      h.handleMapLongPress(coordinate);
+    },
+    [h.handleMapLongPress],
+  );
+
+  const handleMapInteraction = useCallback(() => {
+    setIsAtCurrentLocation(false);
+    setIsFindingCurrentLocation(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isFindingCurrentLocation || !h.location) return;
+    h.handlePanTo(h.location);
+  }, [isFindingCurrentLocation, h.location, h.handlePanTo]);
+
+  useEffect(() => {
+    if (!h.location || !h.mapPanTo?.location) return;
+    const nearThreshold = 0.00012;
+    const atCurrentLocation =
+      Math.abs(h.mapPanTo.location.latitude - h.location.latitude) <=
+        nearThreshold &&
+      Math.abs(h.mapPanTo.location.longitude - h.location.longitude) <=
+        nearThreshold;
+
+    setIsAtCurrentLocation(atCurrentLocation);
+    if (atCurrentLocation) setIsFindingCurrentLocation(false);
+  }, [
+    h.location?.latitude,
+    h.location?.longitude,
+    h.mapPanTo?.key,
+    h.mapPanTo?.location.latitude,
+    h.mapPanTo?.location.longitude,
+  ]);
+
+  useEffect(() => {
+    if (
+      !h.outOfRange ||
+      h.directionsStatus === "loading" ||
+      !h.effectiveOrigin ||
+      !h.effectiveDestination
+    ) {
+      return;
+    }
+    setOutOfRangeCueSignal((prev) => prev + 1);
+  }, [
+    h.outOfRange,
+    h.outOfRangeMessage,
+    h.directionsStatus,
+    h.effectiveOrigin?.latitude,
+    h.effectiveOrigin?.longitude,
+    h.effectiveDestination?.latitude,
+    h.effectiveDestination?.longitude,
+  ]);
+
   const isWeb = Platform.OS === "web";
 
   return (
@@ -571,13 +648,15 @@ export default function HomeScreen() {
         maxDistanceKm={maxDistanceKm}
         friendMarkers={friendMarkers}
         recenterSignal={recenterSignal}
+        outOfRangeCueSignal={outOfRangeCueSignal}
         vizStreamUrl={h.vizStreamUrl}
         vizProgressPct={h.vizProgressPct}
         vizProgressMessage={h.vizProgressMessage}
         onSelectRoute={h.setSelectedRouteId}
-        onLongPress={isWebGuest ? undefined : h.handleMapLongPress}
-        onMapPress={isWebGuest ? undefined : h.handleMapPress}
+        onLongPress={isWebGuest ? undefined : handleMapLongPress}
+        onMapPress={isWebGuest ? undefined : handleMapPress}
         onNavigationFollowChange={setIsNavFollowing}
+        onUserInteraction={isWebGuest ? undefined : handleMapInteraction}
       />
 
       {/*
@@ -1234,6 +1313,47 @@ export default function HomeScreen() {
         )}
 
         {/* ── Report hazard button (always available when logged in) ── */}
+        {!h.isNavActive && (
+          <View
+            style={{
+              position: "absolute",
+              top: isWeb
+                ? insets.top + webBannerOffset + (isPhoneWeb ? 392 : 452)
+                : "40%",
+              marginTop: isWeb ? 0 : 152,
+              right: 12,
+              zIndex: 100,
+            }}
+          >
+            <Pressable
+              onPress={handleMoveToCurrentLocation}
+              style={[
+                styles.currentLocationBtn,
+                isAtCurrentLocation
+                  ? styles.currentLocationBtnActive
+                  : styles.currentLocationBtnInactive,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isAtCurrentLocation
+                  ? "You are at current location"
+                  : isFindingCurrentLocation
+                    ? "Finding current location"
+                    : "Move to current location"
+              }
+            >
+              {isAtCurrentLocation ? (
+                <View style={styles.currentLocationDotOuter}>
+                  <View style={styles.currentLocationDotInner} />
+                </View>
+              ) : (
+                <Ionicons name="locate-outline" size={20} color="#E5E7EB" />
+              )}
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── Report hazard button (always available when logged in) ── */}
         {auth.isLoggedIn && (
           <View
             style={{
@@ -1684,6 +1804,41 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 4,
+  },
+  currentLocationBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  currentLocationBtnActive: {
+    backgroundColor: "#fff",
+    borderColor: "#1570EF",
+  },
+  currentLocationBtnInactive: {
+    backgroundColor: "#111827",
+    borderColor: "#111827",
+  },
+  currentLocationDotOuter: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(21,112,239,0.22)",
+  },
+  currentLocationDotInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#1570EF",
   },
   pinBanner: {
     position: "absolute",
