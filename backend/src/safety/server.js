@@ -66,11 +66,15 @@ app.listen(PORT, '0.0.0.0', () => {
   const parallelism = typeof os.availableParallelism === 'function'
     ? os.availableParallelism()
     : Math.max(1, os.cpus()?.length || 1);
+  const renderCommit = process.env.RENDER_GIT_COMMIT || process.env.SOURCE_VERSION || 'unknown';
+  const releaseRef = process.env.RENDER_SERVICE_ID || process.env.RENDER_INSTANCE_ID || 'unknown';
   console.log(`[safety] Safety Compute Service running on http://0.0.0.0:${PORT}`);
+  console.log(`[safety] Deploy fingerprint: commit=${renderCommit}, releaseRef=${releaseRef}`);
   console.log(`[safety] Routes: safe-routes (A* pathfinding)`);
   console.log(`[safety] Rate limit: 60 req / 15 min per IP`);
   console.log(`[safety] Runtime: node=${process.version}, parallelism=${parallelism}`);
   console.log(`[safety] Queue controls: maxConcurrent=${process.env.SAFE_ROUTES_MAX_CONCURRENT || 'auto'}, maxLoadUnits=${process.env.SAFE_ROUTES_MAX_SERVER_LOAD_UNITS || 'auto'}, maxQueue=${process.env.SAFE_ROUTES_MAX_QUEUE_LENGTH || 200}, maxQueueWaitMs=${process.env.SAFE_ROUTES_MAX_QUEUE_WAIT_MS || 180000}`);
+  console.log(`[safety] Overpass controls: budgetMs=${process.env.OVERPASS_REQUEST_BUDGET_MS || 18000}, splitExtraBudgetMs=${process.env.OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS || 12000}, hedgeDelayMs=${process.env.OVERPASS_HEDGE_DELAY_MS || 250}, cooldownMs=${process.env.OVERPASS_SERVER_COOLDOWN_MS || 30000}`);
   if (SAFE_ROUTES_CACHE_DIR) {
     console.log(`[safety] Persistent cache: enabled (SAFE_ROUTES_CACHE_DIR=${SAFE_ROUTES_CACHE_DIR})`);
   } else {
