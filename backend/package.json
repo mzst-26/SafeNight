@@ -31,12 +31,12 @@
     "docker:up:geocode": "docker compose up -d geocode",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f --tail=200",
-    "test": "jest --config ./jest.config.cjs",
-    "test:coverage": "jest --config ./jest.config.cjs --coverage",
-    "test:coverage:ci": "jest --config ./jest.config.cjs --coverage --runInBand",
-    "test:unit": "jest --config ./jest.config.cjs tests/unit",
-    "test:integration": "jest --config ./jest.config.cjs tests/integration --passWithNoTests",
-    "test:system": "jest --config ./jest.config.cjs tests/system --passWithNoTests"
+    "test": "NODE_NO_WARNINGS=1 jest --config ./jest.config.cjs --runInBand",
+    "test:coverage": "NODE_NO_WARNINGS=1 jest --config ./jest.config.cjs --coverage --runInBand",
+    "test:coverage:ci": "NODE_NO_WARNINGS=1 jest --config ./jest.config.cjs --coverage --runInBand",
+    "test:unit": "NODE_NO_WARNINGS=1 jest --config ./jest.config.cjs tests/unit --runInBand",
+    "test:integration": "NODE_NO_WARNINGS=1 jest --config ./jest.config.cjs tests/integration --passWithNoTests --runInBand",
+    "test:system": "NODE_NO_WARNINGS=1 jest --config ./jest.config.cjs tests/system --passWithNoTests --runInBand"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
