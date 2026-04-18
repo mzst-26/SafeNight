@@ -26,6 +26,8 @@ export type RouteMapProps = {
   roadLabels?: RoadLabel[];
   /** When set, the map smoothly pans to this location. Bump the key to re-trigger. */
   panTo?: { location: LatLng; key: number } | null;
+  /** Increment to force fitting visible search-candidate markers into view. */
+  fitCandidateBoundsToken?: number;
   /** Navigation mode — when true, the map follows the user and tilts */
   isNavigating?: boolean;
   /** Live user location during navigation */
@@ -47,6 +49,7 @@ export type RouteMapProps = {
   /** Increment to trigger out-of-range visual cue (zoom out + red circle blink). */
   outOfRangeCueSignal?: number;
   onSelectRoute?: (routeId: string) => void;
+  onSelectMarker?: (markerId: string) => void;
   onLongPress?: (location: LatLng) => void;
   onMapPress?: (location: LatLng) => void;
   onNavigationFollowChange?: (isFollowing: boolean) => void;
