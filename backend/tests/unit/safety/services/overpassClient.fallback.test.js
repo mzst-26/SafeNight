@@ -63,6 +63,7 @@ describe('overpassClient fallback behavior', () => {
   test('enforces request budget exhaustion and stops unbounded server rotation', async () => {
     const { fetchAllSafetyData, restoreEnv } = withOverpassModule({
       OVERPASS_REQUEST_BUDGET_MS: '70',
+      OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS: '0',
       OVERPASS_HEDGE_DELAY_MS: '20',
       OVERPASS_RETRY_STAGGER_MS: '5',
       OVERPASS_SERVERS: 'https://a.test/api/interpreter,https://b.test/api/interpreter,https://c.test/api/interpreter',
@@ -369,6 +370,85 @@ describe('overpassClient fallback behavior', () => {
     expect(hits.cctv).toBeGreaterThanOrEqual(1);
     expect(data.roads.elements.length).toBeGreaterThan(0);
     expect(data.cctv.elements).toEqual([]);
+    restoreEnv();
+  });
+
+  test('extends split fallback budget when combined query exhausts request budget', async () => {
+    const { fetchAllSafetyData, restoreEnv } = withOverpassModule({
+      OVERPASS_REQUEST_BUDGET_MS: '120',
+      OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS: '800',
+      OVERPASS_HEDGE_DELAY_MS: '5',
+      OVERPASS_RETRY_STAGGER_MS: '5',
+      OVERPASS_SERVERS: 'https://single.test/api/interpreter',
+    });
+
+    const hits = {
+      combined: 0,
+      roads: 0,
+      lights: 0,
+      cctv: 0,
+      places: 0,
+      transit: 0,
+    };
+
+    const waitOrAbort = (ms, signal) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          if (signal) signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, ms);
+
+        const onAbort = () => {
+          clearTimeout(timer);
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        };
+
+        if (!signal) return;
+        if (signal.aborted) return onAbort();
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+
+    global.fetch = jest.fn(async (_url, options = {}) => {
+      const query = decodeOverpassQuery(options.body);
+      const kind = classifyQuery(query);
+      if (kind in hits) hits[kind] += 1;
+
+      if (kind === 'combined') {
+        await waitOrAbort(220, options.signal);
+        return makeResponse(200, { elements: [] });
+      }
+
+      if (kind === 'roads') {
+        await waitOrAbort(80, options.signal);
+        return makeResponse(200, {
+          elements: [
+            {
+              type: 'way',
+              id: 30,
+              nodes: [31, 32],
+              tags: { highway: 'residential' },
+            },
+            { type: 'node', id: 31, lat: 50.4, lon: -4.4 },
+            { type: 'node', id: 32, lat: 50.4005, lon: -4.4005 },
+          ],
+        });
+      }
+
+      return makeResponse(200, { elements: [] });
+    });
+
+    const data = await fetchAllSafetyData({
+      south: 50.35,
+      west: -4.45,
+      north: 50.45,
+      east: -4.35,
+    });
+
+    expect(hits.combined).toBeGreaterThanOrEqual(1);
+    expect(hits.roads).toBeGreaterThanOrEqual(1);
+    expect(data.roads.elements.length).toBeGreaterThan(0);
     restoreEnv();
   });
 });
