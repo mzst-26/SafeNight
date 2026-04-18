@@ -17,6 +17,8 @@ const DEFAULT_OVERPASS_SERVERS = [
   "https://overpass.kumi.systems/api/interpreter",
 ];
 
+const { createSafetyCacheStore } = require("./cacheStore");
+
 const OVERPASS_SERVERS = (process.env.OVERPASS_SERVERS || "")
   .split(",")
   .map((s) => s.trim())
@@ -36,7 +38,20 @@ const OSM_REFERER =
   "";
 
 function envInt(name, fallback) {
-  const raw = process.env[name];
+  const envValues = {
+    OVERPASS_REQUEST_BUDGET_MS: process.env.OVERPASS_REQUEST_BUDGET_MS,
+    OVERPASS_HEDGE_DELAY_MS: process.env.OVERPASS_HEDGE_DELAY_MS,
+    OVERPASS_SERVER_COOLDOWN_MS: process.env.OVERPASS_SERVER_COOLDOWN_MS,
+    OVERPASS_RETRY_STAGGER_MS: process.env.OVERPASS_RETRY_STAGGER_MS,
+    SAFE_ROUTES_ALLOW_STALE_CACHE: process.env.SAFE_ROUTES_ALLOW_STALE_CACHE,
+    SAFE_ROUTES_MAX_STALE_MS: process.env.SAFE_ROUTES_MAX_STALE_MS,
+    SAFE_ROUTES_OVERPASS_MAX_STALE_MS:
+      process.env.SAFE_ROUTES_OVERPASS_MAX_STALE_MS,
+    SAFE_ROUTES_OVERPASS_STALE_FETCH_GRACE_MS:
+      process.env.SAFE_ROUTES_OVERPASS_STALE_FETCH_GRACE_MS,
+  };
+
+  const raw = envValues[name];
   if (raw == null || raw === "") return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -46,17 +61,54 @@ const OVERPASS_REQUEST_BUDGET_MS = envInt("OVERPASS_REQUEST_BUDGET_MS", 18000);
 const OVERPASS_HEDGE_DELAY_MS = envInt("OVERPASS_HEDGE_DELAY_MS", 250);
 const OVERPASS_SERVER_COOLDOWN_MS = envInt("OVERPASS_SERVER_COOLDOWN_MS", 30000);
 const OVERPASS_RETRY_STAGGER_MS = envInt("OVERPASS_RETRY_STAGGER_MS", 300);
+const SAFE_ROUTES_ALLOW_STALE_CACHE = envInt("SAFE_ROUTES_ALLOW_STALE_CACHE", 1) === 1;
+const SAFE_ROUTES_MAX_STALE_MS = envInt("SAFE_ROUTES_MAX_STALE_MS", 10 * 60 * 1000);
+const OVERPASS_MAX_STALE_MS = envInt("SAFE_ROUTES_OVERPASS_MAX_STALE_MS", SAFE_ROUTES_MAX_STALE_MS);
+const OVERPASS_STALE_FETCH_GRACE_MS = envInt("SAFE_ROUTES_OVERPASS_STALE_FETCH_GRACE_MS", 1200);
 
 let serverIdx = 0;
 const endpointHealth = new Map();
+const backgroundRefreshInflight = new Map();
+const liveFetchInProgress = new Set();
 
 // ── Data-layer cache (much longer than route cache) ─────────────────────────
-const dataCache = new Map();
 const DATA_CACHE_TTL = 30 * 60 * 1000; // 30 minutes — OSM doesn't change often
+const dataCacheStore = createSafetyCacheStore({
+  namespace: "overpass-data",
+  ttlMs: DATA_CACHE_TTL,
+  maxEntries: 50,
+});
 
 function dataCacheKey(bbox) {
   const r = (v) => Math.round(v * 500) / 500; // ~220m grid
   return `${r(bbox.south)},${r(bbox.west)},${r(bbox.north)},${r(bbox.east)}`;
+}
+
+function emitSourceMeta(onSourceMeta, meta) {
+  if (typeof onSourceMeta !== "function") return;
+  try {
+    onSourceMeta(meta);
+  } catch {
+    // No-op: observability callbacks should never break request flow.
+  }
+}
+
+function withTimeout(promise, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return Promise.resolve({ timedOut: true });
+  }
+
+  let timeoutHandle;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutHandle = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+  });
+
+  return Promise.race([
+    promise
+      .then((value) => ({ timedOut: false, value, error: null }))
+      .catch((error) => ({ timedOut: false, value: null, error })),
+    timeoutPromise,
+  ]).finally(() => clearTimeout(timeoutHandle));
 }
 
 function sleep(ms, signal = null) {
@@ -483,12 +535,22 @@ async function fetchSafetyDataSplitFallback(
  * This replaces the old 4-query approach and cuts latency ~70%.
  */
 async function fetchAllSafetyData(bbox, options = {}) {
-  const { signal = null } = options;
+  const { signal = null, onSourceMeta = null } = options;
   const key = dataCacheKey(bbox);
-  const cached = dataCache.get(key);
-  if (cached && Date.now() - cached.timestamp < DATA_CACHE_TTL) {
-    console.log("[overpass] 📋 Data cache hit");
-    return cached.data;
+  const cacheEntry = await dataCacheStore.getWithMeta(key, {
+    allowStale: SAFE_ROUTES_ALLOW_STALE_CACHE,
+    maxStaleMs: OVERPASS_MAX_STALE_MS,
+  });
+
+  if (cacheEntry && cacheEntry.stale === false) {
+    console.log(`[overpass] 📋 Fresh data cache hit (age=${cacheEntry.ageMs}ms, layer=${cacheEntry.cacheLayer})`);
+    emitSourceMeta(onSourceMeta, {
+      source: "cache_fresh",
+      stale: false,
+      cacheAgeMs: cacheEntry.ageMs,
+      cacheLayer: cacheEntry.cacheLayer,
+    });
+    return cacheEntry.data;
   }
 
   const { south, west, north, east } = bbox;
@@ -530,68 +592,144 @@ async function fetchAllSafetyData(bbox, options = {}) {
     .transit out body;
   `;
 
-  console.log("[overpass] 🌐 Fetching ALL safety data in single query...");
-  const t0 = Date.now();
-  let result;
-  const requestBudget = createRequestBudget(signal, OVERPASS_REQUEST_BUDGET_MS);
-  try {
+  const fetchAndCacheLiveData = async (liveSignal = signal) => {
+    liveFetchInProgress.add(key);
+    console.log("[overpass] 🌐 Fetching ALL safety data in single query...");
+    const t0 = Date.now();
+    let result;
+    const requestBudget = createRequestBudget(
+      liveSignal,
+      OVERPASS_REQUEST_BUDGET_MS,
+    );
     try {
-      // Combined query is heavier than split queries; allow a longer timeout.
-      const raw = await overpassQuery(query, 45, signal, requestBudget);
-      console.log(
-        `[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`,
-      );
-      result = splitElements(raw.elements);
-    } catch (err) {
-      const msg = String(err?.message || "");
-      const shouldFallback =
-        err?.code === "UPSTREAM_UNAVAILABLE" ||
-        err?.statusCode === 503 ||
-        (typeof err?.upstreamStatus === "number" && err.upstreamStatus >= 500) ||
-        /returned\s+(403|429|5\d\d)/i.test(msg) ||
-        msg.includes(" 403") ||
-        msg.includes(" 429") ||
-        msg.includes(" 504") ||
-        msg.includes("timed out") ||
-        msg.includes("All Overpass servers failed");
+      try {
+        // Combined query is heavier than split queries; allow a longer timeout.
+        const raw = await overpassQuery(query, 45, liveSignal, requestBudget);
+        console.log(
+          `[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`,
+        );
+        result = splitElements(raw.elements);
+      } catch (err) {
+        const msg = String(err?.message || "");
+        const shouldFallback =
+          err?.code === "UPSTREAM_UNAVAILABLE" ||
+          err?.statusCode === 503 ||
+          (typeof err?.upstreamStatus === "number" && err.upstreamStatus >= 500) ||
+          /returned\s+(403|429|5\d\d)/i.test(msg) ||
+          msg.includes(" 403") ||
+          msg.includes(" 429") ||
+          msg.includes(" 504") ||
+          msg.includes("timed out") ||
+          msg.includes("All Overpass servers failed");
 
-      if (!shouldFallback) throw err;
+        if (!shouldFallback) throw err;
 
-      console.warn(
-        `[overpass] ⚠️ Single query failed (${msg.slice(0, 160)}). Falling back to split queries.`,
-      );
-      const splitData = await fetchSafetyDataSplitFallback(
-        bbox,
-        signal,
-        requestBudget,
-      );
-      const totalElements =
-        (splitData.roads.elements?.length || 0) +
-        (splitData.lights.elements?.length || 0) +
-        (splitData.cctv.elements?.length || 0) +
-        (splitData.places.elements?.length || 0) +
-        (splitData.transit.elements?.length || 0);
-      console.log(
-        `[overpass] ✅ Split fallback: ${totalElements} elements in ${Date.now() - t0}ms`,
-      );
-      result = splitData;
-    }
-
-    // Cache the split result
-    dataCache.set(key, { data: result, timestamp: Date.now() });
-
-    // Evict stale entries
-    if (dataCache.size > 50) {
-      const now = Date.now();
-      for (const [k, v] of dataCache) {
-        if (now - v.timestamp > DATA_CACHE_TTL) dataCache.delete(k);
+        console.warn(
+          `[overpass] ⚠️ Single query failed (${msg.slice(0, 160)}). Falling back to split queries.`,
+        );
+        const splitData = await fetchSafetyDataSplitFallback(
+          bbox,
+          liveSignal,
+          requestBudget,
+        );
+        const totalElements =
+          (splitData.roads.elements?.length || 0) +
+          (splitData.lights.elements?.length || 0) +
+          (splitData.cctv.elements?.length || 0) +
+          (splitData.places.elements?.length || 0) +
+          (splitData.transit.elements?.length || 0);
+        console.log(
+          `[overpass] ✅ Split fallback: ${totalElements} elements in ${Date.now() - t0}ms`,
+        );
+        result = splitData;
       }
+
+      await dataCacheStore.set(key, result);
+      return result;
+    } finally {
+      requestBudget.dispose();
+      liveFetchInProgress.delete(key);
+    }
+  };
+
+  const scheduleBackgroundRefresh = () => {
+    if (liveFetchInProgress.has(key)) return;
+    if (backgroundRefreshInflight.has(key)) return;
+
+    const refreshPromise = (async () => {
+      try {
+        await fetchAndCacheLiveData(null);
+        console.log("[overpass] ♻️ Background refresh completed");
+      } catch (err) {
+        console.warn(`[overpass] ⚠️ Background refresh failed: ${String(err?.message || err).slice(0, 180)}`);
+      } finally {
+        backgroundRefreshInflight.delete(key);
+      }
+    })();
+
+    backgroundRefreshInflight.set(key, refreshPromise);
+  };
+
+  if (!cacheEntry) {
+    const live = await fetchAndCacheLiveData(signal);
+    emitSourceMeta(onSourceMeta, {
+      source: "live",
+      stale: false,
+      cacheAgeMs: null,
+      cacheLayer: null,
+    });
+    return live;
+  }
+
+  const livePromise = fetchAndCacheLiveData(signal);
+  const liveResult = await withTimeout(livePromise, OVERPASS_STALE_FETCH_GRACE_MS);
+
+  if (!liveResult.timedOut && !liveResult.error) {
+    emitSourceMeta(onSourceMeta, {
+      source: "live",
+      stale: false,
+      cacheAgeMs: null,
+      cacheLayer: null,
+    });
+    return liveResult.value;
+  }
+
+  if (!liveResult.timedOut && liveResult.error) {
+    if (liveResult.error?.name === "AbortError" && signal?.aborted) {
+      throw liveResult.error;
     }
 
-    return result;
-  } finally {
-    requestBudget.dispose();
+    console.warn(
+      `[overpass] ⚠️ Live fetch failed, serving stale cache (age=${cacheEntry.ageMs}ms, layer=${cacheEntry.cacheLayer}): ${String(liveResult.error?.message || liveResult.error).slice(0, 180)}`,
+    );
+    scheduleBackgroundRefresh();
+    emitSourceMeta(onSourceMeta, {
+      source: "cache_stale",
+      stale: true,
+      cacheAgeMs: cacheEntry.ageMs,
+      cacheLayer: cacheEntry.cacheLayer,
+      staleFallbackReason: "live_error",
+      backgroundRefreshTriggered: true,
+    });
+    return cacheEntry.data;
   }
+
+  console.warn(
+    `[overpass] 🕒 Serving stale cache after ${OVERPASS_STALE_FETCH_GRACE_MS}ms live wait (age=${cacheEntry.ageMs}ms, layer=${cacheEntry.cacheLayer})`,
+  );
+  scheduleBackgroundRefresh();
+  emitSourceMeta(onSourceMeta, {
+    source: "cache_stale",
+    stale: true,
+    cacheAgeMs: cacheEntry.ageMs,
+    cacheLayer: cacheEntry.cacheLayer,
+    staleFallbackReason: "live_slow",
+    backgroundRefreshTriggered: true,
+  });
+  livePromise.catch((err) => {
+    console.warn(`[overpass] ⚠️ Live request after stale fallback failed: ${String(err?.message || err).slice(0, 180)}`);
+  });
+  return cacheEntry.data;
 }
 
 /**
@@ -683,10 +821,10 @@ const WALKABLE_HIGHWAYS = new Set([
 async function fetchRoadNetworkOnly(bbox, options = {}) {
   const { signal = null } = options;
   const key = `roads-only:${dataCacheKey(bbox)}`;
-  const cached = dataCache.get(key);
-  if (cached && Date.now() - cached.timestamp < DATA_CACHE_TTL) {
+  const cached = await dataCacheStore.get(key);
+  if (cached) {
     console.log("[overpass] 📋 Road-only cache hit");
-    return cached.data;
+    return cached;
   }
 
   const { south, west, north, east } = bbox;
@@ -711,7 +849,7 @@ async function fetchRoadNetworkOnly(bbox, options = {}) {
   );
 
   const data = { elements: raw.elements };
-  dataCache.set(key, { data, timestamp: Date.now() });
+  await dataCacheStore.set(key, data);
   return data;
 }
 
@@ -730,8 +868,10 @@ async function fetchTransitStops(bbox) {
 }
 
 function __resetForTests() {
-  dataCache.clear();
+  dataCacheStore.clearMemory();
   endpointHealth.clear();
+  backgroundRefreshInflight.clear();
+  liveFetchInProgress.clear();
   serverIdx = 0;
 }
 
