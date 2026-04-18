@@ -208,6 +208,11 @@ export function MobileWebSearchBar({
     const isTyping =
       !!originRef.current?.isFocused?.() || !!destRef.current?.isFocused?.();
     if (gainedResults && expanded && !isTyping) {
+      // On Android, delay collapse by 2s to match routes-found behaviour
+      if (Platform.OS === "android") {
+        const t = setTimeout(() => collapse(), 2000);
+        return () => clearTimeout(t);
+      }
       collapse();
     }
   }, [hasResults, expanded, collapse]);
