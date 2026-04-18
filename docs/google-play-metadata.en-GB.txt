@@ -1,0 +1,34 @@
+SafeNight Google Play Metadata (en-GB)
+
+Use this copy in Play Console for the en-GB listing.
+
+App title
+SafeNight
+
+Short description
+Walking navigation with safer route insights, live location sharing, and safety features.
+
+Full description
+SafeNight is a walking navigation app designed to help people make safer journey choices at night.
+
+Key features:
+- Route safety scoring to compare options before you start walking.
+- Street-light and crime-context overlays to support route decisions.
+- Turn-by-turn walking navigation.
+- Live location sharing with trusted contacts.
+- Safety Circle tools to help contacts follow your journey.
+
+SafeNight is intended to support personal safety decisions. It does not guarantee safety in any location.
+
+Metadata policy guardrails
+Do not use these in store metadata unless clearly required and factual:
+- Ranking or performance claims (for example: best, #1, top, leading, first)
+- Promotional pricing language (for example: free, discount, sale)
+- Awards, accolades, or testimonials
+- Download volume claims (for example: million downloads)
+
+Submission checklist
+- Keep title, short description, and full description factual and feature-focused.
+- Avoid comparative claims unless independently verifiable and attributed.
+- Keep wording consistent across all locales.
+- Recheck custom store listings and any en-GB override before submitting.
