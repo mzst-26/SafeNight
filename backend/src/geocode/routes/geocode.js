@@ -506,14 +506,9 @@ out center tags;`;
       },
       body: query,
     });
-
-    if (!response || response.ok !== true) {
-      const status = response?.status ?? 'unknown';
-      console.log(`[geocode/autocomplete] ⚠️ Overpass returned ${status}`);
-      return [];
-    }
-
-    const data = await response.json();
+  
+    const data = await parseUpstreamJsonOrNull(response, 'Overpass');
+    if (!data) return [];
     const elements = Array.isArray(data?.elements) ? data.elements : [];
 
     return elements
@@ -614,6 +609,53 @@ function tokenize(input) {
 function safeNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function parseUpstreamJsonOrNull(response, sourceLabel) {
+  if (!response) {
+    console.log(`[geocode/autocomplete] ⚠️ ${sourceLabel} returned no response`);
+    return null;
+  }
+
+  const status = Number.isFinite(response.status) ? response.status : 'unknown';
+  const contentType = String(response.headers?.get?.('content-type') || '').toLowerCase();
+
+  let body = '';
+  try {
+    body = await response.text();
+  } catch {
+    body = '';
+  }
+
+  if (!response.ok) {
+    console.log(`[geocode/autocomplete] ⚠️ ${sourceLabel} returned ${status}`);
+    return null;
+  }
+
+  if (!body || !body.trim()) return null;
+
+  const trimmed = body.trim();
+  const looksJson =
+    contentType.includes('application/json') ||
+    contentType.includes('json') ||
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[');
+
+  if (!looksJson) {
+    console.log(
+      `[geocode/autocomplete] ⚠️ ${sourceLabel} returned non-JSON payload (status ${status}, content-type: ${contentType || 'unknown'})`
+    );
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    console.log(
+      `[geocode/autocomplete] ⚠️ ${sourceLabel} returned invalid JSON (status ${status}, content-type: ${contentType || 'unknown'})`
+    );
+    return null;
+  }
 }
 
 function normalizeLocalityName(value) {
@@ -870,7 +912,8 @@ async function nominatimSearch(params) {
   const url = `${NOMINATIM_BASE}/search?${new URLSearchParams(params).toString()}`;
   console.log(`[geocode/autocomplete] 🌐 Nominatim call #${calls.autocomplete} → ${url.replace(NOMINATIM_BASE, '')}`);
   const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
-  return response.json();
+  const data = await parseUpstreamJsonOrNull(response, 'Nominatim');
+  return Array.isArray(data) ? data : [];
 }
 
 // ─── GET /api/geocode/autocomplete ────────────────────────────────────────────
