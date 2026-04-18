@@ -23,7 +23,6 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'Jrtowers-prog/PlymHack2026New'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
