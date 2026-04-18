@@ -305,6 +305,22 @@ export default function HomeScreen() {
     });
   }, []);
 
+  const handleLocationHelp = useCallback(() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert(
+        "Location is blocked or unavailable.\n\nPlease:\n1) Click the site icon in your browser address bar\n2) Allow Location access\n3) Refresh the page and tap Retry Location",
+      );
+      return;
+    }
+    setToast({
+      message:
+        "Enable location permissions in your browser/app settings, then retry.",
+      icon: "information-circle-outline",
+      iconColor: "#1570ef",
+      duration: 4500,
+    });
+  }, []);
+
   // Live tracking — auto-register push token on mount, share location during nav
   const live = useLiveTracking(auth.isLoggedIn);
   const liveStarted = useRef(false);
@@ -605,6 +621,23 @@ export default function HomeScreen() {
     h.effectiveDestination?.longitude,
   ]);
 
+  const selectedPlace = h.selectedDestinationCandidate;
+  const selectedPlaceCategory = selectedPlace?.category
+    ? selectedPlace.category
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+    : null;
+  const selectedPlaceType = selectedPlace?.placeType
+    ? selectedPlace.placeType
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+    : null;
+  const selectedPlaceAddress = selectedPlace?.fullText ?? null;
+  const selectedPlacePostcode = selectedPlace?.address?.postcode ?? null;
+  const selectedPlaceCoords = selectedPlace?.location
+    ? `${selectedPlace.location.latitude.toFixed(5)}, ${selectedPlace.location.longitude.toFixed(5)}`
+    : null;
+
   const isWeb = Platform.OS === "web";
 
   return (
@@ -625,6 +658,7 @@ export default function HomeScreen() {
           isWebGuest
             ? []
             : [
+                ...(h.destinationCandidateMarkers as any),
                 ...(h.poiMarkers as any),
                 ...(h.viaPinLocation
                   ? [
@@ -640,6 +674,7 @@ export default function HomeScreen() {
         routeSegments={isWebGuest ? [] : h.routeSegments}
         roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
+        fitCandidateBoundsToken={h.destinationCandidatesFitToken}
         isNavigating={h.isNavActive}
         navigationLocation={h.nav.userLocation}
         navigationHeading={h.nav.userHeading}
@@ -653,6 +688,7 @@ export default function HomeScreen() {
         vizProgressPct={h.vizProgressPct}
         vizProgressMessage={h.vizProgressMessage}
         onSelectRoute={h.setSelectedRouteId}
+        onSelectMarker={h.handleMapMarkerSelect}
         onLongPress={isWebGuest ? undefined : handleMapLongPress}
         onMapPress={isWebGuest ? undefined : handleMapPress}
         onNavigationFollowChange={setIsNavFollowing}
@@ -697,6 +733,12 @@ export default function HomeScreen() {
                 onClearRoute={h.clearSelectedRoute}
                 onSwap={h.swapOriginAndDest}
                 onGuestTap={isWebGuest ? promptLogin : undefined}
+                destinationCandidates={h.destinationCandidates}
+                selectedDestinationCandidateId={
+                  h.selectedDestinationCandidateId
+                }
+                onSelectDestinationCandidate={h.selectDestinationCandidate}
+                onFindSafeRoutes={h.activateSelectedDestinationCandidate}
                 embedded
                 savedPlaces={savedPlaces}
                 onSelectSavedPlace={handleSelectSavedPlace}
@@ -928,6 +970,10 @@ export default function HomeScreen() {
               onClearRoute={h.clearSelectedRoute}
               onSwap={h.swapOriginAndDest}
               onGuestTap={isWebGuest ? promptLogin : undefined}
+              destinationCandidates={h.destinationCandidates}
+              selectedDestinationCandidateId={h.selectedDestinationCandidateId}
+              onSelectDestinationCandidate={h.selectDestinationCandidate}
+              onFindSafeRoutes={h.activateSelectedDestinationCandidate}
               hasResults={h.routes.length > 0}
               savedPlaces={savedPlaces}
               onSelectSavedPlace={handleSelectSavedPlace}
@@ -1205,6 +1251,10 @@ export default function HomeScreen() {
             onClearRoute={h.clearSelectedRoute}
             onSwap={h.swapOriginAndDest}
             onGuestTap={isWebGuest ? promptLogin : undefined}
+            destinationCandidates={h.destinationCandidates}
+            selectedDestinationCandidateId={h.selectedDestinationCandidateId}
+            onSelectDestinationCandidate={h.selectDestinationCandidate}
+            onFindSafeRoutes={h.activateSelectedDestinationCandidate}
             hasResults={h.routes.length > 0}
             savedPlaces={savedPlaces}
             onSelectSavedPlace={handleSelectSavedPlace}
@@ -1405,6 +1455,90 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         )}
+
+        {h.needsLocationRecovery && !h.isNavActive && (
+          <View style={[styles.locationRecoveryWrap, { top: insets.top + 86 }]}>
+            <View style={styles.locationRecoveryCard}>
+              <Ionicons name="locate-outline" size={16} color="#1570ef" />
+              <Text style={styles.locationRecoveryText}>
+                {h.locationRecoveryReason === "denied"
+                  ? "Location permission is blocked. Enable it to stop defaulting to London."
+                  : h.locationRecoveryReason === "error"
+                    ? "We couldn't read your current location."
+                    : "Still trying to get your location..."}
+              </Text>
+              <Pressable
+                style={styles.locationRecoveryBtn}
+                onPress={() => {
+                  h.refreshLocation();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Retry location"
+              >
+                <Text style={styles.locationRecoveryBtnText}>Retry</Text>
+              </Pressable>
+              <Pressable
+                style={styles.locationRecoveryLink}
+                onPress={handleLocationHelp}
+                accessibilityRole="button"
+                accessibilityLabel="Location help"
+              >
+                <Text style={styles.locationRecoveryLinkText}>Help</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* ── Selected place profile from map/search candidates ── */}
+        {!h.isNavActive &&
+          !h.manualDest &&
+          !h.destSearch.place &&
+          h.destinationCandidates.length > 0 &&
+          selectedPlace && (
+            <View
+              style={[
+                styles.placeProfileWrap,
+                { bottom: insets.bottom + (isWeb ? 20 : SHEET_MIN + 18) },
+              ]}
+            >
+              <View style={styles.placeProfileCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.placeProfileTitle} numberOfLines={1}>
+                    {selectedPlace.primaryText}
+                  </Text>
+                  {selectedPlaceAddress ? (
+                    <Text style={styles.placeProfileSubtitle} numberOfLines={2}>
+                      {selectedPlaceAddress}
+                    </Text>
+                  ) : null}
+                  {(selectedPlaceCategory || selectedPlaceType || selectedPlacePostcode) && (
+                    <Text style={styles.placeProfileMeta} numberOfLines={1}>
+                      {[selectedPlaceCategory, selectedPlaceType, selectedPlacePostcode]
+                        .filter(Boolean)
+                        .join(" • ")}
+                    </Text>
+                  )}
+                  {selectedPlaceCoords ? (
+                    <Text style={styles.placeProfileCoords} numberOfLines={1}>
+                      {selectedPlaceCoords}
+                    </Text>
+                  ) : null}
+                </View>
+                <Pressable
+                  style={styles.placeProfileAction}
+                  onPress={() => {
+                    h.activateSelectedDestinationCandidate();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Find safe routes to selected place"
+                >
+                  <Text style={styles.placeProfileActionText}>
+                    Find Safe Routes
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
 
         {/* ── AI floating button (logged in only) ── */}
         {h.safetyResult &&
@@ -2049,6 +2183,130 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 13,
     fontWeight: "600",
+  },
+  locationRecoveryWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 120,
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  locationRecoveryCard: {
+    width: "100%",
+    maxWidth: 760,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    ...(Platform.OS === "web"
+      ? { boxShadow: "0 4px 12px rgba(21,112,239,0.15)" }
+      : {
+          shadowColor: "#1570ef",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 10,
+          elevation: 10,
+        }),
+  } as any,
+  locationRecoveryText: {
+    flex: 1,
+    color: "#1d4ed8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  locationRecoveryBtn: {
+    borderRadius: 8,
+    backgroundColor: "#1570ef",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  locationRecoveryBtnText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  locationRecoveryLink: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#93c5fd",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  locationRecoveryLinkText: {
+    color: "#1d4ed8",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  placeProfileWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 112,
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  placeProfileCard: {
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e4e7ec",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    ...(Platform.OS === "web"
+      ? { boxShadow: "0 8px 24px rgba(16,24,40,0.14)" }
+      : {
+          shadowColor: "#101828",
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.14,
+          shadowRadius: 12,
+          elevation: 16,
+        }),
+  } as any,
+  placeProfileTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#101828",
+  },
+  placeProfileSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    color: "#667085",
+    fontWeight: "500",
+  },
+  placeProfileMeta: {
+    marginTop: 3,
+    fontSize: 11,
+    color: "#1d4ed8",
+    fontWeight: "700",
+  },
+  placeProfileCoords: {
+    marginTop: 2,
+    fontSize: 11,
+    color: "#475467",
+    fontWeight: "500",
+  },
+  placeProfileAction: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: "#1570ef",
+  },
+  placeProfileActionText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
   },
   profileFailOverlay: {
     position: "absolute",
