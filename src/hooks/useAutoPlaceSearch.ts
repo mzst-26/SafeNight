@@ -31,6 +31,7 @@ export interface UseAutoPlaceSearchReturn {
 
 export const useAutoPlaceSearch = (
   locationBias?: LatLng | null,
+  options?: { subscriptionTier?: string; radiusMiles?: number },
 ): UseAutoPlaceSearchReturn => {
   const [query, setQuery] = useState('');
   const [place, setPlace] = useState<PlaceDetails | null>(null);
@@ -119,9 +120,14 @@ export const useAutoPlaceSearch = (
       // Only update status once the user has paused — avoids a state update on every keystroke
       setStatus('searching');
       try {
+        const tier = (options?.subscriptionTier || 'free').toLowerCase();
+        const defaultRadiusMiles = tier === 'free' ? 5 : 10;
+        const radiusMiles = options?.radiusMiles ?? defaultRadiusMiles;
+        const radiusMeters = Math.round(radiusMiles * 1609.34);
         const results = await fetchPlacePredictions(trimmed, {
           locationBias: locationBias ?? undefined,
-          radiusMeters: locationBias ? 5000 : undefined,
+          radiusMeters: locationBias ? radiusMeters : undefined,
+          subscriptionTier: tier,
         });
 
         if (results.length === 0) {
@@ -146,7 +152,14 @@ export const useAutoPlaceSearch = (
     }, 700);
 
     return () => clearTimeout(timer);
-  }, [query, locationBias?.latitude, locationBias?.longitude, place]);
+  }, [
+    query,
+    locationBias?.latitude,
+    locationBias?.longitude,
+    place,
+    options?.subscriptionTier,
+    options?.radiusMiles,
+  ]);
 
   return { query, setQuery: setQueryWrapped, place, predictions, status, error, selectPrediction, clear };
 };
