@@ -44,6 +44,10 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       font-size:11px;font-weight:700;white-space:nowrap;letter-spacing:0.3px;
       border:1px solid rgba(255,255,255,0.2);box-shadow:0 2px 8px rgba(0,0,0,.4);
       text-shadow:0 1px 3px rgba(0,0,0,.5);animation:pulse 2s ease-in-out infinite}
+    .search-pin-wrap{display:flex;flex-direction:column;align-items:center}
+    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
+    .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #ef4444;filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
+    .search-pin-label{margin-top:7px;background:#fff;color:#111827;border:1px solid rgba(17,24,39,.14);border-radius:10px;padding:2px 7px;font-size:10px;font-weight:700;max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 6px rgba(0,0,0,.2)}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}
     .friend-marker{display:flex;flex-direction:column;align-items:center;pointer-events:none}
     .friend-dot{width:32px;height:32px;border-radius:50%;background:#7C3AED;border:3px solid #fff;
@@ -113,6 +117,14 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
 
     function clearMarkerArray(arr) { arr.forEach(function(m){m.remove()}); arr.length=0; }
     function sendMsg(t, d) { try { window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({type:t},d||{}))); } catch(e){} }
+    function safeLabel(text){
+      return String(text||'')
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/\"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
     function setFollowMode(next){
       if (isFollowingNav === next) return;
       isFollowingNav = next;
@@ -276,8 +288,15 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       map.on('click','unselected-routes-line',function(e){
         if(e.features&&e.features[0]) sendMsg('selectRoute',{id:e.features[0].properties.routeId});
       });
+      map.on('click','safety-circles',function(e){
+        if(e.features&&e.features[0]&&e.features[0].properties&&e.features[0].properties.id){
+          sendMsg('selectMarker',{id:e.features[0].properties.id});
+        }
+      });
       map.on('mouseenter','unselected-routes-line',function(){map.getCanvas().style.cursor='pointer'});
       map.on('mouseleave','unselected-routes-line',function(){map.getCanvas().style.cursor=''});
+      map.on('mouseenter','safety-circles',function(){map.getCanvas().style.cursor='pointer'});
+      map.on('mouseleave','safety-circles',function(){map.getCanvas().style.cursor=''});
 
       /* ── Visualisation layers (rendered below route layers) ── */
       // Bounding box — solid bright border + subtle fill
@@ -369,7 +388,7 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     /* ── Click / Long-press events ─────────────────────────── */
     map.on('click',function(e){
       // Don't fire on route-click (already handled above)
-      var features = map.queryRenderedFeatures(e.point,{layers:['unselected-routes-line']});
+      var features = map.queryRenderedFeatures(e.point,{layers:['unselected-routes-line','safety-circles']});
       if(features.length>0) return;
       sendMsg('press',{lat:e.lngLat.lat,lng:e.lngLat.lng});
     });
@@ -616,9 +635,36 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
 
       /* — Safety markers — */
       var mColors={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
-      var smF=(data.safetyMarkers||[]).map(function(m){
-        return{type:'Feature',properties:{kind:m.kind,label:m.label||m.kind,color:mColors[m.kind]||'#94a3b8'},
-          geometry:{type:'Point',coordinates:[m.lng,m.lat]}};
+      var smF=(data.safetyMarkers||[]).flatMap(function(m){
+        var isCandidate = m.id && String(m.id).indexOf('search-candidate:')===0;
+        if(isCandidate){
+          var raw = String(m.label || 'Place').trim();
+          var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
+          var ce=document.createElement('div');
+          ce.className='search-pin-wrap';
+          ce.style.cursor='pointer';
+          ce.innerHTML='<div class="search-pin-dot"></div><div class="search-pin-label">'+safeLabel(trimmed)+'</div>';
+          ce.addEventListener('click', function(ev){
+            ev.preventDefault();
+            ev.stopPropagation();
+            sendMsg('selectMarker', { id:m.id });
+          });
+          currentMarkers.push(
+            new maplibregl.Marker({element:ce,anchor:'bottom'})
+              .setLngLat([m.lng,m.lat])
+              .addTo(map)
+          );
+          if(data.fitCandidateBounds){
+            bounds=extBounds(bounds,[m.lng,m.lat]);
+          }
+          return [];
+        }
+
+        if(data.fitCandidateBounds && m.id && String(m.id).indexOf('search-candidate:')===0){
+          bounds=extBounds(bounds,[m.lng,m.lat]);
+        }
+        return [{type:'Feature',properties:{id:m.id||'',kind:m.kind,label:m.label||m.kind,color:mColors[m.kind]||'#94a3b8'},
+          geometry:{type:'Point',coordinates:[m.lng,m.lat]}}];
       });
       map.getSource('safety-markers').setData({type:'FeatureCollection',features:smF});
 
@@ -942,6 +988,7 @@ export const RouteMap = ({
   routeSegments = [],
   roadLabels = [],
   panTo,
+  fitCandidateBoundsToken = 0,
   isNavigating = false,
   navigationLocation,
   navigationHeading,
@@ -955,6 +1002,7 @@ export const RouteMap = ({
   vizProgressPct = null,
   vizProgressMessage = null,
   onSelectRoute,
+  onSelectMarker,
   onLongPress,
   onMapPress,
   onNavigationFollowChange,
@@ -964,6 +1012,7 @@ export const RouteMap = ({
   const readyRef = useRef(false);
   const prevGeoKeyRef = useRef("");
   const prevPanKeyRef = useRef(-1);
+  const prevFitCandidateBoundsTokenRef = useRef(0);
 
   // Keep latest props in refs so pushUpdate always reads fresh values
   // (fixes the stale-closure problem when called from the 'ready' handler)
@@ -976,6 +1025,7 @@ export const RouteMap = ({
     routeSegments,
     roadLabels,
     panTo,
+    fitCandidateBoundsToken,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -993,6 +1043,7 @@ export const RouteMap = ({
     routeSegments,
     roadLabels,
     panTo,
+    fitCandidateBoundsToken,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -1006,6 +1057,7 @@ export const RouteMap = ({
     onMapPress,
     onLongPress,
     onSelectRoute,
+    onSelectMarker,
     onNavigationFollowChange,
     onUserInteraction,
   });
@@ -1013,6 +1065,7 @@ export const RouteMap = ({
     onMapPress,
     onLongPress,
     onSelectRoute,
+    onSelectMarker,
     onNavigationFollowChange,
     onUserInteraction,
   };
@@ -1039,6 +1092,7 @@ export const RouteMap = ({
     }));
 
     const mkrs = p.safetyMarkers.map((m) => ({
+      id: m.id,
       kind: m.kind,
       label: m.label,
       lat: m.coordinate.latitude,
@@ -1061,8 +1115,16 @@ export const RouteMap = ({
       p.routes.map((r) => r.id).join(","),
       p.selectedRouteId ?? "",
     ].join("|");
-    const fitBounds = geoKey !== prevGeoKeyRef.current;
-    if (fitBounds) prevGeoKeyRef.current = geoKey;
+    const geoChanged = geoKey !== prevGeoKeyRef.current;
+    if (geoChanged) prevGeoKeyRef.current = geoKey;
+
+    const fitCandidateBounds =
+      (p.fitCandidateBoundsToken ?? 0) !== prevFitCandidateBoundsTokenRef.current;
+    if (fitCandidateBounds) {
+      prevFitCandidateBoundsTokenRef.current = p.fitCandidateBoundsToken ?? 0;
+    }
+
+    const fitBounds = geoChanged || fitCandidateBounds;
 
     // panTo
     let panToData: { lat: number; lng: number } | null = null;
@@ -1079,6 +1141,7 @@ export const RouteMap = ({
       safetyMarkers: mkrs,
       roadLabels: labels,
       fitBounds,
+      fitCandidateBounds,
       panTo: panToData,
       navLocation:
         p.isNavigating && p.navigationLocation
@@ -1114,6 +1177,7 @@ export const RouteMap = ({
     routeSegments,
     roadLabels,
     panTo,
+    fitCandidateBoundsToken,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -1193,6 +1257,9 @@ export const RouteMap = ({
             break;
           case "selectRoute":
             cbs.onSelectRoute?.(msg.id);
+            break;
+          case "selectMarker":
+            cbs.onSelectMarker?.(msg.id);
             break;
           case "navFollowChanged":
             cbs.onNavigationFollowChange?.(Boolean(msg.isFollowing));
