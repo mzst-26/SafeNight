@@ -30,7 +30,13 @@
     "docker:up:subscription": "docker compose up -d subscription",
     "docker:up:geocode": "docker compose up -d geocode",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f --tail=200"
+    "docker:logs": "docker compose logs -f --tail=200",
+    "test": "jest --config ./jest.config.cjs",
+    "test:coverage": "jest --config ./jest.config.cjs --coverage",
+    "test:coverage:ci": "jest --config ./jest.config.cjs --coverage --runInBand",
+    "test:unit": "jest --config ./jest.config.cjs tests/unit",
+    "test:integration": "jest --config ./jest.config.cjs tests/integration --passWithNoTests",
+    "test:system": "jest --config ./jest.config.cjs tests/system --passWithNoTests"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
@@ -43,5 +49,9 @@
     "opening_hours": "^3.11.0",
     "resend": "^6.9.2",
     "stripe": "^20.3.1"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "supertest": "^7.1.4"
   }
 }
