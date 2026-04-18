@@ -81,33 +81,91 @@ describe('safeRoutesRuntime', () => {
     expect(withWaypoint).toBeGreaterThanOrEqual(noWaypoint);
   });
 
-  test('registerActiveSearch rejects stale search sequences', () => {
+  test('registerActiveSearch accepts later arrivals even with lower sequence and preempts previous', () => {
     const firstToken = createCancellationToken();
     const secondToken = createCancellationToken();
-    const firstReq = createReq({ headers: { 'x-search-seq': '20' } });
-    const staleReq = createReq({ headers: { 'x-search-seq': '10' } });
+    const firstReq = createReq({ headers: { 'x-search-id': 'stale-a', 'x-search-seq': '20' } });
+    const staleReq = createReq({ headers: { 'x-search-id': 'stale-b', 'x-search-seq': '10' } });
 
     const first = registerActiveSearch(firstReq, firstToken);
     const stale = registerActiveSearch(staleReq, secondToken);
 
     expect(first.stale).toBe(false);
-    expect(stale.stale).toBe(true);
-    expect(secondToken.isCancelled()).toBe(true);
+    expect(stale.stale).toBe(false);
+    expect(stale.replacedPrevious).toBe(true);
+    expect(firstToken.isCancelled()).toBe(true);
+    expect(secondToken.isCancelled()).toBe(false);
 
+    stale.release();
     first.release();
   });
 
   test('registerActiveSearch preempts older active search', () => {
     const oldToken = createCancellationToken();
     const newToken = createCancellationToken();
-    const oldReq = createReq({ headers: { 'x-search-seq': '10' } });
-    const newReq = createReq({ headers: { 'x-search-seq': '11' } });
+    const oldReq = createReq({ headers: { 'x-search-id': 'preempt-a', 'x-search-seq': '10' } });
+    const newReq = createReq({ headers: { 'x-search-id': 'preempt-b', 'x-search-seq': '11' } });
 
     const oldSearch = registerActiveSearch(oldReq, oldToken);
     const newSearch = registerActiveSearch(newReq, newToken);
 
     expect(oldToken.isCancelled()).toBe(true);
     expect(newSearch.replacedPrevious).toBe(true);
+
+    newSearch.release();
+    oldSearch.release();
+  });
+
+  test('registerActiveSearch allows companion requests only for exact operation signature', () => {
+    const primaryToken = createCancellationToken();
+    const companionToken = createCancellationToken();
+    const sharedHeaders = {
+      'x-search-id': 'same-search-id',
+      'x-search-client': 'same-client',
+      'x-search-seq': '10',
+    };
+    const primaryReq = createReq({ headers: { ...sharedHeaders } });
+    const companionReq = createReq({ headers: { ...sharedHeaders } });
+
+    const primary = registerActiveSearch(primaryReq, primaryToken);
+    const companion = registerActiveSearch(companionReq, companionToken);
+
+    expect(primary.stale).toBe(false);
+    expect(companion.stale).toBe(false);
+    expect(companion.replacedPrevious).toBe(false);
+    expect(primaryToken.isCancelled()).toBe(false);
+    expect(companionToken.isCancelled()).toBe(false);
+
+    primary.release();
+    companion.release();
+  });
+
+  test('registerActiveSearch preempts when search id matches but client differs', () => {
+    const oldToken = createCancellationToken();
+    const newToken = createCancellationToken();
+    const oldReq = createReq({
+      headers: {
+        'x-search-id': 'same-search-id',
+        'x-search-client': 'client-a',
+        'x-search-seq': '10',
+      },
+    });
+    const newReq = createReq({
+      headers: {
+        'x-search-id': 'same-search-id',
+        'x-search-client': 'client-b',
+        'x-search-seq': '10',
+      },
+    });
+
+    const oldSearch = registerActiveSearch(oldReq, oldToken);
+    const newSearch = registerActiveSearch(newReq, newToken);
+
+    expect(oldSearch.stale).toBe(false);
+    expect(newSearch.stale).toBe(false);
+    expect(newSearch.replacedPrevious).toBe(true);
+    expect(oldToken.isCancelled()).toBe(true);
+    expect(newToken.isCancelled()).toBe(false);
 
     newSearch.release();
     oldSearch.release();
