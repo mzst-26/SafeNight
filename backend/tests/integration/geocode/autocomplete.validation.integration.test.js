@@ -123,6 +123,68 @@ describe('GET /autocomplete validation', () => {
     expect(response.body.predictions).toHaveLength(1);
   });
 
+  test('prefers exact house number for comma-separated address queries', async () => {
+    const app = createApp();
+    global.fetch
+      .mockResolvedValueOnce({
+        json: async () => ([
+          {
+            osm_type: 'way',
+            osm_id: 4310,
+            lat: '50.3750',
+            lon: '-4.1100',
+            display_name: 'Eggbuckland Road, Plymouth',
+            importance: 0.9,
+            address: { road: 'Eggbuckland Road', city: 'Plymouth' },
+          },
+        ]),
+      })
+      .mockResolvedValueOnce({
+        json: async () => ([
+          {
+            osm_type: 'node',
+            osm_id: 4311,
+            lat: '50.3751',
+            lon: '-4.1101',
+            display_name: '431 Eggbuckland Road, Plymouth',
+            importance: 0.6,
+            address: {
+              house_number: '431',
+              road: 'Eggbuckland Road',
+              city: 'Plymouth',
+              postcode: 'PL6 5BA',
+            },
+          },
+          {
+            osm_type: 'node',
+            osm_id: 4312,
+            lat: '50.3752',
+            lon: '-4.1102',
+            display_name: '429 Eggbuckland Road, Plymouth',
+            importance: 0.95,
+            address: {
+              house_number: '429',
+              road: 'Eggbuckland Road',
+              city: 'Plymouth',
+            },
+          },
+        ]),
+      });
+
+    const response = await request(app)
+      .get('/api/geocode/autocomplete')
+      .query({ input: '431, Eggbuckland Road' });
+
+    expect(response.status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(response.body.predictions).toHaveLength(1);
+    expect(response.body.predictions[0].description).toContain('431 Eggbuckland Road');
+
+    const structuredUrl = String(global.fetch.mock.calls[1][0]);
+    expect(structuredUrl).toContain('housenumber=431');
+    expect(structuredUrl).toContain('street=Eggbuckland+Road');
+  });
+
   test('respects requested result limit and caps output length', async () => {
     const app = createApp();
     global.fetch.mockResolvedValue({
