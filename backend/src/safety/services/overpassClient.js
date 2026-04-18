@@ -35,7 +35,20 @@ const OSM_REFERER =
   process.env.PUBLIC_WEB_URL ||
   "";
 
+function envInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const OVERPASS_REQUEST_BUDGET_MS = envInt("OVERPASS_REQUEST_BUDGET_MS", 18000);
+const OVERPASS_HEDGE_DELAY_MS = envInt("OVERPASS_HEDGE_DELAY_MS", 250);
+const OVERPASS_SERVER_COOLDOWN_MS = envInt("OVERPASS_SERVER_COOLDOWN_MS", 30000);
+const OVERPASS_RETRY_STAGGER_MS = envInt("OVERPASS_RETRY_STAGGER_MS", 300);
+
 let serverIdx = 0;
+const endpointHealth = new Map();
 
 // ── Data-layer cache (much longer than route cache) ─────────────────────────
 const dataCache = new Map();
@@ -46,10 +59,213 @@ function dataCacheKey(bbox) {
   return `${r(bbox.south)},${r(bbox.west)},${r(bbox.north)},${r(bbox.east)}`;
 }
 
+function sleep(ms, signal = null) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    const onAbort = () => {
+      clearTimeout(timer);
+      const err = new Error("Search cancelled");
+      err.name = "AbortError";
+      reject(err);
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function createAbortError(msg = "Search cancelled") {
+  const err = new Error(msg);
+  err.name = "AbortError";
+  return err;
+}
+
+function createBudgetExceededError() {
+  const err = new Error("Overpass request budget exhausted");
+  err.code = "UPSTREAM_UNAVAILABLE";
+  err.statusCode = 503;
+  err.isServerBusy = true;
+  err.upstreamStatus = 504;
+  err.isBudgetExceeded = true;
+  return err;
+}
+
+function createRequestBudget(parentSignal = null, budgetMs = OVERPASS_REQUEST_BUDGET_MS) {
+  const controller = new AbortController();
+  const deadline = Date.now() + budgetMs;
+  let budgetExpired = false;
+
+  const timer = setTimeout(() => {
+    budgetExpired = true;
+    controller.abort();
+  }, budgetMs);
+
+  const onParentAbort = () => controller.abort();
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      clearTimeout(timer);
+      controller.abort();
+    } else {
+      parentSignal.addEventListener("abort", onParentAbort, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    remainingMs() {
+      return Math.max(0, deadline - Date.now());
+    },
+    isBudgetExceeded() {
+      return budgetExpired || Date.now() >= deadline;
+    },
+    dispose() {
+      clearTimeout(timer);
+      if (parentSignal)
+        parentSignal.removeEventListener("abort", onParentAbort);
+    },
+  };
+}
+
+function getEndpointState(server) {
+  let state = endpointHealth.get(server);
+  if (!state) {
+    state = { score: 0, cooldownUntil: 0, lastFailureAt: 0 };
+    endpointHealth.set(server, state);
+  }
+  return state;
+}
+
+function markEndpointFailure(server, err) {
+  const state = getEndpointState(server);
+  state.score = Math.min(state.score + 2, 50);
+  state.lastFailureAt = Date.now();
+  if (err?.isServerBusy) {
+    state.cooldownUntil = Date.now() + OVERPASS_SERVER_COOLDOWN_MS;
+  }
+}
+
+function markEndpointSuccess(server) {
+  const state = getEndpointState(server);
+  state.score = Math.max(0, state.score - 1);
+  if (Date.now() >= state.cooldownUntil) {
+    state.cooldownUntil = 0;
+  }
+}
+
+function orderedServers() {
+  const now = Date.now();
+  const n = OVERPASS_SERVERS.length;
+  return OVERPASS_SERVERS.map((server, idx) => {
+    const state = getEndpointState(server);
+    const rotationDistance = (idx - serverIdx + n) % n;
+    const inCooldown = state.cooldownUntil > now;
+    return {
+      server,
+      rotationDistance,
+      inCooldown,
+      score: state.score,
+    };
+  })
+    .sort((a, b) => {
+      if (a.inCooldown !== b.inCooldown) {
+        return a.inCooldown ? 1 : -1;
+      }
+      if (a.score !== b.score) return a.score - b.score;
+      return a.rotationDistance - b.rotationDistance;
+    })
+    .map((entry) => entry.server);
+}
+
+function busyErrorFromStatus(server, status, snippet) {
+  const upstreamErr = new Error(
+    `Overpass ${server} returned ${status}: ${snippet}`,
+  );
+  upstreamErr.code = "UPSTREAM_UNAVAILABLE";
+  upstreamErr.statusCode = 503;
+  upstreamErr.isServerBusy = true;
+  upstreamErr.upstreamStatus = status;
+  return upstreamErr;
+}
+
+function timeoutError(server) {
+  const timeoutErr = new Error(`Overpass ${server} timed out`);
+  timeoutErr.code = "UPSTREAM_UNAVAILABLE";
+  timeoutErr.statusCode = 503;
+  timeoutErr.isServerBusy = true;
+  timeoutErr.upstreamStatus = 504;
+  return timeoutErr;
+}
+
+async function runServerQuery(
+  server,
+  fullQuery,
+  requestHeaders,
+  timeout,
+  signal,
+  requestBudget,
+) {
+  const timeoutController = new AbortController();
+  const abortFromParent = () => timeoutController.abort();
+  if (signal) signal.addEventListener("abort", abortFromParent, { once: true });
+
+  const remainingMs = requestBudget
+    ? requestBudget.remainingMs()
+    : Number.POSITIVE_INFINITY;
+  if (requestBudget && remainingMs <= 0) {
+    if (signal) signal.removeEventListener("abort", abortFromParent);
+    throw createBudgetExceededError();
+  }
+
+  const timeoutMs = Math.min((timeout + 15) * 1000, remainingMs);
+  if (timeoutMs <= 0) {
+    if (signal) signal.removeEventListener("abort", abortFromParent);
+    throw createBudgetExceededError();
+  }
+
+  const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+  try {
+    const resp = await fetch(server, {
+      method: "POST",
+      headers: requestHeaders,
+      body: `data=${encodeURIComponent(fullQuery)}`,
+      signal: timeoutController.signal,
+    });
+
+    if (resp.status === 403 || resp.status === 429 || resp.status >= 500) {
+      const snippet = (await resp.text()).slice(0, 220);
+      throw busyErrorFromStatus(server, resp.status, snippet);
+    }
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Overpass error ${resp.status}: ${text.slice(0, 200)}`);
+    }
+
+    return await resp.json();
+  } catch (err) {
+    if (err.name === "AbortError") {
+      if (requestBudget?.isBudgetExceeded()) {
+        throw createBudgetExceededError();
+      }
+      if (signal?.aborted) {
+        throw createAbortError();
+      }
+      throw timeoutError(server);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", abortFromParent);
+  }
+}
+
 /**
  * Run an Overpass QL query with automatic retry & server rotation.
  */
-async function overpassQuery(query, timeout = 90, signal = null) {
+async function overpassQuery(query, timeout = 90, signal = null, requestBudget = null) {
   const fullQuery = `[out:json][timeout:${timeout}];${query}`;
   let lastError;
 
@@ -61,67 +277,100 @@ async function overpassQuery(query, timeout = 90, signal = null) {
   };
   if (OSM_REFERER) requestHeaders.Referer = OSM_REFERER;
 
-  for (let attempt = 0; attempt < OVERPASS_SERVERS.length; attempt++) {
-    const server =
-      OVERPASS_SERVERS[(serverIdx + attempt) % OVERPASS_SERVERS.length];
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), (timeout + 15) * 1000);
-      const abortFromParent = () => controller.abort();
-      if (signal)
-        signal.addEventListener("abort", abortFromParent, { once: true });
+  const budget = requestBudget || createRequestBudget(signal, OVERPASS_REQUEST_BUDGET_MS);
+  const createdBudget = !requestBudget;
+  const requestSignal = budget.signal;
 
-      const resp = await fetch(server, {
-        method: "POST",
-        headers: requestHeaders,
-        body: `data=${encodeURIComponent(fullQuery)}`,
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (signal) signal.removeEventListener("abort", abortFromParent);
+  try {
+    const servers = orderedServers();
 
-      if (resp.status === 403 || resp.status === 429 || resp.status >= 500) {
-        const snippet = (await resp.text()).slice(0, 220);
-        const upstreamErr = new Error(
-          `Overpass ${server} returned ${resp.status}: ${snippet}`,
-        );
-        upstreamErr.code = "UPSTREAM_UNAVAILABLE";
-        upstreamErr.statusCode = 503;
-        upstreamErr.isServerBusy = true;
-        upstreamErr.upstreamStatus = resp.status;
-        lastError = upstreamErr;
-        // Small stagger so we don't hammer servers in rapid succession.
-        await new Promise((resolve) =>
-          setTimeout(resolve, 300 + attempt * 250),
+    for (let pairStart = 0; pairStart < servers.length; pairStart += 2) {
+      if (budget.isBudgetExceeded()) throw createBudgetExceededError();
+
+      const primary = servers[pairStart];
+      const secondary = servers[pairStart + 1] || null;
+      const hedgeAbort = new AbortController();
+      const abortFromRequest = () => hedgeAbort.abort();
+      requestSignal.addEventListener("abort", abortFromRequest, { once: true });
+
+      const runTask = async (server, delayMs = 0) => {
+        if (delayMs > 0) {
+          const waitMs = Math.min(delayMs, budget.remainingMs());
+          if (waitMs <= 0) throw createBudgetExceededError();
+          await sleep(waitMs, requestSignal);
+        }
+
+        if (hedgeAbort.signal.aborted) throw createAbortError();
+        const relayAbort = new AbortController();
+        const abortFromAny = () => relayAbort.abort();
+        requestSignal.addEventListener("abort", abortFromAny, { once: true });
+        hedgeAbort.signal.addEventListener("abort", abortFromAny, { once: true });
+        try {
+          const data = await runServerQuery(
+            server,
+            fullQuery,
+            requestHeaders,
+            timeout,
+            relayAbort.signal,
+            budget,
+          );
+          return { server, data };
+        } catch (err) {
+          if (!(err?.name === "AbortError" && !budget.isBudgetExceeded())) {
+            markEndpointFailure(server, err);
+            err.__endpointRecorded = true;
+          }
+          err.server = server;
+          throw err;
+        } finally {
+          requestSignal.removeEventListener("abort", abortFromAny);
+          hedgeAbort.signal.removeEventListener("abort", abortFromAny);
+        }
+      };
+
+      const tasks = [runTask(primary, 0)];
+      if (secondary) tasks.push(runTask(secondary, OVERPASS_HEDGE_DELAY_MS));
+
+      try {
+        const winner = await Promise.any(tasks);
+        hedgeAbort.abort();
+        markEndpointSuccess(winner.server);
+        const winnerIdx = OVERPASS_SERVERS.indexOf(winner.server);
+        if (winnerIdx >= 0) serverIdx = winnerIdx;
+        return winner.data;
+      } catch (aggregateErr) {
+        hedgeAbort.abort();
+        const errors = Array.isArray(aggregateErr?.errors)
+          ? aggregateErr.errors
+          : [aggregateErr];
+        for (const err of errors) {
+          if (err?.name === "AbortError" && !budget.isBudgetExceeded()) continue;
+          const failedServer = err?.server;
+          if (failedServer && !err?.__endpointRecorded) {
+            markEndpointFailure(failedServer, err);
+          }
+          lastError = err;
+        }
+
+        requestSignal.removeEventListener("abort", abortFromRequest);
+
+        if (budget.isBudgetExceeded()) throw createBudgetExceededError();
+        if (requestSignal.aborted && signal?.aborted) throw createAbortError();
+
+        const pairAttempt = Math.floor(pairStart / 2);
+        await sleep(
+          OVERPASS_RETRY_STAGGER_MS + pairAttempt * 250,
+          requestSignal,
         );
         continue;
+      } finally {
+        requestSignal.removeEventListener("abort", abortFromRequest);
       }
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Overpass error ${resp.status}: ${text.slice(0, 200)}`);
-      }
-
-      const data = await resp.json();
-      serverIdx = (serverIdx + attempt) % OVERPASS_SERVERS.length;
-      return data;
-    } catch (err) {
-      lastError = err;
-      if (err.name === "AbortError") {
-        if (signal?.aborted) {
-          const abortErr = new Error("Search cancelled");
-          abortErr.name = "AbortError";
-          throw abortErr;
-        }
-        const timeoutErr = new Error(`Overpass ${server} timed out`);
-        timeoutErr.code = "UPSTREAM_UNAVAILABLE";
-        timeoutErr.statusCode = 503;
-        timeoutErr.isServerBusy = true;
-        timeoutErr.upstreamStatus = 504;
-        lastError = timeoutErr;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 300 + attempt * 250));
     }
+  } finally {
+    if (createdBudget) budget.dispose();
   }
+
   if (lastError) throw lastError;
   const allFailedErr = new Error("All Overpass servers failed");
   allFailedErr.code = "UPSTREAM_UNAVAILABLE";
@@ -134,7 +383,11 @@ function toBBoxString(bbox) {
   return `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
 }
 
-async function fetchSafetyDataSplitFallback(bbox, signal = null) {
+async function fetchSafetyDataSplitFallback(
+  bbox,
+  signal = null,
+  requestBudget = null,
+) {
   const b = toBBoxString(bbox);
 
   const roadQuery = `
@@ -179,7 +432,7 @@ async function fetchSafetyDataSplitFallback(bbox, signal = null) {
   `;
 
   // Required query: route computation cannot proceed without walkable roads.
-  const roads = await overpassQuery(roadQuery, 30, signal);
+  const roads = await overpassQuery(roadQuery, 30, signal, requestBudget);
 
   // Optional categories: degrade to empty data when an upstream provider fails.
   const optionalQueries = [
@@ -192,7 +445,7 @@ async function fetchSafetyDataSplitFallback(bbox, signal = null) {
   const optionalResults = await Promise.all(
     optionalQueries.map(async ({ name, query }) => {
       try {
-        const data = await overpassQuery(query, 30, signal);
+        const data = await overpassQuery(query, 30, signal, requestBudget);
         return [name, data];
       } catch (err) {
         if (err?.name === "AbortError" || signal?.aborted) {
@@ -280,56 +533,65 @@ async function fetchAllSafetyData(bbox, options = {}) {
   console.log("[overpass] 🌐 Fetching ALL safety data in single query...");
   const t0 = Date.now();
   let result;
+  const requestBudget = createRequestBudget(signal, OVERPASS_REQUEST_BUDGET_MS);
   try {
-    // Combined query is heavier than split queries; allow a longer timeout.
-    const raw = await overpassQuery(query, 45, signal);
-    console.log(
-      `[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`,
-    );
-    result = splitElements(raw.elements);
-  } catch (err) {
-    const msg = String(err?.message || "");
-    const shouldFallback =
-      err?.code === "UPSTREAM_UNAVAILABLE" ||
-      err?.statusCode === 503 ||
-      (typeof err?.upstreamStatus === "number" && err.upstreamStatus >= 500) ||
-      /returned\s+(403|429|5\d\d)/i.test(msg) ||
-      msg.includes(" 403") ||
-      msg.includes(" 429") ||
-      msg.includes(" 504") ||
-      msg.includes("timed out") ||
-      msg.includes("All Overpass servers failed");
+    try {
+      // Combined query is heavier than split queries; allow a longer timeout.
+      const raw = await overpassQuery(query, 45, signal, requestBudget);
+      console.log(
+        `[overpass] ✅ Single query: ${raw.elements.length} elements in ${Date.now() - t0}ms`,
+      );
+      result = splitElements(raw.elements);
+    } catch (err) {
+      const msg = String(err?.message || "");
+      const shouldFallback =
+        err?.code === "UPSTREAM_UNAVAILABLE" ||
+        err?.statusCode === 503 ||
+        (typeof err?.upstreamStatus === "number" && err.upstreamStatus >= 500) ||
+        /returned\s+(403|429|5\d\d)/i.test(msg) ||
+        msg.includes(" 403") ||
+        msg.includes(" 429") ||
+        msg.includes(" 504") ||
+        msg.includes("timed out") ||
+        msg.includes("All Overpass servers failed");
 
-    if (!shouldFallback) throw err;
+      if (!shouldFallback) throw err;
 
-    console.warn(
-      `[overpass] ⚠️ Single query failed (${msg.slice(0, 160)}). Falling back to split queries.`,
-    );
-    const splitData = await fetchSafetyDataSplitFallback(bbox, signal);
-    const totalElements =
-      (splitData.roads.elements?.length || 0) +
-      (splitData.lights.elements?.length || 0) +
-      (splitData.cctv.elements?.length || 0) +
-      (splitData.places.elements?.length || 0) +
-      (splitData.transit.elements?.length || 0);
-    console.log(
-      `[overpass] ✅ Split fallback: ${totalElements} elements in ${Date.now() - t0}ms`,
-    );
-    result = splitData;
-  }
-
-  // Cache the split result
-  dataCache.set(key, { data: result, timestamp: Date.now() });
-
-  // Evict stale entries
-  if (dataCache.size > 50) {
-    const now = Date.now();
-    for (const [k, v] of dataCache) {
-      if (now - v.timestamp > DATA_CACHE_TTL) dataCache.delete(k);
+      console.warn(
+        `[overpass] ⚠️ Single query failed (${msg.slice(0, 160)}). Falling back to split queries.`,
+      );
+      const splitData = await fetchSafetyDataSplitFallback(
+        bbox,
+        signal,
+        requestBudget,
+      );
+      const totalElements =
+        (splitData.roads.elements?.length || 0) +
+        (splitData.lights.elements?.length || 0) +
+        (splitData.cctv.elements?.length || 0) +
+        (splitData.places.elements?.length || 0) +
+        (splitData.transit.elements?.length || 0);
+      console.log(
+        `[overpass] ✅ Split fallback: ${totalElements} elements in ${Date.now() - t0}ms`,
+      );
+      result = splitData;
     }
-  }
 
-  return result;
+    // Cache the split result
+    dataCache.set(key, { data: result, timestamp: Date.now() });
+
+    // Evict stale entries
+    if (dataCache.size > 50) {
+      const now = Date.now();
+      for (const [k, v] of dataCache) {
+        if (now - v.timestamp > DATA_CACHE_TTL) dataCache.delete(k);
+      }
+    }
+
+    return result;
+  } finally {
+    requestBudget.dispose();
+  }
 }
 
 /**
@@ -437,7 +699,13 @@ async function fetchRoadNetworkOnly(bbox, options = {}) {
 
   console.log("[overpass] 🌐 Fetching road network only (Phase 1)...");
   const t0 = Date.now();
-  const raw = await overpassQuery(query, 30, signal);
+  const requestBudget = createRequestBudget(signal, OVERPASS_REQUEST_BUDGET_MS);
+  let raw;
+  try {
+    raw = await overpassQuery(query, 30, signal, requestBudget);
+  } finally {
+    requestBudget.dispose();
+  }
   console.log(
     `[overpass] ✅ Road-only: ${raw.elements.length} elements in ${Date.now() - t0}ms`,
   );
@@ -461,6 +729,12 @@ async function fetchTransitStops(bbox) {
   return (await fetchAllSafetyData(bbox)).transit;
 }
 
+function __resetForTests() {
+  dataCache.clear();
+  endpointHealth.clear();
+  serverIdx = 0;
+}
+
 module.exports = {
   overpassQuery,
   fetchAllSafetyData,
@@ -469,4 +743,5 @@ module.exports = {
   fetchLighting,
   fetchOpenPlaces,
   fetchTransitStops,
+  __resetForTests,
 };

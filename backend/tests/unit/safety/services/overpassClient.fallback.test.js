@@ -1,4 +1,25 @@
-const { fetchAllSafetyData } = require('../../../../src/safety/services/overpassClient');
+const MODULE_PATH = '../../../../src/safety/services/overpassClient';
+
+function withOverpassModule(env = {}) {
+  const prev = {};
+  for (const [key, value] of Object.entries(env)) {
+    prev[key] = process.env[key];
+    if (value == null) delete process.env[key];
+    else process.env[key] = String(value);
+  }
+  jest.resetModules();
+  const mod = require(MODULE_PATH);
+  mod.__resetForTests?.();
+  return {
+    ...mod,
+    restoreEnv() {
+      for (const key of Object.keys(env)) {
+        if (prev[key] == null) delete process.env[key];
+        else process.env[key] = prev[key];
+      }
+    },
+  };
+}
 
 function makeResponse(status, payload) {
   return {
@@ -39,7 +60,177 @@ describe('overpassClient fallback behavior', () => {
     jest.restoreAllMocks();
   });
 
+  test('enforces request budget exhaustion and stops unbounded server rotation', async () => {
+    const { fetchAllSafetyData, restoreEnv } = withOverpassModule({
+      OVERPASS_REQUEST_BUDGET_MS: '70',
+      OVERPASS_HEDGE_DELAY_MS: '20',
+      OVERPASS_RETRY_STAGGER_MS: '5',
+      OVERPASS_SERVERS: 'https://a.test/api/interpreter,https://b.test/api/interpreter,https://c.test/api/interpreter',
+    });
+
+    global.fetch = jest.fn(async (_url, options = {}) => {
+      await new Promise((resolve, reject) => {
+        const onAbort = () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        };
+        if (options.signal) {
+          if (options.signal.aborted) return onAbort();
+          options.signal.addEventListener('abort', onAbort, { once: true });
+        }
+        setTimeout(resolve, 500);
+      });
+      return makeResponse(200, { elements: [] });
+    });
+
+    await expect(
+      fetchAllSafetyData({
+        south: 10,
+        west: 10,
+        north: 10.1,
+        east: 10.1,
+      }),
+    ).rejects.toThrow(/budget exhausted/i);
+
+    expect(global.fetch).toHaveBeenCalled();
+    restoreEnv();
+  });
+
+  test('uses hedged request and returns first successful server response', async () => {
+    const { fetchAllSafetyData, restoreEnv } = withOverpassModule({
+      OVERPASS_REQUEST_BUDGET_MS: '1200',
+      OVERPASS_HEDGE_DELAY_MS: '15',
+      OVERPASS_RETRY_STAGGER_MS: '5',
+      OVERPASS_SERVERS: 'https://primary.test/api/interpreter,https://secondary.test/api/interpreter',
+    });
+
+    let primaryAborted = false;
+
+    global.fetch = jest.fn((url, options = {}) => {
+      if (String(url).includes('primary.test')) {
+        return new Promise((resolve, reject) => {
+          const onAbort = () => {
+            primaryAborted = true;
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          };
+          if (options.signal) options.signal.addEventListener('abort', onAbort, { once: true });
+          setTimeout(() => {
+            resolve(
+              makeResponse(200, {
+                elements: [{ type: 'way', id: 111, nodes: [1, 2], tags: { highway: 'residential' } }],
+              }),
+            );
+          }, 250);
+        });
+      }
+
+      return Promise.resolve(
+        makeResponse(200, {
+          elements: [
+            { type: 'way', id: 222, nodes: [3, 4], tags: { highway: 'residential' } },
+            { type: 'node', id: 3, lat: 51, lon: -1 },
+            { type: 'node', id: 4, lat: 51.0002, lon: -1.0002 },
+            { type: 'node', id: 5, lat: 51, lon: -1, tags: { highway: 'street_lamp' } },
+            { type: 'node', id: 6, lat: 51, lon: -1, tags: { man_made: 'surveillance' } },
+            { type: 'node', id: 7, lat: 51, lon: -1, tags: { amenity: 'cafe' } },
+            { type: 'node', id: 8, lat: 51, lon: -1, tags: { highway: 'bus_stop' } },
+          ],
+        }),
+      );
+    });
+
+    const data = await fetchAllSafetyData({
+      south: 51,
+      west: -1.1,
+      north: 51.1,
+      east: -0.9,
+    });
+
+    expect(data.roads.elements.length).toBeGreaterThan(0);
+    expect(data.lights.elements.length).toBeGreaterThan(0);
+    expect(data.cctv.elements.length).toBeGreaterThan(0);
+    expect(data.places.elements.length).toBeGreaterThan(0);
+    expect(data.transit.elements.length).toBeGreaterThan(0);
+    expect(primaryAborted).toBe(true);
+    expect(global.fetch.mock.calls.some(([url]) => String(url).includes('secondary.test'))).toBe(true);
+    restoreEnv();
+  });
+
+  test('deprioritizes endpoints on cooldown after busy errors', async () => {
+    const { fetchAllSafetyData, restoreEnv } = withOverpassModule({
+      OVERPASS_REQUEST_BUDGET_MS: '1200',
+      OVERPASS_HEDGE_DELAY_MS: '5',
+      OVERPASS_SERVER_COOLDOWN_MS: '60000',
+      OVERPASS_RETRY_STAGGER_MS: '5',
+      OVERPASS_SERVERS: 'https://a.test/api/interpreter,https://b.test/api/interpreter,https://c.test/api/interpreter',
+    });
+
+    let phase = 1;
+    const phase2Calls = [];
+
+    global.fetch = jest.fn((url) => {
+      const server = String(url);
+      if (phase === 2) phase2Calls.push(server);
+
+      if (phase === 1) {
+        if (server.includes('a.test')) {
+          return new Promise((resolve) =>
+            setTimeout(() => resolve(makeResponse(200, { elements: [{ type: 'way', id: 1, nodes: [1, 2], tags: { highway: 'residential' } }] })), 45),
+          );
+        }
+        if (server.includes('b.test')) {
+          return Promise.resolve(makeResponse(429, 'rate limited'));
+        }
+        return Promise.resolve(makeResponse(200, { elements: [] }));
+      }
+
+      if (server.includes('a.test')) {
+        return new Promise((resolve) =>
+          setTimeout(() => resolve(makeResponse(200, { elements: [] })), 120),
+        );
+      }
+      if (server.includes('c.test')) {
+        return new Promise((resolve) =>
+          setTimeout(() => resolve(makeResponse(200, { elements: [] })), 15),
+        );
+      }
+      return new Promise((resolve) =>
+        setTimeout(() => resolve(makeResponse(200, { elements: [] })), 8),
+      );
+    });
+
+    await fetchAllSafetyData({
+      south: 60,
+      west: 10,
+      north: 60.1,
+      east: 10.1,
+    });
+
+    phase = 2;
+    await fetchAllSafetyData({
+      south: 60.2,
+      west: 10,
+      north: 60.3,
+      east: 10.1,
+    });
+
+    expect(phase2Calls.length).toBeGreaterThanOrEqual(2);
+    expect(phase2Calls[0]).toContain('a.test');
+    expect(phase2Calls[1]).toContain('c.test');
+    expect(phase2Calls.some((url) => url.includes('b.test'))).toBe(false);
+    restoreEnv();
+  });
+
   test('falls back to split queries when combined query hits upstream 5xx', async () => {
+    const { fetchAllSafetyData, restoreEnv } = withOverpassModule({
+      OVERPASS_REQUEST_BUDGET_MS: '5000',
+      OVERPASS_HEDGE_DELAY_MS: '15',
+      OVERPASS_RETRY_STAGGER_MS: '5',
+    });
+
     const hits = {
       combined: 0,
       roads: 0,
@@ -109,9 +300,16 @@ describe('overpassClient fallback behavior', () => {
     expect(data.cctv.elements.length).toBeGreaterThan(0);
     expect(data.places.elements.length).toBeGreaterThan(0);
     expect(data.transit.elements.length).toBeGreaterThan(0);
+    restoreEnv();
   });
 
   test('keeps routes available when optional split category fails', async () => {
+    const { fetchAllSafetyData, restoreEnv } = withOverpassModule({
+      OVERPASS_REQUEST_BUDGET_MS: '5000',
+      OVERPASS_HEDGE_DELAY_MS: '15',
+      OVERPASS_RETRY_STAGGER_MS: '5',
+    });
+
     const hits = {
       combined: 0,
       roads: 0,
@@ -171,5 +369,6 @@ describe('overpassClient fallback behavior', () => {
     expect(hits.cctv).toBeGreaterThanOrEqual(1);
     expect(data.roads.elements.length).toBeGreaterThan(0);
     expect(data.cctv.elements).toEqual([]);
+    restoreEnv();
   });
 });
