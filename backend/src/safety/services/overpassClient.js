@@ -40,6 +40,8 @@ const OSM_REFERER =
 function envInt(name, fallback) {
   const envValues = {
     OVERPASS_REQUEST_BUDGET_MS: process.env.OVERPASS_REQUEST_BUDGET_MS,
+    OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS:
+      process.env.OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS,
     OVERPASS_HEDGE_DELAY_MS: process.env.OVERPASS_HEDGE_DELAY_MS,
     OVERPASS_SERVER_COOLDOWN_MS: process.env.OVERPASS_SERVER_COOLDOWN_MS,
     OVERPASS_RETRY_STAGGER_MS: process.env.OVERPASS_RETRY_STAGGER_MS,
@@ -58,6 +60,12 @@ function envInt(name, fallback) {
 }
 
 const OVERPASS_REQUEST_BUDGET_MS = envInt("OVERPASS_REQUEST_BUDGET_MS", 18000);
+const OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS = (() => {
+  const raw = process.env.OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS;
+  if (raw == null || raw === "") return 12000;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 12000;
+})();
 const OVERPASS_HEDGE_DELAY_MS = envInt("OVERPASS_HEDGE_DELAY_MS", 250);
 const OVERPASS_SERVER_COOLDOWN_MS = envInt("OVERPASS_SERVER_COOLDOWN_MS", 30000);
 const OVERPASS_RETRY_STAGGER_MS = envInt("OVERPASS_RETRY_STAGGER_MS", 300);
@@ -627,11 +635,35 @@ async function fetchAllSafetyData(bbox, options = {}) {
         console.warn(
           `[overpass] ⚠️ Single query failed (${msg.slice(0, 160)}). Falling back to split queries.`,
         );
-        const splitData = await fetchSafetyDataSplitFallback(
-          bbox,
-          liveSignal,
-          requestBudget,
-        );
+        let splitBudget = requestBudget;
+        let createdSplitBudget = null;
+        if (
+          err?.isBudgetExceeded &&
+          OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS > 0
+        ) {
+          const combinedRemaining = requestBudget.remainingMs();
+          const splitBudgetMs = Math.max(
+            1000,
+            combinedRemaining + OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS,
+          );
+          createdSplitBudget = createRequestBudget(liveSignal, splitBudgetMs);
+          splitBudget = createdSplitBudget;
+          console.warn(
+            `[overpass] ⏱️ Extending split fallback budget by ${OVERPASS_SPLIT_FALLBACK_EXTRA_BUDGET_MS}ms (total split budget=${splitBudgetMs}ms).`,
+          );
+        }
+        let splitData;
+        try {
+          splitData = await fetchSafetyDataSplitFallback(
+            bbox,
+            liveSignal,
+            splitBudget,
+          );
+        } finally {
+          if (createdSplitBudget) {
+            createdSplitBudget.dispose();
+          }
+        }
         const totalElements =
           (splitData.roads.elements?.length || 0) +
           (splitData.lights.elements?.length || 0) +
