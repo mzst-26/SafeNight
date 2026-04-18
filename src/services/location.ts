@@ -30,8 +30,6 @@ export const getCurrentLocation = async (): Promise<LatLng> => {
   try {
     const position = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
-      maximumAge: 15_000,
-      timeout: 10_000,
     });
 
     return toLatLng(position.coords);
