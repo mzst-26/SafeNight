@@ -120,26 +120,30 @@ function registerActiveSearch(req, cancelToken) {
   const clientId = readSearchClient(req, userKey);
   const previous = activeSearchByUser.get(userKey);
 
-  if (previous && previous.searchSeq > searchSeq) {
-    logSearchCancellation("stale_rejected", {
+  const isExactCompanion =
+    previous &&
+    previous.searchId === searchId &&
+    previous.searchSeq === searchSeq &&
+    previous.clientId === clientId;
+
+  if (isExactCompanion) {
+    logSearchCancellation("companion_attached", {
       userKey,
-      clientId,
-      staleSearchId: searchId,
-      staleSeq: searchSeq,
-      activeSearchId: previous.searchId,
+      activeClientId: previous.clientId,
+      companionClientId: clientId,
+      searchId,
       activeSeq: previous.searchSeq,
+      companionSeq: searchSeq,
     });
-    cancelToken.cancel(
-      "This route search is older than another active search on your account.",
-    );
     return {
       userKey,
       searchId,
       searchSeq,
       clientId,
       replacedPrevious: false,
+      stale: false,
+      companion: true,
       release: () => {},
-      stale: true,
     };
   }
 
