@@ -269,9 +269,9 @@ Built with **React Native (Expo SDK 54)**, **TypeScript**, and a **5-microservic
 │         Place search & geocoding with Nominatim + TTL cache    │
 │         Rate limit: 200 req/15 min/IP                          │
 │                                                                │
-│  GET  /api/places/autocomplete   Search places                 │
-│  GET  /api/places/details        Place details                 │
-│  GET  /api/places/reverse        Reverse geocoding             │
+│  GET  /api/geocode/autocomplete  Search places                 │
+│  GET  /api/geocode/details       Place details                 │
+│  GET  /api/geocode/reverse       Reverse geocoding             │
 │  GET  /api/health                Health check                  │
 └────────────────────────────────────────────────────────────────┘
 
@@ -310,6 +310,28 @@ git clone https://github.com/Jrtowers-prog/PlymHack2026New.git
 cd PlymHack2026New
 npm install
 cd backend && npm install && cd ..
+```
+
+## ✅ CI and Artifact Safety
+
+- CI workflow `.github/workflows/ci-test-all-coverage.yml` runs on every push and pull request.
+- Unified enforcement command in CI: `npm run test:all:coverage`.
+- Generated coverage/test artifacts are blocked by policy:
+    - ignored in git via `.gitignore`
+    - excluded from backend production image context via `backend/.dockerignore`
+    - guarded in CI and local checks via `scripts/guard-artifacts.sh`
+
+Runbook:
+
+```bash
+# Check current staged files before commit
+npm run guard:artifacts
+
+# Check repository tracked files (CI-equivalent)
+npm run guard:artifacts:ci
+
+# Optional: install local pre-commit hook
+npm run install:hooks
 ```
 
 ### 2. Configure environment variables
@@ -496,7 +518,15 @@ PlymHack2026New/
 │       │                            integrity
 │       ├── safety/                  Service 2 — Safety Compute (port 3002)
 │       │   ├── server.js            Safety entry point
-│       │   ├── routes/              safeRoutes
+│       │   ├── routes/              safeRoutes (entry route),
+│       │   │                        safeRoutesRuntime,
+│       │   │                        safeRoutesOrchestrator,
+│       │   │                        safeRoutesRequestPolicy,
+│       │   │                        safeRoutesPoiCollector,
+│       │   │                        safeRoutesResponseFormatter,
+│       │   │                        safeRoutesMetaBuilder,
+│       │   │                        safeRoutesCandidateFinder,
+│       │   │                        safeRoutesUtils
 │       │   └── services/            crimeClient, overpassClient, safetyGraph,
 │       │                            geo
 │       ├── user/                    Service 3 — User Data (port 3003)
@@ -510,7 +540,16 @@ PlymHack2026New/
 │       │                            plans, cancel)
 │       └── geocode/                 Service 5 — Geocode (port 3005)
 │           ├── server.js            Geocode entry point
-│           └── routes/              places (autocomplete, details, reverse)
+│           └── routes/              geocode (autocomplete, details, reverse)
+│
+│   └── tests/
+│       ├── unit/                    Fast deterministic tests by module
+│       │   └── safety/routes/       Runtime/orchestrator/request-policy/
+│       │                            poi/formatter/meta/candidate finder tests
+│       ├── integration/             Route-level API validation tests
+│       │   ├── gateway/             directions validation tests
+│       │   └── geocode/             autocomplete/details/reverse validation
+│       └── system/                  Service health smoke tests
 │
 ├── .github/workflows/                CI/CD pipelines
 │   ├── build-android.yml              Auto-build APK on push to main
@@ -723,6 +762,15 @@ npx expo run:ios        # iOS (macOS only, requires Xcode)
 | `npm run android`             | Build and run on Android                      |
 | `npm run ios`                 | Build and run on iOS                          |
 | `npm run lint`                | Run ESLint                                    |
+| `npm run test:frontend`       | Run frontend Jest tests                       |
+| `npm run test:frontend:watch` | Run frontend tests in watch mode              |
+| `npm run test:frontend:coverage` | Run frontend tests with coverage           |
+| `npm run test:backend`        | Run backend coverage tests                    |
+| `npm run test:all`            | Run frontend + backend tests                  |
+| `npm run test:all:coverage`   | Run frontend + backend coverage suites        |
+| `npm run guard:artifacts`     | Validate that generated artifacts are not committed |
+| `npm run guard:artifacts:ci`  | CI-level artifact guard check                 |
+| `npm run install:hooks`       | Install local git hooks                       |
 | `npm run build:web`           | Export web build for deployment               |
 | `npm run build:android`       | EAS production build for Android (app bundle) |
 | `npm run build:android:local` | EAS production build locally                  |
@@ -739,6 +787,11 @@ Android versioning source of truth: `android/version.properties`
 | Command                      | Description                                      |
 | ---------------------------- | ------------------------------------------------ |
 | `npm run dev`                | Start all 5 services concurrently (with --watch) |
+| `npm run test`               | Run all backend tests (Jest, in-band)            |
+| `npm run test:unit`          | Run backend unit tests                            |
+| `npm run test:integration`   | Run backend integration tests                     |
+| `npm run test:system`        | Run backend system smoke tests                    |
+| `npm run test:coverage`      | Run backend tests with coverage                   |
 | `npm run start:gateway`      | Start API Gateway service                        |
 | `npm run start:safety`       | Start Safety Compute service                     |
 | `npm run start:user`         | Start User Data service                          |
