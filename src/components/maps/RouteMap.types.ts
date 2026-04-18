@@ -28,6 +28,8 @@ export type RouteMapProps = {
   panTo?: { location: LatLng; key: number } | null;
   /** Increment to force fitting visible search-candidate markers into view. */
   fitCandidateBoundsToken?: number;
+  /** Show map zoom controls (+ / -). Useful to disable on phone-web layouts. */
+  showZoomControls?: boolean;
   /** Navigation mode — when true, the map follows the user and tilts */
   isNavigating?: boolean;
   /** Live user location during navigation */
