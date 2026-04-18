@@ -35,6 +35,7 @@ const safeRoutesRouter = require('./routes/safeRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
+const SAFE_ROUTES_CACHE_DIR = (process.env.SAFE_ROUTES_CACHE_DIR || '').trim();
 
 // ─── Trust proxy (Render / reverse-proxy sets X-Forwarded-For) ────────────────
 app.set('trust proxy', 1);
@@ -70,4 +71,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[safety] Rate limit: 60 req / 15 min per IP`);
   console.log(`[safety] Runtime: node=${process.version}, parallelism=${parallelism}`);
   console.log(`[safety] Queue controls: maxConcurrent=${process.env.SAFE_ROUTES_MAX_CONCURRENT || 'auto'}, maxLoadUnits=${process.env.SAFE_ROUTES_MAX_SERVER_LOAD_UNITS || 'auto'}, maxQueue=${process.env.SAFE_ROUTES_MAX_QUEUE_LENGTH || 200}, maxQueueWaitMs=${process.env.SAFE_ROUTES_MAX_QUEUE_WAIT_MS || 180000}`);
+  if (SAFE_ROUTES_CACHE_DIR) {
+    console.log(`[safety] Persistent cache: enabled (SAFE_ROUTES_CACHE_DIR=${SAFE_ROUTES_CACHE_DIR})`);
+  } else {
+    console.log('[safety] Persistent cache: disabled (set SAFE_ROUTES_CACHE_DIR to enable)');
+  }
 });
