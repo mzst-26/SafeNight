@@ -10,7 +10,7 @@
  * inside the map container.
  */
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Animated,
     AppState,
@@ -74,6 +74,40 @@ import {
 } from "@/src/types/limitError";
 import { formatDistance, formatDuration } from "@/src/utils/format";
 
+const PLACE_CATEGORY_CHIPS: Array<{
+  key: string;
+  label: string;
+  query: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}> = [
+  { key: "fuel", label: "Fuel", query: "fuel station", icon: "car-sport-outline" },
+  { key: "shop", label: "Shops", query: "shops", icon: "bag-handle-outline" },
+  { key: "food", label: "Food", query: "restaurants", icon: "restaurant-outline" },
+  { key: "parking", label: "Parking", query: "parking", icon: "car-outline" },
+  { key: "pharmacy", label: "Pharmacy", query: "pharmacy", icon: "medkit-outline" },
+  { key: "hospital", label: "Hospital", query: "hospital", icon: "medical-outline" },
+  { key: "bank", label: "Bank", query: "bank", icon: "cash-outline" },
+  { key: "hotel", label: "Hotel", query: "hotel", icon: "bed-outline" },
+];
+
+function classifyPlaceCategory(input: {
+  category?: string;
+  placeType?: string;
+  primaryText?: string;
+  fullText?: string;
+}): string | null {
+  const bucket = `${input.category || ""} ${input.placeType || ""} ${input.primaryText || ""} ${input.fullText || ""}`.toLowerCase();
+  if (/\bfuel\b|petrol|gas station|charging_station|charging station/.test(bucket)) return "fuel";
+  if (/\bparking\b|car park|park and ride/.test(bucket)) return "parking";
+  if (/restaurant|cafe|coffee|pub|bar|fast_food|takeaway|food/.test(bucket)) return "food";
+  if (/pharmacy|chemist|drugstore/.test(bucket)) return "pharmacy";
+  if (/hospital|clinic|doctor|medical/.test(bucket)) return "hospital";
+  if (/bank|atm/.test(bucket)) return "bank";
+  if (/hotel|guest house|accommodation|lodging/.test(bucket)) return "hotel";
+  if (/shop|supermarket|convenience|store|retail|mall/.test(bucket)) return "shop";
+  return null;
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const h = useHomeScreen();
@@ -93,12 +127,16 @@ export default function HomeScreen() {
     useState(false);
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [outOfRangeCueSignal, setOutOfRangeCueSignal] = useState(0);
+  const [showSelectedPlaceDetails, setShowSelectedPlaceDetails] = useState(true);
   const subscriptionTier = auth.user?.subscription ?? "free";
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 3; // DB-driven, fallback to free tier
 
   // Responsive breakpoint — phone-size web gets a different layout
   const breakpoint = useWebBreakpoint();
   const isPhoneWeb = breakpoint === "phone";
+  const isWeb = Platform.OS === "web";
+  const isDesktopWeb = isWeb && !isPhoneWeb;
+  const webSidebarOverlayOffset = isDesktopWeb ? 404 : 0;
 
   // Web guest detection (also exposed from useHomeScreen)
   const isWebGuest = Platform.OS === "web" && !auth.isLoggedIn;
@@ -478,8 +516,18 @@ export default function HomeScreen() {
     : "--";
   const showSafety = Boolean(h.selectedRoute);
   const hasError = h.directionsStatus === "error";
+  const hasLiveDestinationPredictions =
+    h.destSearch.query.trim().length > 0 && h.destSearch.predictions.length > 0;
+
+  const showDestinationCandidateSheet =
+    !h.isNavActive &&
+    !h.manualDest &&
+    (h.destinationCandidates.length > 0 || hasLiveDestinationPredictions);
   const sheetVisible =
-    (h.routes.length > 0 || h.directionsStatus === "loading" || hasError) &&
+    (h.routes.length > 0 ||
+      h.directionsStatus === "loading" ||
+      hasError ||
+      showDestinationCandidateSheet) &&
     !h.isNavActive;
 
   // Category label map for the highlight banner
@@ -638,7 +686,171 @@ export default function HomeScreen() {
     ? `${selectedPlace.location.latitude.toFixed(5)}, ${selectedPlace.location.longitude.toFixed(5)}`
     : null;
 
-  const isWeb = Platform.OS === "web";
+  const sheetPlaces =
+    h.destinationCandidates.length > 0
+      ? h.destinationCandidates
+      : hasLiveDestinationPredictions
+        ? h.destSearch.predictions
+        : [];
+
+  const sheetCategoryBubbles = useMemo(() => {
+    if (!sheetPlaces.length) return [];
+
+    const counts = new Map<string, number>();
+    for (const candidate of sheetPlaces) {
+      const category = classifyPlaceCategory(candidate);
+      if (!category) continue;
+      counts.set(category, (counts.get(category) || 0) + 1);
+    }
+
+    return PLACE_CATEGORY_CHIPS
+      .map((chip) => ({ ...chip, count: counts.get(chip.key) || 0 }))
+      .filter((chip) => chip.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+  }, [sheetPlaces]);
+
+  const handleSheetCategoryBubblePress = useCallback(
+    (query: string) => {
+      h.setManualDest(null);
+      h.destSearch.setQuery(query);
+      h.clearSelectedRoute();
+      setShowSelectedPlaceDetails(false);
+    },
+    [h],
+  );
+
+  useEffect(() => {
+    if (!selectedPlace) return;
+    setShowSelectedPlaceDetails(true);
+
+    if (Platform.OS !== "web" && !h.isNavActive) {
+      h.sheetHeightRef.current = SHEET_DEFAULT;
+      Animated.spring(h.sheetHeight, {
+        toValue: SHEET_DEFAULT,
+        useNativeDriver: false,
+        bounciness: 4,
+      }).start();
+    }
+  }, [selectedPlace?.placeId, h.isNavActive, h.sheetHeight, h.sheetHeightRef]);
+
+  const renderDestinationCandidatesSection = (keyPrefix: string) => {
+    if (!showDestinationCandidateSheet) return null;
+
+    return (
+      <View style={styles.placeResultsPanel}>
+        {sheetCategoryBubbles.length > 0 && (
+          <View style={styles.placeCategoriesWrap}>
+            {sheetCategoryBubbles.map((chip) => (
+              <Pressable
+                key={`${keyPrefix}-cat-${chip.key}`}
+                style={styles.placeCategoryBubble}
+                onPress={() => handleSheetCategoryBubblePress(chip.query)}
+              >
+                <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                <Text style={styles.placeCategoryBubbleText}>{chip.label}</Text>
+                <Text style={styles.placeCategoryBubbleCount}>{chip.count}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <View style={styles.placeResultsHeader}>
+          <Text style={styles.placeResultsTitle}>Places</Text>
+          <Pressable
+            style={styles.placeResultsActionBtn}
+            onPress={() => {
+              h.activateSelectedDestinationCandidate();
+            }}
+          >
+            <Text style={styles.placeResultsActionText}>Find Safe Routes</Text>
+          </Pressable>
+        </View>
+        {sheetPlaces.map((candidate) => {
+          const selected = candidate.placeId === h.selectedDestinationCandidateId;
+          return (
+            <Pressable
+              key={`${keyPrefix}-${candidate.placeId}`}
+              style={[
+                styles.placeResultItem,
+                selected && styles.placeResultItemSelected,
+              ]}
+              onPress={() => {
+                if (h.destinationCandidates.length > 0) {
+                  h.selectDestinationCandidate(candidate.placeId, true);
+                } else {
+                  h.destSearch.selectPrediction(candidate);
+                  h.setManualDest(null);
+                  if (candidate.location) {
+                    h.handlePanTo(candidate.location);
+                  }
+                  h.clearSelectedRoute();
+                }
+                if (selected) {
+                  setShowSelectedPlaceDetails((prev) => !prev);
+                } else {
+                  setShowSelectedPlaceDetails(true);
+                }
+              }}
+            >
+              <View style={styles.placeResultTitleRow}>
+                <Ionicons
+                  name={selected ? "radio-button-on" : "radio-button-off"}
+                  size={16}
+                  color={selected ? "#1570ef" : "#667085"}
+                />
+                <Text style={styles.placeResultTitle} numberOfLines={1}>
+                  {candidate.primaryText}
+                </Text>
+                {selected && (
+                  <Ionicons
+                    name={showSelectedPlaceDetails ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color="#475467"
+                  />
+                )}
+              </View>
+              {candidate.secondaryText ? (
+                <Text style={styles.placeResultSecondary} numberOfLines={1}>
+                  {candidate.secondaryText}
+                </Text>
+              ) : null}
+
+              {selected && showSelectedPlaceDetails && selectedPlace && (
+                <View style={styles.placeResultDetailsWrap}>
+                  {selectedPlace.fullText ? (
+                    <Text style={styles.placeResultDetailsText}>
+                      {selectedPlace.fullText}
+                    </Text>
+                  ) : null}
+                  {!!(
+                    selectedPlaceCategory ||
+                    selectedPlaceType ||
+                    selectedPlacePostcode
+                  ) && (
+                    <Text style={styles.placeResultDetailsMeta}>
+                      {[
+                        selectedPlaceCategory,
+                        selectedPlaceType,
+                        selectedPlacePostcode,
+                      ]
+                        .filter(Boolean)
+                        .join(" • ")}
+                    </Text>
+                  )}
+                  {selectedPlaceCoords ? (
+                    <Text style={styles.placeResultDetailsCoords}>
+                      {selectedPlaceCoords}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+  };
 
   return (
     <View
@@ -675,6 +887,7 @@ export default function HomeScreen() {
         roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
         fitCandidateBoundsToken={h.destinationCandidatesFitToken}
+        showZoomControls={isWeb && !isPhoneWeb}
         isNavigating={h.isNavActive}
         navigationLocation={h.nav.userLocation}
         navigationHeading={h.nav.userHeading}
@@ -974,6 +1187,7 @@ export default function HomeScreen() {
               selectedDestinationCandidateId={h.selectedDestinationCandidateId}
               onSelectDestinationCandidate={h.selectDestinationCandidate}
               onFindSafeRoutes={h.activateSelectedDestinationCandidate}
+              renderCandidatesInSheet
               hasResults={h.routes.length > 0}
               savedPlaces={savedPlaces}
               onSelectSavedPlace={handleSelectSavedPlace}
@@ -1000,6 +1214,8 @@ export default function HomeScreen() {
 
             {/* Phone web bottom sheet */}
             <MobileWebSheet visible={sheetVisible}>
+              {renderDestinationCandidatesSection("sheet-candidate-web")}
+
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitle}>
                   {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
@@ -1255,6 +1471,7 @@ export default function HomeScreen() {
             selectedDestinationCandidateId={h.selectedDestinationCandidateId}
             onSelectDestinationCandidate={h.selectDestinationCandidate}
             onFindSafeRoutes={h.activateSelectedDestinationCandidate}
+            renderCandidatesInSheet
             hasResults={h.routes.length > 0}
             savedPlaces={savedPlaces}
             onSelectSavedPlace={handleSelectSavedPlace}
@@ -1433,7 +1650,15 @@ export default function HomeScreen() {
 
         {/* ── Category highlight banner — shows when user tapped a stat card ── */}
         {h.highlightCategory && (
-          <View style={[styles.highlightBanner, { top: insets.top + 120 }]}>
+          <View
+            style={[
+              styles.highlightBanner,
+              {
+                top: insets.top + 120,
+                left: webSidebarOverlayOffset,
+              },
+            ]}
+          >
             <Pressable
               style={styles.highlightBannerInner}
               onPress={handleClearHighlight}
@@ -1457,7 +1682,12 @@ export default function HomeScreen() {
         )}
 
         {h.needsLocationRecovery && !h.isNavActive && (
-          <View style={[styles.locationRecoveryWrap, { top: insets.top + 86 }]}>
+          <View
+            style={[
+              styles.locationRecoveryWrap,
+              { top: insets.top + 86, left: webSidebarOverlayOffset },
+            ]}
+          >
             <View style={styles.locationRecoveryCard}>
               <Ionicons name="locate-outline" size={16} color="#1570ef" />
               <Text style={styles.locationRecoveryText}>
@@ -1491,6 +1721,7 @@ export default function HomeScreen() {
 
         {/* ── Selected place profile from map/search candidates ── */}
         {!h.isNavActive &&
+          isDesktopWeb &&
           !h.manualDest &&
           !h.destSearch.place &&
           h.destinationCandidates.length > 0 &&
@@ -1578,6 +1809,8 @@ export default function HomeScreen() {
             sheetHeight={h.sheetHeight}
             sheetHeightRef={h.sheetHeightRef}
           >
+            {renderDestinationCandidatesSection("sheet-candidate-native")}
+
             {/* Header — hide distance/duration when there's only an error */}
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>
@@ -1816,7 +2049,12 @@ export default function HomeScreen() {
         />
 
         {/* ── Toast notifications ── */}
-        <MapToast toast={toast} onDismiss={() => setToast(null)} />
+        <MapToast
+          toast={toast}
+          onDismiss={() => setToast(null)}
+          webTopOffset={isDesktopWeb ? 16 : 12}
+          webLeftOffset={webSidebarOverlayOffset}
+        />
 
         {/* ── Report modal ── */}
         <ReportModal
@@ -2106,6 +2344,130 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#fef2f2",
   },
+  placeResultsPanel: {
+    marginBottom: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    backgroundColor: "#f8fbff",
+    overflow: "hidden",
+  },
+  placeCategoriesWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e6eefb",
+  },
+  placeCategoryBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  placeCategoryBubbleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#1d4ed8",
+  },
+  placeCategoryBubbleCount: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1570ef",
+    backgroundColor: "#dbeafe",
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  placeResultsHeader: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e6eefb",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  placeResultsTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1d4ed8",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  placeResultsActionBtn: {
+    borderRadius: 8,
+    backgroundColor: "#1570ef",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  placeResultsActionText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  placeResultItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#edf2ff",
+    gap: 3,
+  },
+  placeResultItemSelected: {
+    backgroundColor: "#eef6ff",
+  },
+  placeResultTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  placeResultTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#101828",
+  },
+  placeResultSecondary: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#667085",
+    paddingLeft: 24,
+  },
+  placeResultDetailsWrap: {
+    marginTop: 6,
+    marginLeft: 24,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  placeResultDetailsText: {
+    fontSize: 12,
+    color: "#334155",
+    fontWeight: "500",
+  },
+  placeResultDetailsMeta: {
+    fontSize: 11,
+    color: "#1d4ed8",
+    fontWeight: "700",
+  },
+  placeResultDetailsCoords: {
+    fontSize: 11,
+    color: "#475467",
+    fontWeight: "500",
+  },
   warningTitle: {
     fontSize: 14,
     fontWeight: "700",
@@ -2162,7 +2524,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    zIndex: 13,
+    zIndex: 220,
     alignItems: "center",
   },
   highlightBannerInner: {
