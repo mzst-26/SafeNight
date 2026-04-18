@@ -16,6 +16,7 @@
     "test:all:coverage": "npm run test:frontend:coverage && npm run test:backend",
     "guard:artifacts": "bash ./scripts/guard-artifacts.sh",
     "guard:artifacts:ci": "bash ./scripts/guard-artifacts.sh --ci",
+    "check:play-metadata": "node ./scripts/check-play-metadata.js",
     "install:hooks": "bash ./scripts/install-git-hooks.sh",
     "lint": "expo lint",
     "build:aab:prod": "bash ./scripts/build-android-aab.sh",
