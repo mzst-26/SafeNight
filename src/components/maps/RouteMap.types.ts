@@ -1,7 +1,7 @@
 import type { RoadLabel, RouteSegment, SafetyMarker } from '@/src/services/safetyMapData';
 import type { DirectionsRoute, LatLng } from '@/src/types/google';
 
-export type MapType = 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
+export type MapType = 'roadmap';
 
 /** A live friend's position to display on the map */
 export interface FriendMapMarker {

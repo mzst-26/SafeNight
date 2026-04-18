@@ -1,15 +1,14 @@
 /**
  * RouteMap.native — MapLibre GL JS in a WebView.
  *
- * Uses MapTiler vector style for 3D buildings, pitch, and bearing.
- * Falls back to OpenFreeMap when no MapTiler key is configured.
+ * Uses MapTiler Streets vector style for 3D buildings, pitch, and bearing.
  */
 import { useCallback, useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import {
-  OPENFREEMAP_VECTOR_STYLE_URL,
+  MAPTILER_STREETS_RASTER_STYLE,
   ROADMAP_STYLE,
 } from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
@@ -116,42 +115,15 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     }
 
     /* ── Styles ─────────── */
-    var mapStyles = {
-      roadmap: ${JSON.stringify(ROADMAP_STYLE)},
-      satellite: { version:8, sources:{ sat:{ type:'raster', tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize:256, maxzoom:18 }}, layers:[{id:'sat',type:'raster',source:'sat'}] },
-      terrain: { version:8, sources:{ topo:{ type:'raster', tiles:['https://tile.opentopomap.org/{z}/{x}/{y}.png'], tileSize:256, maxzoom:17 }}, layers:[{id:'topo',type:'raster',source:'topo'}] },
-      hybrid: { version:8, sources:{ sat:{ type:'raster', tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize:256, maxzoom:18 }}, layers:[{id:'sat',type:'raster',source:'sat'}] }
-    };
-    var roadmapFallbackStyle = ${JSON.stringify(OPENFREEMAP_VECTOR_STYLE_URL)};
-    var roadmapStyleIndex = 0;
-    var styleFallbackTimer = null;
-
-    function clearStyleFallbackTimer() {
-      if (styleFallbackTimer) {
-        clearTimeout(styleFallbackTimer);
-        styleFallbackTimer = null;
-      }
-    }
-
-    function setRoadmapStyleWithFallback(nextIndex) {
-      var styleCandidates = [mapStyles.roadmap, roadmapFallbackStyle];
-      roadmapStyleIndex = Math.max(0, Math.min(nextIndex, styleCandidates.length - 1));
-      styleReady = false;
-      clearStyleFallbackTimer();
-      map.setStyle(styleCandidates[roadmapStyleIndex]);
-      styleFallbackTimer = setTimeout(function() {
-        if (styleReady) return;
-        if (roadmapStyleIndex < styleCandidates.length - 1) {
-          setRoadmapStyleWithFallback(roadmapStyleIndex + 1);
-        }
-      }, 6000);
-    }
+    var mapStyles = { roadmap: ${JSON.stringify(ROADMAP_STYLE)} };
+    var roadmapRasterFallbackStyle = ${JSON.stringify(MAPTILER_STREETS_RASTER_STYLE)};
+    var usedRasterFallback = false;
 
     /* ── Init MapLibre ─────────────────────────────────────── */
     var map = new maplibregl.Map({
       container: 'map',
       style: mapStyles.roadmap,
-      center: [-4.1427, 50.3755],
+      center: [-0.1278, 51.5074],
       zoom: 13,
       pitch: 0,
       bearing: 0,
@@ -159,7 +131,6 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       antialias: true,
       attributionControl: false,
     });
-    setRoadmapStyleWithFallback(0);
 
     // Disable rotation in normal mode (enable only in nav mode)
     map.dragRotate.disable();
@@ -296,19 +267,21 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     /* ── Map load ──────────────────────────────────────────── */
     map.on('load',function(){
       styleReady = true;
-      clearStyleFallbackTimer();
       addCustomSources();
       addCustomLayers();
       add3DBuildings();
       sendMsg('ready',{});
     });
 
-    map.on('error', function() {
-      if (styleReady) return;
-      var styleCandidates = [mapStyles.roadmap, roadmapFallbackStyle];
-      if (roadmapStyleIndex < styleCandidates.length - 1) {
-        setRoadmapStyleWithFallback(roadmapStyleIndex + 1);
+    map.on('error', function(e) {
+      var err = (e && e.error && e.error.message) ? String(e.error.message) : 'Map render error';
+      if (!styleReady && !usedRasterFallback) {
+        usedRasterFallback = true;
+        styleReady = false;
+        try { map.setStyle(roadmapRasterFallbackStyle); } catch (_e) {}
+        return;
       }
+      sendMsg('styleError', { message: err });
     });
 
     /* ── Click / Long-press events ─────────────────────────── */
@@ -463,6 +436,8 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
     /* ── Main update (called from RN) ──────────────────────── */
     function updateMap(data){
       if(!styleReady) return;
+      var londonCenter = [-0.1278, 51.5074];
+      var hasPinpoint = Boolean(data.origin || data.navLocation);
       lastData = data;
       isPipMode = !!(data.isInPipMode);
 
@@ -576,6 +551,11 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
       /* — Pan to — */
       if(data.panTo){
         map.easeTo({center:[data.panTo.lng,data.panTo.lat],zoom:Math.max(map.getZoom(),16),duration:500});
+      }
+
+      // Keep London as default focus until a real pinpoint location is available.
+      if(!hasPinpoint && !bounds && !data.panTo){
+        map.easeTo({center:londonCenter,zoom:13,duration:300});
       }
 
       /* — Range circle — */
@@ -708,20 +688,13 @@ const buildMapHtml = (_mapType: string = "roadmap") => `
 
     /* ── Map type switching — */
     function setMapType(type){
-      if(type==='roadmap'){
-        setRoadmapStyleWithFallback(0);
-        return;
-      }
-      var s=mapStyles[type]||mapStyles.roadmap;
       styleReady=false;
-      clearStyleFallbackTimer();
-      map.setStyle(s);
+      map.setStyle(mapStyles.roadmap);
       map.once('idle',function(){
         styleReady=true;
-        clearStyleFallbackTimer();
         addCustomSources();
         addCustomLayers();
-        if(type==='roadmap') add3DBuildings();
+        add3DBuildings();
         if(lastData) updateMap(lastData);
       });
     }
@@ -930,8 +903,6 @@ export const RouteMap = ({
     isInPipMode,
   };
 
-  const mapTypeRef = useRef(mapType);
-
   const callbacksRef = useRef({
     onMapPress,
     onLongPress,
@@ -1096,9 +1067,7 @@ export const RouteMap = ({
   // Update map type when it changes
   useEffect(() => {
     if (!readyRef.current || !webViewRef.current) return;
-    if (mapType === mapTypeRef.current) return;
-    mapTypeRef.current = mapType;
-    const js = `try{setMapType('${mapType}')}catch(e){}true;`;
+    const js = "try{setMapType('roadmap')}catch(e){}true;";
     webViewRef.current.injectJavaScript(js);
   }, [mapType]);
 
