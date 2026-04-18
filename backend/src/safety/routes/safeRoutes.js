@@ -101,19 +101,25 @@ const { resolveSafeRoutesRequest, hasInflightRequest } = createSafeRoutesOrchest
 router.get("/", async (req, res) => {
   const cancelToken = createCancellationToken();
   const activeSearch = registerActiveSearch(req, cancelToken);
+  let requestSettled = false;
+  const sendJson = (statusCode, payload) => {
+    requestSettled = true;
+    return res.status(statusCode).json(payload);
+  };
   if (activeSearch.stale) {
     logSearchCancellation("http_stale_response", {
       userKey: activeSearch.userKey,
       searchId: activeSearch.searchId,
       searchSeq: activeSearch.searchSeq,
     });
-    return res.status(409).json({
+    return sendJson(409, {
       error: "SEARCH_CANCELLED",
       message:
         "This route search is older than another active search on your account.",
     });
   }
   req.on("close", () => {
+    if (requestSettled) return;
     logSearchCancellation("http_client_disconnected", {
       userKey: activeSearch.userKey,
       searchId: activeSearch.searchId,
@@ -131,7 +137,7 @@ router.get("/", async (req, res) => {
       haversine,
     );
     if (!parsedRequest.ok) {
-      return res.status(400).json({ error: parsedRequest.error });
+      return sendJson(400, { error: parsedRequest.error });
     }
 
     const {
@@ -148,7 +154,8 @@ router.get("/", async (req, res) => {
     } = parsedRequest.value;
 
     if (straightLineKm > maxDistanceKm) {
-      return res.status(400).json(
+      return sendJson(
+        400,
         buildOutOfRangePayload({
           oLat,
           oLng,
@@ -174,6 +181,7 @@ router.get("/", async (req, res) => {
       cancelToken,
     });
 
+    requestSettled = true;
     res.json(result);
   } catch (err) {
     if (err?.code === "SEARCH_CANCELLED") {
@@ -184,7 +192,7 @@ router.get("/", async (req, res) => {
         reason: err.message,
       });
       if (!res.headersSent) {
-        return res.status(409).json({
+        return sendJson(409, {
           error: "SEARCH_CANCELLED",
           message: err.message,
         });
@@ -195,7 +203,7 @@ router.get("/", async (req, res) => {
     if (isServerBusyError(err)) {
       console.warn(`[safe-routes] ⚠️ Server busy / upstream unavailable:`, err?.message || err);
       if (!res.headersSent) {
-        return res.status(503).json({
+        return sendJson(503, {
           error: "SERVER_BUSY",
           message: "Our routing providers are temporarily busy. Please retry in a moment.",
           detail:
@@ -207,7 +215,7 @@ router.get("/", async (req, res) => {
 
     console.error(`[safe-routes] ❌ Error:`, err);
     if (!res.headersSent) {
-      res.status(500).json({
+      sendJson(500, {
         error: "INTERNAL_ERROR",
         message: "Something went wrong on our end while computing your route.",
         detail:
