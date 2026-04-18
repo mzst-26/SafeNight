@@ -47,6 +47,9 @@ const {
   buildRouteResponses,
 } = require('../../../../src/safety/routes/safeRoutesResponseFormatter');
 const safeRoutesUtils = require('../../../../src/safety/routes/safeRoutesUtils');
+const {
+  collectRoutePOIs,
+} = require('../../../../src/safety/routes/safeRoutesPoiCollector');
 
 describe('safeRoutesResponseFormatter', () => {
   afterEach(() => {
@@ -201,5 +204,171 @@ describe('safeRoutesResponseFormatter', () => {
       },
     });
     expect(responseRoutes[0].segments).toHaveLength(1);
+  });
+
+  test('buildRouteResponses in compact mode excludes heavy fields', () => {
+    const responseRoutes = buildRouteResponses({
+      rawRoutes: [
+        {
+          path: ['n1', 'n2'],
+          edges: [0],
+          totalDist: 1000,
+        },
+      ],
+      osmNodes: new Map([
+        ['n1', { lat: 50.37, lng: -4.14 }],
+        ['n2', { lat: 50.38, lng: -4.13 }],
+      ]),
+      edges: [
+        {
+          distance: 1000,
+          safetyScore: 0.6,
+          highway: 'residential',
+          roadName: 'Main St',
+          isDeadEnd: false,
+          hasSidewalk: true,
+          surfacePenalty: 0,
+          surfaceType: 'paved',
+          lightScore: 0.7,
+          crimeScore: 0.8,
+          cctvScore: 0.4,
+          placeScore: 0.3,
+          trafficScore: 0.5,
+          nearbyTransitCount: 2,
+          nearbyCctvCount: 1,
+        },
+      ],
+      weights: {},
+      cctvNodes: [],
+      transitNodes: [],
+      nodeDegree: new Map(),
+      crimes: [],
+      allData: {
+        lights: { elements: [] },
+        places: { elements: [] },
+      },
+      oLat: 50.37,
+      oLng: -4.14,
+      dLat: 50.38,
+      dLng: -4.13,
+      enableOpeningHoursParse: false,
+      responsePolicy: {
+        verbosity: 'compact',
+        poiCaps: {
+          cctv: 10,
+          transit: 10,
+          deadEnds: 10,
+          lights: 10,
+          places: 10,
+          crimes: 10,
+        },
+      },
+    });
+
+    const route = responseRoutes[0];
+    expect(route.legs).toBeUndefined();
+    expect(route.segments).toBeUndefined();
+    expect(route.distance).toMatchObject({ value: 1000 });
+    expect(route.duration).toMatchObject({ value: expect.any(Number) });
+    expect(route.safety.breakdown).toBeDefined();
+    expect(route.routeStats.roadNameChanges).toBeUndefined();
+  });
+
+  test('buildRouteResponses enforces poi caps for full mode', () => {
+    collectRoutePOIs.mockReturnValueOnce({
+      cctv: [
+        { lat: 50.37001, lng: -4.14001 },
+        { lat: 50.37100, lng: -4.14100 },
+        { lat: 50.37200, lng: -4.14200 },
+      ],
+      transit: [
+        { lat: 50.37002, lng: -4.14002 },
+        { lat: 50.37300, lng: -4.14300 },
+      ],
+      deadEnds: [
+        { lat: 50.37003, lng: -4.14003 },
+        { lat: 50.37400, lng: -4.14400 },
+      ],
+      lights: [
+        { lat: 50.37004, lng: -4.14004 },
+        { lat: 50.37500, lng: -4.14500 },
+      ],
+      places: [
+        { lat: 50.37005, lng: -4.14005, name: 'A', amenity: 'cafe' },
+        { lat: 50.37600, lng: -4.14600, name: 'B', amenity: 'shop' },
+      ],
+      crimes: [
+        { lat: 50.37006, lng: -4.14006, category: 'theft' },
+        { lat: 50.37700, lng: -4.14700, category: 'burglary' },
+      ],
+    });
+
+    const responseRoutes = buildRouteResponses({
+      rawRoutes: [
+        {
+          path: ['n1', 'n2'],
+          edges: [0],
+          totalDist: 1000,
+        },
+      ],
+      osmNodes: new Map([
+        ['n1', { lat: 50.37, lng: -4.14 }],
+        ['n2', { lat: 50.38, lng: -4.13 }],
+      ]),
+      edges: [
+        {
+          distance: 1000,
+          safetyScore: 0.6,
+          highway: 'residential',
+          roadName: 'Main St',
+          isDeadEnd: false,
+          hasSidewalk: true,
+          surfacePenalty: 0,
+          surfaceType: 'paved',
+          lightScore: 0.7,
+          crimeScore: 0.8,
+          cctvScore: 0.4,
+          placeScore: 0.3,
+          trafficScore: 0.5,
+          nearbyTransitCount: 2,
+          nearbyCctvCount: 1,
+        },
+      ],
+      weights: {},
+      cctvNodes: [],
+      transitNodes: [],
+      nodeDegree: new Map(),
+      crimes: [],
+      allData: {
+        lights: { elements: [] },
+        places: { elements: [] },
+      },
+      oLat: 50.37,
+      oLng: -4.14,
+      dLat: 50.38,
+      dLng: -4.13,
+      enableOpeningHoursParse: false,
+      responsePolicy: {
+        verbosity: 'full',
+        poiCaps: {
+          cctv: 2,
+          transit: 1,
+          deadEnds: 1,
+          lights: 1,
+          places: 1,
+          crimes: 1,
+        },
+      },
+    });
+
+    const route = responseRoutes[0];
+    expect(route.segments).toHaveLength(1);
+    expect(route.routePOIs.cctv).toHaveLength(2);
+    expect(route.routePOIs.transit).toHaveLength(1);
+    expect(route.routePOIs.deadEnds).toHaveLength(1);
+    expect(route.routePOIs.lights).toHaveLength(1);
+    expect(route.routePOIs.places).toHaveLength(1);
+    expect(route.routePOIs.crimes).toHaveLength(1);
+    expect(route.routePOIs.cctv[0]).toEqual({ lat: 50.37001, lng: -4.14001 });
   });
 });

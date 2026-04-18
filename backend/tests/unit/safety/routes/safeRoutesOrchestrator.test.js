@@ -79,6 +79,38 @@ describe('safeRoutesOrchestrator', () => {
     expect(secondResult.source).toBe('inflight');
   });
 
+  test('does not reuse cache across different response policy options', async () => {
+    const computeSafeRoutes = jest.fn(async () => ({ routes: [1] }));
+    const orchestrator = createSafeRoutesOrchestrator({
+      computeSafeRoutes,
+      estimateRequestLoadUnits: () => 1,
+      enqueueComputeJob: ({ run }) => run(),
+      waitWithCancellation: async (promise) => promise,
+      formatWaitMmSs: () => '00:05',
+    });
+
+    await orchestrator.resolveSafeRoutesRequest(
+      baseParams({
+        responsePolicy: {
+          verbosity: 'full',
+          poiCaps: { cctv: 200, transit: 200, deadEnds: 200, lights: 200, places: 200, crimes: 200 },
+        },
+      }),
+    );
+
+    const second = await orchestrator.resolveSafeRoutesRequest(
+      baseParams({
+        responsePolicy: {
+          verbosity: 'compact',
+          poiCaps: { cctv: 10, transit: 10, deadEnds: 8, lights: 10, places: 10, crimes: 10 },
+        },
+      }),
+    );
+
+    expect(second.source).toBe('computed');
+    expect(computeSafeRoutes).toHaveBeenCalledTimes(2);
+  });
+
   test('emits queue_start progress event when compute starts', async () => {
     const onProgress = jest.fn();
     const orchestrator = createSafeRoutesOrchestrator({

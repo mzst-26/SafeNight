@@ -12,6 +12,113 @@ const {
 } = require("../services/safetyGraph");
 
 const WALKING_SPEED_MPS = 1.35;
+const DEFAULT_RESPONSE_POLICY = {
+  verbosity: "full",
+  poiCaps: {
+    cctv: 200,
+    transit: 200,
+    deadEnds: 200,
+    lights: 200,
+    places: 200,
+    crimes: 200,
+  },
+};
+
+function normalizeResponsePolicy(responsePolicy) {
+  const verbosity = responsePolicy?.verbosity === "compact" ? "compact" : "full";
+  const mergedPoiCaps = {
+    ...DEFAULT_RESPONSE_POLICY.poiCaps,
+    ...(responsePolicy?.poiCaps || {}),
+  };
+
+  const poiCaps = {};
+  for (const [category, value] of Object.entries(mergedPoiCaps)) {
+    poiCaps[category] = Number.isFinite(value) && value > 0
+      ? Math.floor(value)
+      : DEFAULT_RESPONSE_POLICY.poiCaps[category];
+  }
+
+  return {
+    verbosity,
+    poiCaps,
+  };
+}
+
+function distanceSqFromOrigin(point, oLat, oLng) {
+  const dLat = point.lat - oLat;
+  const dLng = point.lng - oLng;
+  return dLat * dLat + dLng * dLng;
+}
+
+function limitCategoryPois(points, cap, oLat, oLng) {
+  if (!Array.isArray(points)) return [];
+  if (!Number.isFinite(cap) || cap < 1) return [];
+  if (points.length <= cap) return points;
+
+  return points
+    .map((point, index) => ({
+      point,
+      index,
+      distanceSq: distanceSqFromOrigin(point, oLat, oLng),
+    }))
+    .sort((a, b) => a.distanceSq - b.distanceSq || a.index - b.index)
+    .slice(0, cap)
+    .map((entry) => entry.point);
+}
+
+function limitRoutePois(routePOIs, poiCaps, oLat, oLng) {
+  return {
+    cctv: limitCategoryPois(routePOIs?.cctv, poiCaps.cctv, oLat, oLng),
+    transit: limitCategoryPois(routePOIs?.transit, poiCaps.transit, oLat, oLng),
+    deadEnds: limitCategoryPois(routePOIs?.deadEnds, poiCaps.deadEnds, oLat, oLng),
+    lights: limitCategoryPois(routePOIs?.lights, poiCaps.lights, oLat, oLng),
+    places: limitCategoryPois(routePOIs?.places, poiCaps.places, oLat, oLng),
+    crimes: limitCategoryPois(routePOIs?.crimes, poiCaps.crimes, oLat, oLng),
+  };
+}
+
+function buildCompactRoutePayload({
+  route,
+  idx,
+  score100,
+  label,
+  color,
+  breakdown,
+  routeStats,
+  limitedRoutePOIs,
+  durationSec,
+}) {
+  return {
+    routeIndex: idx,
+    isSafest: idx === 0,
+    overview_polyline: route.overview_polyline,
+    summary: route.summary,
+    distance: route.legs[0]?.distance,
+    duration: route.legs[0]?.duration,
+    safety: {
+      score: score100,
+      label,
+      color,
+      breakdown: {
+        roadType: Math.round(breakdown.roadType * 100),
+        lighting: Math.round(breakdown.lighting * 100),
+        crime: Math.round(breakdown.crime * 100),
+        cctv: Math.round(breakdown.cctv * 100),
+        openPlaces: Math.round(breakdown.openPlaces * 100),
+        traffic: Math.round(breakdown.traffic * 100),
+      },
+    },
+    routeStats: {
+      deadEnds: routeStats.deadEnds,
+      sidewalkPct: routeStats.sidewalkPct,
+      unpavedPct: routeStats.unpavedPct,
+      transitStopsNearby: routeStats.transitStopsNearby,
+      cctvCamerasNearby: routeStats.cctvCamerasNearby,
+      estimatedDurationSec: durationSec,
+    },
+    routePOIs: limitedRoutePOIs,
+  };
+}
 
 function collectLightNodes(lightElements) {
   const lightNodes = [];
@@ -95,7 +202,9 @@ function buildRouteResponses({
   dLat,
   dLng,
   enableOpeningHoursParse,
+  responsePolicy,
 }) {
+  const normalizedResponsePolicy = normalizeResponsePolicy(responsePolicy);
   const lightNodes = collectLightNodes(allData?.lights?.elements);
   const placeNodes = collectOpenPlaceNodes(
     allData?.places?.elements,
@@ -171,6 +280,12 @@ function buildRouteResponses({
       placeNodes,
       crimes,
     );
+    const limitedRoutePOIs = limitRoutePois(
+      routePOIs,
+      normalizedResponsePolicy.poiCaps,
+      oLat,
+      oLng,
+    );
 
     const routeStats = {
       deadEnds: deadEndCount,
@@ -187,7 +302,7 @@ function buildRouteResponses({
       roadNameChanges,
     };
 
-    return {
+    const fullRoutePayload = {
       routeIndex: idx,
       isSafest: idx === 0,
       overview_polyline: { points: encodePolyline(polyline) },
@@ -230,8 +345,24 @@ function buildRouteResponses({
       },
       segments,
       routeStats,
-      routePOIs,
+      routePOIs: limitedRoutePOIs,
     };
+
+    if (normalizedResponsePolicy.verbosity === "compact") {
+      return buildCompactRoutePayload({
+        route: fullRoutePayload,
+        idx,
+        score100,
+        label,
+        color,
+        breakdown,
+        routeStats,
+        limitedRoutePOIs,
+        durationSec,
+      });
+    }
+
+    return fullRoutePayload;
   });
 
   const minRoutes = Math.min(3, rawRoutes.length);

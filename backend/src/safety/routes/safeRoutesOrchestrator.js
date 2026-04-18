@@ -10,12 +10,28 @@ function createSafeRoutesOrchestrator({
   const routeCache = new Map();
   const inflight = new Map();
 
-  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng) {
+  function getResponsePolicyKey(responsePolicy) {
+    const verbosity = responsePolicy?.verbosity === "compact" ? "compact" : "full";
+    const poiCaps = responsePolicy?.poiCaps || {};
+    const categories = ["cctv", "transit", "deadEnds", "lights", "places", "crimes"];
+    const capsPart = categories
+      .map((category) => {
+        const capValue = poiCaps[category];
+        return Number.isFinite(capValue) ? `${category}:${capValue}` : `${category}:default`;
+      })
+      .join("|");
+
+    return `${verbosity}|${capsPart}`;
+  }
+
+  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy) {
     const r = (v) => Math.round(v * 1000) / 1000;
     const base = `${r(oLat)},${r(oLng)}->${r(dLat)},${r(dLng)}`;
-    return wpLat != null && wpLng != null
+    const routeKey = wpLat != null && wpLng != null
       ? `${base}@${r(wpLat)},${r(wpLng)}`
       : base;
+
+    return `${routeKey}#${getResponsePolicyKey(responsePolicy)}`;
   }
 
   function emitInflightProgress(entry, phase, message, pct) {
@@ -48,11 +64,20 @@ function createSafeRoutesOrchestrator({
     maxDistanceKm,
     wpLat,
     wpLng,
+    responsePolicy,
     onProgress,
     cancelToken = null,
   }) {
     cancelToken?.throwIfCancelled?.();
-    const cacheKey = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng);
+    const cacheKey = getCacheKey(
+      oLat,
+      oLng,
+      dLat,
+      dLng,
+      wpLat,
+      wpLng,
+      responsePolicy,
+    );
     const cached = routeCache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < cacheTtlMs) {
@@ -132,6 +157,7 @@ function createSafeRoutesOrchestrator({
             cancelToken,
             (phase, message, pct) =>
               emitInflightProgress(inflightEntry, phase, message, pct),
+            responsePolicy,
           ),
         onQueueUpdate: ({
           queuePosition,
@@ -199,8 +225,16 @@ function createSafeRoutesOrchestrator({
     }
   }
 
-  function hasInflightRequest({ oLat, oLng, dLat, dLng, wpLat, wpLng }) {
-    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng);
+  function hasInflightRequest({
+    oLat,
+    oLng,
+    dLat,
+    dLng,
+    wpLat,
+    wpLng,
+    responsePolicy,
+  }) {
+    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy);
     return inflight.has(key);
   }
 

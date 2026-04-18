@@ -3,6 +3,86 @@ const {
   validateLongitude,
 } = require('../../shared/validation/validate');
 
+const RESPONSE_VERBOSITY_FULL = 'full';
+const RESPONSE_VERBOSITY_COMPACT = 'compact';
+const POI_CAP_MAX = 500;
+
+const FULL_MODE_POI_CAPS = {
+  cctv: 200,
+  transit: 200,
+  deadEnds: 200,
+  lights: 200,
+  places: 200,
+  crimes: 200,
+};
+
+const COMPACT_MODE_POI_CAPS = {
+  cctv: 12,
+  transit: 12,
+  deadEnds: 8,
+  lights: 12,
+  places: 12,
+  crimes: 12,
+};
+
+function parseVerbosity(rawVerbosity) {
+  if (typeof rawVerbosity !== 'string') {
+    return RESPONSE_VERBOSITY_FULL;
+  }
+
+  const normalized = rawVerbosity.trim().toLowerCase();
+  if (normalized === RESPONSE_VERBOSITY_COMPACT) {
+    return RESPONSE_VERBOSITY_COMPACT;
+  }
+
+  return RESPONSE_VERBOSITY_FULL;
+}
+
+function parsePoiCap(rawValue, fallback) {
+  if (rawValue == null || rawValue === '') {
+    return fallback;
+  }
+
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  const rounded = Math.floor(numeric);
+  if (rounded < 1) {
+    return fallback;
+  }
+
+  return Math.min(rounded, POI_CAP_MAX);
+}
+
+function parseResponsePolicy(query = {}) {
+  const verbosity = parseVerbosity(query.verbosity);
+  const baseCaps =
+    verbosity === RESPONSE_VERBOSITY_COMPACT
+      ? COMPACT_MODE_POI_CAPS
+      : FULL_MODE_POI_CAPS;
+
+  const globalCap = parsePoiCap(query.poi_cap, null);
+  const fallbackCap = (category) =>
+    globalCap != null ? globalCap : baseCaps[category];
+
+  return {
+    verbosity,
+    poiCaps: {
+      cctv: parsePoiCap(query.poi_cap_cctv, fallbackCap('cctv')),
+      transit: parsePoiCap(query.poi_cap_transit, fallbackCap('transit')),
+      deadEnds: parsePoiCap(
+        query.poi_cap_dead_ends ?? query.poi_cap_deadEnds,
+        fallbackCap('deadEnds'),
+      ),
+      lights: parsePoiCap(query.poi_cap_lights, fallbackCap('lights')),
+      places: parsePoiCap(query.poi_cap_places, fallbackCap('places')),
+      crimes: parsePoiCap(query.poi_cap_crimes, fallbackCap('crimes')),
+    },
+  };
+}
+
 function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
   const oLat = validateLatitude(req.query.origin_lat);
   const oLng = validateLongitude(req.query.origin_lng);
@@ -49,6 +129,7 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
       straightLineDist,
       straightLineKm,
       maxDistanceKm,
+      responsePolicy: parseResponsePolicy(req.query),
     },
   };
 }
@@ -91,4 +172,8 @@ module.exports = {
   parseRouteRequest,
   buildOutOfRangeMessage,
   buildOutOfRangePayload,
+  RESPONSE_VERBOSITY_FULL,
+  RESPONSE_VERBOSITY_COMPACT,
+  FULL_MODE_POI_CAPS,
+  COMPACT_MODE_POI_CAPS,
 };

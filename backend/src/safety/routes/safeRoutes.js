@@ -144,6 +144,7 @@ router.get("/", async (req, res) => {
       straightLineDist,
       straightLineKm,
       maxDistanceKm,
+      responsePolicy,
     } = parsedRequest.value;
 
     if (straightLineKm > maxDistanceKm) {
@@ -169,6 +170,7 @@ router.get("/", async (req, res) => {
       maxDistanceKm,
       wpLat,
       wpLng,
+      responsePolicy,
       cancelToken,
     });
 
@@ -333,6 +335,7 @@ router.get("/stream", async (req, res) => {
       straightLineDist,
       straightLineKm,
       maxDistanceKm,
+      responsePolicy,
     } = parsedRequest.value;
 
     if (straightLineKm > maxDistanceKm) {
@@ -343,7 +346,17 @@ router.get("/stream", async (req, res) => {
       return res.end();
     }
 
-    if (hasInflightRequest({ oLat, oLng, dLat, dLng, wpLat, wpLng })) {
+    if (
+      hasInflightRequest({
+        oLat,
+        oLng,
+        dLat,
+        dLng,
+        wpLat,
+        wpLng,
+        responsePolicy,
+      })
+    ) {
       send("phase", {
         phase: "coalesced",
         message: "Joining active route computation…",
@@ -365,6 +378,7 @@ router.get("/stream", async (req, res) => {
       maxDistanceKm,
       wpLat,
       wpLng,
+      responsePolicy,
       onProgress,
       cancelToken,
     });
@@ -433,6 +447,7 @@ async function computeSafeRoutes(
   wpLng = null,
   cancelToken = null,
   onProgress = null,
+  responsePolicy = null,
 ) {
   cancelToken?.throwIfCancelled?.();
   const upstreamAbortController = new AbortController();
@@ -584,9 +599,23 @@ async function computeSafeRoutes(
     );
     const t0 = Date.now();
 
+    const dataSources = {
+      overpass: null,
+      crime: null,
+    };
     let [allData, crimes] = await Promise.all([
-      fetchAllSafetyData(bbox, { signal: upstreamAbortController.signal }),
-      fetchCrimesInBbox(bbox, { signal: upstreamAbortController.signal }),
+      fetchAllSafetyData(bbox, {
+        signal: upstreamAbortController.signal,
+        onSourceMeta: (meta) => {
+          dataSources.overpass = meta;
+        },
+      }),
+      fetchCrimesInBbox(bbox, {
+        signal: upstreamAbortController.signal,
+        onSourceMeta: (meta) => {
+          dataSources.crime = meta;
+        },
+      }),
     ]);
 
     let dataTime = Date.now() - t0;
@@ -725,6 +754,7 @@ async function computeSafeRoutes(
       dLat: dLatV,
       dLng: dLngV,
       enableOpeningHoursParse: ENABLE_RESPONSE_OPENING_HOURS_PARSE,
+      responsePolicy,
     });
 
     const elapsed = Date.now() - startTime;
@@ -750,6 +780,7 @@ async function computeSafeRoutes(
         graphTime,
         pathfindTime,
         recorrectionMs,
+        dataSources,
       }),
     };
   } finally {
