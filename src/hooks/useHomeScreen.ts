@@ -56,7 +56,6 @@ export function useHomeScreen() {
   // On web for guests, enable location immediately (onboarding is auto-accepted)
   const {
     location,
-    error: locationError,
     refresh: refreshLocation,
   } = useCurrentLocation({ enabled: hasAccepted || isWebGuest });
 
@@ -194,7 +193,7 @@ export function useHomeScreen() {
     if (location && isUsingCurrentLocation) {
       setMapPanTo({ location, key: Date.now() });
     }
-  }, [location !== null]);
+  }, [location, isUsingCurrentLocation]);
 
   // Auto-select safest route
   useEffect(() => {

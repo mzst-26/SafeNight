@@ -5,22 +5,36 @@ import type { LatLng } from '@/src/types/google';
 
 export type LocationPermissionStatus = Location.PermissionStatus;
 
+const toLatLng = (coords: Location.LocationObjectCoords): LatLng => ({
+  latitude: coords.latitude,
+  longitude: coords.longitude,
+});
+
 export const requestForegroundLocationPermission = async (): Promise<LocationPermissionStatus> => {
   const { status } = await Location.requestForegroundPermissionsAsync();
 
   return status;
 };
 
+export const getLastKnownLocation = async (): Promise<LatLng | null> => {
+  try {
+    const position = await Location.getLastKnownPositionAsync();
+    if (!position?.coords) return null;
+    return toLatLng(position.coords);
+  } catch {
+    return null;
+  }
+};
+
 export const getCurrentLocation = async (): Promise<LatLng> => {
   try {
     const position = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Highest,
+      accuracy: Location.Accuracy.Balanced,
+      maximumAge: 15_000,
+      timeout: 10_000,
     });
 
-    return {
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-    };
+    return toLatLng(position.coords);
   } catch (error) {
     throw new AppError('location_unavailable', 'Unable to fetch current location', error);
   }
