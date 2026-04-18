@@ -249,7 +249,56 @@ const calls = { autocomplete: 0, details: 0, reverse: 0 };
  * (starts with a house number, e.g. "431 Eggbuckland Road").
  */
 function looksLikeAddress(input) {
-  return /^\d+[a-z]?\s+\S/i.test(input.trim());
+  return parseAddressQuery(input) !== null;
+}
+
+function parseAddressQuery(input) {
+  const q = String(input || '').trim();
+  if (!q) return null;
+
+  // Accept both "431 Eggbuckland Road" and "431, Eggbuckland Road" forms.
+  const match = q.match(/^(\d+[a-z]?)\s*,?\s+(.+)$/i);
+  if (!match) return null;
+
+  const houseNumber = String(match[1] || '').trim();
+  const street = String(match[2] || '').replace(/\s+/g, ' ').trim();
+  if (!houseNumber || !street) return null;
+
+  return { houseNumber, street };
+}
+
+function normalizeAddressToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+function roadMatchesAddressQuery(candidateRoad, queryStreet) {
+  const road = normalizeTextForBrand(candidateRoad);
+  const query = normalizeTextForBrand(queryStreet);
+  if (!road || !query) return false;
+  if (road.includes(query) || query.includes(road)) return true;
+
+  const queryTokens = tokenize(query).filter((token) => token.length > 2);
+  if (queryTokens.length === 0) return false;
+  return queryTokens.every((token) => road.includes(token));
+}
+
+function resultMatchesExactAddress(r, addressQuery) {
+  if (!addressQuery) return false;
+
+  const addr = r.address || {};
+  const queryHouse = normalizeAddressToken(addressQuery.houseNumber);
+  const resultHouse = normalizeAddressToken(addr.house_number);
+  if (!queryHouse || !resultHouse || queryHouse !== resultHouse) return false;
+
+  const queryStreet = addressQuery.street;
+  const road = addr.road || '';
+  if (roadMatchesAddressQuery(road, queryStreet)) return true;
+
+  // Fallback: match against display text when road field is sparse.
+  return roadMatchesAddressQuery(r.display_name || '', queryStreet);
 }
 
 function looksLikeParkingQuery(input) {
@@ -716,6 +765,24 @@ function dedupeAndRank(results, input, context) {
       score += 3;
     }
 
+    if (context.addressQuery) {
+      const queryHouse = normalizeAddressToken(context.addressQuery.houseNumber);
+      const resultHouse = normalizeAddressToken(addr.house_number);
+      const hasRoadMatch = roadMatchesAddressQuery(
+        addr.road || r.display_name || '',
+        context.addressQuery.street
+      );
+
+      if (resultHouse && queryHouse === resultHouse) {
+        score += hasRoadMatch ? 12 : 6;
+      } else if (hasRoadMatch && !resultHouse) {
+        // De-prioritize road-level pins when user asked for a specific door number.
+        score -= 4;
+      } else if (hasRoadMatch) {
+        score -= 2;
+      }
+    }
+
     if (
       context.parkingLike &&
       (/parking|car park/.test(text) || /parking/.test(classification) || /parking/.test(`${addr.amenity || ''}`.toLowerCase()))
@@ -880,6 +947,7 @@ router.get('/autocomplete', async (req, res) => {
       MAX_UPSTREAM_AUTOCOMPLETE_LIMIT
     );
     const addressLike = looksLikeAddress(input);
+    const addressQuery = parseAddressQuery(input);
 
     const baseParams = {
       format: 'json',
@@ -907,12 +975,13 @@ router.get('/autocomplete', async (req, res) => {
     if (addressLike) {
       // 2. Structured address search — split "431 Eggbuckland Road" into
       //    housenumber=431  street=Eggbuckland Road  for precise door-level hits
-      const spaceIdx = input.search(/\s/);
-      const houseNumber = input.substring(0, spaceIdx).trim();
-      const street = input.substring(spaceIdx + 1).trim();
+      const houseNumber = addressQuery?.houseNumber;
+      const street = addressQuery?.street;
+      if (houseNumber && street) {
       searches.push(
         nominatimSearch({ ...baseParams, housenumber: houseNumber, street, limit: String(Math.max(effectiveLimit + 2, 10)) })
       );
+      }
     }
 
     if (parkingLike) {
@@ -966,6 +1035,7 @@ router.get('/autocomplete', async (req, res) => {
       parkingLike,
       fuelLike,
       addressLike,
+      addressQuery,
       brandBoost,
     });
     const scoped = enforceCityScope
@@ -973,6 +1043,17 @@ router.get('/autocomplete', async (req, res) => {
       : ranked;
 
     let mergedBase = scoped;
+
+    if (addressQuery && mergedBase.length > 0) {
+      const exactAddressMatches = mergedBase.filter((r) =>
+        resultMatchesExactAddress(r, addressQuery)
+      );
+      if (exactAddressMatches.length > 0) {
+        mergedBase = exactAddressMatches;
+        console.log('[geocode/autocomplete] 🏠 Exact address filter enabled');
+      }
+    }
+
     if (enforceCityScope && !cityScopeToken && locationBias && (businessLike || parkingLike || fuelLike || brandLike)) {
       const nearby = filterResultsWithinRadius(
         ranked,
