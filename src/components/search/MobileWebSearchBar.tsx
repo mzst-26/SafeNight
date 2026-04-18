@@ -10,7 +10,7 @@
  * Used on phone-size web AND Android native.
  */
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Animated,
@@ -291,7 +291,7 @@ export function MobileWebSearchBar({
     ? destinationCandidates
     : activePredictions;
 
-  const categoryBubbles = React.useMemo(() => {
+  const categoryBubbles = useMemo(() => {
     if (!bubbleSource || bubbleSource.length === 0) return [];
 
     const counts = new Map<string, number>();
