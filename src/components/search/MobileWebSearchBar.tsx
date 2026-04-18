@@ -78,6 +78,8 @@ export interface MobileWebSearchBarProps {
   selectedDestinationCandidateId?: string | null;
   onSelectDestinationCandidate?: (placeId: string, panToCandidate?: boolean) => void;
   onFindSafeRoutes?: () => boolean;
+  /** When true, destination candidate results are rendered in a bottom sheet instead of this dropdown. */
+  renderCandidatesInSheet?: boolean;
   onGuestTap?: () => void;
   /** Whether route results are currently showing */
   hasResults: boolean;
@@ -114,6 +116,7 @@ export function MobileWebSearchBar({
   selectedDestinationCandidateId = null,
   onSelectDestinationCandidate,
   onFindSafeRoutes,
+  renderCandidatesInSheet = false,
   onGuestTap,
   hasResults,
   topInset,
@@ -279,13 +282,16 @@ export function MobileWebSearchBar({
   );
 
   const showDestinationCandidateCards =
+    !renderCandidatesInSheet &&
     activeField !== "origin" &&
     !manualDest &&
     !destSearch.place &&
     destinationCandidates.length > 0;
 
   const showLegacyPredictions =
-    activePredictions.length > 0 && !showDestinationCandidateCards;
+    !renderCandidatesInSheet &&
+    activePredictions.length > 0 &&
+    !showDestinationCandidateCards;
 
   const bubbleSource = showDestinationCandidateCards
     ? destinationCandidates
