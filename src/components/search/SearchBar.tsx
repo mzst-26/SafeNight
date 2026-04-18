@@ -6,7 +6,7 @@
  * battles with the WebView-based map).
  */
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
     ActivityIndicator,
     Platform,
@@ -22,6 +22,35 @@ import type { UseAutoPlaceSearchReturn } from "@/src/hooks/useAutoPlaceSearch";
 import type { SavedPlace, SaveResult } from "@/src/hooks/useSavedPlaces";
 import type { LatLng, PlaceDetails, PlacePrediction } from "@/src/types/google";
 import { SavedPlaces } from "./SavedPlaces";
+
+const CATEGORY_CHIP_DEFINITIONS: Array<{
+  key: string;
+  label: string;
+  query: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}> = [
+  { key: "fuel", label: "Fuel", query: "fuel station", icon: "car-sport-outline" },
+  { key: "shop", label: "Shops", query: "shops", icon: "bag-handle-outline" },
+  { key: "food", label: "Food", query: "restaurants", icon: "restaurant-outline" },
+  { key: "parking", label: "Parking", query: "parking", icon: "car-outline" },
+  { key: "pharmacy", label: "Pharmacy", query: "pharmacy", icon: "medkit-outline" },
+  { key: "hospital", label: "Hospital", query: "hospital", icon: "medical-outline" },
+  { key: "bank", label: "Bank", query: "bank", icon: "cash-outline" },
+  { key: "hotel", label: "Hotel", query: "hotel", icon: "bed-outline" },
+];
+
+function classifyPredictionCategory(prediction: PlacePrediction): string | null {
+  const bucket = `${prediction.category || ""} ${prediction.placeType || ""} ${prediction.primaryText || ""} ${prediction.fullText || ""}`.toLowerCase();
+  if (/\bfuel\b|petrol|gas station|charging_station|charging station/.test(bucket)) return "fuel";
+  if (/\bparking\b|car park|park and ride/.test(bucket)) return "parking";
+  if (/restaurant|cafe|coffee|pub|bar|fast_food|takeaway|food/.test(bucket)) return "food";
+  if (/pharmacy|chemist|drugstore/.test(bucket)) return "pharmacy";
+  if (/hospital|clinic|doctor|medical/.test(bucket)) return "hospital";
+  if (/bank|atm/.test(bucket)) return "bank";
+  if (/hotel|guest house|accommodation|lodging/.test(bucket)) return "hotel";
+  if (/shop|supermarket|convenience|store|retail|mall/.test(bucket)) return "shop";
+  return null;
+}
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +81,10 @@ export interface SearchBarProps {
   onClearRoute: () => void;
   /** Swap origin and destination */
   onSwap: () => void;
+  destinationCandidates?: PlacePrediction[];
+  selectedDestinationCandidateId?: string | null;
+  onSelectDestinationCandidate?: (placeId: string, panToCandidate?: boolean) => void;
+  onFindSafeRoutes?: () => boolean;
   /** If provided, tapping any input fires this instead of allowing typing (web guest mode) */
   onGuestTap?: () => void;
   /** When true, renders inline (no absolute positioning) — used inside WebSidebar */
@@ -84,6 +117,10 @@ export function SearchBar({
   onPanTo,
   onClearRoute,
   onSwap,
+  destinationCandidates = [],
+  selectedDestinationCandidateId = null,
+  onSelectDestinationCandidate,
+  onFindSafeRoutes,
   onGuestTap,
   embedded,
   savedPlaces,
@@ -185,6 +222,51 @@ export function SearchBar({
       onClearRoute,
       cancelBlurTimer,
     ],
+  );
+
+  const showDestinationCandidateCards =
+    activeField !== "origin" &&
+    !manualDest &&
+    !destSearch.place &&
+    destinationCandidates.length > 0;
+
+  const showLegacyPredictions =
+    activePredictions.length > 0 && !showDestinationCandidateCards;
+
+  const bubbleSource = showDestinationCandidateCards
+    ? destinationCandidates
+    : activePredictions;
+
+  const categoryBubbles = useMemo(() => {
+    if (!bubbleSource || bubbleSource.length === 0) return [];
+
+    const counts = new Map<string, number>();
+    for (const prediction of bubbleSource) {
+      const category = classifyPredictionCategory(prediction);
+      if (!category) continue;
+      counts.set(category, (counts.get(category) || 0) + 1);
+    }
+
+    return CATEGORY_CHIP_DEFINITIONS
+      .map((chip) => ({
+        ...chip,
+        count: counts.get(chip.key) || 0,
+      }))
+      .filter((chip) => chip.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+  }, [bubbleSource]);
+
+  const handleCategoryBubblePress = useCallback(
+    (categoryQuery: string) => {
+      // Category chips always target destination discovery.
+      setManualDest(null);
+      destSearch.setQuery(categoryQuery);
+      onClearRoute();
+      setFocusedFieldState("destination");
+      requestAnimationFrame(() => destInputRef.current?.focus());
+    },
+    [destSearch, onClearRoute, setManualDest],
   );
 
   return (
@@ -438,55 +520,170 @@ export function SearchBar({
         </View>
 
         {/* Predictions Dropdown */}
-        {activePredictions.length > 0 && (
+        {showLegacyPredictions && (
           <View
             style={[
               styles.predictionsDropdown,
               embedded && { maxWidth: "100%" as any },
             ]}
           >
-            {activePredictions.map((pred, idx) => (
-              <Pressable
-                key={pred.placeId}
-                style={({ pressed }: { pressed: boolean }) => [
-                  styles.predictionItem,
-                  idx === 0 && styles.predictionItemFirst,
-                  idx === activePredictions.length - 1 &&
-                    styles.predictionItemLast,
-                  pressed && styles.predictionItemPressed,
-                ]}
-                onPressIn={() => {
-                  suppressBlurRef.current = true;
-                  cancelBlurTimer();
-                }}
-                onPress={() => handlePredictionSelect(pred)}
+            {categoryBubbles.length > 0 && (
+              <ScrollView
+                horizontal
+                style={styles.categoryBubblesWrap}
+                contentContainerStyle={styles.categoryBubblesContent}
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="always"
               >
-                <View style={styles.predictionIcon}>
-                  <Ionicons name="location-outline" size={18} color="#667085" />
-                </View>
-                <View style={styles.predictionText}>
-                  <Text style={styles.predictionPrimary} numberOfLines={1}>
-                    {pred.primaryText}
-                  </Text>
-                  {pred.secondaryText ? (
-                    <Text style={styles.predictionSecondary} numberOfLines={1}>
-                      {pred.secondaryText}
-                    </Text>
-                  ) : null}
-                </View>
-                {idx === 0 && (
-                  <View style={styles.predictionBadge}>
-                    <Text style={styles.predictionBadgeText}>Suggested</Text>
+                {categoryBubbles.map((chip) => (
+                  <Pressable
+                    key={`legacy-chip-${chip.key}`}
+                    style={styles.categoryBubble}
+                    onPress={() => handleCategoryBubblePress(chip.query)}
+                  >
+                    <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                    <Text style={styles.categoryBubbleText}>{chip.label}</Text>
+                    <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+            <ScrollView
+              style={styles.predictionsScroll}
+              keyboardShouldPersistTaps="always"
+              nestedScrollEnabled
+            >
+              {activePredictions.map((pred, idx) => (
+                <Pressable
+                  key={pred.placeId}
+                  style={({ pressed }: { pressed: boolean }) => [
+                    styles.predictionItem,
+                    idx === 0 && styles.predictionItemFirst,
+                    idx === activePredictions.length - 1 &&
+                      styles.predictionItemLast,
+                    pressed && styles.predictionItemPressed,
+                  ]}
+                  onPressIn={() => {
+                    suppressBlurRef.current = true;
+                    cancelBlurTimer();
+                  }}
+                  onPress={() => handlePredictionSelect(pred)}
+                >
+                  <View style={styles.predictionIcon}>
+                    <Ionicons name="location-outline" size={18} color="#667085" />
                   </View>
-                )}
-              </Pressable>
-            ))}
+                  <View style={styles.predictionText}>
+                    <Text style={styles.predictionPrimary} numberOfLines={1}>
+                      {pred.primaryText}
+                    </Text>
+                    {pred.secondaryText ? (
+                      <Text style={styles.predictionSecondary} numberOfLines={1}>
+                        {pred.secondaryText}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {idx === 0 && (
+                    <View style={styles.predictionBadge}>
+                      <Text style={styles.predictionBadgeText}>Suggested</Text>
+                    </View>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
           </View>
         )}
       </ScrollView>
 
+      {/* Destination candidates (persistent cards when user typed but hasn't selected) */}
+      {!manualDest &&
+        showDestinationCandidateCards &&
+        onSelectDestinationCandidate && (
+          <View
+            style={[
+              styles.predictionsDropdown,
+              embedded && { maxWidth: "100%" as any },
+            ]}
+          >
+            <View style={styles.candidatesHeader}>
+              <Text style={styles.candidatesTitle}>Related places</Text>
+              <Pressable
+                style={styles.findSafeButton}
+                onPress={() => {
+                  onFindSafeRoutes?.();
+                }}
+              >
+                <Text style={styles.findSafeButtonText}>Find Safe Routes</Text>
+              </Pressable>
+            </View>
+            {categoryBubbles.length > 0 && (
+              <ScrollView
+                horizontal
+                style={styles.categoryBubblesWrap}
+                contentContainerStyle={styles.categoryBubblesContent}
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="always"
+              >
+                {categoryBubbles.map((chip) => (
+                  <Pressable
+                    key={`candidate-chip-${chip.key}`}
+                    style={styles.categoryBubble}
+                    onPress={() => handleCategoryBubblePress(chip.query)}
+                  >
+                    <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                    <Text style={styles.categoryBubbleText}>{chip.label}</Text>
+                    <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+            <ScrollView
+              style={styles.predictionsScroll}
+              keyboardShouldPersistTaps="always"
+              nestedScrollEnabled
+            >
+              {destinationCandidates.map((pred, idx) => {
+                const selected = pred.placeId === selectedDestinationCandidateId;
+                return (
+                  <Pressable
+                    key={`candidate-${pred.placeId}`}
+                    style={({ pressed }: { pressed: boolean }) => [
+                      styles.predictionItem,
+                      idx === destinationCandidates.length - 1 &&
+                        styles.predictionItemLast,
+                      selected && styles.candidateItemSelected,
+                      pressed && styles.predictionItemPressed,
+                    ]}
+                    onPress={() => {
+                      onSelectDestinationCandidate(pred.placeId, true);
+                    }}
+                  >
+                    <View style={styles.predictionIcon}>
+                      <Ionicons
+                        name={selected ? "radio-button-on" : "radio-button-off"}
+                        size={18}
+                        color={selected ? "#1570ef" : "#667085"}
+                      />
+                    </View>
+                    <View style={styles.predictionText}>
+                      <Text style={styles.predictionPrimary} numberOfLines={1}>
+                        {pred.primaryText}
+                      </Text>
+                      {pred.secondaryText ? (
+                        <Text style={styles.predictionSecondary} numberOfLines={1}>
+                          {pred.secondaryText}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
       {/* ── Saved places (when no predictions showing) ── */}
       {activePredictions.length === 0 &&
+        destinationCandidates.length === 0 &&
         savedPlaces &&
         onSelectSavedPlace &&
         onSavePlace &&
@@ -708,6 +905,45 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5e7eb",
   },
+  predictionsScroll: {
+    maxHeight: 380,
+  },
+  categoryBubblesWrap: {
+    maxHeight: 46,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f2f4f7",
+  },
+  categoryBubblesContent: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+    alignItems: "center",
+  },
+  categoryBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  categoryBubbleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#1d4ed8",
+  },
+  categoryBubbleCount: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1570ef",
+    backgroundColor: "#dbeafe",
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
   predictionItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -756,5 +992,36 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: "#027a48",
+  },
+  candidatesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f2f4f7",
+  },
+  candidatesTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#344054",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  findSafeButton: {
+    backgroundColor: "#1570ef",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  findSafeButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  candidateItemSelected: {
+    backgroundColor: "#eff8ff",
   },
 });
