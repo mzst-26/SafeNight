@@ -510,33 +510,47 @@ async function computeSafeRoutes(
       if (wpLat != null) initialBboxPoints.push({ lat: wpLat, lng: wpLng });
       const initialBbox = bboxFromPoints(initialBboxPoints, initialBufferM);
 
-      const roadData = await fetchRoadNetworkOnly(initialBbox, {
-        signal: upstreamAbortController.signal,
-      });
-      distGraph = buildDistanceOnlyGraph(roadData);
+      try {
+        const roadData = await fetchRoadNetworkOnly(initialBbox, {
+          signal: upstreamAbortController.signal,
+        });
+        distGraph = buildDistanceOnlyGraph(roadData);
 
-      const distStart = findNearestNode(
-        distGraph.nodeGrid,
-        distGraph.adjacency,
-        oLatV,
-        oLngV,
-      );
-      const distEnd = findNearestNode(
-        distGraph.nodeGrid,
-        distGraph.adjacency,
-        dLatV,
-        dLngV,
-      );
-
-      if (distStart && distEnd) {
-        shortestPath = aStarDistance(
-          distGraph.osmNodes,
-          distGraph.edges,
+        const distStart = findNearestNode(
+          distGraph.nodeGrid,
           distGraph.adjacency,
-          distStart,
-          distEnd,
-          straightLineDist * 3,
+          oLatV,
+          oLngV,
         );
+        const distEnd = findNearestNode(
+          distGraph.nodeGrid,
+          distGraph.adjacency,
+          dLatV,
+          dLngV,
+        );
+
+        if (distStart && distEnd) {
+          shortestPath = aStarDistance(
+            distGraph.osmNodes,
+            distGraph.edges,
+            distGraph.adjacency,
+            distStart,
+            distEnd,
+            straightLineDist * 3,
+          );
+        }
+      } catch (err) {
+        if (err?.code === "SEARCH_CANCELLED") throw err;
+        if (isServerBusyError(err)) {
+          console.warn(
+            `[safe-routes] ⚠️ Phase 1 degraded (${String(err?.message || err).slice(0, 180)}). Continuing with straight-line corridor.`,
+          );
+          shortestPath = null;
+          distGraph = null;
+          progress("phase1_degraded", "Skipping corridor discovery due to upstream delay…", 36);
+        } else {
+          throw err;
+        }
       }
       phase1Time = Date.now() - t0p1;
       cancelToken?.throwIfCancelled?.();
