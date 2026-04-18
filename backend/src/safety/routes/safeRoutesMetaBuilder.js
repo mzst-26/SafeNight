@@ -11,8 +11,9 @@ function buildSafeRoutesMeta({
   graphTime,
   pathfindTime,
   recorrectionMs,
+  dataSources,
 }) {
-  return {
+  const meta = {
     straightLineDistanceKm: Math.round(straightLineKm * 10) / 10,
     maxDistanceKm,
     routeCount: responseRoutes.length,
@@ -34,6 +35,15 @@ function buildSafeRoutesMeta({
     },
     computeTimeMs: elapsed,
   };
+
+  if (dataSources && (dataSources.overpass || dataSources.crime)) {
+    meta.dataSources = {
+      overpass: dataSources.overpass || null,
+      crime: dataSources.crime || null,
+    };
+  }
+
+  return meta;
 }
 
 module.exports = {

@@ -1,6 +1,4 @@
 /* eslint-env jest */
-/* global describe, test, expect */
-
 const {
   buildSafeRoutesMeta,
 } = require('../../../../src/safety/routes/safeRoutesMetaBuilder');
@@ -48,6 +46,37 @@ describe('safeRoutesMetaBuilder', () => {
         recorrectionMs: 0,
       },
       computeTimeMs: 456,
+    });
+  });
+
+  test('includes data source observability metadata when provided', () => {
+    const meta = buildSafeRoutesMeta({
+      straightLineKm: 1.2,
+      maxDistanceKm: 10,
+      responseRoutes: [{ routeIndex: 0 }],
+      roadCount: 42,
+      crimes: [],
+      allData: {
+        lights: { elements: [] },
+        cctv: { elements: [] },
+        places: { elements: [] },
+        transit: { elements: [] },
+      },
+      elapsed: 200,
+      phase1Time: 40,
+      dataTime: 60,
+      graphTime: 50,
+      pathfindTime: 50,
+      recorrectionMs: 0,
+      dataSources: {
+        overpass: { source: 'cache_stale', stale: true },
+        crime: { source: 'live', stale: false },
+      },
+    });
+
+    expect(meta.dataSources).toEqual({
+      overpass: { source: 'cache_stale', stale: true },
+      crime: { source: 'live', stale: false },
     });
   });
 });
