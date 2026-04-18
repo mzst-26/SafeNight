@@ -20,6 +20,10 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body,#map{width:100%;height:100%;overflow:hidden;background:#e8eaed}
     .road-label{background:rgba(17,24,39,.85);color:#fff;border-radius:8px;padding:2px 6px;font-size:9px;font-weight:600;white-space:nowrap}
+    .search-pin-wrap{display:flex;flex-direction:column;align-items:center;pointer-events:none}
+    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
+    .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #ef4444;filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
+    .search-pin-label{margin-top:7px;background:#fff;color:#111827;border:1px solid rgba(17,24,39,.14);border-radius:10px;padding:2px 7px;font-size:10px;font-weight:700;max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 6px rgba(0,0,0,.2)}
     .friend-chip{display:flex;align-items:center;gap:4px;background:#7C3AED;color:#fff;border:2px solid #fff;border-radius:14px;padding:2px 6px 2px 2px;font-size:10px;font-weight:600;white-space:nowrap}
     .friend-dot{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:10px}
     .nav-dot{width:18px;height:18px;border-radius:50%;background:#1570EF;border:3px solid #fff;box-shadow:0 0 0 2px rgba(21,112,239,.25)}
@@ -266,6 +270,15 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
       L.marker([l.lat,l.lng],{icon:icon,interactive:false}).addTo(layerLabels);
     }
 
+    function safeLabel(text){
+      return String(text||'')
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
     function init(){
       map = L.map('map', {
         zoomControl:true,
@@ -375,12 +388,37 @@ const buildLeafletHtml = () => `<!DOCTYPE html>
       }
 
       var hl=d.highlightCategory||null;
+      var includeCandidateBounds = !!d.fitCandidateBounds;
       (d.safetyMarkers||[]).forEach(function(m){
+        var isCandidate = m.id && String(m.id).indexOf('search-candidate:')===0;
         var k=m.kind||'crime';
         if(hl && hl!==k) return;
+        if(isCandidate){
+          var raw = String(m.label || 'Place').trim();
+          var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
+          var icon=L.divIcon({
+            className:'',
+            html:'<div class="search-pin-wrap"><div class="search-pin-dot"></div><div class="search-pin-label">'+safeLabel(trimmed)+'</div></div>',
+            iconSize:[130,42],
+            iconAnchor:[65,26],
+          });
+          var pin=L.marker([m.lat,m.lng],{icon:icon}).addTo(layerMarkers);
+          pin.on('click', function(){ sendMsg('selectMarker', { id:m.id }); });
+          if(includeCandidateBounds){
+            bounds.push([m.lat,m.lng]);
+          }
+          return;
+        }
+
         var isHl=hl && hl===k;
         var radius=(k==='via')?8:(isHl?7:4);
-        L.circleMarker([m.lat,m.lng],{radius:radius,color:'#fff',weight:isHl?2:1,fillColor:colorMap[k]||'#94a3b8',fillOpacity:isHl?1:0.85}).addTo(layerMarkers);
+        var marker=L.circleMarker([m.lat,m.lng],{radius:radius,color:'#fff',weight:isHl?2:1,fillColor:colorMap[k]||'#94a3b8',fillOpacity:isHl?1:0.85}).addTo(layerMarkers);
+        if(includeCandidateBounds && isCandidate){
+          bounds.push([m.lat,m.lng]);
+        }
+        if(isCandidate){
+          marker.on('click', function(){ sendMsg('selectMarker', { id:m.id }); });
+        }
       });
 
       (d.friendMarkers||[]).forEach(function(f){
@@ -495,6 +533,7 @@ export const RouteMap = ({
   routeSegments = [],
   roadLabels = [],
   panTo,
+  fitCandidateBoundsToken = 0,
   isNavigating = false,
   navigationLocation,
   navigationHeading,
@@ -509,6 +548,7 @@ export const RouteMap = ({
   vizProgressPct = null,
   vizProgressMessage = null,
   onSelectRoute,
+  onSelectMarker,
   onLongPress,
   onMapPress,
   onNavigationFollowChange,
@@ -519,12 +559,14 @@ export const RouteMap = ({
   const [hasError, setHasError] = useState(false);
   const prevGeoKeyRef = useRef("");
   const prevPanKeyRef = useRef(-1);
+  const prevFitCandidateBoundsTokenRef = useRef(0);
   const prevVizUrlRef = useRef<string | null>(null);
 
   const callbacksRef = useRef({
     onMapPress,
     onLongPress,
     onSelectRoute,
+    onSelectMarker,
     onNavigationFollowChange,
     onUserInteraction,
   });
@@ -532,6 +574,7 @@ export const RouteMap = ({
     onMapPress,
     onLongPress,
     onSelectRoute,
+    onSelectMarker,
     onNavigationFollowChange,
     onUserInteraction,
   };
@@ -556,6 +599,7 @@ export const RouteMap = ({
     routeSegments,
     roadLabels,
     panTo,
+    fitCandidateBoundsToken,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -574,6 +618,7 @@ export const RouteMap = ({
     routeSegments,
     roadLabels,
     panTo,
+    fitCandidateBoundsToken,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -602,6 +647,7 @@ export const RouteMap = ({
       path: seg.path.map(toLL),
     }));
     const mkrs = p.safetyMarkers.map((m) => ({
+      id: m.id,
       kind: m.kind,
       label: m.label,
       lat: m.coordinate.latitude,
@@ -622,8 +668,16 @@ export const RouteMap = ({
       p.routes.map((r) => r.id).join(","),
       p.selectedRouteId ?? "",
     ].join("|");
-    const fitBounds = geoKey !== prevGeoKeyRef.current;
-    if (fitBounds) prevGeoKeyRef.current = geoKey;
+    const geoChanged = geoKey !== prevGeoKeyRef.current;
+    if (geoChanged) prevGeoKeyRef.current = geoKey;
+
+    const fitCandidateBounds =
+      (p.fitCandidateBoundsToken ?? 0) !== prevFitCandidateBoundsTokenRef.current;
+    if (fitCandidateBounds) {
+      prevFitCandidateBoundsTokenRef.current = p.fitCandidateBoundsToken ?? 0;
+    }
+
+    const fitBounds = geoChanged || fitCandidateBounds;
 
     let panToData: { lat: number; lng: number } | null = null;
     if (p.panTo && p.panTo.key !== prevPanKeyRef.current) {
@@ -639,6 +693,7 @@ export const RouteMap = ({
       safetyMarkers: mkrs,
       roadLabels: labels,
       fitBounds,
+      fitCandidateBounds,
       panTo: panToData,
       navLocation:
         p.isNavigating && p.navigationLocation
@@ -703,6 +758,9 @@ export const RouteMap = ({
           case "selectRoute":
             cbs.onSelectRoute?.(msg.id);
             break;
+          case "selectMarker":
+            cbs.onSelectMarker?.(msg.id);
+            break;
           case "navFollowChanged":
             cbs.onNavigationFollowChange?.(Boolean(msg.isFollowing));
             break;
@@ -748,6 +806,7 @@ export const RouteMap = ({
     friendMarkers,
     isInPipMode,
     outOfRangeCueSignal,
+      fitCandidateBoundsToken,
     pushUpdate,
   ]);
 
