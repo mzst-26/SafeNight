@@ -12,6 +12,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
     Animated,
     AppState,
     Platform,
@@ -62,6 +63,8 @@ import { useAuth } from "@/src/hooks/useAuth";
 import { useContacts } from "@/src/hooks/useContacts";
 import { useFriendLocations } from "@/src/hooks/useFriendLocations";
 import { useHomeScreen } from "@/src/hooks/useHomeScreen";
+import { fetchPlacePredictions } from "@/src/services/osmDirections";
+import type { PlacePrediction, LatLng } from "@/src/types/google";
 import { useLiveTracking } from "@/src/hooks/useLiveTracking";
 import { useSavedPlaces, type SavedPlace } from "@/src/hooks/useSavedPlaces";
 import { useWebBreakpoint } from "@/src/hooks/useWebBreakpoint";
@@ -89,6 +92,28 @@ const PLACE_CATEGORY_CHIPS: Array<{
   { key: "bank", label: "Bank", query: "bank", icon: "cash-outline" },
   { key: "hotel", label: "Hotel", query: "hotel", icon: "bed-outline" },
 ];
+
+const MILES_TO_METERS = 1609.34;
+const SEARCH_AROUND_MAX_MILES = 30;
+const SHEET_RESULTS_RENDER_LIMIT = 20;
+const SEARCH_DISTANCE_FILTER_OPTIONS_MILES = [1, 3, 5, 10] as const;
+
+function haversineDistanceMeters(a: LatLng, b: LatLng): number {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const deltaLatitude = toRadians(b.latitude - a.latitude);
+  const deltaLongitude = toRadians(b.longitude - a.longitude);
+  const latitudeA = toRadians(a.latitude);
+  const latitudeB = toRadians(b.latitude);
+  const x =
+    Math.sin(deltaLatitude / 2) * Math.sin(deltaLatitude / 2) +
+    Math.cos(latitudeA) *
+      Math.cos(latitudeB) *
+      Math.sin(deltaLongitude / 2) *
+      Math.sin(deltaLongitude / 2);
+  const y = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  return earthRadiusMeters * y;
+}
 
 function classifyPlaceCategory(input: {
   category?: string;
@@ -137,6 +162,147 @@ export default function HomeScreen() {
   const isWeb = Platform.OS === "web";
   const isDesktopWeb = isWeb && !isPhoneWeb;
   const webSidebarOverlayOffset = isDesktopWeb ? 404 : 0;
+
+  // Sheet scroll ref and search-around state
+  const sheetScrollRef = useRef<any>(null);
+  const [mapCenterForSearch, setMapCenterForSearch] = useState<LatLng | null>(null);
+  const [showSearchAroundButton, setShowSearchAroundButton] = useState(false);
+  const [accumulatedDestinationCandidates, setAccumulatedDestinationCandidates] = useState<PlacePrediction[]>([]);
+  const [searchAnchor, setSearchAnchor] = useState<LatLng | null>(null);
+  const [searchAroundLimitReached, setSearchAroundLimitReached] = useState(false);
+  const [isSearchAroundLoading, setIsSearchAroundLoading] = useState(false);
+  const [searchDistanceFilterMiles, setSearchDistanceFilterMiles] = useState<number>(3);
+  const [activePlaceCategoryKey, setActivePlaceCategoryKey] = useState<string | null>(null);
+  const [selectedSheetCandidateId, setSelectedSheetCandidateId] = useState<string | null>(null);
+  const previousSearchQueryRef = useRef("");
+
+  const maxDistanceFilterMiles = useMemo(() => {
+    const tier = (subscriptionTier || "free").toLowerCase();
+    return tier === "free" ? 3 : 10;
+  }, [subscriptionTier]);
+
+  const distanceFilterOptionsMiles = useMemo(
+    () => SEARCH_DISTANCE_FILTER_OPTIONS_MILES.filter((miles) => miles <= maxDistanceFilterMiles),
+    [maxDistanceFilterMiles],
+  );
+
+  useEffect(() => {
+    setSearchDistanceFilterMiles((current) => Math.min(current, maxDistanceFilterMiles));
+  }, [maxDistanceFilterMiles]);
+
+  useEffect(() => {
+    setSelectedSheetCandidateId(h.selectedDestinationCandidateId);
+  }, [h.selectedDestinationCandidateId]);
+
+  useEffect(() => {
+    const query = (h.destSearch?.query || "").trim();
+    const normalizedQuery = query.toLowerCase();
+
+    if (normalizedQuery !== previousSearchQueryRef.current) {
+      previousSearchQueryRef.current = normalizedQuery;
+      setAccumulatedDestinationCandidates([]);
+      setSearchAroundLimitReached(false);
+      setShowSearchAroundButton(false);
+      setSearchAnchor(h.location ?? h.effectiveOrigin ?? mapCenterForSearch ?? null);
+      setSelectedSheetCandidateId(h.selectedDestinationCandidateId);
+    }
+
+    if (query.length < 2) {
+      setShowSearchAroundButton(false);
+      setSearchAroundLimitReached(false);
+      setSearchAnchor(null);
+      setAccumulatedDestinationCandidates([]);
+      setSelectedSheetCandidateId(h.selectedDestinationCandidateId);
+      return;
+    }
+
+    if (!searchAnchor) {
+      const initialAnchor = h.location ?? h.effectiveOrigin ?? mapCenterForSearch;
+      if (initialAnchor) {
+        setSearchAnchor(initialAnchor);
+      }
+    }
+  }, [
+    h.destSearch?.query,
+    h.location,
+    h.location?.latitude,
+    h.location?.longitude,
+    h.effectiveOrigin,
+    h.effectiveOrigin?.latitude,
+    h.effectiveOrigin?.longitude,
+    h.selectedDestinationCandidateId,
+    mapCenterForSearch,
+    mapCenterForSearch?.latitude,
+    mapCenterForSearch?.longitude,
+    searchAnchor,
+  ]);
+
+  const handleMapCenterChanged = useCallback((loc: LatLng) => {
+    setMapCenterForSearch(loc);
+    const q = (h.destSearch?.query || "").trim();
+    if (q.length < 2) {
+      setShowSearchAroundButton(false);
+      return;
+    }
+
+    const anchor = searchAnchor ?? h.location ?? h.effectiveOrigin ?? loc;
+    if (!searchAnchor) {
+      setSearchAnchor(anchor);
+    }
+
+    const maxMeters = SEARCH_AROUND_MAX_MILES * MILES_TO_METERS;
+    const movedDistance = haversineDistanceMeters(anchor, loc);
+    if (movedDistance > maxMeters) {
+      setSearchAroundLimitReached(true);
+      setShowSearchAroundButton(false);
+      return;
+    }
+
+    setSearchAroundLimitReached(false);
+    setShowSearchAroundButton(true);
+  }, [h.destSearch, h.location, h.effectiveOrigin, searchAnchor]);
+
+  const performSearchAround = useCallback(async () => {
+    if (!mapCenterForSearch || isSearchAroundLoading) return;
+    const q = (h.destSearch?.query || "").trim();
+    if (q.length < 2) return;
+
+    const anchor = searchAnchor ?? h.location ?? h.effectiveOrigin ?? mapCenterForSearch;
+    if (!searchAnchor) {
+      setSearchAnchor(anchor);
+    }
+
+    const maxMeters = SEARCH_AROUND_MAX_MILES * MILES_TO_METERS;
+    const movedDistance = haversineDistanceMeters(anchor, mapCenterForSearch);
+    if (movedDistance > maxMeters) {
+      setSearchAroundLimitReached(true);
+      setShowSearchAroundButton(false);
+      return;
+    }
+
+    const tier = (subscriptionTier || "free").toLowerCase();
+    const radiusMiles = tier === "free" ? 3 : 5;
+    const radiusMeters = Math.round(radiusMiles * MILES_TO_METERS);
+    setIsSearchAroundLoading(true);
+    try {
+      const results = await fetchPlacePredictions(q, {
+        locationBias: mapCenterForSearch,
+        radiusMeters,
+        subscriptionTier: tier,
+      });
+      setAccumulatedDestinationCandidates((prev) => {
+        const map = new Map(prev.map((p) => [p.placeId, p]));
+        for (const r of results) map.set(r.placeId, r);
+        return Array.from(map.values());
+      });
+      setSearchAroundLimitReached(false);
+    } catch {
+      // ignore network errors for now
+    } finally {
+      setIsSearchAroundLoading(false);
+      setShowSearchAroundButton(false);
+    }
+  }, [mapCenterForSearch, isSearchAroundLoading, h.destSearch, h.location, h.effectiveOrigin, searchAnchor, subscriptionTier]);
 
   // Web guest detection (also exposed from useHomeScreen)
   const isWebGuest = Platform.OS === "web" && !auth.isLoggedIn;
@@ -332,6 +498,8 @@ export default function HomeScreen() {
     harassment: "Harassment",
     other: "Other",
   };
+
+  
 
   const handleReportSubmitted = useCallback((category: string) => {
     setShowReportModal(false);
@@ -669,7 +837,86 @@ export default function HomeScreen() {
     h.effectiveDestination?.longitude,
   ]);
 
-  const selectedPlace = h.selectedDestinationCandidate;
+  const _baseSheetPlaces =
+    h.destinationCandidates.length > 0
+      ? h.destinationCandidates
+      : hasLiveDestinationPredictions
+        ? h.destSearch.predictions
+        : [];
+
+  const sheetPlaces =
+    accumulatedDestinationCandidates.length > 0
+      ? Array.from(
+          new Map(
+            [..._baseSheetPlaces, ...accumulatedDestinationCandidates].map(
+              (p) => [p.placeId, p],
+            ),
+          ).values(),
+        )
+      : _baseSheetPlaces;
+
+  const nearbyReference = h.location ?? h.effectiveOrigin ?? null;
+  const maxDistanceMeters = searchDistanceFilterMiles * MILES_TO_METERS;
+  const placeDistanceById = useMemo(() => {
+    const distances = new Map<string, number>();
+    if (!nearbyReference) return distances;
+
+    for (const place of sheetPlaces) {
+      if (!place.location) continue;
+      distances.set(
+        place.placeId,
+        haversineDistanceMeters(nearbyReference, place.location),
+      );
+    }
+    return distances;
+  }, [sheetPlaces, nearbyReference]);
+
+  const distanceFilteredSheetPlaces = useMemo(() => {
+    if (!nearbyReference) return sheetPlaces;
+    return sheetPlaces.filter((place) => {
+      const distance = placeDistanceById.get(place.placeId);
+      return typeof distance === "number" && distance <= maxDistanceMeters;
+    });
+  }, [sheetPlaces, nearbyReference, placeDistanceById, maxDistanceMeters]);
+
+  const categoryFilteredSheetPlaces = useMemo(() => {
+    if (!activePlaceCategoryKey) return distanceFilteredSheetPlaces;
+    return distanceFilteredSheetPlaces.filter(
+      (candidate) => classifyPlaceCategory(candidate) === activePlaceCategoryKey,
+    );
+  }, [distanceFilteredSheetPlaces, activePlaceCategoryKey]);
+
+  const orderedSheetPlaces = useMemo(() => {
+    if (!nearbyReference) return categoryFilteredSheetPlaces;
+    return [...categoryFilteredSheetPlaces].sort((a, b) => {
+      const aDistance = placeDistanceById.get(a.placeId) ?? Number.MAX_SAFE_INTEGER;
+      const bDistance = placeDistanceById.get(b.placeId) ?? Number.MAX_SAFE_INTEGER;
+      return aDistance - bDistance;
+    });
+  }, [categoryFilteredSheetPlaces, nearbyReference, placeDistanceById]);
+
+  const filteredSheetPlaceIds = useMemo(
+    () => new Set(categoryFilteredSheetPlaces.map((place) => place.placeId)),
+    [categoryFilteredSheetPlaces],
+  );
+
+  const visibleSheetPlaces = useMemo(() => {
+    const clipped = orderedSheetPlaces.slice(0, SHEET_RESULTS_RENDER_LIMIT);
+    if (!selectedSheetCandidateId) return clipped;
+    if (clipped.some((p) => p.placeId === selectedSheetCandidateId)) return clipped;
+    const selected = orderedSheetPlaces.find(
+      (p) => p.placeId === selectedSheetCandidateId,
+    );
+    return selected ? [...clipped, selected] : clipped;
+  }, [orderedSheetPlaces, selectedSheetCandidateId]);
+
+  const selectedPlace = useMemo(
+    () =>
+      sheetPlaces.find((p) => p.placeId === selectedSheetCandidateId) ??
+      h.selectedDestinationCandidate,
+    [sheetPlaces, selectedSheetCandidateId, h.selectedDestinationCandidate],
+  );
+
   const selectedPlaceCategory = selectedPlace?.category
     ? selectedPlace.category
         .replace(/_/g, " ")
@@ -686,18 +933,65 @@ export default function HomeScreen() {
     ? `${selectedPlace.location.latitude.toFixed(5)}, ${selectedPlace.location.longitude.toFixed(5)}`
     : null;
 
-  const sheetPlaces =
-    h.destinationCandidates.length > 0
-      ? h.destinationCandidates
-      : hasLiveDestinationPredictions
-        ? h.destSearch.predictions
-        : [];
+  const handleFindSafeRoutesForSelectedPlace = useCallback(() => {
+    const candidate =
+      sheetPlaces.find((p) => p.placeId === selectedSheetCandidateId) ?? null;
+    if (!candidate) {
+      h.activateSelectedDestinationCandidate();
+      return;
+    }
+
+    const isBaseCandidate = h.destinationCandidates.some(
+      (p) => p.placeId === candidate.placeId,
+    );
+
+    if (isBaseCandidate) {
+      h.selectDestinationCandidate(candidate.placeId, true);
+      h.activateSelectedDestinationCandidate();
+      return;
+    }
+
+    h.destSearch.selectPrediction(candidate);
+    h.setManualDest(null);
+    if (candidate.location) {
+      h.handlePanTo(candidate.location);
+    }
+    h.clearSelectedRoute();
+  }, [
+    h,
+    selectedSheetCandidateId,
+    sheetPlaces,
+  ]);
+
+  // Scroll sheet to center selected candidate when selection changes
+  useEffect(() => {
+    const id = selectedSheetCandidateId;
+    if (!id || !sheetScrollRef?.current) return;
+    const idx = visibleSheetPlaces.findIndex((p) => p.placeId === id);
+    if (idx === -1) return;
+    const approxItemHeight = 72; // approximate item height
+    const centerOffset = Math.max(0, idx * approxItemHeight - 120);
+    try {
+      sheetScrollRef.current.scrollTo({ y: centerOffset, animated: true });
+    } catch {
+      // ignore
+    }
+
+    if (Platform.OS !== "web") {
+      h.sheetHeightRef.current = SHEET_DEFAULT;
+      Animated.spring(h.sheetHeight, {
+        toValue: SHEET_DEFAULT,
+        useNativeDriver: false,
+        bounciness: 6,
+      }).start();
+    }
+  }, [selectedSheetCandidateId, visibleSheetPlaces, h.sheetHeight, h.sheetHeightRef]);
 
   const sheetCategoryBubbles = useMemo(() => {
-    if (!sheetPlaces.length) return [];
+    if (!distanceFilteredSheetPlaces.length) return [];
 
     const counts = new Map<string, number>();
-    for (const candidate of sheetPlaces) {
+    for (const candidate of distanceFilteredSheetPlaces) {
       const category = classifyPlaceCategory(candidate);
       if (!category) continue;
       counts.set(category, (counts.get(category) || 0) + 1);
@@ -707,18 +1001,46 @@ export default function HomeScreen() {
       .map((chip) => ({ ...chip, count: counts.get(chip.key) || 0 }))
       .filter((chip) => chip.count > 0)
       .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-  }, [sheetPlaces]);
+      .slice(0, 5);
+  }, [distanceFilteredSheetPlaces]);
 
   const handleSheetCategoryBubblePress = useCallback(
-    (query: string) => {
-      h.setManualDest(null);
-      h.destSearch.setQuery(query);
-      h.clearSelectedRoute();
+    (categoryKey: string) => {
+      setActivePlaceCategoryKey((prev) =>
+        prev === categoryKey ? null : categoryKey,
+      );
+      setSelectedSheetCandidateId(null);
       setShowSelectedPlaceDetails(false);
     },
-    [h],
+    [],
   );
+
+  const handleDistanceFilterPress = useCallback(
+    (distance: number) => {
+      setSearchDistanceFilterMiles(distance);
+      setSelectedSheetCandidateId(null);
+      setShowSelectedPlaceDetails(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (
+      selectedSheetCandidateId &&
+      visibleSheetPlaces.some((p) => p.placeId === selectedSheetCandidateId)
+    ) {
+      return;
+    }
+
+    if (visibleSheetPlaces.length === 0) {
+      setSelectedSheetCandidateId(null);
+      setShowSelectedPlaceDetails(false);
+      return;
+    }
+
+    setSelectedSheetCandidateId(visibleSheetPlaces[0].placeId);
+    setShowSelectedPlaceDetails(true);
+  }, [visibleSheetPlaces, selectedSheetCandidateId]);
 
   useEffect(() => {
     if (!selectedPlace) return;
@@ -734,40 +1056,117 @@ export default function HomeScreen() {
     }
   }, [selectedPlace?.placeId, h.isNavActive, h.sheetHeight, h.sheetHeightRef]);
 
+  const combinedDestinationCandidateMarkers = useMemo(() => {
+    const markers = new Map<string, any>();
+
+    for (const marker of h.destinationCandidateMarkers as any[]) {
+      markers.set(marker.id, marker);
+    }
+
+    for (const candidate of accumulatedDestinationCandidates) {
+      if (!candidate.location) continue;
+      markers.set(`search-candidate:${candidate.placeId}`, {
+        id: `search-candidate:${candidate.placeId}`,
+        kind: "shop",
+        coordinate: {
+          latitude: candidate.location.latitude,
+          longitude: candidate.location.longitude,
+        },
+        label: candidate.fullText || candidate.primaryText,
+      });
+    }
+
+    return Array.from(markers.values());
+  }, [h.destinationCandidateMarkers, accumulatedDestinationCandidates]);
+
+  const filteredDestinationCandidateMarkers = useMemo(() => {
+    return combinedDestinationCandidateMarkers.filter((marker: any) => {
+      const markerId = String(marker?.id ?? "");
+      if (!markerId.startsWith("search-candidate:")) return true;
+      const placeId = markerId.slice("search-candidate:".length);
+      return filteredSheetPlaceIds.has(placeId);
+    });
+  }, [combinedDestinationCandidateMarkers, filteredSheetPlaceIds]);
+
   const renderDestinationCandidatesSection = (keyPrefix: string) => {
     if (!showDestinationCandidateSheet) return null;
 
     return (
       <View style={styles.placeResultsPanel}>
-        {sheetCategoryBubbles.length > 0 && (
-          <View style={styles.placeCategoriesWrap}>
-            {sheetCategoryBubbles.map((chip) => (
-              <Pressable
-                key={`${keyPrefix}-cat-${chip.key}`}
-                style={styles.placeCategoryBubble}
-                onPress={() => handleSheetCategoryBubblePress(chip.query)}
-              >
-                <Ionicons name={chip.icon} size={14} color="#1570ef" />
-                <Text style={styles.placeCategoryBubbleText}>{chip.label}</Text>
-                <Text style={styles.placeCategoryBubbleCount}>{chip.count}</Text>
-              </Pressable>
-            ))}
+        {/* Sticky Header — Index 0 for stickyHeaderIndices */}
+        <View style={styles.stickyHeaderContainer}>
+          {/* Category Chips */}
+          {sheetCategoryBubbles.length > 0 && (
+            <View style={styles.placeCategoryFiltersBlock}>
+              <Text style={styles.placeFiltersHelperText}>
+                Quick filters: tap a category to instantly narrow Places results.
+              </Text>
+              <View style={styles.placeCategoriesWrap}>
+              {sheetCategoryBubbles.slice(0, 5).map((chip, idx, arr) => {
+                const iconOnly = arr.length > 3;
+                return (
+                <Pressable
+                  key={`${keyPrefix}-cat-${chip.key}`}
+                  style={[
+                    styles.placeCategoryBubble,
+                    styles.placeCategoryBubbleEqual,
+                    iconOnly ? styles.placeCategoryBubbleIconOnly : null,
+                    activePlaceCategoryKey === chip.key
+                      ? styles.placeCategoryBubbleActive
+                      : null,
+                  ]}
+                  onPress={() => handleSheetCategoryBubblePress(chip.key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Filter places by ${chip.label}`}
+                  accessibilityHint="Filters the visible Places list immediately"
+                >
+                  <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                  {!iconOnly ? (
+                    <Text style={styles.placeCategoryBubbleText}>{chip.label}</Text>
+                  ) : null}
+                  <Text style={styles.placeCategoryBubbleCount}>{chip.count}</Text>
+                </Pressable>
+                );
+              })}
+              </View>
+            </View>
+          )}
+          
+          {/* Distance Filter Controls */}
+          <View style={styles.distanceFilterRow}>
+            <Text style={styles.distanceFilterLabel}>Distance:</Text>
+            <View style={styles.distanceFilterOptions}>
+              {distanceFilterOptionsMiles.map((distance) => (
+                <Pressable
+                  key={`${keyPrefix}-distance-${distance}`}
+                  style={[
+                    styles.distanceFilterButton,
+                    searchDistanceFilterMiles === distance && styles.distanceFilterButtonActive,
+                  ]}
+                  onPress={() => handleDistanceFilterPress(distance)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Filter places to ${distance} miles`}
+                  accessibilityHint="Applies distance filter to Places results"
+                >
+                  <Text
+                    style={[
+                      styles.distanceFilterButtonText,
+                      searchDistanceFilterMiles === distance && styles.distanceFilterButtonTextActive,
+                    ]}
+                  >
+                    {distance}mi
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
-        )}
+        </View>
 
         <View style={styles.placeResultsHeader}>
           <Text style={styles.placeResultsTitle}>Places</Text>
-          <Pressable
-            style={styles.placeResultsActionBtn}
-            onPress={() => {
-              h.activateSelectedDestinationCandidate();
-            }}
-          >
-            <Text style={styles.placeResultsActionText}>Find Safe Routes</Text>
-          </Pressable>
         </View>
-        {sheetPlaces.map((candidate) => {
-          const selected = candidate.placeId === h.selectedDestinationCandidateId;
+        {visibleSheetPlaces.map((candidate) => {
+          const selected = candidate.placeId === selectedSheetCandidateId;
           return (
             <Pressable
               key={`${keyPrefix}-${candidate.placeId}`}
@@ -776,15 +1175,13 @@ export default function HomeScreen() {
                 selected && styles.placeResultItemSelected,
               ]}
               onPress={() => {
-                if (h.destinationCandidates.length > 0) {
+                setSelectedSheetCandidateId(candidate.placeId);
+                if (h.destinationCandidates.some((p) => p.placeId === candidate.placeId)) {
                   h.selectDestinationCandidate(candidate.placeId, true);
                 } else {
-                  h.destSearch.selectPrediction(candidate);
-                  h.setManualDest(null);
                   if (candidate.location) {
                     h.handlePanTo(candidate.location);
                   }
-                  h.clearSelectedRoute();
                 }
                 if (selected) {
                   setShowSelectedPlaceDetails((prev) => !prev);
@@ -843,6 +1240,14 @@ export default function HomeScreen() {
                       {selectedPlaceCoords}
                     </Text>
                   ) : null}
+                  <View style={{ marginTop: 8 }}>
+                    <Pressable
+                      style={styles.placeResultsActionBtn}
+                      onPress={handleFindSafeRoutesForSelectedPlace}
+                    >
+                      <Text style={styles.placeResultsActionText}>Find Safe Routes</Text>
+                    </Pressable>
+                  </View>
                 </View>
               )}
             </Pressable>
@@ -870,7 +1275,7 @@ export default function HomeScreen() {
           isWebGuest
             ? []
             : [
-                ...(h.destinationCandidateMarkers as any),
+                ...filteredDestinationCandidateMarkers,
                 ...(h.poiMarkers as any),
                 ...(h.viaPinLocation
                   ? [
@@ -901,11 +1306,26 @@ export default function HomeScreen() {
         vizProgressPct={h.vizProgressPct}
         vizProgressMessage={h.vizProgressMessage}
         onSelectRoute={h.setSelectedRouteId}
-        onSelectMarker={h.handleMapMarkerSelect}
+        onSelectMarker={(markerId) => {
+          h.handleMapMarkerSelect(markerId);
+          if (!markerId.startsWith("search-candidate:")) return;
+
+          const placeId = markerId.slice("search-candidate:".length);
+          if (!placeId) return;
+
+          setSelectedSheetCandidateId(placeId);
+          setShowSelectedPlaceDetails(true);
+
+          const markerPlace = sheetPlaces.find((p) => p.placeId === placeId);
+          if (markerPlace?.location) {
+            h.handlePanTo(markerPlace.location);
+          }
+        }}
         onLongPress={isWebGuest ? undefined : handleMapLongPress}
         onMapPress={isWebGuest ? undefined : handleMapPress}
         onNavigationFollowChange={setIsNavFollowing}
         onUserInteraction={isWebGuest ? undefined : handleMapInteraction}
+        onMapCenterChanged={handleMapCenterChanged}
       />
 
       {/*
@@ -920,7 +1340,7 @@ export default function HomeScreen() {
          * ══════════════════════════════════════════════════════════════ */}
         {isWeb && !isPhoneWeb && !h.isNavActive && (
           <WebSidebar
-            hasResults={h.routes.length > 0}
+            hasResults={h.routes.length > 0 || h.destinationCandidates.length > 0}
             isLoading={h.directionsStatus === "loading"}
             hasError={hasError}
             onClearResults={h.clearRouteResults}
@@ -1188,7 +1608,11 @@ export default function HomeScreen() {
               onSelectDestinationCandidate={h.selectDestinationCandidate}
               onFindSafeRoutes={h.activateSelectedDestinationCandidate}
               renderCandidatesInSheet
-              hasResults={h.routes.length > 0}
+              hasResults={
+                h.routes.length > 0 ||
+                h.destinationCandidates.length > 0 ||
+                hasLiveDestinationPredictions
+              }
               savedPlaces={savedPlaces}
               onSelectSavedPlace={handleSelectSavedPlace}
               onSavePlace={savePlace}
@@ -1472,13 +1896,56 @@ export default function HomeScreen() {
             onSelectDestinationCandidate={h.selectDestinationCandidate}
             onFindSafeRoutes={h.activateSelectedDestinationCandidate}
             renderCandidatesInSheet
-            hasResults={h.routes.length > 0}
+            hasResults={
+              h.routes.length > 0 ||
+              h.destinationCandidates.length > 0 ||
+              hasLiveDestinationPredictions
+            }
             savedPlaces={savedPlaces}
             onSelectSavedPlace={handleSelectSavedPlace}
             onSavePlace={savePlace}
             onRemoveSavedPlace={removePlace}
             onSavedPlaceToast={handleSavedPlaceToast}
           />
+        )}
+
+        {!isDesktopWeb && !h.isNavActive && (showSearchAroundButton || searchAroundLimitReached) && (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.searchAroundFloatingWrap,
+              {
+                top: isWeb
+                  ? insets.top + webBannerOffset + (isPhoneWeb ? 142 : 96)
+                  : insets.top + webBannerOffset + 102,
+              },
+            ]}
+          >
+            {showSearchAroundButton ? (
+              <Pressable
+                style={styles.searchAroundFloatingBtn}
+                onPress={performSearchAround}
+                disabled={isSearchAroundLoading}
+                accessibilityRole="button"
+                accessibilityLabel="Search around here"
+              >
+                {isSearchAroundLoading ? (
+                  <View style={styles.searchAroundFloatingLoadingRow}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                    <Text style={styles.searchAroundFloatingBtnText}>Searching…</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.searchAroundFloatingBtnText}>Search around here</Text>
+                )}
+              </Pressable>
+            ) : (
+              <View style={styles.searchAroundFloatingLimit}>
+                <Text style={styles.searchAroundFloatingLimitText}>
+                  Search around unavailable beyond 30 miles.
+                </Text>
+              </View>
+            )}
+          </View>
         )}
 
         {/* ── Profile / Logout button (logged in) ── */}
@@ -1778,11 +2245,11 @@ export default function HomeScreen() {
           auth.isLoggedIn &&
           !isWeb && (
             <Animated.View
+              pointerEvents="box-none"
               style={[
                 styles.aiWrap,
                 {
                   bottom: Animated.add(h.sheetHeight, 12),
-                  pointerEvents: "box-none",
                 },
               ]}
             >
@@ -1808,6 +2275,8 @@ export default function HomeScreen() {
             bottomInset={insets.bottom}
             sheetHeight={h.sheetHeight}
             sheetHeightRef={h.sheetHeightRef}
+            scrollRef={sheetScrollRef}
+            stickyHeaderIndices={Platform.OS === 'android' ? undefined : [0]}
           >
             {renderDestinationCandidatesSection("sheet-candidate-native")}
 
@@ -2125,7 +2594,7 @@ export default function HomeScreen() {
                 Unable to load your profile
               </Text>
               <Text style={styles.profileFailBody}>
-                Your session is active but we couldn't retrieve your data.{"\n"}
+                Your session is active but we couldn&apos;t retrieve your data.{"\n"}
                 Logging you out automatically…
               </Text>
             </View>
@@ -2352,19 +2821,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fbff",
     overflow: "hidden",
   },
-  placeCategoriesWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+  placeCategoryFiltersBlock: {
     paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingTop: 8,
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#e6eefb",
+    gap: 6,
+  },
+  placeFiltersHelperText: {
+    fontSize: 11,
+    color: "#475467",
+    fontWeight: "500",
+  },
+  placeCategoriesWrap: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
   },
   placeCategoryBubble: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     borderRadius: 999,
     borderWidth: 1,
@@ -2372,11 +2852,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#eff6ff",
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minWidth: 0,
+  },
+  placeCategoryBubbleIconOnly: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    gap: 4,
+  },
+  placeCategoryBubbleEqual: {
+    flex: 1,
+    minWidth: 0,
+  },
+  placeCategoryBubbleActive: {
+    borderColor: "#1570ef",
+    backgroundColor: "#dbeafe",
   },
   placeCategoryBubbleText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#1d4ed8",
+    flexShrink: 1,
   },
   placeCategoryBubbleCount: {
     fontSize: 11,
@@ -2395,7 +2890,78 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e6eefb",
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "flex-start",
+  },
+  searchAroundBar: {
+    flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e6eefb",
+  },
+  searchAroundText: {
+    color: "#334155",
+    fontSize: 13,
+    flex: 1,
+    marginRight: 8,
+  },
+  searchAroundBtn: {
+    backgroundColor: "#1570ef",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  searchAroundBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  searchAroundFloatingWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 210,
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  searchAroundFloatingBtn: {
+    backgroundColor: "#1570ef",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    ...(Platform.OS === "web"
+      ? { boxShadow: "0 4px 14px rgba(21,112,239,0.35)" }
+      : {
+          shadowColor: "#0f56b3",
+          shadowOffset: { width: 0, height: 3 },
+          shadowOpacity: 0.28,
+          shadowRadius: 8,
+          elevation: 8,
+        }),
+  } as any,
+  searchAroundFloatingBtnText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  searchAroundFloatingLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  searchAroundFloatingLimit: {
+    backgroundColor: "rgba(15,23,42,0.78)",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchAroundFloatingLimitText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   placeResultsTitle: {
     fontSize: 13,
@@ -2706,5 +3272,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
+  },
+  stickyHeaderContainer: {
+    backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e6eefb",
+  },
+  distanceFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e6eefb",
+  },
+  distanceFilterLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#475467",
+  },
+  distanceFilterOptions: {
+    flexDirection: "row",
+    gap: 6,
+    flex: 1,
+  },
+  distanceFilterButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: "#f3f4f6",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  distanceFilterButtonActive: {
+    backgroundColor: "#1570ef",
+    borderColor: "#1570ef",
+  },
+  distanceFilterButtonText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#475467",
+  },
+  distanceFilterButtonTextActive: {
+    color: "#ffffff",
   },
 });

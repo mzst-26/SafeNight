@@ -10,7 +10,7 @@
  * - Auto-snaps to DEFAULT when sheet becomes visible
  * - PanResponders recreated via useMemo to avoid stale closures
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
     Animated,
     Dimensions,
@@ -184,25 +184,14 @@ export function DraggableSheet({
     isAtTopRef.current = contentOffset.y <= 1;
   }, []);
 
-  // Track whether sheet is sufficiently expanded to lift it above other overlays
-  const [isElevated, setIsElevated] = useState(false);
-  useEffect(() => {
-    const id = sheetHeight.addListener(({ value }) => {
-      // When sheet is more than small peek, bring it above floating buttons
-      setIsElevated(value > SHEET_MIN + 40);
-    });
-    return () => sheetHeight.removeListener(id);
-  }, [sheetHeight]);
-
   if (!visible) return null;
 
   return (
     <Animated.View
       style={[
         styles.sheet,
-        { height: sheetHeight, zIndex: isElevated ? 220 : 12 },
+        { height: sheetHeight },
       ]}
-      renderToHardwareTextureAndroid
       needsOffscreenAlphaCompositing={Platform.OS === 'android'}
     >
       {/* Drag handle */}
@@ -252,7 +241,7 @@ const styles = StyleSheet.create({
           shadowRadius: 12,
         }),
     elevation: 12,
-    zIndex: 12,
+    zIndex: 220,
     overflow: 'hidden',
   } as any,
   dragZone: {
