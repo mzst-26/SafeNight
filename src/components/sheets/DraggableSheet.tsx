@@ -222,7 +222,7 @@ export function DraggableSheet({
           onScroll={handleSheetScroll}
           bounces={false}
           nestedScrollEnabled={Platform.OS === 'android'}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           scrollEnabled
           pointerEvents="auto"
         >
