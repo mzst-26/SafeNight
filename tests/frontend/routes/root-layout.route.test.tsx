@@ -8,8 +8,13 @@ import LoginModal from '@/src/components/modals/LoginModal';
 import { ChangePasswordModal } from '@/src/components/modals/ChangePasswordModal';
 import { useAuth } from '@/src/hooks/useAuth';
 
+const mockRouterReplace = jest.fn();
+
 jest.mock('expo-router', () => ({
   Stack: jest.fn(() => null),
+  router: {
+    replace: (...args: any[]) => mockRouterReplace(...args),
+  },
 }));
 
 jest.mock('expo-splash-screen', () => ({
@@ -79,6 +84,8 @@ const settle = async () => {
   });
 };
 
+const mountedTrees: ReactTestRenderer[] = [];
+
 const renderRoot = async () => {
   let tree: ReactTestRenderer | null = null;
   await act(async () => {
@@ -88,6 +95,8 @@ const renderRoot = async () => {
   if (!tree) {
     throw new Error('Failed to render RootLayout');
   }
+
+  mountedTrees.push(tree);
 
   return tree;
 };
@@ -121,11 +130,15 @@ describe('RootLayout route flow', () => {
     (Platform as { OS: string }).OS = 'ios';
     getInitialUrlSpy.mockResolvedValue(null);
     addListenerSpy.mockReturnValue({ remove: jest.fn() } as any);
+    mockRouterReplace.mockReset();
     mockUseAuth.mockReturnValue(makeAuth() as ReturnType<typeof useAuth>);
   });
 
   afterEach(() => {
-    jest.runOnlyPendingTimers();
+    act(() => {
+      mountedTrees.splice(0).forEach((tree) => tree.unmount());
+      jest.runOnlyPendingTimers();
+    });
     jest.useRealTimers();
   });
 
@@ -168,5 +181,17 @@ describe('RootLayout route flow', () => {
       mockChangePasswordModal.mock.calls[mockChangePasswordModal.mock.calls.length - 1][0];
     expect(lastChangePasswordCall.visible).toBe(true);
     expect(lastChangePasswordCall.isResetFlow).toBe(true);
+  });
+
+  it('routes shared-route deep links into home params', async () => {
+    getInitialUrlSpy.mockResolvedValue('safenight://share-route?token=shared-token-123');
+
+    await renderRoot();
+    await settle();
+
+    expect(mockRouterReplace).toHaveBeenCalledWith({
+      pathname: '/',
+      params: { sharedRouteToken: 'shared-token-123' },
+    });
   });
 });
