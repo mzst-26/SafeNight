@@ -10,6 +10,7 @@
  * inside the map container.
  */
 import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,9 +18,11 @@ import {
     AppState,
     Platform,
     Pressable,
+    Share,
     StyleSheet,
     Text,
     TouchableOpacity,
+    useWindowDimensions,
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -53,9 +56,11 @@ import {
 } from "@/src/components/sheets/DraggableSheet";
 import { MobileWebSheet } from "@/src/components/sheets/MobileWebSheet";
 import { WebSidebar } from "@/src/components/sheets/WebSidebar";
+import { PlaceResultCard } from "@/src/components/results/PlaceResultCard";
 import { AndroidDownloadBanner } from "@/src/components/ui/AndroidDownloadBanner";
 import { BuddyButton } from "@/src/components/ui/BuddyButton";
 import { JailLoadingAnimation } from "@/src/components/ui/JailLoadingAnimation";
+import { MapControlRail } from "@/src/components/ui/MapControlRail";
 import { MapToast, type ToastConfig } from "@/src/components/ui/MapToast";
 import { ProfileMenu } from "@/src/components/ui/ProfileMenu";
 import { WebLoginButton } from "@/src/components/ui/WebLoginButton";
@@ -70,6 +75,7 @@ import { useSavedPlaces, type SavedPlace } from "@/src/hooks/useSavedPlaces";
 import { useWebBreakpoint } from "@/src/hooks/useWebBreakpoint";
 import { stripeApi } from "@/src/services/stripeApi";
 import { subscriptionApi } from "@/src/services/userApi";
+import { createRouteShareLink, resolveRouteShareLink } from "@/src/services/shareRoute";
 import {
     LimitError,
     onLimitReached,
@@ -77,12 +83,12 @@ import {
 } from "@/src/types/limitError";
 import { formatDistance, formatDuration } from "@/src/utils/format";
 
-const PLACE_CATEGORY_CHIPS: Array<{
+const PLACE_CATEGORY_CHIPS: {
   key: string;
   label: string;
   query: string;
   icon: keyof typeof Ionicons.glyphMap;
-}> = [
+}[] = [
   { key: "fuel", label: "Fuel", query: "fuel station", icon: "car-sport-outline" },
   { key: "shop", label: "Shops", query: "shops", icon: "bag-handle-outline" },
   { key: "food", label: "Food", query: "restaurants", icon: "restaurant-outline" },
@@ -96,7 +102,21 @@ const PLACE_CATEGORY_CHIPS: Array<{
 const MILES_TO_METERS = 1609.34;
 const SEARCH_AROUND_MAX_MILES = 30;
 const SHEET_RESULTS_RENDER_LIMIT = 20;
-const SEARCH_DISTANCE_FILTER_OPTIONS_MILES = [1, 3, 5, 10] as const;
+const SEARCH_DISTANCE_FILTER_OPTIONS_MILES = [1, 2, 3, 5, 10] as const;
+
+const FEATURE_FLAGS = {
+  phoneResultsCardsV1: true,
+  webResultsCardsV1: true,
+  routeShareV1: true,
+} as const;
+
+const REPORT_LABELS: Record<string, string> = {
+  poor_lighting: "Poor Lighting",
+  unsafe_area: "Unsafe Area",
+  obstruction: "Obstruction",
+  harassment: "Harassment",
+  other: "Other",
+};
 
 function haversineDistanceMeters(a: LatLng, b: LatLng): number {
   const toRadians = (value: number) => (value * Math.PI) / 180;
@@ -134,7 +154,9 @@ function classifyPlaceCategory(input: {
 }
 
 export default function HomeScreen() {
+  const routeParams = useLocalSearchParams<{ sharedRouteToken?: string | string[] }>();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const h = useHomeScreen();
   const auth = useAuth();
   const { places: savedPlaces, savePlace, removePlace } = useSavedPlaces();
@@ -152,7 +174,10 @@ export default function HomeScreen() {
     useState(false);
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [outOfRangeCueSignal, setOutOfRangeCueSignal] = useState(0);
-  const [showSelectedPlaceDetails, setShowSelectedPlaceDetails] = useState(true);
+  const [isSearchBarExpanded, setIsSearchBarExpanded] = useState(false);
+  const [searchBottomY, setSearchBottomY] = useState<number | null>(null);
+  const [nativeSheetTopY, setNativeSheetTopY] = useState(windowHeight);
+  const [phoneWebSheetHeight, setPhoneWebSheetHeight] = useState(0);
   const subscriptionTier = auth.user?.subscription ?? "free";
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 3; // DB-driven, fallback to free tier
 
@@ -172,9 +197,17 @@ export default function HomeScreen() {
   const [searchAroundLimitReached, setSearchAroundLimitReached] = useState(false);
   const [isSearchAroundLoading, setIsSearchAroundLoading] = useState(false);
   const [searchDistanceFilterMiles, setSearchDistanceFilterMiles] = useState<number>(3);
+  const [sheetPlacesFitToken, setSheetPlacesFitToken] = useState(0);
   const [activePlaceCategoryKey, setActivePlaceCategoryKey] = useState<string | null>(null);
   const [selectedSheetCandidateId, setSelectedSheetCandidateId] = useState<string | null>(null);
   const previousSearchQueryRef = useRef("");
+  const lastCandidateAutoFitKeyRef = useRef("");
+  const appliedShareTokenRef = useRef<string | null>(null);
+
+  const sharedRouteToken = useMemo(() => {
+    const raw = routeParams.sharedRouteToken;
+    return Array.isArray(raw) ? raw[0] : raw;
+  }, [routeParams.sharedRouteToken]);
 
   const maxDistanceFilterMiles = useMemo(() => {
     const tier = (subscriptionTier || "free").toLowerCase();
@@ -186,13 +219,85 @@ export default function HomeScreen() {
     [maxDistanceFilterMiles],
   );
 
+  const searchAroundFloatingTop = useMemo(() => {
+    const baseTop = insets.top + (isWeb ? 36 : 0);
+    if (isWeb) {
+      if (isPhoneWeb) {
+        return baseTop + (isSearchBarExpanded ? 248 : 142);
+      }
+      return baseTop + 96;
+    }
+    return baseTop + (isSearchBarExpanded ? 206 : 102);
+  }, [insets.top, isWeb, isPhoneWeb, isSearchBarExpanded]);
+
   useEffect(() => {
     setSearchDistanceFilterMiles((current) => Math.min(current, maxDistanceFilterMiles));
   }, [maxDistanceFilterMiles]);
 
   useEffect(() => {
+    const radiusMiles = h.destSearch.lastSuccessfulRadiusMiles;
+    if (radiusMiles == null) return;
+
+    setSearchDistanceFilterMiles((current) => {
+      const next = Math.min(radiusMiles, maxDistanceFilterMiles);
+      return current === next ? current : next;
+    });
+  }, [h.destSearch.lastSuccessfulRadiusMiles, maxDistanceFilterMiles]);
+
+  useEffect(() => {
     setSelectedSheetCandidateId(h.selectedDestinationCandidateId);
   }, [h.selectedDestinationCandidateId]);
+
+  useEffect(() => {
+    const token = sharedRouteToken?.trim();
+    if (!token) return;
+    if (appliedShareTokenRef.current === token) return;
+
+    appliedShareTokenRef.current = token;
+
+    resolveRouteShareLink(token)
+      .then((share) => {
+        if (!share.destination) {
+          setToast({
+            message: "Shared route has no destination",
+            icon: "alert-circle-outline",
+            iconColor: "#d92d20",
+            duration: 2800,
+          });
+          return;
+        }
+
+        const destinationCandidate: PlacePrediction = {
+          placeId: `shared-${share.token}`,
+          primaryText: share.destinationName || "Shared destination",
+          secondaryText: "Shared route",
+          fullText: share.destinationName || "Shared destination",
+          location: share.destination,
+        };
+
+        h.destSearch.selectPrediction(destinationCandidate);
+        h.setManualDest(null);
+        h.handlePanTo(share.destination);
+        h.clearSelectedRoute();
+        setToast({
+          message: "Shared route destination loaded",
+          icon: "share-social-outline",
+          iconColor: "#1570ef",
+          duration: 2600,
+        });
+      })
+      .catch((error) => {
+        setToast({
+          message:
+            error instanceof Error
+              ? `Unable to open shared route: ${error.message}`
+              : "Unable to open shared route",
+          icon: "alert-circle-outline",
+          iconColor: "#d92d20",
+          duration: 3200,
+        });
+      });
+  }, [sharedRouteToken, h]);
 
   useEffect(() => {
     const query = (h.destSearch?.query || "").trim();
@@ -267,6 +372,9 @@ export default function HomeScreen() {
     const q = (h.destSearch?.query || "").trim();
     if (q.length < 2) return;
 
+    // Force re-selection to nearest local candidate after refreshed around-here results arrive.
+    setSelectedSheetCandidateId(null);
+
     const anchor = searchAnchor ?? h.location ?? h.effectiveOrigin ?? mapCenterForSearch;
     if (!searchAnchor) {
       setSearchAnchor(anchor);
@@ -295,6 +403,10 @@ export default function HomeScreen() {
         for (const r of results) map.set(r.placeId, r);
         return Array.from(map.values());
       });
+      if (results.length > 0) {
+        // Ensure map fit runs for Search Around searches even when IDs overlap prior results.
+        setSheetPlacesFitToken((prev) => prev + 1);
+      }
       setSearchAroundLimitReached(false);
     } catch {
       // ignore network errors for now
@@ -356,7 +468,7 @@ export default function HomeScreen() {
       setLimitModal(info);
     });
     return unsub;
-  }, []);
+  }, [auth, setToast]);
 
   // Handle Stripe checkout redirect (?subscription=success or ?subscription=cancelled)
   // Security: URL params are cosmetic — we verify with the server before showing success.
@@ -422,7 +534,7 @@ export default function HomeScreen() {
         duration: 4000,
       });
     }
-  }, []);
+  }, [auth, setToast]);
 
   // Only load contacts when logged in
   const {
@@ -490,21 +602,10 @@ export default function HomeScreen() {
     }
   }, [showFriendsOnMap, checkFriendLocations, contacts.length]);
 
-  // Report category labels for toast
-  const reportLabels: Record<string, string> = {
-    poor_lighting: "Poor Lighting",
-    unsafe_area: "Unsafe Area",
-    obstruction: "Obstruction",
-    harassment: "Harassment",
-    other: "Other",
-  };
-
-  
-
   const handleReportSubmitted = useCallback((category: string) => {
     setShowReportModal(false);
     setToast({
-      message: `${reportLabels[category] || "Report"} reported — thank you for keeping others safe!`,
+      message: `${REPORT_LABELS[category] || "Report"} reported — thank you for keeping others safe!`,
       icon: "shield-checkmark",
       iconColor: "#10B981",
       duration: 4000,
@@ -611,6 +712,9 @@ export default function HomeScreen() {
     contacts.length,
     h.effectiveDestination,
     h.destSearch?.place?.name,
+    h.manualDest?.name,
+    h.nav,
+    h.selectedRoute,
   ]);
 
   // Auto-stop live tracking when navigation ends
@@ -630,50 +734,64 @@ export default function HomeScreen() {
   useEffect(() => {
     if (Platform.OS !== "android") return;
 
-    let mod: typeof import("expo-pip").default | null = null;
-    try {
-      mod = require("expo-pip").default;
-    } catch {
-      return; // expo-pip not available in this build
-    }
-    if (!mod) return;
-    const ExpoPip = mod;
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import("expo-pip");
+        const expoPip = mod?.default;
+        if (!expoPip || cancelled) return;
 
-    if (h.nav.state === "navigating") {
-      ExpoPip.setPictureInPictureParams({
-        width: 9,
-        height: 16,
-        autoEnterEnabled: true,
-        title: "SafeNight Navigation",
-        subtitle: h.destSearch?.place?.name ?? "Navigating...",
-        seamlessResizeEnabled: true,
-      });
-    } else {
-      ExpoPip.setPictureInPictureParams({
-        autoEnterEnabled: false,
-      });
-    }
+        if (h.nav.state === "navigating") {
+          expoPip.setPictureInPictureParams({
+            width: 9,
+            height: 16,
+            autoEnterEnabled: true,
+            title: "SafeNight Navigation",
+            subtitle: h.destSearch?.place?.name ?? "Navigating...",
+            seamlessResizeEnabled: true,
+          });
+        } else {
+          expoPip.setPictureInPictureParams({
+            autoEnterEnabled: false,
+          });
+        }
+      } catch {
+        // expo-pip is optional in some builds
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [h.nav.state, h.destSearch?.place?.name]);
 
   // PiP fallback: manually enter PiP on older Android (< 12) when app goes to background during nav
   useEffect(() => {
     if (Platform.OS !== "android" || h.nav.state !== "navigating") return;
 
-    let mod2: typeof import("expo-pip").default | null = null;
-    try {
-      mod2 = require("expo-pip").default;
-    } catch {
-      return;
-    }
-    if (!mod2) return;
-    const pip = mod2;
-    const sub = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "background") {
-        pip.enterPipMode({ width: 9, height: 16 });
-      }
-    });
+    let cancelled = false;
+    let sub: { remove: () => void } | null = null;
 
-    return () => sub.remove();
+    (async () => {
+      try {
+        const mod = await import("expo-pip");
+        const pip = mod?.default;
+        if (!pip || cancelled) return;
+
+        sub = AppState.addEventListener("change", (nextState) => {
+          if (nextState === "background") {
+            pip.enterPipMode({ width: 9, height: 16 });
+          }
+        });
+      } catch {
+        // expo-pip is optional in some builds
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      sub?.remove();
+    };
   }, [h.nav.state]);
 
   const distanceLabel = h.selectedRoute
@@ -698,6 +816,71 @@ export default function HomeScreen() {
       showDestinationCandidateSheet) &&
     !h.isNavActive;
 
+  const fallbackSearchBottomY = useMemo(() => {
+    if (isWeb && isPhoneWeb) {
+      return insets.top + webBannerOffset + (isSearchBarExpanded ? 264 : 132);
+    }
+    if (!isWeb) {
+      return insets.top + webBannerOffset + (isSearchBarExpanded ? 244 : 122);
+    }
+    return insets.top + webBannerOffset + 92;
+  }, [insets.top, isWeb, isPhoneWeb, isSearchBarExpanded, webBannerOffset]);
+
+  useEffect(() => {
+    if (isWeb || !sheetVisible) {
+      setNativeSheetTopY(windowHeight);
+      return;
+    }
+    setNativeSheetTopY(Math.max(0, windowHeight - h.sheetHeightRef.current));
+  }, [isWeb, sheetVisible, windowHeight, h.sheetHeightRef]);
+
+  useEffect(() => {
+    if (isWeb) return;
+    const listenerId = h.sheetHeight.addListener(({ value }) => {
+      setNativeSheetTopY(Math.max(0, windowHeight - value));
+    });
+    return () => {
+      h.sheetHeight.removeListener(listenerId);
+    };
+  }, [h.sheetHeight, isWeb, windowHeight]);
+
+  useEffect(() => {
+    if (!isPhoneWeb) {
+      setPhoneWebSheetHeight(0);
+      return;
+    }
+    if (!sheetVisible) {
+      setPhoneWebSheetHeight(0);
+      return;
+    }
+    setPhoneWebSheetHeight(windowHeight * 0.45);
+  }, [isPhoneWeb, sheetVisible, windowHeight]);
+
+  const handleSearchBottomYChange = useCallback((nextBottomY: number) => {
+    if (!Number.isFinite(nextBottomY) || nextBottomY <= 0) return;
+    setSearchBottomY(nextBottomY);
+  }, []);
+
+  const searchBottomYForRail = searchBottomY ?? fallbackSearchBottomY;
+  const currentSheetTopY = useMemo(() => {
+    if (!sheetVisible) return Number.POSITIVE_INFINITY;
+    if (!isWeb) return nativeSheetTopY;
+    if (isPhoneWeb && phoneWebSheetHeight > 0) {
+      return Math.max(0, windowHeight - phoneWebSheetHeight);
+    }
+    return Number.POSITIVE_INFINITY;
+  }, [sheetVisible, isWeb, nativeSheetTopY, isPhoneWeb, phoneWebSheetHeight, windowHeight]);
+
+  const mobileSearchBarLayoutCallbacks = useMemo(
+    () => ({
+      onEffectiveBottomChange: handleSearchBottomYChange,
+      onContainerLayout: (metrics: { y: number; height: number; bottom: number }) => {
+        handleSearchBottomYChange(metrics.bottom);
+      },
+    }),
+    [handleSearchBottomYChange],
+  );
+
   // Category label map for the highlight banner
   const categoryLabels: Record<string, string> = {
     crime: "Crimes",
@@ -719,7 +902,7 @@ export default function HomeScreen() {
         bounciness: 4,
       }).start();
     },
-    [h.sheetHeight, h.sheetHeightRef, h.setHighlightCategory],
+    [h],
   );
 
   const handleClearHighlight = useCallback(() => {
@@ -731,7 +914,7 @@ export default function HomeScreen() {
       useNativeDriver: false,
       bounciness: 4,
     }).start();
-  }, [h.sheetHeight, h.sheetHeightRef, h.setHighlightCategory]);
+  }, [h]);
 
   useEffect(() => {
     if (!h.isNavActive) setIsNavFollowing(true);
@@ -768,7 +951,7 @@ export default function HomeScreen() {
     setIsFindingCurrentLocation(true);
     if (!h.location) return;
     h.handlePanTo(h.location);
-  }, [h.location, h.handlePanTo]);
+  }, [h]);
 
   const handleMapPress = useCallback(
     (coordinate: { latitude: number; longitude: number }) => {
@@ -776,7 +959,7 @@ export default function HomeScreen() {
       setIsFindingCurrentLocation(false);
       h.handleMapPress(coordinate);
     },
-    [h.handleMapPress],
+    [h],
   );
 
   const handleMapLongPress = useCallback(
@@ -785,7 +968,7 @@ export default function HomeScreen() {
       setIsFindingCurrentLocation(false);
       h.handleMapLongPress(coordinate);
     },
-    [h.handleMapLongPress],
+    [h],
   );
 
   const handleMapInteraction = useCallback(() => {
@@ -796,7 +979,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!isFindingCurrentLocation || !h.location) return;
     h.handlePanTo(h.location);
-  }, [isFindingCurrentLocation, h.location, h.handlePanTo]);
+  }, [isFindingCurrentLocation, h, h.location, h.handlePanTo]);
 
   useEffect(() => {
     if (!h.location || !h.mapPanTo?.location) return;
@@ -810,6 +993,8 @@ export default function HomeScreen() {
     setIsAtCurrentLocation(atCurrentLocation);
     if (atCurrentLocation) setIsFindingCurrentLocation(false);
   }, [
+    h.location,
+    h.mapPanTo?.location,
     h.location?.latitude,
     h.location?.longitude,
     h.mapPanTo?.key,
@@ -831,6 +1016,8 @@ export default function HomeScreen() {
     h.outOfRange,
     h.outOfRangeMessage,
     h.directionsStatus,
+    h.effectiveOrigin,
+    h.effectiveDestination,
     h.effectiveOrigin?.latitude,
     h.effectiveOrigin?.longitude,
     h.effectiveDestination?.latitude,
@@ -855,7 +1042,18 @@ export default function HomeScreen() {
         )
       : _baseSheetPlaces;
 
-  const nearbyReference = h.location ?? h.effectiveOrigin ?? null;
+  const nearbyReference = useMemo(() => {
+    // When using Search Around, rank results by proximity to the local map center.
+    if (accumulatedDestinationCandidates.length > 0 && mapCenterForSearch) {
+      return mapCenterForSearch;
+    }
+    return h.location ?? h.effectiveOrigin ?? null;
+  }, [
+    accumulatedDestinationCandidates.length,
+    mapCenterForSearch,
+    h.location,
+    h.effectiveOrigin,
+  ]);
   const maxDistanceMeters = searchDistanceFilterMiles * MILES_TO_METERS;
   const placeDistanceById = useMemo(() => {
     const distances = new Map<string, number>();
@@ -933,9 +1131,166 @@ export default function HomeScreen() {
     ? `${selectedPlace.location.latitude.toFixed(5)}, ${selectedPlace.location.longitude.toFixed(5)}`
     : null;
 
-  const handleFindSafeRoutesForSelectedPlace = useCallback(() => {
+  const isResultsCardsEnabled = isWeb
+    ? FEATURE_FLAGS.webResultsCardsV1
+    : FEATURE_FLAGS.phoneResultsCardsV1;
+
+  const emitPlaceCardEvent = useCallback(
+    (
+      eventName:
+        | "place_card_viewed"
+        | "safe_directions_clicked"
+        | "share_route_clicked"
+        | "save_place_clicked",
+      placeId: string,
+    ) => {
+      if (!__DEV__) return;
+      console.debug("[place-card-event]", eventName, { placeId });
+    },
+    [],
+  );
+
+  const getDistanceLabelForPlace = useCallback(
+    (placeId: string): string | null => {
+      const distanceMeters = placeDistanceById.get(placeId);
+      if (typeof distanceMeters !== "number") return null;
+      const distanceMiles = distanceMeters / MILES_TO_METERS;
+      if (distanceMiles < 0.1) return `${Math.round(distanceMeters)} m`;
+      return `${distanceMiles.toFixed(distanceMiles < 1 ? 1 : 0)} mi`;
+    },
+    [placeDistanceById],
+  );
+
+  const findSavedPlaceMatch = useCallback(
+    (candidate: PlacePrediction) => {
+      if (!candidate.location) return null;
+      return (
+        savedPlaces.find(
+          (saved) =>
+            Math.abs(saved.lat - candidate.location!.latitude) < 0.00005 &&
+            Math.abs(saved.lng - candidate.location!.longitude) < 0.00005,
+        ) ?? null
+      );
+    },
+    [savedPlaces],
+  );
+
+  const buildDestinationFallbackLink = useCallback((candidate: PlacePrediction): string => {
+    if (!candidate.location) return "";
+    const name = encodeURIComponent(candidate.primaryText || "SafeNight destination");
+    const lat = candidate.location.latitude;
+    const lng = candidate.location.longitude;
+    if (Platform.OS === "web") {
+      return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`;
+    }
+    return `geo:${lat},${lng}?q=${lat},${lng}(${name})`;
+  }, []);
+
+  const handleShareRouteFromPlace = useCallback(
+    async (candidate: PlacePrediction) => {
+      if (!candidate.location) return;
+      emitPlaceCardEvent("share_route_clicked", candidate.placeId);
+
+      let shareUrl = buildDestinationFallbackLink(candidate);
+
+      if (FEATURE_FLAGS.routeShareV1 && h.selectedSafeRoute?.path?.length) {
+        try {
+          const created = await createRouteShareLink({
+            destinationName: candidate.primaryText,
+            destination: candidate.location,
+            routePath: h.selectedSafeRoute.path,
+            expiresInHours: 24,
+            redactOrigin: true,
+          });
+          if (created.shareUrl) {
+            shareUrl = created.shareUrl;
+          }
+        } catch {
+          // Keep destination fallback URL when share endpoint is unavailable.
+        }
+      }
+
+      if (!shareUrl) return;
+
+      if (Platform.OS === "web") {
+        const webNavigator = (globalThis as any).navigator;
+        if (typeof webNavigator?.share === "function") {
+          await webNavigator.share({
+            title: `Safe route to ${candidate.primaryText}`,
+            text: "Open this SafeNight route",
+            url: shareUrl,
+          });
+          return;
+        }
+
+        if (typeof webNavigator?.clipboard?.writeText === "function") {
+          await webNavigator.clipboard.writeText(shareUrl);
+          handleSavedPlaceToast("Route link copied", "link-outline");
+        }
+        return;
+      }
+
+      await Share.share({
+        title: `Safe route to ${candidate.primaryText}`,
+        message: `SafeNight route: ${shareUrl}`,
+      });
+    },
+    [
+      emitPlaceCardEvent,
+      buildDestinationFallbackLink,
+      h.selectedSafeRoute?.path,
+      handleSavedPlaceToast,
+    ],
+  );
+
+  const handleSavePlaceFromCandidate = useCallback(
+    async (candidate: PlacePrediction) => {
+      if (!candidate.location) return;
+      emitPlaceCardEvent("save_place_clicked", candidate.placeId);
+
+      const existing = findSavedPlaceMatch(candidate);
+      if (existing) {
+        await removePlace(existing.id);
+        handleSavedPlaceToast("Removed from saved", "bookmark-outline");
+        return;
+      }
+
+      const categoryKey = classifyPlaceCategory(candidate);
+      const iconByCategory: Record<string, string> = {
+        fuel: "car",
+        shop: "bag-handle",
+        food: "restaurant",
+        parking: "car-sport",
+        pharmacy: "medkit",
+        hospital: "medical",
+        bank: "cash",
+        hotel: "bed",
+      };
+
+      const result = await savePlace({
+        label: (candidate.primaryText || "Saved").slice(0, 32),
+        name: candidate.primaryText || "Saved place",
+        address: candidate.secondaryText || candidate.fullText || "",
+        lat: candidate.location.latitude,
+        lng: candidate.location.longitude,
+        icon: iconByCategory[categoryKey || ""] || "bookmark",
+      });
+
+      if (!result.ok && result.existingLabel) {
+        handleSavedPlaceToast(`Already saved as ${result.existingLabel}`, "alert-circle-outline");
+        return;
+      }
+
+      handleSavedPlaceToast(result.updated ? "Saved place updated" : "Saved place", "bookmark");
+    },
+    [emitPlaceCardEvent, findSavedPlaceMatch, handleSavedPlaceToast, removePlace, savePlace],
+  );
+
+  const handleFindSafeRoutesForSelectedPlace = useCallback((explicitCandidate?: PlacePrediction | null) => {
     const candidate =
-      sheetPlaces.find((p) => p.placeId === selectedSheetCandidateId) ?? null;
+      explicitCandidate ??
+      sheetPlaces.find((p) => p.placeId === selectedSheetCandidateId) ??
+      null;
     if (!candidate) {
       h.activateSelectedDestinationCandidate();
       return;
@@ -972,18 +1327,14 @@ export default function HomeScreen() {
     const approxItemHeight = 72; // approximate item height
     const centerOffset = Math.max(0, idx * approxItemHeight - 120);
     try {
-      sheetScrollRef.current.scrollTo({ y: centerOffset, animated: true });
+      sheetScrollRef.current.scrollTo({ y: centerOffset, animated: false });
     } catch {
       // ignore
     }
 
     if (Platform.OS !== "web") {
       h.sheetHeightRef.current = SHEET_DEFAULT;
-      Animated.spring(h.sheetHeight, {
-        toValue: SHEET_DEFAULT,
-        useNativeDriver: false,
-        bounciness: 6,
-      }).start();
+      h.sheetHeight.setValue(SHEET_DEFAULT);
     }
   }, [selectedSheetCandidateId, visibleSheetPlaces, h.sheetHeight, h.sheetHeightRef]);
 
@@ -1006,20 +1357,44 @@ export default function HomeScreen() {
 
   const handleSheetCategoryBubblePress = useCallback(
     (categoryKey: string) => {
-      setActivePlaceCategoryKey((prev) =>
-        prev === categoryKey ? null : categoryKey,
-      );
+      const nextCategoryKey =
+        activePlaceCategoryKey === categoryKey ? null : categoryKey;
+      setActivePlaceCategoryKey(nextCategoryKey);
+
+      // Category selection should trigger a category search (not only local list filtering).
+      if (nextCategoryKey) {
+        const categoryChip = PLACE_CATEGORY_CHIPS.find(
+          (chip) => chip.key === nextCategoryKey,
+        );
+        const categoryQuery = categoryChip?.query?.trim();
+        if (categoryQuery) {
+          h.setManualDest(null);
+          const currentQuery = (h.destSearch.query || "").trim().toLowerCase();
+          const normalizedCategoryQuery = categoryQuery.toLowerCase();
+
+          if (currentQuery === normalizedCategoryQuery) {
+            // Force refresh when the query text matches so category reselection still re-runs search.
+            h.destSearch.clear();
+            requestAnimationFrame(() => {
+              h.destSearch.setQuery(categoryQuery);
+            });
+          } else {
+            h.destSearch.setQuery(categoryQuery);
+          }
+        }
+      }
+
       setSelectedSheetCandidateId(null);
-      setShowSelectedPlaceDetails(false);
+      setSheetPlacesFitToken((prev) => prev + 1);
     },
-    [],
+    [activePlaceCategoryKey, h],
   );
 
   const handleDistanceFilterPress = useCallback(
     (distance: number) => {
       setSearchDistanceFilterMiles(distance);
       setSelectedSheetCandidateId(null);
-      setShowSelectedPlaceDetails(false);
+      setSheetPlacesFitToken((prev) => prev + 1);
     },
     [],
   );
@@ -1034,27 +1409,20 @@ export default function HomeScreen() {
 
     if (visibleSheetPlaces.length === 0) {
       setSelectedSheetCandidateId(null);
-      setShowSelectedPlaceDetails(false);
       return;
     }
 
     setSelectedSheetCandidateId(visibleSheetPlaces[0].placeId);
-    setShowSelectedPlaceDetails(true);
   }, [visibleSheetPlaces, selectedSheetCandidateId]);
 
   useEffect(() => {
     if (!selectedPlace) return;
-    setShowSelectedPlaceDetails(true);
 
     if (Platform.OS !== "web" && !h.isNavActive) {
       h.sheetHeightRef.current = SHEET_DEFAULT;
-      Animated.spring(h.sheetHeight, {
-        toValue: SHEET_DEFAULT,
-        useNativeDriver: false,
-        bounciness: 4,
-      }).start();
+      h.sheetHeight.setValue(SHEET_DEFAULT);
     }
-  }, [selectedPlace?.placeId, h.isNavActive, h.sheetHeight, h.sheetHeightRef]);
+  }, [selectedPlace, h.isNavActive, h.sheetHeight, h.sheetHeightRef]);
 
   const combinedDestinationCandidateMarkers = useMemo(() => {
     const markers = new Map<string, any>();
@@ -1087,6 +1455,76 @@ export default function HomeScreen() {
       return filteredSheetPlaceIds.has(placeId);
     });
   }, [combinedDestinationCandidateMarkers, filteredSheetPlaceIds]);
+
+  const candidateAutoFitKey = useMemo(() => {
+    if (!showDestinationCandidateSheet) return "";
+
+    const candidateIds = combinedDestinationCandidateMarkers
+      .map((marker: any) => String(marker?.id ?? ""))
+      .filter((id) => id.startsWith("search-candidate:"))
+      .sort();
+
+    if (candidateIds.length === 0) return "";
+
+    return [
+      activePlaceCategoryKey ?? "all",
+      String(searchDistanceFilterMiles),
+      candidateIds.join(","),
+    ].join("|");
+  }, [
+    showDestinationCandidateSheet,
+    combinedDestinationCandidateMarkers,
+    activePlaceCategoryKey,
+    searchDistanceFilterMiles,
+  ]);
+
+  useEffect(() => {
+    if (!candidateAutoFitKey) {
+      lastCandidateAutoFitKeyRef.current = "";
+      return;
+    }
+    if (candidateAutoFitKey === lastCandidateAutoFitKeyRef.current) return;
+
+    lastCandidateAutoFitKeyRef.current = candidateAutoFitKey;
+    // Re-fit only when filter/search candidate identity actually changed.
+    setSheetPlacesFitToken((prev) => prev + 1);
+  }, [candidateAutoFitKey]);
+
+  const mapFitTopPadding = useMemo(() => {
+    if (!showDestinationCandidateSheet) return 40;
+
+    if (!isWeb) {
+      const collapsedTopOverlay = insets.top + 122;
+      const expandedTopOverlay = insets.top + 206;
+      return isSearchBarExpanded
+        ? Math.max(96, expandedTopOverlay)
+        : Math.max(84, collapsedTopOverlay);
+    }
+
+    if (isPhoneWeb) {
+      const collapsedTopOverlay = insets.top + 170;
+      const expandedTopOverlay = insets.top + 248;
+      return isSearchBarExpanded
+        ? Math.max(104, expandedTopOverlay)
+        : Math.max(92, collapsedTopOverlay);
+    }
+
+    return 64;
+  }, [showDestinationCandidateSheet, isWeb, isPhoneWeb, isSearchBarExpanded, insets.top]);
+
+  const mapFitBottomPadding = useMemo(() => {
+    if (!showDestinationCandidateSheet) return 40;
+    if (!isWeb) {
+      return Math.max(120, Math.round(h.sheetHeightRef.current + insets.bottom + 24));
+    }
+    return isPhoneWeb ? 300 : 56;
+  }, [showDestinationCandidateSheet, isWeb, isPhoneWeb, h.sheetHeightRef, insets.bottom]);
+
+  const mapFitSidePadding = useMemo(() => {
+    if (!showDestinationCandidateSheet) return 40;
+    if (!isWeb) return 28;
+    return isPhoneWeb ? 24 : 52;
+  }, [showDestinationCandidateSheet, isWeb, isPhoneWeb]);
 
   const renderDestinationCandidatesSection = (keyPrefix: string) => {
     if (!showDestinationCandidateSheet) return null;
@@ -1167,6 +1605,52 @@ export default function HomeScreen() {
         </View>
         {visibleSheetPlaces.map((candidate) => {
           const selected = candidate.placeId === selectedSheetCandidateId;
+          const distanceLabel = getDistanceLabelForPlace(candidate.placeId);
+          const candidateMeta = [
+            candidate.category ? candidate.category.replace(/_/g, " ") : null,
+            candidate.placeType ? candidate.placeType.replace(/_/g, " ") : null,
+            candidate.address?.postcode || null,
+          ]
+            .filter(Boolean)
+            .join(" • ");
+
+          if (isResultsCardsEnabled) {
+            return (
+              <PlaceResultCard
+                key={`${keyPrefix}-${candidate.placeId}`}
+                place={candidate}
+                selected={selected}
+                subtitle={candidate.secondaryText || candidate.fullText || null}
+                meta={candidateMeta || null}
+                distanceLabel={distanceLabel}
+                isSaved={Boolean(findSavedPlaceMatch(candidate))}
+                isSafeDirectionsLoading={selected && h.directionsStatus === "loading"}
+                platformVariant={isWeb ? "web" : "phone"}
+                onSelect={() => {
+                  emitPlaceCardEvent("place_card_viewed", candidate.placeId);
+                  setSelectedSheetCandidateId(candidate.placeId);
+                  if (h.destinationCandidates.some((p) => p.placeId === candidate.placeId)) {
+                    h.selectDestinationCandidate(candidate.placeId, true);
+                  } else if (candidate.location) {
+                    h.handlePanTo(candidate.location);
+                  }
+                }}
+                onSafeDirections={() => {
+                  emitPlaceCardEvent("safe_directions_clicked", candidate.placeId);
+                  setSelectedSheetCandidateId(candidate.placeId);
+                  handleFindSafeRoutesForSelectedPlace(candidate);
+                }}
+                onShare={() => {
+                  setSelectedSheetCandidateId(candidate.placeId);
+                  void handleShareRouteFromPlace(candidate);
+                }}
+                onSave={() => {
+                  void handleSavePlaceFromCandidate(candidate);
+                }}
+              />
+            );
+          }
+
           return (
             <Pressable
               key={`${keyPrefix}-${candidate.placeId}`}
@@ -1183,11 +1667,6 @@ export default function HomeScreen() {
                     h.handlePanTo(candidate.location);
                   }
                 }
-                if (selected) {
-                  setShowSelectedPlaceDetails((prev) => !prev);
-                } else {
-                  setShowSelectedPlaceDetails(true);
-                }
               }}
             >
               <View style={styles.placeResultTitleRow}>
@@ -1199,57 +1678,12 @@ export default function HomeScreen() {
                 <Text style={styles.placeResultTitle} numberOfLines={1}>
                   {candidate.primaryText}
                 </Text>
-                {selected && (
-                  <Ionicons
-                    name={showSelectedPlaceDetails ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color="#475467"
-                  />
-                )}
               </View>
               {candidate.secondaryText ? (
                 <Text style={styles.placeResultSecondary} numberOfLines={1}>
                   {candidate.secondaryText}
                 </Text>
               ) : null}
-
-              {selected && showSelectedPlaceDetails && selectedPlace && (
-                <View style={styles.placeResultDetailsWrap}>
-                  {selectedPlace.fullText ? (
-                    <Text style={styles.placeResultDetailsText}>
-                      {selectedPlace.fullText}
-                    </Text>
-                  ) : null}
-                  {!!(
-                    selectedPlaceCategory ||
-                    selectedPlaceType ||
-                    selectedPlacePostcode
-                  ) && (
-                    <Text style={styles.placeResultDetailsMeta}>
-                      {[
-                        selectedPlaceCategory,
-                        selectedPlaceType,
-                        selectedPlacePostcode,
-                      ]
-                        .filter(Boolean)
-                        .join(" • ")}
-                    </Text>
-                  )}
-                  {selectedPlaceCoords ? (
-                    <Text style={styles.placeResultDetailsCoords}>
-                      {selectedPlaceCoords}
-                    </Text>
-                  ) : null}
-                  <View style={{ marginTop: 8 }}>
-                    <Pressable
-                      style={styles.placeResultsActionBtn}
-                      onPress={handleFindSafeRoutesForSelectedPlace}
-                    >
-                      <Text style={styles.placeResultsActionText}>Find Safe Routes</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              )}
             </Pressable>
           );
         })}
@@ -1291,7 +1725,10 @@ export default function HomeScreen() {
         routeSegments={isWebGuest ? [] : h.routeSegments}
         roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
-        fitCandidateBoundsToken={h.destinationCandidatesFitToken}
+        fitCandidateBoundsToken={h.destinationCandidatesFitToken + sheetPlacesFitToken}
+        fitTopPadding={mapFitTopPadding}
+        fitBottomPadding={mapFitBottomPadding}
+        fitSidePadding={mapFitSidePadding}
         showZoomControls={isWeb && !isPhoneWeb}
         isNavigating={h.isNavActive}
         navigationLocation={h.nav.userLocation}
@@ -1314,7 +1751,6 @@ export default function HomeScreen() {
           if (!placeId) return;
 
           setSelectedSheetCandidateId(placeId);
-          setShowSelectedPlaceDetails(true);
 
           const markerPlace = sheetPlaces.find((p) => p.placeId === placeId);
           if (markerPlace?.location) {
@@ -1618,6 +2054,8 @@ export default function HomeScreen() {
               onSavePlace={savePlace}
               onRemoveSavedPlace={removePlace}
               onSavedPlaceToast={handleSavedPlaceToast}
+              onExpandedChange={setIsSearchBarExpanded}
+              {...mobileSearchBarLayoutCallbacks}
             />
 
             {/* Login button for guest */}
@@ -1906,6 +2344,8 @@ export default function HomeScreen() {
             onSavePlace={savePlace}
             onRemoveSavedPlace={removePlace}
             onSavedPlaceToast={handleSavedPlaceToast}
+            onExpandedChange={setIsSearchBarExpanded}
+            {...mobileSearchBarLayoutCallbacks}
           />
         )}
 
@@ -1915,9 +2355,7 @@ export default function HomeScreen() {
             style={[
               styles.searchAroundFloatingWrap,
               {
-                top: isWeb
-                  ? insets.top + webBannerOffset + (isPhoneWeb ? 142 : 96)
-                  : insets.top + webBannerOffset + 102,
+                top: searchAroundFloatingTop,
               },
             ]}
           >
@@ -1931,7 +2369,7 @@ export default function HomeScreen() {
               >
                 {isSearchAroundLoading ? (
                   <View style={styles.searchAroundFloatingLoadingRow}>
-                    <ActivityIndicator size="small" color="#ffffff" />
+                    <ActivityIndicator size="small" color="#111111" />
                     <Text style={styles.searchAroundFloatingBtnText}>Searching…</Text>
                   </View>
                 ) : (
@@ -1945,32 +2383,6 @@ export default function HomeScreen() {
                 </Text>
               </View>
             )}
-          </View>
-        )}
-
-        {/* ── Profile / Logout button (logged in) ── */}
-        {!h.isNavActive && auth.isLoggedIn && (
-          <View
-            style={{
-              position: "absolute",
-              top: isWeb
-                ? insets.top + webBannerOffset + (isPhoneWeb ? 180 : 190)
-                : "40%",
-              marginTop: isWeb ? 0 : -50,
-              right: 12,
-              zIndex: 110,
-            }}
-          >
-            <ProfileMenu
-              name={auth.user?.name ?? auth.user?.username ?? null}
-              email={auth.user?.email ?? null}
-              subscriptionTier={subscriptionTier}
-              isGift={auth.user?.isGift}
-              subscriptionEndsAt={auth.user?.subscriptionEndsAt}
-              onLogout={auth.logout}
-              onManageSubscription={() => setShowSubscriptionModal(true)}
-              onChangePassword={auth.changePassword}
-            />
           </View>
         )}
 
@@ -1991,128 +2403,108 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* ── Safety Circle button (right under profile button) ── */}
-        {!h.isNavActive && auth.isLoggedIn && (
-          <View
-            style={{
-              position: "absolute",
-              top: isWeb
-                ? insets.top + webBannerOffset + (isPhoneWeb ? 230 : 290)
-                : "40%",
-              marginTop: isWeb ? 0 : 0,
-              right: 12,
-              zIndex: 100,
+        {(!isDesktopWeb || h.isNavActive) && (
+          <MapControlRail
+            layoutInput={{
+              viewportHeight: windowHeight,
+              topInset: insets.top,
+              bottomInset: insets.bottom,
+              searchBoundaryBottom: searchBottomYForRail,
+              sheetBoundaryTop: currentSheetTopY,
             }}
-          >
-            <BuddyButton
-              username={auth.user?.username ?? null}
-              userId={auth.user?.id ?? null}
-              hasLiveContacts={liveContacts.length > 0}
-              onContactsChanged={handleContactsChanged}
-            />
-          </View>
-        )}
-
-        {/* ── Show Friends on Map toggle (below Safety Circle) ── */}
-        {!h.isNavActive && auth.isLoggedIn && (
-          <View
-            style={{
-              position: "absolute",
-              top: isWeb
-                ? insets.top + webBannerOffset + (isPhoneWeb ? 285 : 345)
-                : "40%",
-              marginTop: isWeb ? 0 : 50,
-              right: 12,
-              zIndex: 100,
+            profileControl={() => {
+              if (h.isNavActive || !auth.isLoggedIn) return null;
+              return (
+                <ProfileMenu
+                  name={auth.user?.name ?? auth.user?.username ?? null}
+                  email={auth.user?.email ?? null}
+                  subscriptionTier={subscriptionTier}
+                  isGift={auth.user?.isGift}
+                  subscriptionEndsAt={auth.user?.subscriptionEndsAt}
+                  onLogout={auth.logout}
+                  onManageSubscription={() => setShowSubscriptionModal(true)}
+                  onChangePassword={auth.changePassword}
+                />
+              );
             }}
-          >
-            <Pressable
-              onPress={handleFriendToggle}
-              style={[
-                styles.friendToggle,
-                showFriendsOnMap && styles.friendToggleActive,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={
-                showFriendsOnMap ? "Hide friends on map" : "Show friends on map"
-              }
-            >
-              <Ionicons
-                name={showFriendsOnMap ? "people" : "people-outline"}
-                size={20}
-                color={showFriendsOnMap ? "#fff" : "#7C3AED"}
-              />
-            </Pressable>
-          </View>
-        )}
-
-        {/* ── Report hazard button (always available when logged in) ── */}
-        {!h.isNavActive && (
-          <View
-            style={{
-              position: "absolute",
-              top: isWeb
-                ? insets.top + webBannerOffset + (isPhoneWeb ? 392 : 452)
-                : "40%",
-              marginTop: isWeb ? 0 : 152,
-              right: 12,
-              zIndex: 100,
+            safetyCircleControl={() => {
+              if (h.isNavActive || !auth.isLoggedIn) return null;
+              return (
+                <BuddyButton
+                  username={auth.user?.username ?? null}
+                  userId={auth.user?.id ?? null}
+                  hasLiveContacts={liveContacts.length > 0}
+                  onContactsChanged={handleContactsChanged}
+                />
+              );
             }}
-          >
-            <Pressable
-              onPress={handleMoveToCurrentLocation}
-              style={[
-                styles.currentLocationBtn,
-                isAtCurrentLocation
-                  ? styles.currentLocationBtnActive
-                  : styles.currentLocationBtnInactive,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={
-                isAtCurrentLocation
-                  ? "You are at current location"
-                  : isFindingCurrentLocation
-                    ? "Finding current location"
-                    : "Move to current location"
-              }
-            >
-              {isAtCurrentLocation ? (
-                <View style={styles.currentLocationDotOuter}>
-                  <View style={styles.currentLocationDotInner} />
-                </View>
-              ) : (
-                <Ionicons name="locate-outline" size={20} color="#E5E7EB" />
-              )}
-            </Pressable>
-          </View>
-        )}
-
-        {/* ── Report hazard button (always available when logged in) ── */}
-        {auth.isLoggedIn && (
-          <View
-            style={{
-              position: "absolute",
-              ...(h.isNavActive
-                ? { bottom: insets.bottom + 100, right: 16 }
-                : {
-                    top: isWeb
-                      ? insets.top + webBannerOffset + (isPhoneWeb ? 340 : 400)
-                      : "40%",
-                    marginTop: isWeb ? 0 : 100,
-                    right: 12,
-                  }),
-              zIndex: 100,
+            liveLocationControl={() => {
+              if (h.isNavActive || !auth.isLoggedIn) return null;
+              return (
+                <Pressable
+                  onPress={handleFriendToggle}
+                  style={[
+                    styles.friendToggle,
+                    showFriendsOnMap && styles.friendToggleActive,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    showFriendsOnMap
+                      ? "Hide friends on map"
+                      : "Show friends on map"
+                  }
+                >
+                  <Ionicons
+                    name={showFriendsOnMap ? "people" : "people-outline"}
+                    size={20}
+                    color={showFriendsOnMap ? "#fff" : "#7C3AED"}
+                  />
+                </Pressable>
+              );
             }}
-          >
-            <Pressable
-              onPress={() => setShowReportModal(true)}
-              style={styles.reportBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Report a hazard"
-            >
-              <Ionicons name="flag-outline" size={20} color="#EF4444" />
-            </Pressable>
-          </View>
+            currentLocationControl={() => {
+              return (
+                <Pressable
+                  onPress={handleMoveToCurrentLocation}
+                  style={[
+                    styles.currentLocationBtn,
+                    isAtCurrentLocation
+                      ? styles.currentLocationBtnActive
+                      : styles.currentLocationBtnInactive,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isAtCurrentLocation
+                      ? "You are at current location"
+                      : isFindingCurrentLocation
+                        ? "Finding current location"
+                        : "Move to current location"
+                  }
+                >
+                  {isAtCurrentLocation ? (
+                    <View style={styles.currentLocationDotOuter}>
+                      <View style={styles.currentLocationDotInner} />
+                    </View>
+                  ) : (
+                    <Ionicons name="locate-outline" size={20} color="#E5E7EB" />
+                  )}
+                </Pressable>
+              );
+            }}
+            reportControl={() => {
+              if (!auth.isLoggedIn) return null;
+              return (
+                <Pressable
+                  onPress={() => setShowReportModal(true)}
+                  style={styles.reportBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Report a hazard"
+                >
+                  <Ionicons name="flag-outline" size={20} color="#EF4444" />
+                </Pressable>
+              );
+            }}
+          />
         )}
 
         {/* ── Category highlight banner — shows when user tapped a stat card ── */}
@@ -2928,24 +3320,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   searchAroundFloatingBtn: {
-    backgroundColor: "#1570ef",
+    backgroundColor: "rgba(255,255,255,0.58)",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.65)",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
     ...(Platform.OS === "web"
-      ? { boxShadow: "0 4px 14px rgba(21,112,239,0.35)" }
+      ? { boxShadow: "0 3px 10px rgba(0,0,0,0.18)" }
       : {
-          shadowColor: "#0f56b3",
-          shadowOffset: { width: 0, height: 3 },
-          shadowOpacity: 0.28,
-          shadowRadius: 8,
-          elevation: 8,
+          shadowColor: "#000000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.18,
+          shadowRadius: 6,
+          elevation: 5,
         }),
   } as any,
   searchAroundFloatingBtnText: {
-    color: "#ffffff",
+    color: "#111111",
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   searchAroundFloatingLoadingRow: {
     flexDirection: "row",
