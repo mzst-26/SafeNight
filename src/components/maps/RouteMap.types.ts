@@ -28,6 +28,12 @@ export type RouteMapProps = {
   panTo?: { location: LatLng; key: number } | null;
   /** Increment to force fitting visible search-candidate markers into view. */
   fitCandidateBoundsToken?: number;
+  /** Extra top padding (px) used when fitting bounds so points stay below top search UI. */
+  fitTopPadding?: number;
+  /** Extra bottom padding (px) used when fitting bounds so points are not hidden behind sheets. */
+  fitBottomPadding?: number;
+  /** Extra left/right padding (px) used when fitting bounds so points are not clipped by UI rails. */
+  fitSidePadding?: number;
   /** Show map zoom controls (+ / -). Useful to disable on phone-web layouts. */
   showZoomControls?: boolean;
   /** Navigation mode — when true, the map follows the user and tilts */
@@ -56,6 +62,8 @@ export type RouteMapProps = {
   onMapPress?: (location: LatLng) => void;
   onNavigationFollowChange?: (isFollowing: boolean) => void;
   onUserInteraction?: () => void;
+  /** Called when user finishes dragging/panning the map with the new center location */
+  onMapCenterChanged?: (location: LatLng) => void;
   /** SSE URL for real-time pathfinding visualisation — when set, the WebView
    *  opens an EventSource to this URL and renders progress on the map. */
   vizStreamUrl?: string | null;
