@@ -14,6 +14,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Animated,
+  Easing,
+    InteractionManager,
+    type LayoutChangeEvent,
     Platform,
     Pressable,
     ScrollView,
@@ -28,12 +31,12 @@ import type { SavedPlace, SaveResult } from "@/src/hooks/useSavedPlaces";
 import type { LatLng, PlaceDetails, PlacePrediction } from "@/src/types/google";
 import { SavedPlaces } from "./SavedPlaces";
 
-const CATEGORY_CHIP_DEFINITIONS: Array<{
+const CATEGORY_CHIP_DEFINITIONS: {
   key: string;
   label: string;
   query: string;
   icon: keyof typeof Ionicons.glyphMap;
-}> = [
+}[] = [
   { key: "fuel", label: "Fuel", query: "fuel station", icon: "car-sport-outline" },
   { key: "shop", label: "Shops", query: "shops", icon: "bag-handle-outline" },
   { key: "food", label: "Food", query: "restaurants", icon: "restaurant-outline" },
@@ -93,6 +96,10 @@ export interface MobileWebSearchBarProps {
   ) => Promise<SaveResult> | SaveResult;
   onRemoveSavedPlace?: (id: string) => void;
   onSavedPlaceToast?: (msg: string, icon?: string) => void;
+  /** Optional callback to report expanded/collapsed state to parent overlays. */
+  onExpandedChange?: (expanded: boolean) => void;
+  onContainerLayout?: (metrics: { y: number; height: number; bottom: number }) => void;
+  onEffectiveBottomChange?: (bottomY: number) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -115,7 +122,6 @@ export function MobileWebSearchBar({
   destinationCandidates = [],
   selectedDestinationCandidateId = null,
   onSelectDestinationCandidate,
-  onFindSafeRoutes,
   renderCandidatesInSheet = false,
   onGuestTap,
   hasResults,
@@ -125,12 +131,27 @@ export function MobileWebSearchBar({
   onSavePlace,
   onRemoveSavedPlace,
   onSavedPlaceToast,
+  onExpandedChange,
+  onContainerLayout,
+  onEffectiveBottomChange,
 }: MobileWebSearchBarProps) {
   const [expanded, setExpanded] = useState(false);
   const expandAnim = useRef(new Animated.Value(0)).current;
   const originRef = useRef<TextInput>(null);
   const destRef = useRef<TextInput>(null);
   const prevHasResultsRef = useRef(hasResults);
+  const lastCollapsedDestinationQueryRef = useRef<string | null>(null);
+  const destinationFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const focusRequestIdRef = useRef(0);
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerMetricsRef = useRef<{
+    y: number;
+    height: number;
+    bottom: number;
+  } | null>(null);
+  const lastEffectiveBottomRef = useRef<number | null>(null);
 
   // Focus management
   const [focusedField, setFocusedField] = useState<
@@ -161,44 +182,173 @@ export function MobileWebSearchBar({
     if (focusedField) lastFocused.current = focusedField;
   }, [focusedField]);
 
+  useEffect(() => {
+    onExpandedChange?.(expanded);
+  }, [expanded, onExpandedChange]);
+
+  const reportEffectiveBottom = useCallback(
+    (bottomY: number) => {
+      if (lastEffectiveBottomRef.current === bottomY) return;
+      lastEffectiveBottomRef.current = bottomY;
+      onEffectiveBottomChange?.(bottomY);
+    },
+    [onEffectiveBottomChange],
+  );
+
+  const reportContainerLayout = useCallback(
+    (metrics: { y: number; height: number; bottom: number }) => {
+      containerMetricsRef.current = metrics;
+      onContainerLayout?.(metrics);
+      reportEffectiveBottom(metrics.bottom);
+    },
+    [onContainerLayout, reportEffectiveBottom],
+  );
+
+  const handleContainerLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { y, height } = event.nativeEvent.layout;
+      reportContainerLayout({ y, height, bottom: y + height });
+    },
+    [reportContainerLayout],
+  );
+
+  useEffect(() => {
+    const metrics = containerMetricsRef.current;
+    if (!metrics) return;
+    onContainerLayout?.(metrics);
+    reportEffectiveBottom(metrics.bottom);
+  }, [expanded, onContainerLayout, reportEffectiveBottom]);
+
+  useEffect(() => {
+    return () => {
+      onExpandedChange?.(false);
+    };
+  }, [onExpandedChange]);
+
+  const clearDestinationFocusTimer = useCallback(() => {
+    focusRequestIdRef.current += 1;
+    if (destinationFocusTimerRef.current) {
+      clearTimeout(destinationFocusTimerRef.current);
+      destinationFocusTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleFieldFocus = useCallback(
+    (field: "origin" | "destination", delayMs: number) => {
+      clearDestinationFocusTimer();
+      const requestId = focusRequestIdRef.current;
+      destinationFocusTimerRef.current = setTimeout(() => {
+        destinationFocusTimerRef.current = null;
+        InteractionManager.runAfterInteractions(() => {
+          if (requestId !== focusRequestIdRef.current) return;
+          if (field === "origin") {
+            originRef.current?.focus();
+            return;
+          }
+          destRef.current?.focus();
+        });
+      }, delayMs);
+    },
+    [clearDestinationFocusTimer],
+  );
+
   const focusField = useCallback(
     (field: "origin" | "destination") => {
       cancelBlur();
       setFocusedField(field);
-      if (field === "origin") {
-        requestAnimationFrame(() => originRef.current?.focus());
-        return;
-      }
-      requestAnimationFrame(() => destRef.current?.focus());
+      focusRequestIdRef.current += 1;
+      scheduleFieldFocus(field, 55);
     },
-    [cancelBlur],
+    [cancelBlur, scheduleFieldFocus],
   );
+
+  const clearCollapseTimer = useCallback(() => {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+  }, []);
 
   // Expand/collapse animation
   const expand = useCallback(() => {
+    clearCollapseTimer();
+    clearDestinationFocusTimer();
     setExpanded(true);
-    Animated.spring(expandAnim, {
+    expandAnim.stopAnimation();
+    Animated.timing(expandAnim, {
       toValue: 1,
       useNativeDriver: false,
-      bounciness: 4,
-      speed: 14,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
     }).start(() => {
-      // Auto-focus destination input after expand
-      setTimeout(() => destRef.current?.focus(), 100);
+      // Auto-focus destination after expand; cancellable by any user interaction.
+      scheduleFieldFocus("destination", 90);
     });
-  }, [expandAnim]);
+  }, [
+    expandAnim,
+    clearCollapseTimer,
+    clearDestinationFocusTimer,
+    scheduleFieldFocus,
+  ]);
 
   const collapse = useCallback(() => {
+    clearCollapseTimer();
+    clearDestinationFocusTimer();
     originRef.current?.blur();
     destRef.current?.blur();
     setFocusedField(null);
-    Animated.spring(expandAnim, {
+    expandAnim.stopAnimation();
+    Animated.timing(expandAnim, {
       toValue: 0,
       useNativeDriver: false,
-      bounciness: 4,
-      speed: 14,
+      duration: 220,
+      easing: Easing.inOut(Easing.cubic),
     }).start(() => setExpanded(false));
-  }, [expandAnim]);
+  }, [expandAnim, clearCollapseTimer, clearDestinationFocusTimer]);
+
+  const scheduleCollapse = useCallback(
+    (delayMs: number) => {
+      clearCollapseTimer();
+      collapseTimerRef.current = setTimeout(() => {
+        collapseTimerRef.current = null;
+        collapse();
+      }, delayMs);
+    },
+    [clearCollapseTimer, collapse],
+  );
+
+  const normalizedDestinationQuery = destSearch.query.trim().toLowerCase();
+  const hasDestinationSearchResults =
+    !manualDest &&
+    !destSearch.place &&
+    (destinationCandidates.length > 0 || destSearch.predictions.length > 0);
+
+  // Android: collapse once per destination query when place results are shown.
+  // This keeps repeated searches reliable even when generic hasResults stays true.
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    if (!expanded) return;
+    if (!normalizedDestinationQuery) {
+      lastCollapsedDestinationQueryRef.current = null;
+      return;
+    }
+    if (!hasDestinationSearchResults) return;
+    if (lastCollapsedDestinationQueryRef.current === normalizedDestinationQuery) {
+      return;
+    }
+
+    scheduleCollapse(220);
+    const t = setTimeout(() => {
+      lastCollapsedDestinationQueryRef.current = normalizedDestinationQuery;
+    }, 220);
+
+    return () => clearTimeout(t);
+  }, [
+    expanded,
+    normalizedDestinationQuery,
+    hasDestinationSearchResults,
+    scheduleCollapse,
+  ]);
 
   // Auto-collapse when results appear
   useEffect(() => {
@@ -207,15 +357,33 @@ export function MobileWebSearchBar({
 
     const isTyping =
       !!originRef.current?.isFocused?.() || !!destRef.current?.isFocused?.();
-    if (gainedResults && expanded && !isTyping) {
+    const shouldCollapse =
+      gainedResults &&
+      expanded &&
+      (Platform.OS === "android" ? !hasDestinationSearchResults : !isTyping);
+    if (shouldCollapse) {
       // On Android, delay collapse by 2s to match routes-found behaviour
       if (Platform.OS === "android") {
-        const t = setTimeout(() => collapse(), 2000);
-        return () => clearTimeout(t);
+        scheduleCollapse(2000);
+        return;
       }
       collapse();
     }
-  }, [hasResults, expanded, collapse]);
+  }, [
+    hasResults,
+    expanded,
+    collapse,
+    hasDestinationSearchResults,
+    scheduleCollapse,
+  ]);
+
+  useEffect(
+    () => () => {
+      clearDestinationFocusTimer();
+      clearCollapseTimer();
+    },
+    [clearDestinationFocusTimer, clearCollapseTimer],
+  );
 
   // When user taps the collapsed pill
   const handlePillPress = useCallback(() => {
@@ -319,7 +487,7 @@ export function MobileWebSearchBar({
       }))
       .filter((chip) => chip.count > 0)
       .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
+      .slice(0, 5);
   }, [bubbleSource]);
 
   const handleCategoryBubblePress = useCallback(
@@ -357,11 +525,16 @@ export function MobileWebSearchBar({
   });
 
   return (
-    <View style={[styles.wrapper, topInset != null && { top: topInset + 8 }]}>
+    <View
+      style={[styles.wrapper, topInset != null && { top: topInset + 8 }]}
+      onLayout={handleContainerLayout}
+    >
       <Animated.View style={[styles.container, { height: containerHeight }]}>
         {/* ── Collapsed single pill ── */}
-        {!expanded && (
-          <Animated.View style={[styles.pill, { opacity: pillOpacity }]}>
+        <Animated.View
+          style={[styles.pill, { opacity: pillOpacity }]}
+          pointerEvents={expanded ? "none" : "auto"}
+        >
             <Pressable
               style={styles.pillInner}
               onPress={handlePillPress}
@@ -394,13 +567,12 @@ export function MobileWebSearchBar({
               )}
             </Pressable>
           </Animated.View>
-        )}
 
         {/* ── Expanded dual inputs ── */}
-        {expanded && (
-          <Animated.View
-            style={[styles.expandedCard, { opacity: dualOpacity }]}
-          >
+        <Animated.View
+          style={[styles.expandedCard, { opacity: dualOpacity }]}
+          pointerEvents={expanded ? "auto" : "none"}
+        >
             {/* Back / collapse button */}
             <View style={styles.expandedHeader}>
               <Pressable
@@ -503,6 +675,7 @@ export function MobileWebSearchBar({
                         onGuestTap();
                         return;
                       }
+                      clearDestinationFocusTimer();
                       cancelBlur();
                       setFocusedField("origin");
                     }}
@@ -596,6 +769,7 @@ export function MobileWebSearchBar({
                       onGuestTap();
                       return;
                     }
+                    clearDestinationFocusTimer();
                     cancelBlur();
                     setFocusedField("destination");
                   }}
@@ -678,32 +852,44 @@ export function MobileWebSearchBar({
                 />
               )}
           </Animated.View>
-        )}
       </Animated.View>
 
       {/* ── Predictions dropdown (only in expanded mode) ── */}
       {expanded && showLegacyPredictions && (
         <View style={styles.predictions}>
           {categoryBubbles.length > 0 && (
-            <ScrollView
-              horizontal
-              style={styles.categoryBubblesWrap}
-              contentContainerStyle={styles.categoryBubblesContent}
-              showsHorizontalScrollIndicator={false}
-              keyboardShouldPersistTaps="always"
-            >
-              {categoryBubbles.map((chip) => (
-                <Pressable
-                  key={`legacy-chip-${chip.key}`}
-                  style={styles.categoryBubble}
-                  onPress={() => handleCategoryBubblePress(chip.query)}
-                >
-                  <Ionicons name={chip.icon} size={14} color="#1570ef" />
-                  <Text style={styles.categoryBubbleText}>{chip.label}</Text>
-                  <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+            <View>
+              <Text style={styles.categoryHelpText}>
+                Quick filters: tap a category to update results instantly.
+              </Text>
+              <ScrollView
+                horizontal
+                style={styles.categoryBubblesWrap}
+                contentContainerStyle={styles.categoryBubblesContent}
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="always"
+              >
+                {categoryBubbles.map((chip, _idx, arr) => {
+                  const iconOnly = arr.length > 3;
+                  return (
+                    <Pressable
+                      key={`legacy-chip-${chip.key}`}
+                      style={[
+                        styles.categoryBubble,
+                        iconOnly ? styles.categoryBubbleIconOnly : null,
+                      ]}
+                      onPress={() => handleCategoryBubblePress(chip.query)}
+                    >
+                      <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                      {!iconOnly ? (
+                        <Text style={styles.categoryBubbleText}>{chip.label}</Text>
+                      ) : null}
+                      <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
           )}
           <ScrollView keyboardShouldPersistTaps="always" bounces={false}>
             {activePredictions.map((pred, idx) => (
@@ -750,35 +936,40 @@ export function MobileWebSearchBar({
           <View style={styles.predictions}>
             <View style={styles.candidatesHeader}>
               <Text style={styles.candidatesTitle}>Related places</Text>
-              <Pressable
-                style={styles.findSafeButton}
-                onPress={() => {
-                  onFindSafeRoutes?.();
-                }}
-              >
-                <Text style={styles.findSafeButtonText}>Find Safe Routes</Text>
-              </Pressable>
             </View>
             {categoryBubbles.length > 0 && (
-              <ScrollView
-                horizontal
-                style={styles.categoryBubblesWrap}
-                contentContainerStyle={styles.categoryBubblesContent}
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="always"
-              >
-                {categoryBubbles.map((chip) => (
-                  <Pressable
-                    key={`candidate-chip-${chip.key}`}
-                    style={styles.categoryBubble}
-                    onPress={() => handleCategoryBubblePress(chip.query)}
-                  >
-                    <Ionicons name={chip.icon} size={14} color="#1570ef" />
-                    <Text style={styles.categoryBubbleText}>{chip.label}</Text>
-                    <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              <View>
+                <Text style={styles.categoryHelpText}>
+                  Quick filters: tap a category to update results instantly.
+                </Text>
+                <ScrollView
+                  horizontal
+                  style={styles.categoryBubblesWrap}
+                  contentContainerStyle={styles.categoryBubblesContent}
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="always"
+                >
+                  {categoryBubbles.map((chip, _idx, arr) => {
+                    const iconOnly = arr.length > 3;
+                    return (
+                      <Pressable
+                        key={`candidate-chip-${chip.key}`}
+                        style={[
+                          styles.categoryBubble,
+                          iconOnly ? styles.categoryBubbleIconOnly : null,
+                        ]}
+                        onPress={() => handleCategoryBubblePress(chip.query)}
+                      >
+                        <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                        {!iconOnly ? (
+                          <Text style={styles.categoryBubbleText}>{chip.label}</Text>
+                        ) : null}
+                        <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             )}
             <ScrollView keyboardShouldPersistTaps="always" bounces={false}>
               {destinationCandidates.map((pred, idx) => {
@@ -1026,6 +1217,13 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: "center",
   },
+  categoryHelpText: {
+    fontSize: 11,
+    color: "#475467",
+    fontWeight: "500",
+    paddingHorizontal: 10,
+    paddingTop: 8,
+  },
   categoryBubble: {
     flexDirection: "row",
     alignItems: "center",
@@ -1036,11 +1234,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#eff6ff",
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minWidth: 0,
+  },
+  categoryBubbleIconOnly: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    gap: 4,
   },
   categoryBubbleText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#1d4ed8",
+    flexShrink: 1,
   },
   categoryBubbleCount: {
     fontSize: 11,
@@ -1057,17 +1262,6 @@ const styles = StyleSheet.create({
     color: "#344054",
     textTransform: "uppercase",
     letterSpacing: 0.4,
-  },
-  findSafeButton: {
-    backgroundColor: "#1570ef",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  findSafeButtonText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#ffffff",
   },
   candidateItemSelected: {
     backgroundColor: "#eff8ff",
