@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
     ActivityIndicator,
+  InteractionManager,
     Platform,
     Pressable,
     ScrollView,
@@ -120,7 +121,6 @@ export function SearchBar({
   destinationCandidates = [],
   selectedDestinationCandidateId = null,
   onSelectDestinationCandidate,
-  onFindSafeRoutes,
   onGuestTap,
   embedded,
   savedPlaces,
@@ -137,6 +137,8 @@ export function SearchBar({
     "origin" | "destination" | null
   >(null);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusRequestIdRef = useRef(0);
   const lastFocusedFieldRef = useRef<"origin" | "destination" | null>(null);
   const suppressBlurRef = useRef(false);
 
@@ -156,6 +158,40 @@ export function SearchBar({
       blurTimerRef.current = null;
     }
   }, []);
+
+  const cancelScheduledFocus = useCallback(() => {
+    focusRequestIdRef.current += 1;
+    if (focusTimerRef.current) {
+      clearTimeout(focusTimerRef.current);
+      focusTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleFieldFocus = useCallback(
+    (field: "origin" | "destination", delayMs: number = 70) => {
+      cancelScheduledFocus();
+      const requestId = focusRequestIdRef.current;
+      focusTimerRef.current = setTimeout(() => {
+        focusTimerRef.current = null;
+        InteractionManager.runAfterInteractions(() => {
+          if (focusRequestIdRef.current !== requestId) return;
+          if (field === "origin") {
+            originInputRef.current?.focus();
+            return;
+          }
+          destInputRef.current?.focus();
+        });
+      }, delayMs);
+    },
+    [cancelScheduledFocus],
+  );
+
+  useEffect(
+    () => () => {
+      cancelScheduledFocus();
+    },
+    [cancelScheduledFocus],
+  );
 
   useEffect(() => {
     if (focusedField) lastFocusedFieldRef.current = focusedField;
@@ -254,7 +290,7 @@ export function SearchBar({
       }))
       .filter((chip) => chip.count > 0)
       .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
+      .slice(0, 5);
   }, [bubbleSource]);
 
   const handleCategoryBubblePress = useCallback(
@@ -264,9 +300,9 @@ export function SearchBar({
       destSearch.setQuery(categoryQuery);
       onClearRoute();
       setFocusedFieldState("destination");
-      requestAnimationFrame(() => destInputRef.current?.focus());
+      scheduleFieldFocus("destination", 80);
     },
-    [destSearch, onClearRoute, setManualDest],
+    [destSearch, onClearRoute, scheduleFieldFocus, setManualDest],
   );
 
   return (
@@ -298,7 +334,9 @@ export function SearchBar({
                   onGuestTap();
                   return;
                 }
-                if (!isUsingCurrentLocation) originInputRef.current?.focus();
+                if (!isUsingCurrentLocation) {
+                  scheduleFieldFocus("origin", 40);
+                }
               }}
             >
               {isUsingCurrentLocation ? (
@@ -352,6 +390,7 @@ export function SearchBar({
                       return;
                     }
                     cancelBlurTimer();
+                    cancelScheduledFocus();
                     setFocusedFieldState("origin");
                   }}
                   onBlur={handleBlur}
@@ -437,7 +476,7 @@ export function SearchBar({
                   onGuestTap();
                   return;
                 }
-                destInputRef.current?.focus();
+                scheduleFieldFocus("destination", 40);
               }}
             >
               <TextInput
@@ -466,6 +505,7 @@ export function SearchBar({
                     return;
                   }
                   cancelBlurTimer();
+                  cancelScheduledFocus();
                   setFocusedFieldState("destination");
                 }}
                 onBlur={handleBlur}
@@ -528,25 +568,38 @@ export function SearchBar({
             ]}
           >
             {categoryBubbles.length > 0 && (
-              <ScrollView
-                horizontal
-                style={styles.categoryBubblesWrap}
-                contentContainerStyle={styles.categoryBubblesContent}
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="always"
-              >
-                {categoryBubbles.map((chip) => (
-                  <Pressable
-                    key={`legacy-chip-${chip.key}`}
-                    style={styles.categoryBubble}
-                    onPress={() => handleCategoryBubblePress(chip.query)}
-                  >
-                    <Ionicons name={chip.icon} size={14} color="#1570ef" />
-                    <Text style={styles.categoryBubbleText}>{chip.label}</Text>
-                    <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              <View>
+                <Text style={styles.categoryHelpText}>
+                  Quick filters: tap a category to update results instantly.
+                </Text>
+                <ScrollView
+                  horizontal
+                  style={styles.categoryBubblesWrap}
+                  contentContainerStyle={styles.categoryBubblesContent}
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="always"
+                >
+                  {categoryBubbles.map((chip, _idx, arr) => {
+                    const iconOnly = arr.length > 3;
+                    return (
+                      <Pressable
+                        key={`legacy-chip-${chip.key}`}
+                        style={[
+                          styles.categoryBubble,
+                          iconOnly ? styles.categoryBubbleIconOnly : null,
+                        ]}
+                        onPress={() => handleCategoryBubblePress(chip.query)}
+                      >
+                        <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                        {!iconOnly ? (
+                          <Text style={styles.categoryBubbleText}>{chip.label}</Text>
+                        ) : null}
+                        <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             )}
             <ScrollView
               style={styles.predictionsScroll}
@@ -606,35 +659,40 @@ export function SearchBar({
           >
             <View style={styles.candidatesHeader}>
               <Text style={styles.candidatesTitle}>Related places</Text>
-              <Pressable
-                style={styles.findSafeButton}
-                onPress={() => {
-                  onFindSafeRoutes?.();
-                }}
-              >
-                <Text style={styles.findSafeButtonText}>Find Safe Routes</Text>
-              </Pressable>
             </View>
             {categoryBubbles.length > 0 && (
-              <ScrollView
-                horizontal
-                style={styles.categoryBubblesWrap}
-                contentContainerStyle={styles.categoryBubblesContent}
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="always"
-              >
-                {categoryBubbles.map((chip) => (
-                  <Pressable
-                    key={`candidate-chip-${chip.key}`}
-                    style={styles.categoryBubble}
-                    onPress={() => handleCategoryBubblePress(chip.query)}
-                  >
-                    <Ionicons name={chip.icon} size={14} color="#1570ef" />
-                    <Text style={styles.categoryBubbleText}>{chip.label}</Text>
-                    <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              <View>
+                <Text style={styles.categoryHelpText}>
+                  Quick filters: tap a category to update results instantly.
+                </Text>
+                <ScrollView
+                  horizontal
+                  style={styles.categoryBubblesWrap}
+                  contentContainerStyle={styles.categoryBubblesContent}
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="always"
+                >
+                  {categoryBubbles.map((chip, _idx, arr) => {
+                    const iconOnly = arr.length > 3;
+                    return (
+                      <Pressable
+                        key={`candidate-chip-${chip.key}`}
+                        style={[
+                          styles.categoryBubble,
+                          iconOnly ? styles.categoryBubbleIconOnly : null,
+                        ]}
+                        onPress={() => handleCategoryBubblePress(chip.query)}
+                      >
+                        <Ionicons name={chip.icon} size={14} color="#1570ef" />
+                        {!iconOnly ? (
+                          <Text style={styles.categoryBubbleText}>{chip.label}</Text>
+                        ) : null}
+                        <Text style={styles.categoryBubbleCount}>{chip.count}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             )}
             <ScrollView
               style={styles.predictionsScroll}
@@ -919,6 +977,13 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: "center",
   },
+  categoryHelpText: {
+    fontSize: 11,
+    color: "#475467",
+    fontWeight: "500",
+    paddingHorizontal: 10,
+    paddingTop: 8,
+  },
   categoryBubble: {
     flexDirection: "row",
     alignItems: "center",
@@ -929,11 +994,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#eff6ff",
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minWidth: 0,
+  },
+  categoryBubbleIconOnly: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    gap: 4,
   },
   categoryBubbleText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#1d4ed8",
+    flexShrink: 1,
   },
   categoryBubbleCount: {
     fontSize: 11,
@@ -1009,17 +1081,6 @@ const styles = StyleSheet.create({
     color: "#344054",
     textTransform: "uppercase",
     letterSpacing: 0.5,
-  },
-  findSafeButton: {
-    backgroundColor: "#1570ef",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  findSafeButtonText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#ffffff",
   },
   candidateItemSelected: {
     backgroundColor: "#eff8ff",
