@@ -145,7 +145,7 @@ describe('overpassClient persistent cache', () => {
     });
 
     resolveSlow();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await mod.__waitForInflightForTests?.();
     mod.restoreEnv();
   });
 });
