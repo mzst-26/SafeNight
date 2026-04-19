@@ -620,16 +620,30 @@ async function parseUpstreamJsonOrNull(response, sourceLabel) {
   const status = Number.isFinite(response.status) ? response.status : 'unknown';
   const contentType = String(response.headers?.get?.('content-type') || '').toLowerCase();
 
-  let body = '';
-  try {
-    body = await response.text();
-  } catch {
-    body = '';
-  }
-
-  if (!response.ok) {
+  if (response.ok === false) {
     console.log(`[geocode/autocomplete] ⚠️ ${sourceLabel} returned ${status}`);
     return null;
+  }
+
+  let body = '';
+  let hasTextBody = false;
+  if (typeof response.text === 'function') {
+    try {
+      body = await response.text();
+      hasTextBody = true;
+    } catch {
+      body = '';
+    }
+  }
+
+  if (hasTextBody && (!body || !body.trim())) return null;
+
+  if (!hasTextBody && typeof response.json === 'function') {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
   }
 
   if (!body || !body.trim()) return null;
