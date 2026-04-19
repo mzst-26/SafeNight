@@ -148,6 +148,8 @@ export function useHomeScreen() {
     location: LatLng;
     key: number;
   } | null>(null);
+  const prevIsUsingCurrentLocationRef = useRef(isUsingCurrentLocation);
+  const hasAutoCenteredCurrentLocationRef = useRef(false);
   const [mapType, setMapType] = useState<MapType>("roadmap");
   const [pinMode, setPinMode] = useState<
     "origin" | "destination" | "via" | null
@@ -412,10 +414,18 @@ export function useHomeScreen() {
     if (destSearch.query.length > 0) setManualDest(null);
   }, [destSearch.query]);
 
-  // Pan to location on first fix
+  // Pan to current location only on first GPS fix or when current-location mode is re-enabled.
+  // Avoid recentering on every location update because that can fight manual map drags.
   useEffect(() => {
-    if (location && isUsingCurrentLocation) {
+    const justEnabledCurrentLocation =
+      isUsingCurrentLocation && !prevIsUsingCurrentLocationRef.current;
+    prevIsUsingCurrentLocationRef.current = isUsingCurrentLocation;
+
+    if (!isUsingCurrentLocation || !location) return;
+
+    if (justEnabledCurrentLocation || !hasAutoCenteredCurrentLocationRef.current) {
       setMapPanTo({ location, key: Date.now() });
+      hasAutoCenteredCurrentLocationRef.current = true;
     }
   }, [location, isUsingCurrentLocation]);
 
