@@ -23,6 +23,7 @@ export interface UseAutoPlaceSearchReturn {
   predictions: PlacePrediction[];
   status: AutoSearchStatus;
   error: AppError | null;
+  lastSuccessfulRadiusMiles: number | null;
   /** Select a specific prediction from the dropdown */
   selectPrediction: (prediction: PlacePrediction) => void;
   /** Clear selected place (e.g. user taps ✕) */
@@ -38,6 +39,7 @@ export const useAutoPlaceSearch = (
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [status, setStatus] = useState<AutoSearchStatus>('idle');
   const [error, setError] = useState<AppError | null>(null);
+  const [lastSuccessfulRadiusMiles, setLastSuccessfulRadiusMiles] = useState<number | null>(null);
 
   // Track whether the user is actively editing (vs. programmatic set)
   const skipAutoRef = useRef(false);
@@ -58,8 +60,11 @@ export const useAutoPlaceSearch = (
     }
     skipAutoRef.current = false;
     setPlace(null);
+    // Clear stale suggestions immediately so UI reflects the current query.
+    setPredictions([]);
     setError(null);
     setStatus('idle');
+    setLastSuccessfulRadiusMiles(null);
     setQuery(q);
   }, []);
 
@@ -99,7 +104,46 @@ export const useAutoPlaceSearch = (
     setPredictions([]);
     setError(null);
     setStatus('idle');
+    setLastSuccessfulRadiusMiles(null);
   }, []);
+
+  type ProgressiveSearchResult = {
+    results: PlacePrediction[];
+    successfulRadiusMiles: number | null;
+  };
+
+  /**
+   * Progressive search: try expanding radii if initial search returns no results
+   * Sequence: initial → 2x → 5x → 10x → search globally
+   */
+  const performProgressiveSearch = useCallback(
+    async (searchQuery: string, _initialRadiusMiles: number): Promise<ProgressiveSearchResult> => {
+      const tier = (options?.subscriptionTier || 'free').toLowerCase();
+      
+      // Progressive radius stages aligned with the visible distance filter.
+      const radiusStages = [1, 2, 3, 5, 10];
+      
+      for (const radiusMiles of radiusStages) {
+        const radiusMeters = Math.round(radiusMiles * 1609.34);
+        const results = await fetchPlacePredictions(searchQuery, {
+          locationBias: locationBias ?? undefined,
+          radiusMeters: locationBias ? radiusMeters : undefined,
+          subscriptionTier: tier,
+        });
+        
+        if (results.length > 0) {
+          return { results, successfulRadiusMiles: radiusMiles };
+        }
+      }
+      
+      // Last attempt: search globally without radius
+      const globalResults = await fetchPlacePredictions(searchQuery, {
+        subscriptionTier: tier,
+      });
+      return { results: globalResults, successfulRadiusMiles: null };
+    },
+    [options?.subscriptionTier, locationBias],
+  );
 
   useEffect(() => {
     if (skipAutoRef.current) return;
@@ -121,28 +165,34 @@ export const useAutoPlaceSearch = (
       setStatus('searching');
       try {
         const tier = (options?.subscriptionTier || 'free').toLowerCase();
-        const defaultRadiusMiles = tier === 'free' ? 5 : 10;
-        const radiusMiles = options?.radiusMiles ?? defaultRadiusMiles;
-        const radiusMeters = Math.round(radiusMiles * 1609.34);
-        const results = await fetchPlacePredictions(trimmed, {
-          locationBias: locationBias ?? undefined,
-          radiusMeters: locationBias ? radiusMeters : undefined,
-          subscriptionTier: tier,
-        });
+        const radiusMiles = options?.radiusMiles ?? 1;
+        
+        // Use progressive search if location bias is available
+        const searchResult = locationBias
+          ? await performProgressiveSearch(trimmed, radiusMiles)
+          : {
+              results: await fetchPlacePredictions(trimmed, {
+                subscriptionTier: tier,
+              }),
+              successfulRadiusMiles: null,
+            };
 
-        if (results.length === 0) {
+        if (searchResult.results.length === 0) {
           setStatus('error');
           setPredictions([]);
-          setError(new AppError('no_results', 'No places found'));
+          setLastSuccessfulRadiusMiles(null);
+          setError(new AppError('no_results', 'No places found anywhere'));
           return;
         }
 
         // Expose all predictions for the dropdown — user must click to select
-        setPredictions(results);
+        setPredictions(searchResult.results);
+        setLastSuccessfulRadiusMiles(searchResult.successfulRadiusMiles);
         setStatus('idle');
       } catch (e) {
         setStatus('error');
         setPredictions([]);
+        setLastSuccessfulRadiusMiles(null);
         setError(
           e instanceof AppError
             ? e
@@ -154,12 +204,14 @@ export const useAutoPlaceSearch = (
     return () => clearTimeout(timer);
   }, [
     query,
+    locationBias,
     locationBias?.latitude,
     locationBias?.longitude,
     place,
     options?.subscriptionTier,
     options?.radiusMiles,
+    performProgressiveSearch,
   ]);
 
-  return { query, setQuery: setQueryWrapped, place, predictions, status, error, selectPrediction, clear };
+  return { query, setQuery: setQueryWrapped, place, predictions, status, error, lastSuccessfulRadiusMiles, selectPrediction, clear };
 };
