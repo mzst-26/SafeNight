@@ -50,7 +50,8 @@ const buildMapHtml = (
     .search-pin-wrap{display:flex;flex-direction:column;align-items:center}
     .search-pin-dot{width:18px;height:18px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
     .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #ef4444;filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
-    .search-pin-label{margin-top:7px;background:#fff;color:#111827;border:1px solid rgba(17,24,39,.14);border-radius:10px;padding:2px 7px;font-size:10px;font-weight:700;max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 6px rgba(0,0,0,.2)}
+    .search-pin-label{margin-top:7px;background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
+    .hide-pin-labels .search-pin-label{display:none}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}
     .friend-marker{display:flex;flex-direction:column;align-items:center;pointer-events:none}
     .friend-dot{width:32px;height:32px;border-radius:50%;background:#7C3AED;border:3px solid #fff;
@@ -59,6 +60,7 @@ const buildMapHtml = (
     .friend-label{margin-top:2px;background:rgba(124,58,237,.9);color:#fff;padding:2px 8px;
       border-radius:8px;font-size:10px;font-weight:700;white-space:nowrap;
       box-shadow:0 1px 4px rgba(0,0,0,.3);max-width:100px;overflow:hidden;text-overflow:ellipsis}
+    .hide-pin-labels .friend-label{display:none}
     .maplibregl-ctrl-attrib{display:none!important}
 
     /* ─── Pathfinding visualisation animations ─── */
@@ -111,11 +113,20 @@ const buildMapHtml = (
     var lastOutOfRangeCueToken = 0;
     var outOfRangeBlinkTimers = [];
     var outOfRangeCameraHoldUntil = 0;
+    var userCameraOverrideUntil = 0;
     /* Viz DOM marker tracking */
     var vizDataMarkers = [];
     var vizSearchLabelMarker = null;
     var longPressPoint = null;
     var touchMoved = false;
+    var PIN_LABEL_MIN_ZOOM = 13.0;
+
+    function updatePinLabelVisibility(){
+      if(!map || !document.body) return;
+      var shouldHide = map.getZoom() < PIN_LABEL_MIN_ZOOM;
+      if(shouldHide) document.body.classList.add('hide-pin-labels');
+      else document.body.classList.remove('hide-pin-labels');
+    }
 
     var emptyFC = { type: 'FeatureCollection', features: [] };
 
@@ -133,6 +144,15 @@ const buildMapHtml = (
       if (isFollowingNav === next) return;
       isFollowingNav = next;
       sendMsg('navFollowChanged', { isFollowing: next });
+    }
+
+    function markUserCameraOverride(){
+      userCameraOverrideUntil = Date.now() + 5000;
+      sendMsg('userInteracted', {});
+      if(isNavMode){
+        userInteracted = true;
+        setFollowMode(false);
+      }
     }
 
     function clearOutOfRangeBlink(){
@@ -380,6 +400,7 @@ const buildMapHtml = (
       addCustomSources();
       addCustomLayers();
       add3DBuildings();
+      updatePinLabelVisibility();
       sendMsg('ready',{});
     });
 
@@ -412,6 +433,7 @@ const buildMapHtml = (
       longPressPoint=null;
     }
     mapEl.addEventListener('touchstart',function(e){
+      markUserCameraOverride();
       touchMoved=false;
       // Only start long-press detection on single-finger touch
       if(e.touches.length===1){
@@ -443,18 +465,23 @@ const buildMapHtml = (
 
     /* ── Drag tracking ────────────────────────────────────────── */
     map.on('dragstart',function(){
-      sendMsg('userInteracted', {});
-      if(isNavMode){
-        userInteracted=true;
-        setFollowMode(false);
-      }
+      markUserCameraOverride();
+    });
+
+    map.on('dragend', function(){
+      try {
+        var center = map.getCenter();
+        sendMsg('mapCenterChanged', { lat: center.lat, lng: center.lng });
+      } catch (e) {}
     });
 
     map.on('zoomstart',function(e){
       if(e && e.originalEvent){
-        sendMsg('userInteracted', {});
+        markUserCameraOverride();
       }
     });
+
+    map.on('zoom', updatePinLabelVisibility);
 
     window.recenterNavigation = function(){
       userInteracted = false;
@@ -555,6 +582,7 @@ const buildMapHtml = (
       if(!styleReady) return;
       var londonCenter = [-0.1278, 51.5074];
       var hasPinpoint = Boolean(data.origin || data.navLocation);
+      var focusCandidatesOnly = !!data.fitCandidateBounds;
       lastData = data;
       isPipMode = !!(data.isInPipMode);
 
@@ -570,7 +598,9 @@ const buildMapHtml = (
         var oe=document.createElement('div');
         oe.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#4285F4" stroke="white" stroke-width="3"/><circle cx="12" cy="12" r="3" fill="white"/></svg>';
         currentMarkers.push(new maplibregl.Marker({element:oe,anchor:'center'}).setLngLat([data.origin.lng,data.origin.lat]).addTo(map));
-        bounds=extBounds(bounds,[data.origin.lng,data.origin.lat]);
+        if(!focusCandidatesOnly){
+          bounds=extBounds(bounds,[data.origin.lng,data.origin.lat]);
+        }
       }
 
       /* — Destination marker (red pin) — */
@@ -578,7 +608,9 @@ const buildMapHtml = (
         var de=document.createElement('div');
         de.innerHTML='<svg width="28" height="40" viewBox="0 0 28 40"><path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.3 21.7 0 14 0z" fill="#ef4444" stroke="white" stroke-width="1.5"/><circle cx="14" cy="14" r="5" fill="white"/></svg>';
         currentMarkers.push(new maplibregl.Marker({element:de,anchor:'bottom'}).setLngLat([data.destination.lng,data.destination.lat]).addTo(map));
-        bounds=extBounds(bounds,[data.destination.lng,data.destination.lat]);
+        if(!focusCandidatesOnly){
+          bounds=extBounds(bounds,[data.destination.lng,data.destination.lat]);
+        }
       }
 
       /* — Unselected routes (grey, clickable) — */
@@ -587,7 +619,9 @@ const buildMapHtml = (
         if(r.selected) return;
         var coords=r.path.map(function(p){return[p.lng,p.lat]});
         unselF.push({type:'Feature',properties:{routeId:r.id},geometry:{type:'LineString',coordinates:coords}});
-        coords.forEach(function(c){bounds=extBounds(bounds,c)});
+        if(!focusCandidatesOnly){
+          coords.forEach(function(c){bounds=extBounds(bounds,c)});
+        }
       });
       map.getSource('unselected-routes').setData({type:'FeatureCollection',features:unselF});
 
@@ -635,7 +669,9 @@ const buildMapHtml = (
             remF.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:sc2}});
           }
         }
-        sel.path.forEach(function(p){bounds=extBounds(bounds,[p.lng,p.lat])});
+        if(!focusCandidatesOnly){
+          sel.path.forEach(function(p){bounds=extBounds(bounds,[p.lng,p.lat])});
+        }
       }
 
       map.getSource('route-traversed').setData({type:'FeatureCollection',features:travF});
@@ -689,14 +725,19 @@ const buildMapHtml = (
 
       /* — Fit bounds — */
       var isOutOfRangeCameraHold = Date.now() < outOfRangeCameraHoldUntil;
+      var isUserCameraOverride = Date.now() < userCameraOverrideUntil;
+      var fitTopPadding = Math.max(40, Number(data.fitTopPadding || 40));
+      var fitBottomPadding = Math.max(40, Number(data.fitBottomPadding || 40));
+      var fitSidePadding = Math.max(24, Number(data.fitSidePadding || 40));
+      var isExplicitCandidateRefit = !!data.fitCandidateBounds;
 
-      if(!isOutOfRangeCameraHold && data.fitBounds && bounds && !data.navLocation){
-        map.fitBounds(bounds,{padding:40,maxZoom:16,duration:700});
+      if(!isOutOfRangeCameraHold && data.fitBounds && bounds && !data.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
+        map.fitBounds(bounds,{padding:{top:fitTopPadding,right:fitSidePadding,bottom:fitBottomPadding,left:fitSidePadding},maxZoom:16,duration:380});
       }
 
       /* — Pan to — */
-      if(!isOutOfRangeCameraHold && data.panTo){
-        map.easeTo({center:[data.panTo.lng,data.panTo.lat],zoom:Math.max(map.getZoom(),16),duration:650});
+      if(!isOutOfRangeCameraHold && !isUserCameraOverride && data.panTo){
+        map.easeTo({center:[data.panTo.lng,data.panTo.lat],zoom:Math.max(map.getZoom(),16),duration:320});
       }
 
       // Native/phone behavior: do not force a default-city recenter when location is cleared.
@@ -776,7 +817,7 @@ const buildMapHtml = (
           .setLngLat(lastNavCenter).addTo(map);
 
         // Camera follow — dead-zone & duration are tighter in PiP for snappy heading tracking
-        if(!userInteracted){
+        if(!userInteracted && !isUserCameraOverride){
           setFollowMode(true);
           var bearingDiff = heading - lastCameraHeading;
           while (bearingDiff > 180) bearingDiff -= 360;
@@ -998,6 +1039,9 @@ export const RouteMap = ({
   roadLabels = [],
   panTo,
   fitCandidateBoundsToken = 0,
+  fitTopPadding = 40,
+  fitBottomPadding = 40,
+  fitSidePadding = 40,
   isNavigating = false,
   navigationLocation,
   navigationHeading,
@@ -1014,6 +1058,7 @@ export const RouteMap = ({
   onSelectMarker,
   onLongPress,
   onMapPress,
+  onMapCenterChanged,
   onNavigationFollowChange,
   onUserInteraction,
   showZoomControls = true,
@@ -1036,6 +1081,9 @@ export const RouteMap = ({
     roadLabels,
     panTo,
     fitCandidateBoundsToken,
+    fitTopPadding,
+    fitBottomPadding,
+    fitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -1054,6 +1102,9 @@ export const RouteMap = ({
     roadLabels,
     panTo,
     fitCandidateBoundsToken,
+    fitTopPadding,
+    fitBottomPadding,
+    fitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -1068,6 +1119,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onMapCenterChanged,
     onNavigationFollowChange,
     onUserInteraction,
   });
@@ -1076,6 +1128,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onMapCenterChanged,
     onNavigationFollowChange,
     onUserInteraction,
   };
@@ -1134,7 +1187,8 @@ export const RouteMap = ({
       prevFitCandidateBoundsTokenRef.current = p.fitCandidateBoundsToken ?? 0;
     }
 
-    const fitBounds = geoChanged || fitCandidateBounds;
+    const hasExplicitFitTargets = Boolean(p.destination) || p.routes.length > 0;
+    const fitBounds = fitCandidateBounds || (geoChanged && hasExplicitFitTargets);
 
     // panTo
     let panToData: { lat: number; lng: number } | null = null;
@@ -1152,6 +1206,9 @@ export const RouteMap = ({
       roadLabels: labels,
       fitBounds,
       fitCandidateBounds,
+      fitTopPadding: p.fitTopPadding ?? 40,
+      fitBottomPadding: p.fitBottomPadding ?? 40,
+      fitSidePadding: p.fitSidePadding ?? 40,
       panTo: panToData,
       navLocation:
         p.isNavigating && p.navigationLocation
@@ -1188,6 +1245,9 @@ export const RouteMap = ({
     roadLabels,
     panTo,
     fitCandidateBoundsToken,
+    fitTopPadding,
+    fitBottomPadding,
+    fitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -1276,6 +1336,12 @@ export const RouteMap = ({
             break;
           case "userInteracted":
             cbs.onUserInteraction?.();
+            break;
+          case "mapCenterChanged":
+            cbs.onMapCenterChanged?.({
+              latitude: msg.lat,
+              longitude: msg.lng,
+            });
             break;
         }
       } catch {

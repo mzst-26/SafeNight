@@ -23,9 +23,11 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     .search-pin-wrap{display:flex;flex-direction:column;align-items:center;pointer-events:none}
     .search-pin-dot{width:18px;height:18px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
     .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #ef4444;filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
-    .search-pin-label{margin-top:7px;background:#fff;color:#111827;border:1px solid rgba(17,24,39,.14);border-radius:10px;padding:2px 7px;font-size:10px;font-weight:700;max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 6px rgba(0,0,0,.2)}
+    .search-pin-label{margin-top:7px;background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
     .friend-chip{display:flex;align-items:center;gap:4px;background:#7C3AED;color:#fff;border:2px solid #fff;border-radius:14px;padding:2px 6px 2px 2px;font-size:10px;font-weight:600;white-space:nowrap}
     .friend-dot{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:10px}
+    .hide-pin-labels .search-pin-label{display:none}
+    .hide-pin-labels .friend-chip > div:last-child{display:none}
     .nav-dot{width:18px;height:18px;border-radius:50%;background:#1570EF;border:3px solid #fff;box-shadow:0 0 0 2px rgba(21,112,239,.25)}
     .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
     .viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:none;background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);backdrop-filter:blur(8px);transition:opacity .3s}
@@ -65,6 +67,15 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     var lastOutOfRangeCueToken = 0;
     var outOfRangeCameraHoldUntil = 0;
     var outOfRangeBlinkTimers = [];
+    var userCameraOverrideUntil = 0;
+    var PIN_LABEL_MIN_ZOOM = 13.0;
+
+    function updatePinLabelVisibility(){
+      if(!map || !document.body) return;
+      var shouldHide = map.getZoom() < PIN_LABEL_MIN_ZOOM;
+      if(shouldHide) document.body.classList.add('hide-pin-labels');
+      else document.body.classList.remove('hide-pin-labels');
+    }
 
     function sendMsg(t, d){
       try{
@@ -78,6 +89,16 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       if(isFollowingNav === next) return;
       isFollowingNav = next;
       sendMsg('navFollowChanged', { isFollowing: next });
+    }
+
+    function markUserCameraOverride(){
+      userCameraOverrideUntil = Date.now() + 900;
+      if(map && map.stop) map.stop();
+      sendMsg('userInteracted', {});
+      if(lastNavLL){
+        userInteracted = true;
+        setFollowMode(false);
+      }
     }
 
     function makeCirclePolygon(lat,lng,radiusKm,steps){
@@ -316,6 +337,7 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       });
 
       map.on('mousedown', function(e){
+        markUserCameraOverride();
         if(longPressTimer) clearTimeout(longPressTimer);
         longPressTimer = setTimeout(function(){
           sendMsg('longpress', { lat:e.latlng.lat, lng:e.latlng.lng });
@@ -324,19 +346,23 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       map.on('mouseup', function(){ if(longPressTimer) clearTimeout(longPressTimer); });
       map.on('mousemove', function(){ if(longPressTimer) clearTimeout(longPressTimer); });
 
-      map.on('dragstart', function(){
-        sendMsg('userInteracted', {});
-        if(lastNavLL){
-          userInteracted = true;
-          setFollowMode(false);
-        }
+      map.on('dragstart', function(){ markUserCameraOverride(); });
+
+      map.on('dragend', function(){
+        const center = map.getCenter();
+        sendMsg('mapCenterChanged', { lat: center.lat, lng: center.lng });
       });
 
       map.on('zoomstart', function(e){
         if(e && e.originalEvent){
-          sendMsg('userInteracted', {});
+          markUserCameraOverride();
         }
       });
+
+      map.on('wheel', function(){ markUserCameraOverride(); });
+
+      map.on('zoomend', updatePinLabelVisibility);
+      updatePinLabelVisibility();
 
       ready = true;
       sendMsg('ready', {});
@@ -350,18 +376,24 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
 
       var london=[51.5074,-0.1278];
       var bounds=[];
+      var focusCandidatesOnly = !!d.fitCandidateBounds;
+      var isUserCameraOverride = Date.now() < userCameraOverrideUntil;
       var colorMap={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
 
       if(typeof d.isInPipMode!=='undefined') isPipMode=!!d.isInPipMode;
 
       if(d.origin && !d.navLocation){
         L.circleMarker([d.origin.lat,d.origin.lng],{radius:7,color:'#fff',weight:3,fillColor:'#4285F4',fillOpacity:1}).addTo(layerMarkers);
-        bounds.push([d.origin.lat,d.origin.lng]);
+        if(!focusCandidatesOnly){
+          bounds.push([d.origin.lat,d.origin.lng]);
+        }
       }
 
       if(d.destination){
         L.circleMarker([d.destination.lat,d.destination.lng],{radius:8,color:'#fff',weight:2,fillColor:'#ef4444',fillOpacity:1}).addTo(layerMarkers);
-        bounds.push([d.destination.lat,d.destination.lng]);
+        if(!focusCandidatesOnly){
+          bounds.push([d.destination.lat,d.destination.lng]);
+        }
       }
 
       (d.routes||[]).forEach(function(r){
@@ -369,7 +401,9 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         var latlngs=r.path.map(function(p){return [p.lat,p.lng];});
         var poly=L.polyline(latlngs,{color:'#98a2b3',weight:5,opacity:0.6}).addTo(layerRoutes);
         poly.on('click', function(){ sendMsg('selectRoute', { id:r.id }); });
-        for(var i=0;i<latlngs.length;i++) bounds.push(latlngs[i]);
+        if(!focusCandidatesOnly){
+          for(var i=0;i<latlngs.length;i++) bounds.push(latlngs[i]);
+        }
       });
 
       var selected=null;
@@ -384,7 +418,9 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         } else {
           L.polyline(selLatLngs,{color:'#4285F4',weight:6,opacity:0.9}).addTo(layerRoutes);
         }
-        for(var j=0;j<selLatLngs.length;j++) bounds.push(selLatLngs[j]);
+        if(!focusCandidatesOnly){
+          for(var j=0;j<selLatLngs.length;j++) bounds.push(selLatLngs[j]);
+        }
       }
 
       var hl=d.highlightCategory||null;
@@ -440,12 +476,16 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       }
 
       var isOutOfRangeCameraHold = Date.now() < outOfRangeCameraHoldUntil;
+      var fitBottomPadding = Math.max(40, Number(d.fitBottomPadding || 40));
+        var fitTopPadding = Math.max(40, Number(d.fitTopPadding || 40));
+        var fitSidePadding = Math.max(24, Number(d.fitSidePadding || 40));
+      var isExplicitCandidateRefit = !!d.fitCandidateBounds;
 
       if(d.navLocation){
         lastNavLL=[d.navLocation.lat,d.navLocation.lng];
         var navIcon=L.divIcon({className:'',html:'<div class="nav-dot"></div>',iconSize:[18,18],iconAnchor:[9,9]});
         L.marker(lastNavLL,{icon:navIcon}).addTo(layerMarkers);
-        if(!userInteracted && !isOutOfRangeCameraHold){
+        if(!userInteracted && !isOutOfRangeCameraHold && !isUserCameraOverride){
           setFollowMode(true);
           var navZoom=isPipMode?15:17;
           if(Math.abs(map.getZoom()-navZoom)>0.05){
@@ -462,23 +502,24 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         setFollowMode(true);
       }
 
-      if(!isOutOfRangeCameraHold && d.panTo){
+      if(!isOutOfRangeCameraHold && !isUserCameraOverride && d.panTo){
         map.stop();
         map.flyTo([d.panTo.lat,d.panTo.lng], Math.max(map.getZoom(),16), {
           animate:true,
-          duration:0.45,
-          easeLinearity:0.2,
+          duration:0.32,
+          easeLinearity:0.25,
         });
-      } else if(!isOutOfRangeCameraHold && d.fitBounds && bounds.length>0 && !d.navLocation){
+      } else if(!isOutOfRangeCameraHold && d.fitBounds && bounds.length>0 && !d.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
         map.stop();
         map.fitBounds(bounds, {
-          padding:[40,40],
+            paddingTopLeft:[fitSidePadding,fitTopPadding],
+            paddingBottomRight:[fitSidePadding,fitBottomPadding],
           maxZoom:16,
           animate:true,
-          duration:0.55,
-          easeLinearity:0.2,
+          duration:0.36,
+          easeLinearity:0.25,
         });
-      } else if(!isOutOfRangeCameraHold && !d.origin && !d.navLocation && bounds.length===0){
+      } else if(!isOutOfRangeCameraHold && !isUserCameraOverride && !d.origin && !d.navLocation && bounds.length===0){
         map.stop();
         map.flyTo(london,13,{animate:true,duration:0.45,easeLinearity:0.2});
       }
@@ -534,6 +575,9 @@ export const RouteMap = ({
   roadLabels = [],
   panTo,
   fitCandidateBoundsToken = 0,
+  fitTopPadding = 40,
+  fitBottomPadding = 40,
+  fitSidePadding = 40,
   showZoomControls = true,
   isNavigating = false,
   navigationLocation,
@@ -552,6 +596,7 @@ export const RouteMap = ({
   onSelectMarker,
   onLongPress,
   onMapPress,
+  onMapCenterChanged,
   onNavigationFollowChange,
   onUserInteraction,
 }: RouteMapProps) => {
@@ -570,6 +615,7 @@ export const RouteMap = ({
     onSelectMarker,
     onNavigationFollowChange,
     onUserInteraction,
+    onMapCenterChanged,
   });
   callbacksRef.current = {
     onMapPress,
@@ -578,6 +624,7 @@ export const RouteMap = ({
     onSelectMarker,
     onNavigationFollowChange,
     onUserInteraction,
+    onMapCenterChanged,
   };
 
   const vizStateRef = useRef({
@@ -601,6 +648,9 @@ export const RouteMap = ({
     roadLabels,
     panTo,
     fitCandidateBoundsToken,
+    fitTopPadding,
+    fitBottomPadding,
+    fitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -620,6 +670,9 @@ export const RouteMap = ({
     roadLabels,
     panTo,
     fitCandidateBoundsToken,
+    fitTopPadding,
+    fitBottomPadding,
+    fitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -678,7 +731,8 @@ export const RouteMap = ({
       prevFitCandidateBoundsTokenRef.current = p.fitCandidateBoundsToken ?? 0;
     }
 
-    const fitBounds = geoChanged || fitCandidateBounds;
+    const hasExplicitFitTargets = Boolean(p.destination) || p.routes.length > 0;
+    const fitBounds = fitCandidateBounds || (geoChanged && hasExplicitFitTargets);
 
     let panToData: { lat: number; lng: number } | null = null;
     if (p.panTo && p.panTo.key !== prevPanKeyRef.current) {
@@ -695,6 +749,9 @@ export const RouteMap = ({
       roadLabels: labels,
       fitBounds,
       fitCandidateBounds,
+      fitTopPadding: p.fitTopPadding ?? 40,
+      fitBottomPadding: p.fitBottomPadding ?? 40,
+      fitSidePadding: p.fitSidePadding ?? 40,
       panTo: panToData,
       navLocation:
         p.isNavigating && p.navigationLocation
@@ -768,6 +825,9 @@ export const RouteMap = ({
           case "userInteracted":
             cbs.onUserInteraction?.();
             break;
+          case "mapCenterChanged":
+            cbs.onMapCenterChanged?.({ latitude: msg.lat, longitude: msg.lng });
+            break;
           case "styleError":
             setHasError(true);
             break;
@@ -807,7 +867,10 @@ export const RouteMap = ({
     friendMarkers,
     isInPipMode,
     outOfRangeCueSignal,
-      fitCandidateBoundsToken,
+    fitCandidateBoundsToken,
+    fitTopPadding,
+    fitBottomPadding,
+    fitSidePadding,
     pushUpdate,
   ]);
 
