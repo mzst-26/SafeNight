@@ -64,6 +64,7 @@ export type RouteMapProps = {
   outOfRangeCueSignal?: number;
   onSelectRoute?: (routeId: string) => void;
   onSelectMarker?: (markerId: string) => void;
+  onDismissMarkerDetails?: (markerId?: string) => void;
   onLongPress?: (location: LatLng) => void;
   onMapPress?: (location: LatLng) => void;
   onNavigationFollowChange?: (isFollowing: boolean) => void;
