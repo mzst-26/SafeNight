@@ -20,13 +20,43 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body,#map{width:100%;height:100%;overflow:hidden;background:#e8eaed}
     .road-label{background:rgba(17,24,39,.85);color:#fff;border-radius:8px;padding:2px 6px;font-size:9px;font-weight:600;white-space:nowrap}
-    .search-pin-wrap{display:flex;flex-direction:column;align-items:center;pointer-events:none}
-    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:var(--pin-color,#ef4444);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
+    .search-pin-wrap{position:relative;display:block;width:28px;height:30px;pointer-events:none;overflow:visible}
+    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:var(--pin-color,#ef4444);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:absolute;left:50%;bottom:6px;transform:translateX(-50%) scale(1);transform-origin:50% 100%;transition:transform .16s ease}
     .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--pin-color,#ef4444);filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
-    .search-pin-label{margin-top:7px;background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
+    .search-pin-label{position:absolute;left:50%;top:30px;transform:translateX(-50%);background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
+    .search-pin-wrap.selected{width:28px;height:30px}
+    .search-pin-wrap.selected{pointer-events:auto}
+    .search-pin-wrap.selected .search-pin-dot{width:24px;height:24px;border-width:3px;box-shadow:0 5px 16px rgba(0,0,0,.34);bottom:6px;transform:translateX(-50%) scale(1)}
+    .search-pin-wrap.selected .search-pin-dot:after{bottom:-8px;border-left-width:6px;border-right-width:6px;border-top-width:9px}
+    .search-pin-wrap.selected .search-pin-label{display:none}
+    .search-pin-card{position:absolute;left:calc(100% + 12px);bottom:2px;margin-top:0;background:#ffffff;border:1px solid rgba(148,163,184,.35);border-radius:12px;padding:8px 10px;min-width:168px;max-width:min(260px,48vw);box-shadow:0 8px 20px rgba(2,6,23,.22);text-shadow:none}
+    .search-pin-card-head{display:flex;align-items:flex-start;gap:8px}
+    .search-pin-card-title{flex:1;font-size:13px;font-weight:800;color:#0f172a;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .search-pin-card-close{border:0;background:transparent;color:#98a2b3;font-size:16px;font-weight:700;line-height:1;cursor:pointer;padding:0;margin:0}
+    .search-pin-card-close:hover{color:#344054}
+    .search-pin-card-subtitle{margin-top:4px;font-size:11px;font-weight:500;color:#475467;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .search-pin-card-meta{margin-top:6px;font-size:11px;font-weight:600;color:#1570ef;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .search-pin-card-coords{margin-top:4px;font-size:11px;font-weight:500;color:#344054}
+    .search-pin-card-actions{margin-top:8px;display:flex;justify-content:flex-end}
+    .search-pin-card-btn{border:0;border-radius:8px;background:#1570ef;color:#ffffff;font-size:11px;font-weight:700;padding:6px 10px;cursor:pointer;line-height:1}
+    .search-pin-card-btn:hover{background:#0f5fd1}
+    .pin-size-mid .search-pin-dot{transform:translateX(-50%) scale(0.86)}
+    .pin-size-mid .search-pin-wrap.selected .search-pin-dot{transform:translateX(-50%) scale(0.84)}
+    .pin-size-far .search-pin-dot{transform:translateX(-50%) scale(0.7)}
+    .pin-size-far .search-pin-wrap.selected .search-pin-dot{transform:translateX(-50%) scale(0.68)}
+    .pin-size-far .search-pin-label{font-size:10px;max-width:120px}
+    .pin-card-compact .search-pin-card{padding:7px 9px;min-width:152px;max-width:min(220px,46vw)}
+    .pin-card-compact .search-pin-card-title{font-size:12px}
+    .pin-card-compact .search-pin-card-subtitle,.pin-card-compact .search-pin-card-meta,.pin-card-compact .search-pin-card-coords{font-size:10px}
+    .hide-selected-pin-cards .search-pin-wrap.selected .search-pin-card{display:none}
+    @media (max-width: 768px){
+      .search-pin-card{min-width:146px;max-width:min(200px,60vw);padding:7px 9px}
+      .search-pin-card-title{font-size:12px}
+      .search-pin-card-subtitle,.search-pin-card-meta,.search-pin-card-coords{font-size:10px}
+    }
     .friend-chip{display:flex;align-items:center;gap:4px;background:#7C3AED;color:#fff;border:2px solid #fff;border-radius:14px;padding:2px 6px 2px 2px;font-size:10px;font-weight:600;white-space:nowrap}
     .friend-dot{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:10px}
-    .hide-pin-labels .search-pin-label{display:none}
+    .hide-pin-labels .search-pin-wrap:not(.selected) .search-pin-label{display:none}
     .hide-pin-labels .friend-chip > div:last-child{display:none}
     .nav-dot{width:18px;height:18px;border-radius:50%;background:#1570EF;border:3px solid #fff;box-shadow:0 0 0 2px rgba(21,112,239,.25)}
     .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
@@ -66,13 +96,31 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     var outOfRangeCameraHoldUntil = 0;
     var outOfRangeBlinkTimers = [];
     var userCameraOverrideUntil = 0;
-    var PIN_LABEL_MIN_ZOOM = 13.0;
+    var PIN_LABEL_MIN_ZOOM = 16.0;
+    var isMapDragging = false;
+    var lastMapDragAt = 0;
+
+    function shouldIgnoreMarkerSelection(){
+      if(isMapDragging) return true;
+      return Date.now() - lastMapDragAt < 220;
+    }
 
     function updatePinLabelVisibility(){
       if(!map || !document.body) return;
-      var shouldHide = map.getZoom() < PIN_LABEL_MIN_ZOOM;
+      var zoom = map.getZoom();
+      var shouldHide = zoom < PIN_LABEL_MIN_ZOOM;
       if(shouldHide) document.body.classList.add('hide-pin-labels');
       else document.body.classList.remove('hide-pin-labels');
+
+      document.body.classList.remove('pin-size-near','pin-size-mid','pin-size-far');
+      if(zoom < 11.8) document.body.classList.add('pin-size-far');
+      else if(zoom < 14.8) document.body.classList.add('pin-size-mid');
+      else document.body.classList.add('pin-size-near');
+
+      if(zoom < 14.2) document.body.classList.add('hide-selected-pin-cards');
+      else document.body.classList.remove('hide-selected-pin-cards');
+      if(zoom < 15.2) document.body.classList.add('pin-card-compact');
+      else document.body.classList.remove('pin-card-compact');
     }
 
     function sendMsg(t, d){
@@ -352,9 +400,14 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       map.on('mouseup', function(){ if(longPressTimer) clearTimeout(longPressTimer); });
       map.on('mousemove', function(){ if(longPressTimer) clearTimeout(longPressTimer); });
 
-      map.on('dragstart', function(){ markUserCameraOverride(); });
+      map.on('dragstart', function(){
+        isMapDragging = true;
+        markUserCameraOverride();
+      });
 
       map.on('dragend', function(){
+        isMapDragging = false;
+        lastMapDragAt = Date.now();
         const center = map.getCenter();
         sendMsg('mapCenterChanged', { lat: center.lat, lng: center.lng });
       });
@@ -436,17 +489,52 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         var k=m.kind||'crime';
         if(hl && hl!==k) return;
         if(isCandidate){
+          var isSelectedCandidate = !!m.isSelected;
           var candidateColor = normalizePinColor(m.pinColor);
           var raw = String(m.label || 'Place').trim();
           var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
+          var popupTitle = safeLabel(m.popupTitle || raw || 'Place');
+          var popupSubtitle = safeLabel(m.popupSubtitle || raw || '');
+          var popupMeta = safeLabel(m.popupMeta || '');
+          var popupCoords = safeLabel(m.popupCoords || '');
+          var popupButtonLabel = safeLabel(m.popupButtonLabel || 'Select');
+          var selectedCardHtml = isSelectedCandidate
+            ? '<div class="search-pin-card"><div class="search-pin-card-head"><div class="search-pin-card-title">'+popupTitle+'</div><button class="search-pin-card-close" type="button" aria-label="Close details">×</button></div><div class="search-pin-card-subtitle">'+popupSubtitle+'</div>'+
+              (popupMeta ? '<div class="search-pin-card-meta">'+popupMeta+'</div>' : '')+
+              (popupCoords ? '<div class="search-pin-card-coords">'+popupCoords+'</div>' : '')+
+              '<div class="search-pin-card-actions"><button class="search-pin-card-btn" type="button">'+popupButtonLabel+'</button></div></div>'
+            : '<div class="search-pin-label">'+safeLabel(trimmed)+'</div>';
           var icon=L.divIcon({
             className:'',
-            html:'<div class="search-pin-wrap" style="--pin-color:'+candidateColor+'"><div class="search-pin-dot"></div><div class="search-pin-label">'+safeLabel(trimmed)+'</div></div>',
-            iconSize:[130,42],
-            iconAnchor:[65,26],
+            html:'<div class="search-pin-wrap'+(isSelectedCandidate?' selected':'')+'" style="--pin-color:'+candidateColor+'"><div class="search-pin-dot"></div>'+selectedCardHtml+'</div>',
+            iconSize:[34,40],
+            iconAnchor:[17,34],
           });
           var pin=L.marker([m.lat,m.lng],{icon:icon}).addTo(layerMarkers);
-          pin.on('click', function(){ sendMsg('selectMarker', { id:m.id }); });
+          pin.on('click', function(){
+            if(shouldIgnoreMarkerSelection()) return;
+            sendMsg('selectMarker', { id:m.id });
+          });
+          if(isSelectedCandidate){
+            var markerEl = pin.getElement && pin.getElement();
+            var buttonEl = markerEl ? markerEl.querySelector('.search-pin-card-btn') : null;
+            if(buttonEl){
+              buttonEl.addEventListener('click', function(ev){
+                ev.preventDefault();
+                ev.stopPropagation();
+                if(shouldIgnoreMarkerSelection()) return;
+                sendMsg('selectMarker', { id:m.id });
+              });
+            }
+            var closeEl = markerEl ? markerEl.querySelector('.search-pin-card-close') : null;
+            if(closeEl){
+              closeEl.addEventListener('click', function(ev){
+                ev.preventDefault();
+                ev.stopPropagation();
+                sendMsg('dismissMarkerDetails', { id:m.id });
+              });
+            }
+          }
           if(includeCandidateBounds){
             bounds.push([m.lat,m.lng]);
           }
@@ -460,7 +548,10 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
           bounds.push([m.lat,m.lng]);
         }
         if(isCandidate){
-          marker.on('click', function(){ sendMsg('selectMarker', { id:m.id }); });
+          marker.on('click', function(){
+            if(shouldIgnoreMarkerSelection()) return;
+            sendMsg('selectMarker', { id:m.id });
+          });
         }
       });
 
@@ -607,6 +698,7 @@ export const RouteMap = ({
   vizProgressMessage = null,
   onSelectRoute,
   onSelectMarker,
+  onDismissMarkerDetails,
   onLongPress,
   onMapPress,
   onMapCenterChanged,
@@ -626,6 +718,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onDismissMarkerDetails,
     onNavigationFollowChange,
     onUserInteraction,
     onMapCenterChanged,
@@ -635,6 +728,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onDismissMarkerDetails,
     onNavigationFollowChange,
     onUserInteraction,
     onMapCenterChanged,
@@ -724,6 +818,12 @@ export const RouteMap = ({
       kind: m.kind,
       label: m.label,
       pinColor: (m as any).pinColor,
+      isSelected: Boolean((m as any).isSelected),
+      popupTitle: (m as any).popupTitle,
+      popupSubtitle: (m as any).popupSubtitle,
+      popupMeta: (m as any).popupMeta,
+      popupCoords: (m as any).popupCoords,
+      popupButtonLabel: (m as any).popupButtonLabel,
       lat: m.coordinate.latitude,
       lng: m.coordinate.longitude,
     }));
@@ -841,6 +941,9 @@ export const RouteMap = ({
             break;
           case "selectMarker":
             cbs.onSelectMarker?.(msg.id);
+            break;
+          case "dismissMarkerDetails":
+            cbs.onDismissMarkerDetails?.(msg.id);
             break;
           case "navFollowChanged":
             cbs.onNavigationFollowChange?.(Boolean(msg.isFollowing));
