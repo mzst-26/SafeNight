@@ -180,13 +180,41 @@ export function SearchBar({
           if (focusRequestIdRef.current !== requestId) return;
           if (field === "origin") {
             originInputRef.current?.focus();
+            if (Platform.OS === "android") {
+              requestAnimationFrame(() => {
+                if (focusRequestIdRef.current !== requestId) return;
+                originInputRef.current?.focus();
+              });
+            }
             return;
           }
           destInputRef.current?.focus();
+          if (Platform.OS === "android") {
+            requestAnimationFrame(() => {
+              if (focusRequestIdRef.current !== requestId) return;
+              destInputRef.current?.focus();
+            });
+          }
         });
       }, delayMs);
     },
     [cancelScheduledFocus],
+  );
+
+  const focusFieldImmediately = useCallback(
+    (field: "origin" | "destination") => {
+      cancelBlurTimer();
+      cancelScheduledFocus();
+      setPinMode(null);
+      setFocusedFieldState(field);
+
+      if (field === "origin") {
+        originInputRef.current?.focus();
+        return;
+      }
+      destInputRef.current?.focus();
+    },
+    [cancelBlurTimer, cancelScheduledFocus, setPinMode],
   );
 
   useEffect(
@@ -292,8 +320,7 @@ export function SearchBar({
         count: counts.get(chip.key) || 0,
       }))
       .filter((chip) => chip.count > 0)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+      .sort((a, b) => b.count - a.count);
   }, [bubbleSource]);
 
   const handleCategoryBubblePress = useCallback(
@@ -332,13 +359,18 @@ export function SearchBar({
                 styles.inputFieldWrap,
                 focusedField === "origin" && styles.inputFieldWrapFocused,
               ]}
+              hitSlop={4}
               onPress={() => {
                 if (onGuestTap) {
                   onGuestTap();
                   return;
                 }
                 if (!isUsingCurrentLocation) {
-                  scheduleFieldFocus("origin", 40);
+                  if (Platform.OS === "android") {
+                    focusFieldImmediately("origin");
+                  } else {
+                    scheduleFieldFocus("origin", 40);
+                  }
                 }
               }}
             >
@@ -354,6 +386,11 @@ export function SearchBar({
                       return;
                     }
                     setIsUsingCurrentLocation(false);
+                    if (Platform.OS === "android") {
+                      requestAnimationFrame(() => focusFieldImmediately("origin"));
+                    } else {
+                      scheduleFieldFocus("origin", 40);
+                    }
                   }}
                   accessibilityRole="button"
                 >
@@ -393,7 +430,11 @@ export function SearchBar({
                       return;
                     }
                     cancelBlurTimer();
-                    cancelScheduledFocus();
+                    if (Platform.OS !== "android") {
+                      cancelScheduledFocus();
+                    } else {
+                      setPinMode(null);
+                    }
                     setFocusedFieldState("origin");
                   }}
                   onBlur={handleBlur}
@@ -474,12 +515,17 @@ export function SearchBar({
                 styles.inputFieldWrap,
                 focusedField === "destination" && styles.inputFieldWrapFocused,
               ]}
+              hitSlop={4}
               onPress={() => {
                 if (onGuestTap) {
                   onGuestTap();
                   return;
                 }
-                scheduleFieldFocus("destination", 40);
+                if (Platform.OS === "android") {
+                  focusFieldImmediately("destination");
+                } else {
+                  scheduleFieldFocus("destination", 40);
+                }
               }}
             >
               <TextInput
@@ -508,7 +554,11 @@ export function SearchBar({
                     return;
                   }
                   cancelBlurTimer();
-                  cancelScheduledFocus();
+                  if (Platform.OS !== "android") {
+                    cancelScheduledFocus();
+                  } else {
+                    setPinMode(null);
+                  }
                   setFocusedFieldState("destination");
                 }}
                 onBlur={handleBlur}

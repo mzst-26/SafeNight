@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
     paddingHorizontal: 2,
-    marginBottom: 6,
+    marginBottom: 12,
   },
   listActionText: {
     flex: 1,

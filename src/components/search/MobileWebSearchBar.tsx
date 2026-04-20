@@ -243,9 +243,21 @@ export function MobileWebSearchBar({
           if (requestId !== focusRequestIdRef.current) return;
           if (field === "origin") {
             originRef.current?.focus();
+            if (Platform.OS === "android") {
+              requestAnimationFrame(() => {
+                if (requestId !== focusRequestIdRef.current) return;
+                originRef.current?.focus();
+              });
+            }
             return;
           }
           destRef.current?.focus();
+          if (Platform.OS === "android") {
+            requestAnimationFrame(() => {
+              if (requestId !== focusRequestIdRef.current) return;
+              destRef.current?.focus();
+            });
+          }
         });
       }, delayMs);
     },
@@ -257,9 +269,20 @@ export function MobileWebSearchBar({
       cancelBlur();
       setFocusedField(field);
       focusRequestIdRef.current += 1;
-      scheduleFieldFocus(field, 55);
+      if (Platform.OS === "android") {
+        setPinMode(null);
+        if (field === "origin") {
+          originRef.current?.focus();
+        } else {
+          destRef.current?.focus();
+        }
+        // Keep a short fallback for Android/WebView timing races.
+        scheduleFieldFocus(field, 25);
+      } else {
+        scheduleFieldFocus(field, 55);
+      }
     },
-    [cancelBlur, scheduleFieldFocus],
+    [cancelBlur, scheduleFieldFocus, setPinMode],
   );
 
   const clearCollapseTimer = useCallback(() => {
@@ -486,8 +509,7 @@ export function MobileWebSearchBar({
         count: counts.get(chip.key) || 0,
       }))
       .filter((chip) => chip.count > 0)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+      .sort((a, b) => b.count - a.count);
   }, [bubbleSource]);
 
   const handleCategoryBubblePress = useCallback(
@@ -605,12 +627,14 @@ export function MobileWebSearchBar({
                     styles.inputField,
                     focusedField === "origin" && styles.inputFieldFocused,
                   ]}
+                  hitSlop={4}
                   onPress={() => {
                     if (onGuestTap) {
                       onGuestTap();
                       return;
                     }
                     setIsUsingCurrentLocation(false);
+                    requestAnimationFrame(() => focusField("origin"));
                   }}
                 >
                   <Ionicons
@@ -675,8 +699,13 @@ export function MobileWebSearchBar({
                         onGuestTap();
                         return;
                       }
-                      clearDestinationFocusTimer();
+                      if (Platform.OS !== "android") {
+                        clearDestinationFocusTimer();
+                      }
                       cancelBlur();
+                      if (Platform.OS === "android") {
+                        setPinMode(null);
+                      }
                       setFocusedField("origin");
                     }}
                     onBlur={handleBlur}
@@ -739,6 +768,7 @@ export function MobileWebSearchBar({
                   styles.inputField,
                   focusedField === "destination" && styles.inputFieldFocused,
                 ]}
+                hitSlop={4}
                 onPress={() => {
                   if (onGuestTap) {
                     onGuestTap();
@@ -769,8 +799,13 @@ export function MobileWebSearchBar({
                       onGuestTap();
                       return;
                     }
-                    clearDestinationFocusTimer();
+                    if (Platform.OS !== "android") {
+                      clearDestinationFocusTimer();
+                    }
                     cancelBlur();
+                    if (Platform.OS === "android") {
+                      setPinMode(null);
+                    }
                     setFocusedField("destination");
                   }}
                   onBlur={handleBlur}
