@@ -147,8 +147,10 @@ function classifyPlaceCategory(input: {
   if (/\bfuel\b|petrol|gas station|charging_station|charging station/.test(bucket)) return "fuel";
   if (/\bparking\b|car park|park and ride/.test(bucket)) return "parking";
   if (/restaurant|cafe|coffee|pub|bar|fast_food|takeaway|food/.test(bucket)) return "food";
+  if (/\bschool\b|university|college|academy|campus|primary school|secondary school/.test(bucket)) return "school";
   if (/pharmacy|chemist|drugstore/.test(bucket)) return "pharmacy";
   if (/hospital|clinic|doctor|medical/.test(bucket)) return "hospital";
+  if (/community_centre|community centre|library|town hall|townhall|civic|public building|public place|government|city hall|museum|community hall/.test(bucket)) return "public_place";
   if (/bank|atm/.test(bucket)) return "bank";
   if (/hotel|guest house|accommodation|lodging/.test(bucket)) return "hotel";
   if (/shop|supermarket|convenience|store|retail|mall/.test(bucket)) return "shop";
@@ -1108,12 +1110,14 @@ export default function HomeScreen() {
     });
   }, [sheetPlaces, nearbyReference, placeDistanceById, maxDistanceMeters]);
 
-  const categoryFilteredSheetPlaces = useMemo(() => {
+  const visibleFilteredSheetPlaces = useMemo(() => {
     if (!activePlaceCategoryKey) return distanceFilteredSheetPlaces;
     return distanceFilteredSheetPlaces.filter(
       (candidate) => classifyPlaceCategory(candidate) === activePlaceCategoryKey,
     );
   }, [distanceFilteredSheetPlaces, activePlaceCategoryKey]);
+
+  const categoryFilteredSheetPlaces = visibleFilteredSheetPlaces;
 
   const orderedSheetPlaces = useMemo(() => {
     if (!nearbyReference) return categoryFilteredSheetPlaces;
@@ -1138,6 +1142,55 @@ export default function HomeScreen() {
     );
     return selected ? [...clipped, selected] : clipped;
   }, [orderedSheetPlaces, selectedSheetCandidateId]);
+
+  useEffect(() => {
+    const query = (h.destSearch?.query || "").trim().toLowerCase();
+    if (query.length < 2) {
+      lastAutoExpandedZoneKeyRef.current = "";
+      return;
+    }
+
+    const hasResults = visibleFilteredSheetPlaces.length > 0;
+    if (hasResults) {
+      lastAutoExpandedZoneKeyRef.current = "";
+      return;
+    }
+
+    const maxAutoZoneMiles = Math.min(maxDistanceFilterMiles, 5);
+    if (searchDistanceFilterMiles >= maxAutoZoneMiles) {
+      return;
+    }
+
+    const autoKey = [
+      query,
+      activePlaceCategoryKey ?? "all",
+      nearbyReference ? `${nearbyReference.latitude.toFixed(4)},${nearbyReference.longitude.toFixed(4)}` : "none",
+      searchDistanceFilterMiles,
+      sheetPlaces.length,
+    ].join("|");
+
+    if (lastAutoExpandedZoneKeyRef.current === autoKey) {
+      return;
+    }
+
+    lastAutoExpandedZoneKeyRef.current = autoKey;
+
+    const nextDistance = Math.min(searchDistanceFilterMiles + 1, maxAutoZoneMiles);
+    if (nextDistance !== searchDistanceFilterMiles) {
+      setSelectedSheetCandidateId(null);
+      setHasExplicitCandidateSelection(false);
+      setSearchDistanceFilterMiles(nextDistance);
+      setSheetPlacesFitToken((prev) => prev + 1);
+    }
+  }, [
+    activePlaceCategoryKey,
+    h.destSearch?.query,
+    nearbyReference,
+    searchDistanceFilterMiles,
+    sheetPlaces.length,
+    maxDistanceFilterMiles,
+    visibleFilteredSheetPlaces.length,
+  ]);
 
   const selectedPlace = useMemo(
     () =>
@@ -1832,6 +1885,24 @@ export default function HomeScreen() {
           if (markerPlace?.location) {
             h.handlePanTo(markerPlace.location);
           }
+        }}
+        onFindSafeRoutes={(markerId) => {
+          h.handleMapMarkerSelect(markerId);
+
+          if (!markerId.startsWith("search-candidate:")) return;
+
+          const placeId = markerId.slice("search-candidate:".length);
+          if (!placeId) return;
+
+          setSelectedSheetCandidateId(placeId);
+          setHasExplicitCandidateSelection(true);
+
+          const markerPlace = sheetPlaces.find((p) => p.placeId === placeId);
+          if (markerPlace?.location) {
+            h.handlePanTo(markerPlace.location);
+          }
+
+          handleFindSafeRoutesForSelectedPlace(markerPlace ?? null);
         }}
         onDismissMarkerDetails={() => {
           setHasExplicitCandidateSelection(false);

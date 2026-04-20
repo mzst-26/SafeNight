@@ -9,9 +9,10 @@
  * - "+" pill lets users create a custom label
  */
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -31,6 +32,7 @@ interface SavedPlacesProps {
   onSave: (place: Omit<SavedPlace, 'id' | 'createdAt'>) => void;
   onRemove: (id: string) => void;
   onToast?: (msg: string, icon?: string) => void;
+  onPopupBottomChange?: (bottomY: number | null) => void;
   /** Current destination from search (for save-on-tap flow) */
   currentDestination?: {
     name: string;
@@ -47,6 +49,7 @@ export function SavedPlaces({
   onSave,
   onRemove,
   onToast,
+  onPopupBottomChange,
   currentDestination,
   visible,
 }: SavedPlacesProps) {
@@ -88,6 +91,26 @@ export function SavedPlaces({
       );
     },
     [onRemove, onToast],
+  );
+
+  useEffect(() => {
+    if (!showListPopup) {
+      onPopupBottomChange?.(null);
+      return;
+    }
+
+    return () => {
+      onPopupBottomChange?.(null);
+    };
+  }, [onPopupBottomChange, showListPopup]);
+
+  const handleListPopupLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      if (!showListPopup) return;
+      const { y, height } = event.nativeEvent.layout;
+      onPopupBottomChange?.(y + height);
+    },
+    [onPopupBottomChange, showListPopup],
   );
 
   /** Tap an empty preset → save current destination under that label */
@@ -274,6 +297,7 @@ export function SavedPlaces({
             styles.listPopup,
             useSidePopup ? styles.listPopupWeb : styles.listPopupInline,
           ]}
+          onLayout={handleListPopupLayout}
         >
           <View style={styles.listHeaderRow}>
             <Text style={styles.listTitle}>Saved locations</Text>

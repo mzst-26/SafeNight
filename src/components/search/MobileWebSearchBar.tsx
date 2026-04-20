@@ -151,6 +151,7 @@ export function MobileWebSearchBar({
     height: number;
     bottom: number;
   } | null>(null);
+  const savedPlacesPopupBottomRef = useRef<number | null>(null);
   const lastEffectiveBottomRef = useRef<number | null>(null);
 
   // Focus management
@@ -186,22 +187,36 @@ export function MobileWebSearchBar({
     onExpandedChange?.(expanded);
   }, [expanded, onExpandedChange]);
 
-  const reportEffectiveBottom = useCallback(
-    (bottomY: number) => {
-      if (lastEffectiveBottomRef.current === bottomY) return;
-      lastEffectiveBottomRef.current = bottomY;
-      onEffectiveBottomChange?.(bottomY);
+  const emitEffectiveBottom = useCallback(
+    (metrics: { y: number; height: number; bottom: number }) => {
+      const popupBottom = savedPlacesPopupBottomRef.current;
+      const effectiveBottom =
+        popupBottom == null ? metrics.bottom : Math.max(metrics.bottom, metrics.y + popupBottom);
+
+      if (lastEffectiveBottomRef.current === effectiveBottom) return;
+      lastEffectiveBottomRef.current = effectiveBottom;
+      onEffectiveBottomChange?.(effectiveBottom);
     },
     [onEffectiveBottomChange],
+  );
+
+  const handleSavedPlacesPopupBottomChange = useCallback(
+    (bottomY: number | null) => {
+      savedPlacesPopupBottomRef.current = bottomY;
+      const metrics = containerMetricsRef.current;
+      if (!metrics) return;
+      emitEffectiveBottom(metrics);
+    },
+    [emitEffectiveBottom],
   );
 
   const reportContainerLayout = useCallback(
     (metrics: { y: number; height: number; bottom: number }) => {
       containerMetricsRef.current = metrics;
       onContainerLayout?.(metrics);
-      reportEffectiveBottom(metrics.bottom);
+      emitEffectiveBottom(metrics);
     },
-    [onContainerLayout, reportEffectiveBottom],
+    [emitEffectiveBottom, onContainerLayout],
   );
 
   const handleContainerLayout = useCallback(
@@ -216,8 +231,16 @@ export function MobileWebSearchBar({
     const metrics = containerMetricsRef.current;
     if (!metrics) return;
     onContainerLayout?.(metrics);
-    reportEffectiveBottom(metrics.bottom);
-  }, [expanded, onContainerLayout, reportEffectiveBottom]);
+    emitEffectiveBottom(metrics);
+  }, [expanded, emitEffectiveBottom, onContainerLayout]);
+
+  useEffect(() => {
+    if (expanded) return;
+    savedPlacesPopupBottomRef.current = null;
+    const metrics = containerMetricsRef.current;
+    if (!metrics) return;
+    emitEffectiveBottom(metrics);
+  }, [emitEffectiveBottom, expanded]);
 
   useEffect(() => {
     return () => {
@@ -868,6 +891,7 @@ export function MobileWebSearchBar({
                   onSave={onSavePlace}
                   onRemove={onRemoveSavedPlace}
                   onToast={onSavedPlaceToast}
+                  onPopupBottomChange={handleSavedPlacesPopupBottomChange}
                   currentDestination={
                     manualDest
                       ? {
@@ -1055,8 +1079,8 @@ const styles = StyleSheet.create({
     top: Platform.OS === "android" ? 12 : 32,
     left: 0,
     right: 0,
-    zIndex: Platform.OS === 'web' ? 1600 : 50,
-    ...(Platform.OS === "android" ? { elevation: 50 } : {}),
+    zIndex: Platform.OS === 'web' ? 1600 : 260,
+    ...(Platform.OS === "android" ? { elevation: 260 } : {}),
     alignItems: "center",
     paddingHorizontal: 12,
   },
