@@ -1655,9 +1655,7 @@ export default function HomeScreen() {
                   emitPlaceCardEvent("place_card_viewed", candidate.placeId);
                   setSelectedSheetCandidateId(candidate.placeId);
                   if (h.destinationCandidates.some((p) => p.placeId === candidate.placeId)) {
-                    h.selectDestinationCandidate(candidate.placeId, true);
-                  } else if (candidate.location) {
-                    h.handlePanTo(candidate.location);
+                    h.selectDestinationCandidate(candidate.placeId, false);
                   }
                 }}
                 onSafeDirections={() => {
@@ -1686,11 +1684,7 @@ export default function HomeScreen() {
               onPress={() => {
                 setSelectedSheetCandidateId(candidate.placeId);
                 if (h.destinationCandidates.some((p) => p.placeId === candidate.placeId)) {
-                  h.selectDestinationCandidate(candidate.placeId, true);
-                } else {
-                  if (candidate.location) {
-                    h.handlePanTo(candidate.location);
-                  }
+                  h.selectDestinationCandidate(candidate.placeId, false);
                 }
               }}
             >
