@@ -201,6 +201,7 @@ export default function HomeScreen() {
   const [sheetPlacesFitToken, setSheetPlacesFitToken] = useState(0);
   const [activePlaceCategoryKey, setActivePlaceCategoryKey] = useState<string | null>(null);
   const [selectedSheetCandidateId, setSelectedSheetCandidateId] = useState<string | null>(null);
+  const [hasExplicitCandidateSelection, setHasExplicitCandidateSelection] = useState(false);
   const previousSearchQueryRef = useRef("");
   const lastCandidateAutoFitKeyRef = useRef("");
   const appliedShareTokenRef = useRef<string | null>(null);
@@ -230,6 +231,24 @@ export default function HomeScreen() {
     }
     return baseTop + (isSearchBarExpanded ? 206 : 102);
   }, [insets.top, isWeb, isPhoneWeb, isSearchBarExpanded]);
+
+  const pinBannerOverlayStyle = useMemo(() => {
+    if (isWeb) {
+      return {
+        top: insets.top + 14,
+        bottom: "auto" as const,
+        left: (isDesktopWeb ? webSidebarOverlayOffset : 0) + 16,
+        right: 16,
+      };
+    }
+
+    return {
+      bottom: insets.bottom + 12,
+      left: 16,
+      right: 16,
+      top: "auto" as const,
+    };
+  }, [insets.bottom, insets.top, isDesktopWeb, isWeb, webSidebarOverlayOffset]);
 
   useEffect(() => {
     setSearchDistanceFilterMiles((current) => Math.min(current, maxDistanceFilterMiles));
@@ -311,6 +330,7 @@ export default function HomeScreen() {
       setShowSearchAroundButton(false);
       setSearchAnchor(h.location ?? h.effectiveOrigin ?? mapCenterForSearch ?? null);
       setSelectedSheetCandidateId(h.selectedDestinationCandidateId);
+      setHasExplicitCandidateSelection(false);
     }
 
     if (query.length < 2) {
@@ -319,6 +339,7 @@ export default function HomeScreen() {
       setSearchAnchor(null);
       setAccumulatedDestinationCandidates([]);
       setSelectedSheetCandidateId(h.selectedDestinationCandidateId);
+      setHasExplicitCandidateSelection(false);
       return;
     }
 
@@ -865,7 +886,10 @@ export default function HomeScreen() {
     setSearchBottomY(nextBottomY);
   }, []);
 
-  const searchBottomYForRail = searchBottomY ?? fallbackSearchBottomY;
+  const searchBottomYForRail =
+    Platform.OS === "android"
+      ? Math.max(searchBottomY ?? 0, fallbackSearchBottomY)
+      : searchBottomY ?? fallbackSearchBottomY;
   const currentSheetTopY = useMemo(() => {
     if (!sheetVisible) return Number.POSITIVE_INFINITY;
     if (!isWeb) return nativeSheetTopY;
@@ -1119,22 +1143,6 @@ export default function HomeScreen() {
     [sheetPlaces, selectedSheetCandidateId, h.selectedDestinationCandidate],
   );
 
-  const selectedPlaceCategory = selectedPlace?.category
-    ? selectedPlace.category
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-    : null;
-  const selectedPlaceType = selectedPlace?.placeType
-    ? selectedPlace.placeType
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-    : null;
-  const selectedPlaceAddress = selectedPlace?.fullText ?? null;
-  const selectedPlacePostcode = selectedPlace?.address?.postcode ?? null;
-  const selectedPlaceCoords = selectedPlace?.location
-    ? `${selectedPlace.location.latitude.toFixed(5)}, ${selectedPlace.location.longitude.toFixed(5)}`
-    : null;
-
   const isResultsCardsEnabled = isWeb
     ? FEATURE_FLAGS.webResultsCardsV1
     : FEATURE_FLAGS.phoneResultsCardsV1;
@@ -1335,8 +1343,7 @@ export default function HomeScreen() {
     return PLACE_CATEGORY_CHIPS
       .map((chip) => ({ ...chip, count: counts.get(chip.key) || 0 }))
       .filter((chip) => chip.count > 0)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+      .sort((a, b) => b.count - a.count);
   }, [distanceFilteredSheetPlaces]);
 
   const handleSheetCategoryBubblePress = useCallback(
@@ -1345,39 +1352,18 @@ export default function HomeScreen() {
         activePlaceCategoryKey === categoryKey ? null : categoryKey;
       setActivePlaceCategoryKey(nextCategoryKey);
 
-      // Category selection should trigger a category search (not only local list filtering).
-      if (nextCategoryKey) {
-        const categoryChip = PLACE_CATEGORY_CHIPS.find(
-          (chip) => chip.key === nextCategoryKey,
-        );
-        const categoryQuery = categoryChip?.query?.trim();
-        if (categoryQuery) {
-          h.setManualDest(null);
-          const currentQuery = (h.destSearch.query || "").trim().toLowerCase();
-          const normalizedCategoryQuery = categoryQuery.toLowerCase();
-
-          if (currentQuery === normalizedCategoryQuery) {
-            // Force refresh when the query text matches so category reselection still re-runs search.
-            h.destSearch.clear();
-            requestAnimationFrame(() => {
-              h.destSearch.setQuery(categoryQuery);
-            });
-          } else {
-            h.destSearch.setQuery(categoryQuery);
-          }
-        }
-      }
-
       setSelectedSheetCandidateId(null);
+      setHasExplicitCandidateSelection(false);
       setSheetPlacesFitToken((prev) => prev + 1);
     },
-    [activePlaceCategoryKey, h],
+    [activePlaceCategoryKey],
   );
 
   const handleDistanceFilterPress = useCallback(
     (distance: number) => {
       setSearchDistanceFilterMiles(distance);
       setSelectedSheetCandidateId(null);
+      setHasExplicitCandidateSelection(false);
       setSheetPlacesFitToken((prev) => prev + 1);
     },
     [],
@@ -1393,10 +1379,12 @@ export default function HomeScreen() {
 
     if (visibleSheetPlaces.length === 0) {
       setSelectedSheetCandidateId(null);
+      setHasExplicitCandidateSelection(false);
       return;
     }
 
     setSelectedSheetCandidateId(visibleSheetPlaces[0].placeId);
+    setHasExplicitCandidateSelection(false);
   }, [visibleSheetPlaces, selectedSheetCandidateId]);
 
   useEffect(() => {
@@ -1408,19 +1396,65 @@ export default function HomeScreen() {
     }
   }, [selectedPlace, h.isNavActive, h.sheetHeight, h.sheetHeightRef]);
 
+  const candidateDetailsById = useMemo(() => {
+    const detailMap = new Map<string, {
+      title: string;
+      subtitle: string;
+      meta: string;
+      coords: string;
+      buttonLabel: string;
+    }>();
+
+    const toTitle = (value?: string | null) => {
+      if (!value) return "";
+      return value
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    };
+
+    for (const candidate of sheetPlaces) {
+      const coords = candidate.location
+        ? `${candidate.location.latitude.toFixed(5)}, ${candidate.location.longitude.toFixed(5)}`
+        : "";
+      const meta = [
+        toTitle(candidate.category),
+        toTitle(candidate.placeType),
+        candidate.address?.postcode || null,
+      ]
+        .filter(Boolean)
+        .join(" • ");
+
+      detailMap.set(candidate.placeId, {
+        title: candidate.primaryText || candidate.fullText || "Place",
+        subtitle:
+          candidate.fullText ||
+          candidate.secondaryText ||
+          candidate.primaryText ||
+          "",
+        meta,
+        coords,
+        buttonLabel: "Safe directions",
+      });
+    }
+
+    return detailMap;
+  }, [sheetPlaces]);
+
   const combinedDestinationCandidateMarkers = useMemo(() => {
     const markers = new Map<string, any>();
-    const selectedCandidateMarkerId = selectedSheetCandidateId
+    const selectedCandidateMarkerId = hasExplicitCandidateSelection && selectedSheetCandidateId
       ? `search-candidate:${selectedSheetCandidateId}`
-      : h.selectedDestinationCandidateId
-        ? `search-candidate:${h.selectedDestinationCandidateId}`
-        : null;
+      : null;
 
     for (const marker of h.destinationCandidateMarkers as any[]) {
       const markerId = String(marker?.id ?? "");
       const isCandidateMarker = markerId.startsWith("search-candidate:");
       const isSelectedCandidate =
         isCandidateMarker && selectedCandidateMarkerId === markerId;
+      const placeId = isCandidateMarker
+        ? markerId.slice("search-candidate:".length)
+        : "";
+      const detail = placeId ? candidateDetailsById.get(placeId) : null;
 
       markers.set(marker.id, {
         ...marker,
@@ -1430,6 +1464,11 @@ export default function HomeScreen() {
             ? "#1570ef"
             : "#ef4444"
           : marker?.pinColor,
+        popupTitle: detail?.title,
+        popupSubtitle: detail?.subtitle,
+        popupMeta: detail?.meta,
+        popupCoords: detail?.coords,
+        popupButtonLabel: detail?.buttonLabel,
       });
     }
 
@@ -1437,6 +1476,7 @@ export default function HomeScreen() {
       if (!candidate.location) continue;
       const markerId = `search-candidate:${candidate.placeId}`;
       const isSelectedCandidate = selectedCandidateMarkerId === markerId;
+      const detail = candidateDetailsById.get(candidate.placeId);
       markers.set(`search-candidate:${candidate.placeId}`, {
         id: markerId,
         kind: "shop",
@@ -1447,6 +1487,11 @@ export default function HomeScreen() {
         label: candidate.fullText || candidate.primaryText,
         isSelected: isSelectedCandidate,
         pinColor: isSelectedCandidate ? "#1570ef" : "#ef4444",
+        popupTitle: detail?.title,
+        popupSubtitle: detail?.subtitle,
+        popupMeta: detail?.meta,
+        popupCoords: detail?.coords,
+        popupButtonLabel: detail?.buttonLabel,
       });
     }
 
@@ -1454,8 +1499,9 @@ export default function HomeScreen() {
   }, [
     h.destinationCandidateMarkers,
     accumulatedDestinationCandidates,
+    candidateDetailsById,
+    hasExplicitCandidateSelection,
     selectedSheetCandidateId,
-    h.selectedDestinationCandidateId,
   ]);
 
   const filteredDestinationCandidateMarkers = useMemo(() => {
@@ -1538,17 +1584,17 @@ export default function HomeScreen() {
   }, [showDestinationCandidateSheet, isWeb, isPhoneWeb]);
 
   const candidateMapFitTopPadding = useMemo(
-    () => Math.round(mapFitTopPadding * 1.5),
+    () => Math.round(mapFitTopPadding * 4),
     [mapFitTopPadding],
   );
 
   const candidateMapFitBottomPadding = useMemo(
-    () => Math.round(mapFitBottomPadding * 1.5),
+    () => Math.round(mapFitBottomPadding * 4),
     [mapFitBottomPadding],
   );
 
   const candidateMapFitSidePadding = useMemo(
-    () => Math.round(mapFitSidePadding * 1.5),
+    () => Math.round(mapFitSidePadding * 4),
     [mapFitSidePadding],
   );
 
@@ -1566,7 +1612,7 @@ export default function HomeScreen() {
                 Quick filters: tap a category to instantly narrow Places results.
               </Text>
               <View style={styles.placeCategoriesWrap}>
-              {sheetCategoryBubbles.slice(0, 5).map((chip, idx, arr) => {
+              {sheetCategoryBubbles.map((chip, idx, arr) => {
                 const iconOnly = arr.length > 3;
                 return (
                 <Pressable
@@ -1654,6 +1700,7 @@ export default function HomeScreen() {
                 onSelect={() => {
                   emitPlaceCardEvent("place_card_viewed", candidate.placeId);
                   setSelectedSheetCandidateId(candidate.placeId);
+                  setHasExplicitCandidateSelection(true);
                   if (h.destinationCandidates.some((p) => p.placeId === candidate.placeId)) {
                     h.selectDestinationCandidate(candidate.placeId, false);
                   }
@@ -1661,10 +1708,12 @@ export default function HomeScreen() {
                 onSafeDirections={() => {
                   emitPlaceCardEvent("safe_directions_clicked", candidate.placeId);
                   setSelectedSheetCandidateId(candidate.placeId);
+                  setHasExplicitCandidateSelection(true);
                   handleFindSafeRoutesForSelectedPlace(candidate);
                 }}
                 onShare={() => {
                   setSelectedSheetCandidateId(candidate.placeId);
+                  setHasExplicitCandidateSelection(true);
                   void handleShareRouteFromPlace(candidate);
                 }}
                 onSave={() => {
@@ -1683,6 +1732,7 @@ export default function HomeScreen() {
               ]}
               onPress={() => {
                 setSelectedSheetCandidateId(candidate.placeId);
+                setHasExplicitCandidateSelection(true);
                 if (h.destinationCandidates.some((p) => p.placeId === candidate.placeId)) {
                   h.selectDestinationCandidate(candidate.placeId, false);
                 }
@@ -1773,11 +1823,15 @@ export default function HomeScreen() {
           if (!placeId) return;
 
           setSelectedSheetCandidateId(placeId);
+          setHasExplicitCandidateSelection(true);
 
           const markerPlace = sheetPlaces.find((p) => p.placeId === placeId);
           if (markerPlace?.location) {
             h.handlePanTo(markerPlace.location);
           }
+        }}
+        onDismissMarkerDetails={() => {
+          setHasExplicitCandidateSelection(false);
         }}
         onLongPress={isWebGuest ? undefined : handleMapLongPress}
         onMapPress={isWebGuest ? undefined : handleMapPress}
@@ -2323,7 +2377,7 @@ export default function HomeScreen() {
 
         {/* ── Pin-mode banner ── */}
         {h.pinMode && (
-          <View style={[styles.pinBanner, { bottom: insets.bottom + 12 }]}>
+          <View style={[styles.pinBanner, pinBannerOverlayStyle]}>
             <View style={styles.pinBannerInner}>
               <Ionicons name="location" size={18} color="#ffffff" />
               <Text style={styles.pinBannerText}>
@@ -2616,58 +2670,6 @@ export default function HomeScreen() {
             </View>
           </View>
         )}
-
-        {/* ── Selected place profile from map/search candidates ── */}
-        {!h.isNavActive &&
-          isDesktopWeb &&
-          !h.manualDest &&
-          !h.destSearch.place &&
-          h.destinationCandidates.length > 0 &&
-          selectedPlace && (
-            <View
-              style={[
-                styles.placeProfileWrap,
-                { bottom: insets.bottom + (isWeb ? 20 : SHEET_MIN + 18) },
-              ]}
-            >
-              <View style={styles.placeProfileCard}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.placeProfileTitle} numberOfLines={1}>
-                    {selectedPlace.primaryText}
-                  </Text>
-                  {selectedPlaceAddress ? (
-                    <Text style={styles.placeProfileSubtitle} numberOfLines={2}>
-                      {selectedPlaceAddress}
-                    </Text>
-                  ) : null}
-                  {(selectedPlaceCategory || selectedPlaceType || selectedPlacePostcode) && (
-                    <Text style={styles.placeProfileMeta} numberOfLines={1}>
-                      {[selectedPlaceCategory, selectedPlaceType, selectedPlacePostcode]
-                        .filter(Boolean)
-                        .join(" • ")}
-                    </Text>
-                  )}
-                  {selectedPlaceCoords ? (
-                    <Text style={styles.placeProfileCoords} numberOfLines={1}>
-                      {selectedPlaceCoords}
-                    </Text>
-                  ) : null}
-                </View>
-                <Pressable
-                  style={styles.placeProfileAction}
-                  onPress={() => {
-                    h.activateSelectedDestinationCandidate();
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Find safe routes to selected place"
-                >
-                  <Text style={styles.placeProfileActionText}>
-                    Find Safe Routes
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
 
         {/* ── AI floating button (logged in only) ── */}
         {h.safetyResult &&
@@ -3116,9 +3118,6 @@ const styles = StyleSheet.create({
   },
   pinBanner: {
     position: "absolute",
-    bottom: 12,
-    left: 16,
-    right: 16,
     backgroundColor: "#1570ef",
     borderRadius: 12,
     paddingVertical: 12,
@@ -3130,7 +3129,7 @@ const styles = StyleSheet.create({
       ? { boxShadow: "0 4px 12px rgba(21, 112, 239, 0.35)" }
       : {}),
     elevation: 10,
-    zIndex: 10,
+    zIndex: 40,
   },
   pinBannerInner: {
     flexDirection: "row",
@@ -3604,70 +3603,6 @@ const styles = StyleSheet.create({
   },
   locationRecoveryLinkText: {
     color: "#1d4ed8",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  placeProfileWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    zIndex: 112,
-    alignItems: "center",
-    paddingHorizontal: 12,
-  },
-  placeProfileCard: {
-    width: "100%",
-    maxWidth: 520,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e4e7ec",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    ...(Platform.OS === "web"
-      ? { boxShadow: "0 8px 24px rgba(16,24,40,0.14)" }
-      : {
-          shadowColor: "#101828",
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.14,
-          shadowRadius: 12,
-          elevation: 16,
-        }),
-  } as any,
-  placeProfileTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#101828",
-  },
-  placeProfileSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: "#667085",
-    fontWeight: "500",
-  },
-  placeProfileMeta: {
-    marginTop: 3,
-    fontSize: 11,
-    color: "#1d4ed8",
-    fontWeight: "700",
-  },
-  placeProfileCoords: {
-    marginTop: 2,
-    fontSize: 11,
-    color: "#475467",
-    fontWeight: "500",
-  },
-  placeProfileAction: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 10,
-    backgroundColor: "#1570ef",
-  },
-  placeProfileActionText: {
-    color: "#ffffff",
     fontSize: 12,
     fontWeight: "700",
   },

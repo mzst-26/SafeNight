@@ -267,6 +267,7 @@ const styles = StyleSheet.create({
   } as any,
   sidebarInner: {
     flex: 1,
+    paddingHorizontal: 8,
     overflow: 'visible',
   },
   searchArea: {
@@ -274,7 +275,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   loginArea: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 4,
     paddingTop: 8,
   },
   resultsArea: {
@@ -286,7 +287,7 @@ const styles = StyleSheet.create({
   resultsHeader: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    paddingHorizontal: 16,
+    paddingHorizontal: 4,
     paddingTop: 8,
     paddingBottom: 4,
   },
@@ -302,7 +303,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 4,
     paddingBottom: 24,
   },
   collapsedContent: {
@@ -315,7 +316,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E2E8F0',
     gap: 4,
