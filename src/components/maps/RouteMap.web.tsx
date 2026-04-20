@@ -9,7 +9,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
 
-const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
+export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8"/>
@@ -21,8 +21,8 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     html,body,#map{width:100%;height:100%;overflow:hidden;background:#e8eaed}
     .road-label{background:rgba(17,24,39,.85);color:#fff;border-radius:8px;padding:2px 6px;font-size:9px;font-weight:600;white-space:nowrap}
     .search-pin-wrap{display:flex;flex-direction:column;align-items:center;pointer-events:none}
-    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
-    .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #ef4444;filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
+    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:var(--pin-color,#ef4444);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
+    .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--pin-color,#ef4444);filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
     .search-pin-label{margin-top:7px;background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
     .friend-chip{display:flex;align-items:center;gap:4px;background:#7C3AED;color:#fff;border:2px solid #fff;border-radius:14px;padding:2px 6px 2px 2px;font-size:10px;font-weight:600;white-space:nowrap}
     .friend-dot{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:10px}
@@ -31,10 +31,8 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     .nav-dot{width:18px;height:18px;border-radius:50%;background:#1570EF;border:3px solid #fff;box-shadow:0 0 0 2px rgba(21,112,239,.25)}
     .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
     .viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:none;background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);backdrop-filter:blur(8px);transition:opacity .3s}
-    .leaflet-control-zoom{border:none!important;box-shadow:0 6px 20px rgba(15,23,42,.25)!important}
-    .leaflet-control-zoom a{width:136px!important;height:136px!important;line-height:136px!important;font-size:80px!important;font-weight:700!important;border-radius:24px!important;background:#ffffff!important;color:#0f172a!important;border:1px solid rgba(15,23,42,.18)!important}
-    .leaflet-control-zoom a:hover{background:#f8fafc!important}
-    .leaflet-control-zoom a.leaflet-disabled{opacity:.45!important}
+    /* Hide default leaflet zoom controls for our web layout */
+    .leaflet-control-zoom{display:none!important}
     .leaflet-top.leaflet-left{margin-top:10px;margin-left:10px}
     @keyframes vizscan{0%,100%{opacity:.95}50%{opacity:.45}}
     .viz-search-zone{pointer-events:none;background:rgba(88,28,235,.22);border:1.5px solid rgba(167,139,250,.7);border-radius:5px;padding:4px 12px;color:#ddd6fe;font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap;display:flex;align-items:center;gap:5px;animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
@@ -300,6 +298,14 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         .replace(/'/g,'&#39;');
     }
 
+    function normalizePinColor(color){
+      var value = String(color || '').trim();
+      if(/^#[0-9a-fA-F]{6}$/.test(value) || /^#[0-9a-fA-F]{3}$/.test(value)){
+        return value;
+      }
+      return '#ef4444';
+    }
+
     function init(){
       map = L.map('map', {
         zoomControl:${showZoomControls ? "true" : "false"},
@@ -430,11 +436,12 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         var k=m.kind||'crime';
         if(hl && hl!==k) return;
         if(isCandidate){
+          var candidateColor = normalizePinColor(m.pinColor);
           var raw = String(m.label || 'Place').trim();
           var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
           var icon=L.divIcon({
             className:'',
-            html:'<div class="search-pin-wrap"><div class="search-pin-dot"></div><div class="search-pin-label">'+safeLabel(trimmed)+'</div></div>',
+            html:'<div class="search-pin-wrap" style="--pin-color:'+candidateColor+'"><div class="search-pin-dot"></div><div class="search-pin-label">'+safeLabel(trimmed)+'</div></div>',
             iconSize:[130,42],
             iconAnchor:[65,26],
           });
@@ -477,8 +484,11 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
 
       var isOutOfRangeCameraHold = Date.now() < outOfRangeCameraHoldUntil;
       var fitBottomPadding = Math.max(40, Number(d.fitBottomPadding || 40));
-        var fitTopPadding = Math.max(40, Number(d.fitTopPadding || 40));
-        var fitSidePadding = Math.max(24, Number(d.fitSidePadding || 40));
+      var fitTopPadding = Math.max(40, Number(d.fitTopPadding || 40));
+      var fitSidePadding = Math.max(24, Number(d.fitSidePadding || 40));
+      var candidateFitTopPadding = Math.max(40, Number(d.candidateFitTopPadding || fitTopPadding));
+      var candidateFitBottomPadding = Math.max(40, Number(d.candidateFitBottomPadding || fitBottomPadding));
+      var candidateFitSidePadding = Math.max(24, Number(d.candidateFitSidePadding || fitSidePadding));
       var isExplicitCandidateRefit = !!d.fitCandidateBounds;
 
       if(d.navLocation){
@@ -512,8 +522,8 @@ const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       } else if(!isOutOfRangeCameraHold && d.fitBounds && bounds.length>0 && !d.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
         map.stop();
         map.fitBounds(bounds, {
-            paddingTopLeft:[fitSidePadding,fitTopPadding],
-            paddingBottomRight:[fitSidePadding,fitBottomPadding],
+        paddingTopLeft:[isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding, isExplicitCandidateRefit ? candidateFitTopPadding : fitTopPadding],
+        paddingBottomRight:[isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding, isExplicitCandidateRefit ? candidateFitBottomPadding : fitBottomPadding],
           maxZoom:16,
           animate:true,
           duration:0.36,
@@ -578,6 +588,9 @@ export const RouteMap = ({
   fitTopPadding = 40,
   fitBottomPadding = 40,
   fitSidePadding = 40,
+  candidateFitTopPadding,
+  candidateFitBottomPadding,
+  candidateFitSidePadding,
   showZoomControls = true,
   isNavigating = false,
   navigationLocation,
@@ -651,6 +664,9 @@ export const RouteMap = ({
     fitTopPadding,
     fitBottomPadding,
     fitSidePadding,
+    candidateFitTopPadding,
+    candidateFitBottomPadding,
+    candidateFitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -673,6 +689,9 @@ export const RouteMap = ({
     fitTopPadding,
     fitBottomPadding,
     fitSidePadding,
+    candidateFitTopPadding,
+    candidateFitBottomPadding,
+    candidateFitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -704,6 +723,7 @@ export const RouteMap = ({
       id: m.id,
       kind: m.kind,
       label: m.label,
+      pinColor: (m as any).pinColor,
       lat: m.coordinate.latitude,
       lng: m.coordinate.longitude,
     }));
@@ -752,6 +772,9 @@ export const RouteMap = ({
       fitTopPadding: p.fitTopPadding ?? 40,
       fitBottomPadding: p.fitBottomPadding ?? 40,
       fitSidePadding: p.fitSidePadding ?? 40,
+      candidateFitTopPadding: p.candidateFitTopPadding ?? p.fitTopPadding ?? 40,
+      candidateFitBottomPadding: p.candidateFitBottomPadding ?? p.fitBottomPadding ?? 40,
+      candidateFitSidePadding: p.candidateFitSidePadding ?? p.fitSidePadding ?? 40,
       panTo: panToData,
       navLocation:
         p.isNavigating && p.navigationLocation

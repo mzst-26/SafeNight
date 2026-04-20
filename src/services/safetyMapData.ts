@@ -25,6 +25,8 @@ export interface SafetyMarker {
   kind: MarkerKind;
   coordinate: LatLng;
   label?: string;
+  /** Optional explicit marker color for map renderers (used by search candidate pins). */
+  pinColor?: string;
 }
 
 export interface RoadOverlay {

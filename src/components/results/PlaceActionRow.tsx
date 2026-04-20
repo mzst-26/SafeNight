@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { memo } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { placeCardTokens } from "./placeCard.tokens";
 
@@ -11,7 +11,6 @@ type PlaceActionRowProps = {
   isSafeDirectionsLoading?: boolean;
   isSaved?: boolean;
   disabled?: boolean;
-  platformVariant?: "phone" | "web";
 };
 
 function PlaceActionRowComponent({
@@ -21,16 +20,12 @@ function PlaceActionRowComponent({
   isSafeDirectionsLoading = false,
   isSaved = false,
   disabled = false,
-  platformVariant = "phone",
 }: PlaceActionRowProps) {
-  const isWebDesktop = Platform.OS === "web" && platformVariant === "web";
-
   return (
     <View style={styles.row}>
       <Pressable
         style={({ pressed, focused }: any) => [
           styles.primaryButton,
-          isWebDesktop && styles.primaryButtonWeb,
           (pressed || focused) && styles.primaryButtonActive,
           (disabled || isSafeDirectionsLoading) && styles.buttonDisabled,
         ]}
@@ -42,7 +37,7 @@ function PlaceActionRowComponent({
         {isSafeDirectionsLoading ? (
           <ActivityIndicator size="small" color={placeCardTokens.colors.primaryText} />
         ) : (
-          <Ionicons name="navigate" size={16} color={placeCardTokens.colors.primaryText} />
+          <Ionicons name="navigate" size={14} color={placeCardTokens.colors.primaryText} />
         )}
         <Text style={styles.primaryButtonText}>Safe Directions</Text>
       </Pressable>
@@ -59,7 +54,7 @@ function PlaceActionRowComponent({
           accessibilityRole="button"
           accessibilityLabel="Share route link"
         >
-          <Ionicons name="share-social-outline" size={14} color={placeCardTokens.colors.ghostText} />
+          <Ionicons name="share-social-outline" size={13} color={placeCardTokens.colors.ghostText} />
           <Text style={styles.secondaryText}>Share</Text>
         </Pressable>
       ) : null}
@@ -78,7 +73,7 @@ function PlaceActionRowComponent({
         >
           <Ionicons
             name={isSaved ? "bookmark" : "bookmark-outline"}
-            size={14}
+            size={13}
             color={placeCardTokens.colors.ghostText}
           />
           <Text style={styles.secondaryText}>{isSaved ? "Saved" : "Save"}</Text>
@@ -98,44 +93,41 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   primaryButton: {
-    minHeight: 44,
-    paddingHorizontal: 14,
+    minHeight: 38,
+    paddingHorizontal: 12,
     borderRadius: placeCardTokens.radius.button,
     backgroundColor: placeCardTokens.colors.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
     flex: 1,
-  },
-  primaryButtonWeb: {
-    minHeight: 42,
   },
   primaryButtonActive: {
     opacity: 0.9,
   },
   primaryButtonText: {
     color: placeCardTokens.colors.primaryText,
-    fontSize: placeCardTokens.typography.primaryAction,
+    fontSize: 13,
     fontWeight: "700",
   },
   secondaryButton: {
-    minHeight: 38,
-    paddingHorizontal: 12,
+    minHeight: 34,
+    paddingHorizontal: 10,
     borderRadius: placeCardTokens.radius.pill,
     borderWidth: 1,
     borderColor: placeCardTokens.colors.ghostBorder,
     backgroundColor: placeCardTokens.colors.ghostBg,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   secondaryButtonActive: {
     borderColor: placeCardTokens.colors.focusRing,
   },
   secondaryText: {
     color: placeCardTokens.colors.ghostText,
-    fontSize: placeCardTokens.typography.secondaryAction,
+    fontSize: 12,
     fontWeight: "600",
   },
   buttonDisabled: {

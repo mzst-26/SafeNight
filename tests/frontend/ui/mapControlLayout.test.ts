@@ -118,4 +118,12 @@ describe('mapControlLayout', () => {
 
     expect(second).toEqual(first);
   });
+
+  it('respects preferred action side when provided', () => {
+    const leftPref = computeClusterPlacement(makeInput({ preferredActionSide: 'left' }));
+    expect(leftPref.action.side).toBe('left');
+
+    const defaultPref = computeClusterPlacement(makeInput());
+    expect(defaultPref.action.side).toBe('right');
+  });
 });

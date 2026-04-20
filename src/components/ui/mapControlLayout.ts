@@ -4,6 +4,10 @@ export interface MapControlLayoutInput {
   bottomInset: number;
   searchBoundaryBottom: number;
   sheetBoundaryTop: number;
+  /** Optional: when true the layout should use split-left/right rendering */
+  splitMode?: boolean;
+  /** Optional preferred side for action cluster ('left'|'right') */
+  preferredActionSide?: 'left' | 'right';
 }
 
 interface ResolvedLayoutInput extends MapControlLayoutInput {
@@ -48,6 +52,8 @@ export interface ClusterPlacement {
     controlSize: number;
     controlGap: number;
     height: number;
+    /** side indicates horizontal placement intent for the action cluster */
+    side: 'left' | 'right';
   };
 }
 
@@ -198,6 +204,8 @@ export function computeClusterPlacement(input: MapControlLayoutInput): ClusterPl
   const utilityLayout = getUtilityLayout(availableUtilityHeight);
   const collapsed = utilityLayout.visibleControlCount < METRICS.expandedUtilityControlCount;
   const utilityTop = safeBounds.top;
+  // Respect preferredActionSide if provided, otherwise default to 'right'
+  const actionSide: 'left' | 'right' = input.preferredActionSide === 'left' ? 'left' : 'right';
 
   return {
     safeBounds,
@@ -215,6 +223,7 @@ export function computeClusterPlacement(input: MapControlLayoutInput): ClusterPl
       controlSize: METRICS.expandedControlSize,
       controlGap: METRICS.expandedControlGap,
       height: actionHeight,
+      side: actionSide,
     },
   };
 }

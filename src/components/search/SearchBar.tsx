@@ -98,6 +98,8 @@ export interface SearchBarProps {
   ) => Promise<SaveResult> | SaveResult;
   onRemoveSavedPlace?: (id: string) => void;
   onSavedPlaceToast?: (msg: string, icon?: string) => void;
+  /** When true, suppresses prediction/candidate dropdown cards below inputs. */
+  hidePredictionsDropdown?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -128,6 +130,7 @@ export function SearchBar({
   onSavePlace,
   onRemoveSavedPlace,
   onSavedPlaceToast,
+  hidePredictionsDropdown = false,
 }: SearchBarProps) {
   const originInputRef = useRef<TextInput>(null);
   const destInputRef = useRef<TextInput>(null);
@@ -560,7 +563,7 @@ export function SearchBar({
         </View>
 
         {/* Predictions Dropdown */}
-        {showLegacyPredictions && (
+        {!hidePredictionsDropdown && showLegacyPredictions && (
           <View
             style={[
               styles.predictionsDropdown,
@@ -649,6 +652,7 @@ export function SearchBar({
 
       {/* Destination candidates (persistent cards when user typed but hasn't selected) */}
       {!manualDest &&
+        !hidePredictionsDropdown &&
         showDestinationCandidateCards &&
         onSelectDestinationCandidate && (
           <View
@@ -988,7 +992,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    borderRadius: 999,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: "#bfdbfe",
     backgroundColor: "#eff6ff",
@@ -1000,6 +1004,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     gap: 4,
+    borderRadius: 8,
   },
   categoryBubbleText: {
     fontSize: 12,
@@ -1012,7 +1017,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#1570ef",
     backgroundColor: "#dbeafe",
-    borderRadius: 999,
+    borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 1,
   },

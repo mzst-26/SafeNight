@@ -19,9 +19,9 @@ describe('PlaceResultCard source contract', () => {
     expect(source).toMatch(/const accessibilityLabel = useMemo/);
   });
 
-  it('includes web-specific hover polish and selected highlight styles', () => {
-    expect(source).toMatch(/cardHovered/);
+  it('uses a shared card style path with selected highlight styles', () => {
     expect(source).toMatch(/cardSelected/);
-    expect(source).toMatch(/transitionProperty: "border-color, box-shadow, transform"/);
+    expect(source).not.toMatch(/cardHovered/);
+    expect(source).not.toMatch(/platformVariant/);
   });
 });

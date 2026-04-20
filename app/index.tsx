@@ -10,6 +10,7 @@
  * inside the map container.
  */
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,7 +19,6 @@ import {
     AppState,
     Platform,
     Pressable,
-    Share,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -186,7 +186,8 @@ export default function HomeScreen() {
   const isPhoneWeb = breakpoint === "phone";
   const isWeb = Platform.OS === "web";
   const isDesktopWeb = isWeb && !isPhoneWeb;
-  const webSidebarOverlayOffset = isDesktopWeb ? 404 : 0;
+  const [webSidebarOverlayOffset, setWebSidebarOverlayOffset] = useState(404);
+  const { width: viewportWidth } = useWindowDimensions();
 
   // Sheet scroll ref and search-around state
   const sheetScrollRef = useRef<any>(null);
@@ -804,16 +805,19 @@ export default function HomeScreen() {
   const hasError = h.directionsStatus === "error";
   const hasLiveDestinationPredictions =
     h.destSearch.query.trim().length > 0 && h.destSearch.predictions.length > 0;
+  const hasRouteRequestState =
+    h.routes.length > 0 ||
+    h.directionsStatus === "loading" ||
+    hasError ||
+    h.outOfRange;
 
   const showDestinationCandidateSheet =
     !h.isNavActive &&
     !h.manualDest &&
     (h.destinationCandidates.length > 0 || hasLiveDestinationPredictions);
+  const hasSheetContent = hasRouteRequestState || showDestinationCandidateSheet;
   const sheetVisible =
-    (h.routes.length > 0 ||
-      h.directionsStatus === "loading" ||
-      hasError ||
-      showDestinationCandidateSheet) &&
+    hasSheetContent &&
     !h.isNavActive;
 
   const fallbackSearchBottomY = useMemo(() => {
@@ -1193,12 +1197,12 @@ export default function HomeScreen() {
 
       let shareUrl = buildDestinationFallbackLink(candidate);
 
-      if (FEATURE_FLAGS.routeShareV1 && h.selectedSafeRoute?.path?.length) {
+      if (FEATURE_FLAGS.routeShareV1) {
         try {
           const created = await createRouteShareLink({
             destinationName: candidate.primaryText,
             destination: candidate.location,
-            routePath: h.selectedSafeRoute.path,
+            routePath: h.selectedSafeRoute?.path,
             expiresInHours: 24,
             redactOrigin: true,
           });
@@ -1212,33 +1216,13 @@ export default function HomeScreen() {
 
       if (!shareUrl) return;
 
-      if (Platform.OS === "web") {
-        const webNavigator = (globalThis as any).navigator;
-        if (typeof webNavigator?.share === "function") {
-          await webNavigator.share({
-            title: `Safe route to ${candidate.primaryText}`,
-            text: "Open this SafeNight route",
-            url: shareUrl,
-          });
-          return;
-        }
-
-        if (typeof webNavigator?.clipboard?.writeText === "function") {
-          await webNavigator.clipboard.writeText(shareUrl);
-          handleSavedPlaceToast("Route link copied", "link-outline");
-        }
-        return;
-      }
-
-      await Share.share({
-        title: `Safe route to ${candidate.primaryText}`,
-        message: `SafeNight route: ${shareUrl}`,
-      });
+      await Clipboard.setStringAsync(shareUrl);
+      handleSavedPlaceToast("Route link copied", "link-outline");
     },
     [
       emitPlaceCardEvent,
       buildDestinationFallbackLink,
-      h.selectedSafeRoute?.path,
+      h.selectedSafeRoute,
       handleSavedPlaceToast,
     ],
   );
@@ -1426,26 +1410,53 @@ export default function HomeScreen() {
 
   const combinedDestinationCandidateMarkers = useMemo(() => {
     const markers = new Map<string, any>();
+    const selectedCandidateMarkerId = selectedSheetCandidateId
+      ? `search-candidate:${selectedSheetCandidateId}`
+      : h.selectedDestinationCandidateId
+        ? `search-candidate:${h.selectedDestinationCandidateId}`
+        : null;
 
     for (const marker of h.destinationCandidateMarkers as any[]) {
-      markers.set(marker.id, marker);
+      const markerId = String(marker?.id ?? "");
+      const isCandidateMarker = markerId.startsWith("search-candidate:");
+      const isSelectedCandidate =
+        isCandidateMarker && selectedCandidateMarkerId === markerId;
+
+      markers.set(marker.id, {
+        ...marker,
+        isSelected: isSelectedCandidate,
+        pinColor: isCandidateMarker
+          ? isSelectedCandidate
+            ? "#1570ef"
+            : "#ef4444"
+          : marker?.pinColor,
+      });
     }
 
     for (const candidate of accumulatedDestinationCandidates) {
       if (!candidate.location) continue;
+      const markerId = `search-candidate:${candidate.placeId}`;
+      const isSelectedCandidate = selectedCandidateMarkerId === markerId;
       markers.set(`search-candidate:${candidate.placeId}`, {
-        id: `search-candidate:${candidate.placeId}`,
+        id: markerId,
         kind: "shop",
         coordinate: {
           latitude: candidate.location.latitude,
           longitude: candidate.location.longitude,
         },
         label: candidate.fullText || candidate.primaryText,
+        isSelected: isSelectedCandidate,
+        pinColor: isSelectedCandidate ? "#1570ef" : "#ef4444",
       });
     }
 
     return Array.from(markers.values());
-  }, [h.destinationCandidateMarkers, accumulatedDestinationCandidates]);
+  }, [
+    h.destinationCandidateMarkers,
+    accumulatedDestinationCandidates,
+    selectedSheetCandidateId,
+    h.selectedDestinationCandidateId,
+  ]);
 
   const filteredDestinationCandidateMarkers = useMemo(() => {
     return combinedDestinationCandidateMarkers.filter((marker: any) => {
@@ -1525,6 +1536,21 @@ export default function HomeScreen() {
     if (!isWeb) return 28;
     return isPhoneWeb ? 24 : 52;
   }, [showDestinationCandidateSheet, isWeb, isPhoneWeb]);
+
+  const candidateMapFitTopPadding = useMemo(
+    () => Math.round(mapFitTopPadding * 1.5),
+    [mapFitTopPadding],
+  );
+
+  const candidateMapFitBottomPadding = useMemo(
+    () => Math.round(mapFitBottomPadding * 1.5),
+    [mapFitBottomPadding],
+  );
+
+  const candidateMapFitSidePadding = useMemo(
+    () => Math.round(mapFitSidePadding * 1.5),
+    [mapFitSidePadding],
+  );
 
   const renderDestinationCandidatesSection = (keyPrefix: string) => {
     if (!showDestinationCandidateSheet) return null;
@@ -1625,7 +1651,6 @@ export default function HomeScreen() {
                 distanceLabel={distanceLabel}
                 isSaved={Boolean(findSavedPlaceMatch(candidate))}
                 isSafeDirectionsLoading={selected && h.directionsStatus === "loading"}
-                platformVariant={isWeb ? "web" : "phone"}
                 onSelect={() => {
                   emitPlaceCardEvent("place_card_viewed", candidate.placeId);
                   setSelectedSheetCandidateId(candidate.placeId);
@@ -1729,6 +1754,9 @@ export default function HomeScreen() {
         fitTopPadding={mapFitTopPadding}
         fitBottomPadding={mapFitBottomPadding}
         fitSidePadding={mapFitSidePadding}
+        candidateFitTopPadding={candidateMapFitTopPadding}
+        candidateFitBottomPadding={candidateMapFitBottomPadding}
+        candidateFitSidePadding={candidateMapFitSidePadding}
         showZoomControls={isWeb && !isPhoneWeb}
         isNavigating={h.isNavActive}
         navigationLocation={h.nav.userLocation}
@@ -1776,10 +1804,12 @@ export default function HomeScreen() {
          * ══════════════════════════════════════════════════════════════ */}
         {isWeb && !isPhoneWeb && !h.isNavActive && (
           <WebSidebar
-            hasResults={h.routes.length > 0 || h.destinationCandidates.length > 0}
+            hasResults={hasSheetContent}
             isLoading={h.directionsStatus === "loading"}
             hasError={hasError}
             onClearResults={h.clearRouteResults}
+            showClearButton={hasRouteRequestState}
+            onWidthChange={setWebSidebarOverlayOffset}
             downloadBanner={<AndroidDownloadBanner embedded />}
             loginButton={
               isWebGuest ? <WebLoginButton onPress={promptLogin} /> : null
@@ -1814,20 +1844,25 @@ export default function HomeScreen() {
                 onSavePlace={savePlace}
                 onRemoveSavedPlace={removePlace}
                 onSavedPlaceToast={handleSavedPlaceToast}
+                hidePredictionsDropdown
               />
             }
           >
+            {renderDestinationCandidatesSection("sheet-candidate-sidebar-web")}
+
             {/* Sheet content rendered inside sidebar */}
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>
-                {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
-              </Text>
-              {!hasError && (
-                <Text style={styles.sheetMeta}>
-                  {distanceLabel} · {durationLabel}
+            {hasRouteRequestState && (
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>
+                  {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
                 </Text>
-              )}
-            </View>
+                {!hasError && h.selectedRoute && (
+                  <Text style={styles.sheetMeta}>
+                    {distanceLabel} · {durationLabel}
+                  </Text>
+                )}
+              </View>
+            )}
 
             {h.directionsStatus === "loading" && (
               <JailLoadingAnimation
@@ -2078,25 +2113,27 @@ export default function HomeScreen() {
             <MobileWebSheet visible={sheetVisible}>
               {renderDestinationCandidatesSection("sheet-candidate-web")}
 
-              <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>
-                  {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
-                </Text>
-                {!hasError && (
-                  <Text style={styles.sheetMeta}>
-                    {distanceLabel} · {durationLabel}
+              {hasRouteRequestState && (
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>
+                    {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
                   </Text>
-                )}
-                {h.routes.length > 0 && (
-                  <Pressable
-                    onPress={h.clearRouteResults}
-                    hitSlop={8}
-                    style={{ marginLeft: 8 }}
-                  >
-                    <Ionicons name="close" size={18} color="#667085" />
-                  </Pressable>
-                )}
-              </View>
+                  {!hasError && h.selectedRoute && (
+                    <Text style={styles.sheetMeta}>
+                      {distanceLabel} · {durationLabel}
+                    </Text>
+                  )}
+                  {h.routes.length > 0 && (
+                    <Pressable
+                      onPress={h.clearRouteResults}
+                      hitSlop={8}
+                      style={{ marginLeft: 8 }}
+                    >
+                      <Ionicons name="close" size={18} color="#667085" />
+                    </Pressable>
+                  )}
+                </View>
+              )}
 
               {h.directionsStatus === "loading" && (
                 <JailLoadingAnimation
@@ -2349,11 +2386,19 @@ export default function HomeScreen() {
           />
         )}
 
-        {!isDesktopWeb && !h.isNavActive && (showSearchAroundButton || searchAroundLimitReached) && (
+        {!h.isNavActive && (showSearchAroundButton || searchAroundLimitReached) && (
           <View
             pointerEvents="box-none"
             style={[
               styles.searchAroundFloatingWrap,
+              isDesktopWeb
+                ? {
+                    left: webSidebarOverlayOffset,
+                    right: 0,
+                    width: Math.max(0, viewportWidth - webSidebarOverlayOffset),
+                    paddingHorizontal: 0,
+                  }
+                : null,
               {
                 top: searchAroundFloatingTop,
               },
@@ -2403,7 +2448,7 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {(!isDesktopWeb || h.isNavActive) && (
+        {
           <MapControlRail
             layoutInput={{
               viewportHeight: windowHeight,
@@ -2505,7 +2550,7 @@ export default function HomeScreen() {
               );
             }}
           />
-        )}
+        }
 
         {/* ── Category highlight banner — shows when user tapped a stat card ── */}
         {h.highlightCategory && (
@@ -2673,16 +2718,18 @@ export default function HomeScreen() {
             {renderDestinationCandidatesSection("sheet-candidate-native")}
 
             {/* Header — hide distance/duration when there's only an error */}
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>
-                {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
-              </Text>
-              {!hasError && (
-                <Text style={styles.sheetMeta}>
-                  {distanceLabel} · {durationLabel}
+            {hasRouteRequestState && (
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>
+                  {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
                 </Text>
-              )}
-            </View>
+                {!hasError && h.selectedRoute && (
+                  <Text style={styles.sheetMeta}>
+                    {distanceLabel} · {durationLabel}
+                  </Text>
+                )}
+              </View>
+            )}
 
             {/* Loading state */}
             {h.directionsStatus === "loading" && (

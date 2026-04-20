@@ -48,8 +48,8 @@ const buildMapHtml = (
       border:1px solid rgba(255,255,255,0.2);box-shadow:0 2px 8px rgba(0,0,0,.4);
       text-shadow:0 1px 3px rgba(0,0,0,.5);animation:pulse 2s ease-in-out infinite}
     .search-pin-wrap{display:flex;flex-direction:column;align-items:center}
-    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
-    .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #ef4444;filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
+    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:var(--pin-color,#ef4444);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:relative}
+    .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--pin-color,#ef4444);filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
     .search-pin-label{margin-top:7px;background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
     .hide-pin-labels .search-pin-label{display:none}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}
@@ -139,6 +139,14 @@ const buildMapHtml = (
         .replace(/>/g,'&gt;')
         .replace(/\"/g,'&quot;')
         .replace(/'/g,'&#39;');
+    }
+
+    function normalizePinColor(color){
+      var value = String(color || '').trim();
+      if(/^#[0-9a-fA-F]{6}$/.test(value) || /^#[0-9a-fA-F]{3}$/.test(value)){
+        return value;
+      }
+      return '#ef4444';
     }
     function setFollowMode(next){
       if (isFollowingNav === next) return;
@@ -683,11 +691,13 @@ const buildMapHtml = (
       var smF=(data.safetyMarkers||[]).flatMap(function(m){
         var isCandidate = m.id && String(m.id).indexOf('search-candidate:')===0;
         if(isCandidate){
+          var candidateColor = normalizePinColor(m.pinColor);
           var raw = String(m.label || 'Place').trim();
           var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
           var ce=document.createElement('div');
           ce.className='search-pin-wrap';
           ce.style.cursor='pointer';
+          ce.style.setProperty('--pin-color', candidateColor);
           ce.innerHTML='<div class="search-pin-dot"></div><div class="search-pin-label">'+safeLabel(trimmed)+'</div>';
           ce.addEventListener('click', function(ev){
             ev.preventDefault();
@@ -729,10 +739,13 @@ const buildMapHtml = (
       var fitTopPadding = Math.max(40, Number(data.fitTopPadding || 40));
       var fitBottomPadding = Math.max(40, Number(data.fitBottomPadding || 40));
       var fitSidePadding = Math.max(24, Number(data.fitSidePadding || 40));
+      var candidateFitTopPadding = Math.max(40, Number(data.candidateFitTopPadding || fitTopPadding));
+      var candidateFitBottomPadding = Math.max(40, Number(data.candidateFitBottomPadding || fitBottomPadding));
+      var candidateFitSidePadding = Math.max(24, Number(data.candidateFitSidePadding || fitSidePadding));
       var isExplicitCandidateRefit = !!data.fitCandidateBounds;
 
       if(!isOutOfRangeCameraHold && data.fitBounds && bounds && !data.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
-        map.fitBounds(bounds,{padding:{top:fitTopPadding,right:fitSidePadding,bottom:fitBottomPadding,left:fitSidePadding},maxZoom:16,duration:380});
+        map.fitBounds(bounds,{padding:{top:isExplicitCandidateRefit ? candidateFitTopPadding : fitTopPadding,right:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding,bottom:isExplicitCandidateRefit ? candidateFitBottomPadding : fitBottomPadding,left:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding},maxZoom:16,duration:380});
       }
 
       /* — Pan to — */
@@ -1042,6 +1055,9 @@ export const RouteMap = ({
   fitTopPadding = 40,
   fitBottomPadding = 40,
   fitSidePadding = 40,
+  candidateFitTopPadding,
+  candidateFitBottomPadding,
+  candidateFitSidePadding,
   isNavigating = false,
   navigationLocation,
   navigationHeading,
@@ -1084,6 +1100,9 @@ export const RouteMap = ({
     fitTopPadding,
     fitBottomPadding,
     fitSidePadding,
+    candidateFitTopPadding,
+    candidateFitBottomPadding,
+    candidateFitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -1105,6 +1124,9 @@ export const RouteMap = ({
     fitTopPadding,
     fitBottomPadding,
     fitSidePadding,
+    candidateFitTopPadding,
+    candidateFitBottomPadding,
+    candidateFitSidePadding,
     isNavigating,
     navigationLocation,
     navigationHeading,
@@ -1158,6 +1180,7 @@ export const RouteMap = ({
       id: m.id,
       kind: m.kind,
       label: m.label,
+      pinColor: (m as any).pinColor,
       lat: m.coordinate.latitude,
       lng: m.coordinate.longitude,
     }));
@@ -1209,6 +1232,9 @@ export const RouteMap = ({
       fitTopPadding: p.fitTopPadding ?? 40,
       fitBottomPadding: p.fitBottomPadding ?? 40,
       fitSidePadding: p.fitSidePadding ?? 40,
+      candidateFitTopPadding: p.candidateFitTopPadding ?? p.fitTopPadding ?? 40,
+      candidateFitBottomPadding: p.candidateFitBottomPadding ?? p.fitBottomPadding ?? 40,
+      candidateFitSidePadding: p.candidateFitSidePadding ?? p.fitSidePadding ?? 40,
       panTo: panToData,
       navLocation:
         p.isNavigating && p.navigationLocation

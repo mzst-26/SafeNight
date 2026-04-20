@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { memo, useMemo } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { PlacePrediction } from "@/src/types/google";
 
@@ -15,7 +15,6 @@ export type PlaceResultCardProps = {
   meta?: string | null;
   isSafeDirectionsLoading?: boolean;
   isSaved?: boolean;
-  platformVariant?: "phone" | "web";
   onSelect: () => void;
   onSafeDirections: () => void;
   onShare?: () => void;
@@ -30,14 +29,11 @@ function PlaceResultCardComponent({
   meta,
   isSafeDirectionsLoading = false,
   isSaved = false,
-  platformVariant = "phone",
   onSelect,
   onSafeDirections,
   onShare,
   onSave,
 }: PlaceResultCardProps) {
-  const isDesktopWeb = Platform.OS === "web" && platformVariant === "web";
-
   const accessibilityLabel = useMemo(() => {
     const distance = distanceLabel ? `, ${distanceLabel} away` : "";
     return `${place.primaryText}${distance}`;
@@ -46,11 +42,9 @@ function PlaceResultCardComponent({
   return (
     <Pressable
       onPress={onSelect}
-      style={({ pressed, hovered, focused }: any) => [
+      style={({ pressed, focused }: any) => [
         styles.card,
-        isDesktopWeb && styles.cardWeb,
         selected && styles.cardSelected,
-        hovered && isDesktopWeb ? styles.cardHovered : null,
         pressed ? styles.cardPressed : null,
         focused ? styles.cardFocused : null,
       ]}
@@ -85,7 +79,6 @@ function PlaceResultCardComponent({
       ) : null}
 
       <PlaceActionRow
-        platformVariant={platformVariant}
         onSafeDirections={onSafeDirections}
         onShare={onShare}
         onSave={onSave}
@@ -110,18 +103,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: placeCardTokens.spacing.rowGap,
   },
-  cardWeb: {
-    transitionDuration: "120ms",
-    transitionProperty: "border-color, box-shadow, transform",
-  } as any,
   cardSelected: {
     borderColor: placeCardTokens.colors.borderSelected,
     backgroundColor: placeCardTokens.colors.surfaceSelected,
   },
-  cardHovered: {
-    boxShadow: "0 4px 14px rgba(2, 6, 23, 0.08)",
-    transform: "translateY(-1px)",
-  } as any,
   cardPressed: {
     opacity: 0.96,
   },

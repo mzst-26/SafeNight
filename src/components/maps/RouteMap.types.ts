@@ -34,6 +34,12 @@ export type RouteMapProps = {
   fitBottomPadding?: number;
   /** Extra left/right padding (px) used when fitting bounds so points are not clipped by UI rails. */
   fitSidePadding?: number;
+  /** Extra top padding used only when candidate search/filter autofocus triggers a refit. */
+  candidateFitTopPadding?: number;
+  /** Extra bottom padding used only when candidate search/filter autofocus triggers a refit. */
+  candidateFitBottomPadding?: number;
+  /** Extra side padding used only when candidate search/filter autofocus triggers a refit. */
+  candidateFitSidePadding?: number;
   /** Show map zoom controls (+ / -). Useful to disable on phone-web layouts. */
   showZoomControls?: boolean;
   /** Navigation mode — when true, the map follows the user and tilts */
