@@ -194,4 +194,16 @@ describe('RootLayout route flow', () => {
       params: { sharedRouteToken: 'shared-token-123' },
     });
   });
+
+  it('routes share path deep links into home params', async () => {
+    getInitialUrlSpy.mockResolvedValue('safenight://share/shared-token-456');
+
+    await renderRoot();
+    await settle();
+
+    expect(mockRouterReplace).toHaveBeenCalledWith({
+      pathname: '/',
+      params: { sharedRouteToken: 'shared-token-456' },
+    });
+  });
 });

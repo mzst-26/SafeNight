@@ -1,11 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
 
 import { env } from "@/src/config/env";
 import type { LatLng } from "@/src/types/google";
 
 const ACCESS_TOKEN_KEY = "safenight_access_token";
 const SHARE_TIMEOUT_MS = 12_000;
+const SHARE_WEB_BASE_URL = (process.env.EXPO_PUBLIC_SHARE_WEB_BASE_URL || "").trim();
 
 export type ShareRouteCreatePayload = {
   destinationName?: string;
@@ -38,6 +38,17 @@ function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = SH
   });
 }
 
+function buildWebShareUrl(token: string): string {
+  const safeToken = encodeURIComponent(token);
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return `${window.location.origin.replace(/\/$/, "")}/share/${safeToken}`;
+  }
+  if (SHARE_WEB_BASE_URL) {
+    return `${SHARE_WEB_BASE_URL.replace(/\/$/, "")}/share/${safeToken}`;
+  }
+  return "";
+}
+
 export async function createRouteShareLink(
   payload: ShareRouteCreatePayload,
 ): Promise<ShareRouteCreateResponse> {
@@ -59,14 +70,9 @@ export async function createRouteShareLink(
 
   const tokenValue = String(body?.token || "");
   const rawShareUrl = String(body?.shareUrl || "");
-  const webShareUrl =
-    Platform.OS === "web" && typeof window !== "undefined" && tokenValue
-      ? `${window.location.origin}/share/${encodeURIComponent(tokenValue)}`
-      : "";
-  const normalizedShareUrl =
-    Platform.OS === "web" && tokenValue
-      ? webShareUrl || rawShareUrl
-      : rawShareUrl;
+  const webShareUrl = tokenValue ? buildWebShareUrl(tokenValue) : "";
+  const rawIsHttpUrl = /^https?:\/\//i.test(rawShareUrl);
+  const normalizedShareUrl = webShareUrl || (rawIsHttpUrl ? rawShareUrl : "") || rawShareUrl;
 
   return {
     token: tokenValue,

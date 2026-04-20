@@ -56,6 +56,10 @@ services:
         sync: false  # Set manually in Render dashboard
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false  # Set manually in Render dashboard
+      - key: SHARE_WEB_BASE_URL
+        value: https://safenight.netlify.app
+      - key: SHARE_DEEP_LINK_BASE
+        value: safenight://share-route
     healthCheckPath: /api/health  # ─── Safety Compute Service ─────────────────────────────────────────────────
   - type: web
     name: safenighthome-safety

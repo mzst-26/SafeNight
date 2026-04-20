@@ -100,6 +100,15 @@ Built with **React Native (Expo SDK 54)**, **TypeScript**, and a **5-microservic
 | **Pin-drop routing**       | Long-press to set origin/destination directly on the map.                       |
 | **Saved places**           | Local storage for Home, Work, Gym, School + custom labels. Duplicate detection. |
 
+### 🔗 Route Share Links
+
+| Feature                            | Description                                                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **SafeNight URL sharing**          | Shared routes are generated as URL links (`/share/:token`) so links can be sent in any messaging app.     |
+| **Deep-link handoff**              | Share page attempts `safenight://share-route?token=...` first to open the native app when installed.      |
+| **Web fallback auto-open**         | If native app is unavailable, web automatically opens the route in SafeNight home with shared route token. |
+| **Backend token resolver**         | `/api/shares/:token` resolves destination + route path with expiry/revocation checks.                      |
+
 ### 📱 Platform & UX
 
 | Feature                    | Description                                                                                    |
@@ -238,6 +247,8 @@ Built with **React Native (Expo SDK 54)**, **TypeScript**, and a **5-microservic
 │  POST /api/usage/track         Track usage event               │
 │  GET  /api/usage/stats         Aggregated stats                │
 │  GET  /api/subscriptions/check/:feature  Check feature limit   │
+│  POST /api/shares              Create route share token/link    │
+│  GET  /api/shares/:token       Resolve shared route payload     │
 │                                                                │
 │  POST /api/family/create       Create family pack              │
 │  GET  /api/family/my-pack      Get pack details                │

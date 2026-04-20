@@ -48,6 +48,27 @@ export default function SharedRoutePreviewPage() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (isLoading || error || !share || !token) return;
+
+    const deepLink = `safenight://share-route?token=${encodeURIComponent(token)}`;
+
+    try {
+      window.location.href = deepLink;
+    } catch {
+      // Ignore browser-level deep-link failures and continue with web fallback.
+    }
+
+    const fallbackTimer = setTimeout(() => {
+      router.replace({ pathname: '/', params: { sharedRouteToken: token } });
+    }, 900);
+
+    return () => {
+      clearTimeout(fallbackTimer);
+    };
+  }, [error, isLoading, router, share, token]);
+
   const openInApp = () => {
     if (!token) return;
     if (Platform.OS === 'web') {
