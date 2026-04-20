@@ -4,7 +4,7 @@
  * Uses MapTiler Streets vector style for 3D buildings, pitch, and bearing.
  */
 import { useCallback, useEffect, useRef } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import {
@@ -47,16 +47,16 @@ const buildMapHtml = (
       font-size:11px;font-weight:700;white-space:nowrap;letter-spacing:0.3px;
       border:1px solid rgba(255,255,255,0.2);box-shadow:0 2px 8px rgba(0,0,0,.4);
       text-shadow:0 1px 3px rgba(0,0,0,.5);animation:pulse 2s ease-in-out infinite}
-    .search-pin-wrap{position:relative;display:block;width:28px;height:30px;overflow:visible}
-    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:var(--pin-color,#ef4444);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:absolute;left:50%;bottom:6px;transform:translateX(-50%);transform-origin:50% 100%;transition:width .16s ease,height .16s ease}
+    .search-pin-wrap{position:relative;display:block;width:28px;height:30px;pointer-events:auto;overflow:visible}
+    .search-pin-dot{width:18px;height:18px;border-radius:50%;background:var(--pin-color,#ef4444);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:absolute;left:50%;bottom:6px;transform:translateX(-50%) scale(1);transform-origin:50% 100%;transition:transform .16s ease,width .16s ease,height .16s ease}
     .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--pin-color,#ef4444);filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
-    .search-pin-label{position:absolute;left:50%;top:30px;transform:translateX(-50%);background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
+    .search-pin-label{position:absolute;left:50%;top:24px;transform:translateX(-50%);background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
     .search-pin-wrap.selected{width:28px;height:30px}
     .search-pin-wrap.selected{pointer-events:auto}
-    .search-pin-wrap.selected .search-pin-dot{width:24px;height:24px;border-width:3px;box-shadow:0 5px 16px rgba(0,0,0,.34);bottom:6px;transform:translateX(-50%)}
+    .search-pin-wrap.selected .search-pin-dot{width:24px;height:24px;border-width:3px;box-shadow:0 5px 16px rgba(0,0,0,.34);bottom:6px;transform:translateX(-50%) scale(1)}
     .search-pin-wrap.selected .search-pin-dot:after{bottom:-8px;border-left-width:6px;border-right-width:6px;border-top-width:9px}
     .search-pin-wrap.selected .search-pin-label{display:none}
-    .search-pin-card{position:absolute;left:calc(100% + 12px);bottom:2px;margin-top:0;background:#ffffff;border:1px solid rgba(148,163,184,.35);border-radius:12px;padding:8px 10px;min-width:168px;max-width:min(260px,48vw);box-shadow:0 8px 20px rgba(2,6,23,.22);text-shadow:none}
+    .search-pin-card{position:absolute;left:calc(100% + 6px);bottom:2px;margin-top:0;background:#ffffff;border:1px solid rgba(148,163,184,.35);border-radius:12px;padding:8px 10px;min-width:168px;max-width:min(260px,48vw);box-shadow:0 8px 20px rgba(2,6,23,.22);text-shadow:none}
     .search-pin-card-head{display:flex;align-items:flex-start;gap:8px}
     .search-pin-card-title{flex:1;font-size:13px;font-weight:800;color:#0f172a;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .search-pin-card-close{border:0;background:transparent;color:#98a2b3;font-size:16px;font-weight:700;line-height:1;padding:0;margin:0}
@@ -68,8 +68,10 @@ const buildMapHtml = (
     .search-pin-card-btn{border:0;border-radius:8px;background:#1570ef;color:#ffffff;font-size:11px;font-weight:700;padding:6px 10px;cursor:pointer;line-height:1}
     .search-pin-card-btn:active{opacity:.9}
     .search-pin-label-anchor{position:relative;width:1px;height:1px;overflow:visible;pointer-events:none}
-    .pin-size-mid .search-pin-wrap.selected .search-pin-dot{width:22px;height:22px}
-    .pin-size-far .search-pin-wrap.selected .search-pin-dot{width:19px;height:19px}
+    .pin-size-mid .search-pin-dot{transform:translateX(-50%) scale(0.86)}
+    .pin-size-mid .search-pin-wrap.selected .search-pin-dot{transform:translateX(-50%) scale(0.84)}
+    .pin-size-far .search-pin-dot{transform:translateX(-50%) scale(0.7)}
+    .pin-size-far .search-pin-wrap.selected .search-pin-dot{transform:translateX(-50%) scale(0.68)}
     .pin-size-far .search-pin-label{font-size:10px;max-width:120px}
     .pin-card-compact .search-pin-card{padding:7px 9px;min-width:152px;max-width:min(220px,46vw)}
     .pin-card-compact .search-pin-card-title{font-size:12px}
@@ -147,6 +149,148 @@ const buildMapHtml = (
     var isMapDragging = false;
     var lastMapDragAt = 0;
     var candidatePinLabelEntries = [];
+    var pinLabelLayoutScheduler = null;
+    var selectedCandidateCardMarker = null;
+    var selectedCandidateCardData = null;
+    var selectedCandidateCardVisibilityScheduler = null;
+
+    // Prefer close-to-pin placement first; only use wider offsets when overlap requires it.
+    var pinLabelOffsetCandidates = [
+      { x: 0, y: -34 },
+      { x: 0, y: 30 },
+      { x: 50, y: -6 },
+      { x: -50, y: -6 },
+      { x: 38, y: -30 },
+      { x: -38, y: -30 },
+      { x: 38, y: 28 },
+      { x: -38, y: 28 },
+      // Maximum spread fallback (existing max distance behavior)
+      { x: 0, y: -50 },
+      { x: 0, y: 45 },
+      { x: 70, y: -10 },
+      { x: -70, y: -10 },
+      { x: 50, y: -40 },
+      { x: -50, y: -40 },
+      { x: 50, y: 40 },
+      { x: -50, y: 40 }
+    ];
+
+    function rectsOverlap(r1, r2, minGap){
+      var gap = typeof minGap === 'number' ? minGap : 3;
+      return !(r1.right + gap < r2.left || r2.right + gap < r1.left || r1.bottom + gap < r2.top || r2.bottom + gap < r1.top);
+    }
+
+    function rectInsideViewport(rect, margin){
+      var m = typeof margin === 'number' ? margin : 2;
+      var winW = window.innerWidth || 0;
+      var winH = window.innerHeight || 0;
+      return rect.left >= m && rect.right <= winW - m && rect.top >= m && rect.bottom <= winH - m;
+    }
+
+    function layoutCandidatePinLabels(){
+      if(!map || !candidatePinLabelEntries.length) return;
+      if(map.getZoom() < PIN_LABEL_MIN_ZOOM) return;
+
+      var entries = candidatePinLabelEntries.slice().sort(function(a, b){
+        if(Math.abs(a.lat - b.lat) > 0.00001) return b.lat - a.lat;
+        if(Math.abs(a.lng - b.lng) > 0.00001) return a.lng - b.lng;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+
+      var placedRects = [];
+      var unresolved = false;
+
+      entries.forEach(function(entry){
+        var labelEl = entry && entry.labelEl;
+        if(!labelEl || !labelEl.parentElement) return;
+
+        labelEl.parentElement.style.display = '';
+        labelEl.style.display = '';
+
+        var placed = false;
+        for(var i=0;i<pinLabelOffsetCandidates.length;i++){
+          var offset = pinLabelOffsetCandidates[i];
+          labelEl.style.left = offset.x + 'px';
+          labelEl.style.top = offset.y + 'px';
+          labelEl.style.transform = 'translateX(-50%)';
+
+          var rect = labelEl.getBoundingClientRect();
+          var testRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+          if(!rectInsideViewport(testRect, 2)) continue;
+
+          var collides = placedRects.some(function(pr){ return rectsOverlap(testRect, pr, 3); });
+          if(collides) continue;
+
+          placedRects.push(testRect);
+          placed = true;
+          break;
+        }
+
+        if(!placed) unresolved = true;
+      });
+
+      if(unresolved && entries.length >= 2){
+        entries.forEach(function(entry){
+          if(entry && entry.labelEl && entry.labelEl.parentElement){
+            entry.labelEl.parentElement.style.display = 'none';
+          }
+        });
+      }
+    }
+
+    function schedulePinLabelLayout(){
+      if(!map) return;
+      if(pinLabelLayoutScheduler) clearTimeout(pinLabelLayoutScheduler);
+      pinLabelLayoutScheduler = setTimeout(function(){
+        pinLabelLayoutScheduler = null;
+        requestAnimationFrame(layoutCandidatePinLabels);
+      }, 70);
+    }
+
+    function rectContainsPoint(rect, pointX, pointY){
+      return pointX >= rect.left && pointX <= rect.right && pointY >= rect.top && pointY <= rect.bottom;
+    }
+
+    function updateSelectedCandidateCardVisibility(){
+      if(!map || !selectedCandidateCardMarker || !selectedCandidateCardData) return;
+
+      var markerEl = selectedCandidateCardMarker.getElement ? selectedCandidateCardMarker.getElement() : null;
+      if(!markerEl) return;
+
+      var cardEl = markerEl.querySelector('.search-pin-card');
+      if(!cardEl) return;
+
+      var rect = cardEl.getBoundingClientRect();
+      if(!rect || !isFinite(rect.left) || !isFinite(rect.top)) return;
+
+      var overlapCount = 0;
+      var markers = (lastData && lastData.safetyMarkers) ? lastData.safetyMarkers : [];
+      for(var i=0;i<markers.length;i++){
+        var m = markers[i];
+        if(!m) continue;
+        if(selectedCandidateCardData.id && m.id === selectedCandidateCardData.id) continue;
+        if(typeof m.lng !== 'number' || typeof m.lat !== 'number') continue;
+
+        try{
+          var point = map.project([m.lng, m.lat]);
+          if(rectContainsPoint(rect, point.x, point.y)){
+            overlapCount += 1;
+            if(overlapCount > 3) break;
+          }
+        }catch(e){}
+      }
+
+      cardEl.style.display = overlapCount > 3 ? 'none' : 'block';
+    }
+
+    function scheduleSelectedCandidateCardVisibility(){
+      if(!map || !selectedCandidateCardMarker) return;
+      if(selectedCandidateCardVisibilityScheduler) clearTimeout(selectedCandidateCardVisibilityScheduler);
+      selectedCandidateCardVisibilityScheduler = setTimeout(function(){
+        selectedCandidateCardVisibilityScheduler = null;
+        requestAnimationFrame(updateSelectedCandidateCardVisibility);
+      }, 50);
+    }
 
     function shouldIgnoreMarkerSelection(){
       if(isMapDragging) return true;
@@ -381,10 +525,19 @@ const buildMapHtml = (
       map.addLayer({ id:'route-remaining-line', type:'line', source:'route-remaining',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#4285F4','line-opacity':0.85,'line-width':6} });
+      map.addLayer({ id:'safety-circles-halo', type:'circle', source:'safety-markers',
+        paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,['case',['==',['get','isSelected'],1],16,['==',['get','kind'],'via'],15,['==',['get','kind'],'search_candidate'],13,10],
+          11,['case',['==',['get','isSelected'],1],15,['==',['get','kind'],'via'],14,['==',['get','kind'],'search_candidate'],12,9],
+          16,['case',['==',['get','isSelected'],1],14,['==',['get','kind'],'via'],13,['==',['get','kind'],'search_candidate'],11,8]],
+          'circle-color':['get','color'],'circle-opacity':0.24} });
       map.addLayer({ id:'safety-circles', type:'circle', source:'safety-markers',
-        paint:{'circle-radius':['case',['==',['get','kind'],'via'],10,['==',['get','kind'],'search_candidate'],8,4],
-          'circle-color':['get','color'],'circle-opacity':0.9,
-          'circle-stroke-color':'#fff','circle-stroke-width':['case',['==',['get','kind'],'via'],2,['==',['get','kind'],'search_candidate'],2,1]} });
+        paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,['case',['==',['get','isSelected'],1],12,['==',['get','kind'],'via'],11,['==',['get','kind'],'search_candidate'],10,7],
+          11,['case',['==',['get','isSelected'],1],11,['==',['get','kind'],'via'],10,['==',['get','kind'],'search_candidate'],9,6],
+          16,['case',['==',['get','isSelected'],1],10,['==',['get','kind'],'via'],9,['==',['get','kind'],'search_candidate'],8,5]],
+          'circle-color':['get','color'],'circle-opacity':0.95,
+          'circle-stroke-color':'#fff','circle-stroke-width':['interpolate',['linear'],['zoom'],5,['case',['==',['get','isSelected'],1],2.75,['==',['get','kind'],'via'],2.5,['==',['get','kind'],'search_candidate'],2.25,1.5],
+          11,['case',['==',['get','isSelected'],1],2.5,['==',['get','kind'],'via'],2.25,['==',['get','kind'],'search_candidate'],2,1.35],
+          16,['case',['==',['get','isSelected'],1],2.25,['==',['get','kind'],'via'],2,['==',['get','kind'],'search_candidate'],1.75,1.25]]} });
       map.addLayer({ id:'friend-paths-line', type:'line', source:'friend-paths',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':['get','color'],'line-opacity':0.9,'line-width':5} });
@@ -556,6 +709,7 @@ const buildMapHtml = (
         var center = map.getCenter();
         sendMsg('mapCenterChanged', { lat: center.lat, lng: center.lng });
       } catch (e) {}
+      schedulePinLabelLayout();
     });
 
     map.on('zoomstart',function(e){
@@ -564,7 +718,23 @@ const buildMapHtml = (
       }
     });
 
-    map.on('zoom', updatePinLabelVisibility);
+    map.on('zoom', function(){
+      updatePinLabelVisibility();
+      schedulePinLabelLayout();
+      scheduleSelectedCandidateCardVisibility();
+    });
+    map.on('moveend', function(){
+      schedulePinLabelLayout();
+      scheduleSelectedCandidateCardVisibility();
+    });
+    window.addEventListener('resize', function(){
+      schedulePinLabelLayout();
+      scheduleSelectedCandidateCardVisibility();
+    });
+    window.addEventListener('orientationchange', function(){
+      schedulePinLabelLayout();
+      scheduleSelectedCandidateCardVisibility();
+    });
 
     window.recenterNavigation = function(){
       userInteracted = false;
@@ -663,6 +833,9 @@ const buildMapHtml = (
     /* ── Main update (called from RN) ──────────────────────── */
     function updateMap(data){
       if(!styleReady) return;
+      if(data && data.fitCandidateBounds){
+        console.log('[RouteMap WebView] updateMap called, fitCandidateBounds=', data.fitCandidateBounds);
+      }
       var londonCenter = [-0.1278, 51.5074];
       var hasPinpoint = Boolean(data.origin || data.navLocation);
       var focusCandidatesOnly = !!data.fitCandidateBounds;
@@ -673,7 +846,10 @@ const buildMapHtml = (
       var ctrl = document.getElementById('mapCtrl');
       if(ctrl) ctrl.style.display = (isPipMode || isNavMode) ? 'none' : 'flex';
 
+      selectedCandidateCardMarker = null;
+      selectedCandidateCardData = null;
       clearMarkerArray(currentMarkers);
+      candidatePinLabelEntries = [];
       var bounds = null;
 
       /* — Origin marker (blue dot) — hidden during nav — */
@@ -769,42 +945,27 @@ const buildMapHtml = (
         if(isCandidate){
           var isSelectedCandidate = !!m.isSelected;
           var candidateColor = normalizePinColor(m.pinColor);
-          var raw = String(m.label || 'Place').trim();
-          var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
-
-          if(!isSelectedCandidate){
-            var labelWrap = document.createElement('div');
-            labelWrap.className = 'search-pin-label-anchor';
-            labelWrap.innerHTML = '<div class="search-pin-label">'+safeLabel(trimmed)+'</div>';
-            var labelMarker = createViewportMarker({ element: labelWrap, anchor: 'bottom' })
-              .setLngLat([m.lng,m.lat])
-              .addTo(map);
-            currentMarkers.push(labelMarker);
-            var labelEl = labelWrap.querySelector('.search-pin-label');
-            if(labelEl){
-              candidatePinLabelEntries.push({ id: m.id, lat: m.lat, lng: m.lng, labelEl: labelEl });
-            }
-          } else if(!selectedCandidate){
+          if(isSelectedCandidate && !selectedCandidate){
             selectedCandidate = m;
           }
 
           if(data.fitCandidateBounds){
             bounds=extBounds(bounds,[m.lng,m.lat]);
           }
-          return [{type:'Feature',properties:{id:m.id||'',kind:'search_candidate',label:m.label||'candidate',color:candidateColor},
+          return [{type:'Feature',properties:{id:m.id||'',kind:'search_candidate',label:m.label||'candidate',color:candidateColor,isSelected:isSelectedCandidate ? 1 : 0},
             geometry:{type:'Point',coordinates:[m.lng,m.lat]}}];
         }
 
-        if(data.fitCandidateBounds && m.id && String(m.id).indexOf('search-candidate:')===0){
+        if(data.fitCandidateBounds){
           bounds=extBounds(bounds,[m.lng,m.lat]);
         }
-        return [{type:'Feature',properties:{id:m.id||'',kind:m.kind,label:m.label||m.kind,color:mColors[m.kind]||'#94a3b8'},
+        return [{type:'Feature',properties:{id:m.id||'',kind:m.kind,label:m.label||m.kind,color:mColors[m.kind]||'#94a3b8',isSelected:0},
           geometry:{type:'Point',coordinates:[m.lng,m.lat]}}];
       });
       map.getSource('safety-markers').setData({type:'FeatureCollection',features:smF});
 
       if(selectedCandidate){
-        var selectedRaw = String(selectedCandidate.label || 'Place').trim();
+        var selectedRaw = String(selectedCandidate.popupTitle || selectedCandidate.label || 'Place').trim();
         var popupTitle = safeLabel(selectedCandidate.popupTitle || selectedRaw || 'Place');
         var popupSubtitle = safeLabel(selectedCandidate.popupSubtitle || selectedRaw || '');
         var popupMeta = safeLabel(selectedCandidate.popupMeta || '');
@@ -815,7 +976,7 @@ const buildMapHtml = (
         selectedEl.className='search-pin-wrap selected';
         selectedEl.style.cursor='pointer';
         selectedEl.style.setProperty('--pin-color', normalizePinColor(selectedCandidate.pinColor));
-        selectedEl.innerHTML='<div class="search-pin-dot"></div><div class="search-pin-card"><div class="search-pin-card-head"><div class="search-pin-card-title">'+popupTitle+'</div><button class="search-pin-card-close" type="button" aria-label="Close details">×</button></div><div class="search-pin-card-subtitle">'+popupSubtitle+'</div>'+
+        selectedEl.innerHTML='<div class="search-pin-card"><div class="search-pin-card-head"><div class="search-pin-card-title">'+popupTitle+'</div><button class="search-pin-card-close" type="button" aria-label="Close details">×</button></div><div class="search-pin-card-subtitle">'+popupSubtitle+'</div>'+
           (popupMeta ? '<div class="search-pin-card-meta">'+popupMeta+'</div>' : '')+
           (popupCoords ? '<div class="search-pin-card-coords">'+popupCoords+'</div>' : '')+
           '<div class="search-pin-card-actions"><button class="search-pin-card-btn" type="button">'+popupButtonLabel+'</button></div></div>';
@@ -831,7 +992,7 @@ const buildMapHtml = (
             ev.preventDefault();
             ev.stopPropagation();
             if(shouldIgnoreMarkerSelection()) return;
-            sendMsg('selectMarker', { id:selectedCandidate.id });
+            sendMsg('findSafeRoutes', { id:selectedCandidate.id });
           });
         }
         var selectedCloseEl = selectedEl.querySelector('.search-pin-card-close');
@@ -842,11 +1003,13 @@ const buildMapHtml = (
             sendMsg('dismissMarkerDetails', { id:selectedCandidate.id });
           });
         }
+        selectedCandidateCardData = selectedCandidate;
         currentMarkers.push(
-          createViewportMarker({ element:selectedEl, anchor:'bottom' })
+          selectedCandidateCardMarker = createViewportMarker({ element:selectedEl, anchor:'bottom' })
             .setLngLat([selectedCandidate.lng,selectedCandidate.lat])
             .addTo(map)
         );
+        scheduleSelectedCandidateCardVisibility();
       }
 
       /* — Road labels (navigation mode only) — */
@@ -871,9 +1034,14 @@ const buildMapHtml = (
       var isExplicitCandidateRefit = !!data.fitCandidateBounds;
 
       if(!isOutOfRangeCameraHold && data.fitBounds && bounds && !data.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
+        if(isExplicitCandidateRefit){
+          console.log('[RouteMap WebView] Calling fitBounds for candidate autofocus');
+        }
         map.stop();
         map.fitBounds(bounds,{padding:{top:isExplicitCandidateRefit ? candidateFitTopPadding : fitTopPadding,right:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding,bottom:isExplicitCandidateRefit ? candidateFitBottomPadding : fitBottomPadding,left:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding},maxZoom:16,duration:420});
       }
+
+      scheduleSelectedCandidateCardVisibility();
 
       /* — Pan to — */
       if(!isOutOfRangeCameraHold && !isUserCameraOverride && data.panTo && !isExplicitCandidateRefit){
@@ -1015,6 +1183,8 @@ const buildMapHtml = (
           map.touchZoomRotate.disableRotation();
         }
       }
+
+      schedulePinLabelLayout();
     }
 
     /* ── Map type switching — */
@@ -1213,6 +1383,7 @@ export const RouteMap = ({
   vizProgressMessage = null,
   onSelectRoute,
   onSelectMarker,
+  onFindSafeRoutes,
   onDismissMarkerDetails,
   onLongPress,
   onMapPress,
@@ -1283,6 +1454,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onFindSafeRoutes,
     onDismissMarkerDetails,
     onMapCenterChanged,
     onNavigationFollowChange,
@@ -1293,6 +1465,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onFindSafeRoutes,
     onDismissMarkerDetails,
     onMapCenterChanged,
     onNavigationFollowChange,
@@ -1356,8 +1529,13 @@ export const RouteMap = ({
 
     const fitCandidateBounds =
       (p.fitCandidateBoundsToken ?? 0) !== prevFitCandidateBoundsTokenRef.current;
-    if (fitCandidateBounds) {
+    if (fitCandidateBounds && mkrs.length > 0) {
       prevFitCandidateBoundsTokenRef.current = p.fitCandidateBoundsToken ?? 0;
+    }
+    if (fitCandidateBounds && mkrs.length === 0) {
+      console.log(
+        "[RouteMap] fitCandidateBoundsToken changed but no candidate markers yet. Skipping injection.",
+      );
     }
 
     const hasExplicitFitTargets = Boolean(p.destination) || p.routes.length > 0;
@@ -1405,7 +1583,22 @@ export const RouteMap = ({
     };
 
     const js = `try{updateMap(${JSON.stringify(payload)})}catch(e){}true;`;
-    webViewRef.current.injectJavaScript(js);
+    const shouldDelayForAndroid = fitCandidateBounds;
+    console.log(
+      `[RouteMap] Injecting JavaScript update (fitCandidateBounds=${fitCandidateBounds}, markers=${mkrs.length})`,
+    );
+    if (Platform.OS === "android" && shouldDelayForAndroid) {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (!readyRef.current || !webViewRef.current) {
+            return;
+          }
+          webViewRef.current.injectJavaScript(js);
+        }, 24);
+      });
+    } else {
+      webViewRef.current.injectJavaScript(js);
+    }
   }, []);
 
   // Push whenever any data changes
@@ -1433,6 +1626,15 @@ export const RouteMap = ({
     outOfRangeCueSignal,
     pushUpdate,
   ]);
+
+  // Trigger candidate refit immediately when token changes.
+  useEffect(() => {
+    console.log(
+      "[RouteMap] fitCandidateBoundsToken changed to",
+      fitCandidateBoundsToken,
+    );
+    pushUpdate();
+  }, [fitCandidateBoundsToken, pushUpdate]);
 
   // ── Immediate PiP mode injection — bypasses the full pushUpdate cycle.
   // Fixes the 1+ second zoom delay: camera snaps to pip zoom as soon as
@@ -1506,6 +1708,9 @@ export const RouteMap = ({
             break;
           case "selectMarker":
             cbs.onSelectMarker?.(msg.id);
+            break;
+          case "findSafeRoutes":
+            cbs.onFindSafeRoutes?.(msg.id);
             break;
           case "dismissMarkerDetails":
             cbs.onDismissMarkerDetails?.(msg.id);

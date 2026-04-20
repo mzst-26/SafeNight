@@ -23,7 +23,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     .search-pin-wrap{position:relative;display:block;width:28px;height:30px;pointer-events:none;overflow:visible}
     .search-pin-dot{width:18px;height:18px;border-radius:50%;background:var(--pin-color,#ef4444);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);position:absolute;left:50%;bottom:6px;transform:translateX(-50%) scale(1);transform-origin:50% 100%;transition:transform .16s ease}
     .search-pin-dot:after{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--pin-color,#ef4444);filter:drop-shadow(0 1px 1px rgba(0,0,0,.22))}
-    .search-pin-label{position:absolute;left:50%;top:30px;transform:translateX(-50%);background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
+    .search-pin-label{position:absolute;left:50%;top:24px;transform:translateX(-50%);background:transparent;color:#0b1220;border:0;border-radius:0;padding:0;font-size:11px;font-weight:800;line-height:1.15;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none;text-shadow:-1px 0 rgba(255,255,255,.96),0 1px rgba(255,255,255,.96),1px 0 rgba(255,255,255,.96),0 -1px rgba(255,255,255,.96),0 0 2px rgba(255,255,255,.9)}
     .search-pin-wrap.selected{width:28px;height:30px}
     .search-pin-wrap.selected{pointer-events:auto}
     .search-pin-wrap.selected .search-pin-dot{width:24px;height:24px;border-width:3px;box-shadow:0 5px 16px rgba(0,0,0,.34);bottom:6px;transform:translateX(-50%) scale(1)}
@@ -96,9 +96,126 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     var outOfRangeCameraHoldUntil = 0;
     var outOfRangeBlinkTimers = [];
     var userCameraOverrideUntil = 0;
-    var PIN_LABEL_MIN_ZOOM = 16.0;
+    var PIN_LABEL_MIN_ZOOM = 13.0;
     var isMapDragging = false;
     var lastMapDragAt = 0;
+    
+    // Offset strategies for non-overlapping label placement (relative to pin center)
+    // Prefer close placement first; only spread out when overlap requires it.
+    var pinLabelOffsetCandidates = [
+      { x: 0, y: -34 },
+      { x: 0, y: 30 },
+      { x: 50, y: -6 },
+      { x: -50, y: -6 },
+      { x: 38, y: -30 },
+      { x: -38, y: -30 },
+      { x: 38, y: 28 },
+      { x: -38, y: 28 },
+      // Maximum spread fallback (existing max distance behavior)
+      { x: 0, y: -50 },
+      { x: 0, y: 45 },
+      { x: 70, y: -10 },
+      { x: -70, y: -10 },
+      { x: 50, y: -40 },
+      { x: -50, y: -40 },
+      { x: 50, y: 40 },
+      { x: -50, y: 40 }
+    ];
+
+    var pinLabelLayoutScheduler = null;
+    var candidatePinLabelMarkers = [];
+
+    function rectsOverlap(r1, r2, minGap){
+      minGap = minGap || 3;
+      return !(r1.right + minGap < r2.left || r2.right + minGap < r1.left || 
+               r1.bottom + minGap < r2.top || r2.bottom + minGap < r1.top);
+    }
+
+    function rectInsideViewport(rect, margin){
+      margin = margin || 2;
+      var winW = window.innerWidth, winH = window.innerHeight;
+      return rect.left >= margin && rect.right <= winW - margin && 
+             rect.top >= margin && rect.bottom <= winH - margin;
+    }
+
+    function layoutCandidatePinLabels(){
+      if(!candidatePinLabelMarkers.length) return;
+      
+      // Sort by lat/lng for deterministic placement
+      var entries = candidatePinLabelMarkers.slice().sort(function(a, b){
+        if(Math.abs(a.lat - b.lat) > 0.00001) return b.lat - a.lat;
+        if(Math.abs(a.lng - b.lng) > 0.00001) return a.lng - b.lng;
+        return (a.id || '').localeCompare(b.id || '');
+      });
+
+      var placedRects = [];
+      var unresolved = false;
+
+      entries.forEach(function(entry){
+        if(!entry.el) return;
+        var placed = false;
+        var labelWrap = entry.el.querySelector('.search-pin-label');
+        if(!labelWrap) return;
+
+        // Always reset from prior layout pass before probing positions.
+        labelWrap.style.display = '';
+
+        // Try each offset candidate
+        for(var i = 0; i < pinLabelOffsetCandidates.length; i++){
+          var candidate = pinLabelOffsetCandidates[i];
+          
+          // Temporarily apply offset
+          labelWrap.style.position = 'absolute';
+          labelWrap.style.left = candidate.x + 'px';
+          labelWrap.style.top = candidate.y + 'px';
+          labelWrap.style.transform = 'translateX(-50%)';
+          
+          // Measure
+          var rect = labelWrap.getBoundingClientRect();
+          var testRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+
+          // Check viewport bounds
+          if(!rectInsideViewport(testRect, 2)){
+            continue;
+          }
+
+          // Check collision with already placed labels
+          var collides = placedRects.some(function(pr){
+            return rectsOverlap(testRect, pr, 3);
+          });
+
+          if(!collides){
+            placedRects.push(testRect);
+            placed = true;
+            break;
+          }
+        }
+
+        if(!placed){
+          unresolved = true;
+          labelWrap.style.display = 'none';
+        }
+      });
+
+      // Hide all labels if too many unresolved collisions
+      if(unresolved && candidatePinLabelMarkers.length >= 2){
+        candidatePinLabelMarkers.forEach(function(e){
+          var lw = e.el ? e.el.querySelector('.search-pin-label') : null;
+          if(lw) lw.style.display = 'none';
+        });
+      }
+    }
+
+    function schedulePinLabelLayout(){
+      if(!map) return;
+      if(pinLabelLayoutScheduler) clearTimeout(pinLabelLayoutScheduler);
+      pinLabelLayoutScheduler = setTimeout(function(){
+        pinLabelLayoutScheduler = null;
+        requestAnimationFrame(function(){
+          layoutCandidatePinLabels();
+        });
+      }, 70);
+    }
 
     function shouldIgnoreMarkerSelection(){
       if(isMapDragging) return true;
@@ -117,9 +234,9 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       else if(zoom < 14.8) document.body.classList.add('pin-size-mid');
       else document.body.classList.add('pin-size-near');
 
-      if(zoom < 14.2) document.body.classList.add('hide-selected-pin-cards');
+      if(zoom < 13.0) document.body.classList.add('hide-selected-pin-cards');
       else document.body.classList.remove('hide-selected-pin-cards');
-      if(zoom < 15.2) document.body.classList.add('pin-card-compact');
+      if(zoom < 14.0) document.body.classList.add('pin-card-compact');
       else document.body.classList.remove('pin-card-compact');
     }
 
@@ -165,6 +282,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       layerFriends.clearLayers();
       layerLabels.clearLayers();
       layerRange.clearLayers();
+      candidatePinLabelMarkers = [];
     }
 
     function clearOutOfRangeBlink(){
@@ -410,6 +528,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         lastMapDragAt = Date.now();
         const center = map.getCenter();
         sendMsg('mapCenterChanged', { lat: center.lat, lng: center.lng });
+        schedulePinLabelLayout();
       });
 
       map.on('zoomstart', function(e){
@@ -420,7 +539,15 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
 
       map.on('wheel', function(){ markUserCameraOverride(); });
 
-      map.on('zoomend', updatePinLabelVisibility);
+      map.on('zoomend', function(){
+        updatePinLabelVisibility();
+        schedulePinLabelLayout();
+      });
+
+      map.on('moveend', schedulePinLabelLayout);
+      
+      window.addEventListener('resize', schedulePinLabelLayout);
+      window.addEventListener('orientationchange', schedulePinLabelLayout);
       updatePinLabelVisibility();
 
       ready = true;
@@ -491,7 +618,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         if(isCandidate){
           var isSelectedCandidate = !!m.isSelected;
           var candidateColor = normalizePinColor(m.pinColor);
-          var raw = String(m.label || 'Place').trim();
+          var raw = String(m.popupTitle || m.label || 'Place').trim();
           var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
           var popupTitle = safeLabel(m.popupTitle || raw || 'Place');
           var popupSubtitle = safeLabel(m.popupSubtitle || raw || '');
@@ -511,6 +638,15 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
             iconAnchor:[17,34],
           });
           var pin=L.marker([m.lat,m.lng],{icon:icon}).addTo(layerMarkers);
+          
+          // Track unselected labels for collision layout
+          if(!isSelectedCandidate){
+            var markerEl = pin.getElement && pin.getElement();
+            if(markerEl){
+              candidatePinLabelMarkers.push({ id: m.id, lat: m.lat, lng: m.lng, el: markerEl });
+            }
+          }
+          
           pin.on('click', function(){
             if(shouldIgnoreMarkerSelection()) return;
             sendMsg('selectMarker', { id:m.id });
@@ -523,7 +659,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
                 ev.preventDefault();
                 ev.stopPropagation();
                 if(shouldIgnoreMarkerSelection()) return;
-                sendMsg('selectMarker', { id:m.id });
+                sendMsg('findSafeRoutes', { id:m.id });
               });
             }
             var closeEl = markerEl ? markerEl.querySelector('.search-pin-card-close') : null;
@@ -631,6 +767,9 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
           lastOutOfRangeCueToken = d.outOfRangeCueToken;
         }
       }
+
+      // Trigger label layout after all markers added
+      schedulePinLabelLayout();
     }
 
     window.updateMap = updateMap;
@@ -698,6 +837,7 @@ export const RouteMap = ({
   vizProgressMessage = null,
   onSelectRoute,
   onSelectMarker,
+  onFindSafeRoutes,
   onDismissMarkerDetails,
   onLongPress,
   onMapPress,
@@ -718,6 +858,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onFindSafeRoutes,
     onDismissMarkerDetails,
     onNavigationFollowChange,
     onUserInteraction,
@@ -728,6 +869,7 @@ export const RouteMap = ({
     onLongPress,
     onSelectRoute,
     onSelectMarker,
+    onFindSafeRoutes,
     onDismissMarkerDetails,
     onNavigationFollowChange,
     onUserInteraction,
@@ -941,6 +1083,9 @@ export const RouteMap = ({
             break;
           case "selectMarker":
             cbs.onSelectMarker?.(msg.id);
+            break;
+          case "findSafeRoutes":
+            cbs.onFindSafeRoutes?.(msg.id);
             break;
           case "dismissMarkerDetails":
             cbs.onDismissMarkerDetails?.(msg.id);

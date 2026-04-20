@@ -12,4 +12,9 @@ describe('RouteMap.web buildLeafletHtml', () => {
     const html = buildLeafletHtml(false);
     expect(html).toContain('<div id="map"></div>');
   });
+
+  it('routes selected candidate card button to safe-route action instead of plain selection', () => {
+    const html = buildLeafletHtml(false);
+    expect(html).toContain("sendMsg('findSafeRoutes', { id:m.id });");
+  });
 });
