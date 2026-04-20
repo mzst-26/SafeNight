@@ -232,6 +232,9 @@ const cityBiasCache     = makeTTLCache(1000, CITY_BIAS_CACHE_TTL_MS);
 
 let lastNominatimCall = 0;
 const nominatimThrottle = async () => {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
   const elapsed = Date.now() - lastNominatimCall;
   if (elapsed < 300) {
     await new Promise((r) => setTimeout(r, 300 - elapsed));
