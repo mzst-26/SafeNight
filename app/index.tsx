@@ -92,9 +92,11 @@ const PLACE_CATEGORY_CHIPS: {
   { key: "fuel", label: "Fuel", query: "fuel station", icon: "car-sport-outline" },
   { key: "shop", label: "Shops", query: "shops", icon: "bag-handle-outline" },
   { key: "food", label: "Food", query: "restaurants", icon: "restaurant-outline" },
+  { key: "school", label: "School", query: "schools", icon: "school-outline" },
   { key: "parking", label: "Parking", query: "parking", icon: "car-outline" },
   { key: "pharmacy", label: "Pharmacy", query: "pharmacy", icon: "medkit-outline" },
   { key: "hospital", label: "Hospital", query: "hospital", icon: "medical-outline" },
+  { key: "public_place", label: "Public Places", query: "public places", icon: "business-outline" },
   { key: "bank", label: "Bank", query: "bank", icon: "cash-outline" },
   { key: "hotel", label: "Hotel", query: "hotel", icon: "bed-outline" },
 ];
@@ -102,7 +104,7 @@ const PLACE_CATEGORY_CHIPS: {
 const MILES_TO_METERS = 1609.34;
 const SEARCH_AROUND_MAX_MILES = 30;
 const SHEET_RESULTS_RENDER_LIMIT = 20;
-const SEARCH_DISTANCE_FILTER_OPTIONS_MILES = [1, 2, 3, 5, 10] as const;
+const SEARCH_DISTANCE_FILTER_OPTIONS_MILES = [1, 2, 3, 4, 5, 10] as const;
 
 const FEATURE_FLAGS = {
   phoneResultsCardsV1: true,
@@ -204,6 +206,7 @@ export default function HomeScreen() {
   const [hasExplicitCandidateSelection, setHasExplicitCandidateSelection] = useState(false);
   const previousSearchQueryRef = useRef("");
   const lastCandidateAutoFitKeyRef = useRef("");
+  const lastAutoExpandedZoneKeyRef = useRef("");
   const appliedShareTokenRef = useRef<string | null>(null);
 
   const sharedRouteToken = useMemo(() => {
@@ -213,7 +216,7 @@ export default function HomeScreen() {
 
   const maxDistanceFilterMiles = useMemo(() => {
     const tier = (subscriptionTier || "free").toLowerCase();
-    return tier === "free" ? 3 : 10;
+    return tier === "free" ? 5 : 10;
   }, [subscriptionTier]);
 
   const distanceFilterOptionsMiles = useMemo(

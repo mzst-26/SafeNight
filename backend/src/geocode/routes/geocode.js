@@ -58,6 +58,12 @@ const OVERPASS_AMENITY_WHITELIST = new Set([
   'hospital',
   'clinic',
   'doctors',
+  'school',
+  'university',
+  'college',
+  'library',
+  'townhall',
+  'community_centre',
   'bank',
   'atm',
   'post_office',
@@ -186,6 +192,14 @@ const CATEGORY_EXPANSIONS = [
   {
     pattern: /\b(hospital|clinic|doctor|gp)\b/i,
     queries: ['hospital', 'clinic', 'doctor surgery'],
+  },
+  {
+    pattern: /\b(school|schools|university|college|academy|campus)\b/i,
+    queries: ['school', 'university', 'college'],
+  },
+  {
+    pattern: /\b(public\s*place|public\s*places|community\s*centre|community\s*center|library|town\s*hall|civic)\b/i,
+    queries: ['community centre', 'library', 'town hall'],
   },
   {
     pattern: /\b(bank|atm|cash\s*machine)\b/i,
