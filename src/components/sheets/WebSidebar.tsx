@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
   } as any,
   sidebarInner: {
     flex: 1,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   searchArea: {
     paddingTop: 12,
