@@ -206,12 +206,15 @@ export default function HomeScreen() {
   const [isSearchAroundLoading, setIsSearchAroundLoading] = useState(false);
   const [searchDistanceFilterMiles, setSearchDistanceFilterMiles] = useState<number>(3);
   const [sheetPlacesFitToken, setSheetPlacesFitToken] = useState(0);
+  const [androidFitCandidateBoundsToken, setAndroidFitCandidateBoundsToken] = useState(0);
   const [activePlaceCategoryKey, setActivePlaceCategoryKey] = useState<string | null>(null);
   const [selectedSheetCandidateId, setSelectedSheetCandidateId] = useState<string | null>(null);
   const [hasExplicitCandidateSelection, setHasExplicitCandidateSelection] = useState(false);
   const previousSearchQueryRef = useRef("");
+  const lastMapCenterForSearchRef = useRef<LatLng | null>(null);
   const lastCandidateAutoFitKeyRef = useRef("");
   const lastAutoExpandedZoneKeyRef = useRef("");
+  const lastAndroidFitKeyRef = useRef("");
   const appliedShareTokenRef = useRef<string | null>(null);
 
   const sharedRouteToken = useMemo(() => {
@@ -1009,9 +1012,13 @@ export default function HomeScreen() {
   }, [h.nav, setToast]);
 
   const handleMoveToCurrentLocation = useCallback(() => {
-    setIsFindingCurrentLocation(true);
-    if (!h.location) return;
-    h.handlePanTo(h.location);
+    moveToCurrentLocation({
+      location: h.location,
+      refreshLocation: h.refreshLocation,
+      panToLocation: h.handlePanTo,
+      setIsFindingCurrentLocation,
+      setIsAtCurrentLocation,
+    });
   }, [h]);
 
   const handleMapPress = useCallback(
