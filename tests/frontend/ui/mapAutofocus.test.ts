@@ -31,12 +31,12 @@ describe('RouteMap.native Android autofocus fix — fitCandidateBoundsToken hand
   });
 
   it('has dedicated token effect that immediately calls pushUpdate', () => {
-    const tokenEffectPattern = /useEffect\(\(\) => \{[\s\S]*?pushUpdate\(\);[\s\S]*?\}, \[fitCandidateBoundsToken, pushUpdate\]\);/;
+    const tokenEffectPattern = /useEffect\(\(\) => \{[\s\S]*?pushUpdate\(\);[\s\S]*?\}, \[fitCandidateBoundsToken, androidFitCandidateBoundsToken, pushUpdate\]\);/;
     expect(nativeSource).toMatch(tokenEffectPattern);
   });
 
   it('guards candidate refit when there are no markers', () => {
-    expect(nativeSource).toContain('if (fitCandidateBounds && mkrs.length === 0) {');
+    expect(nativeSource).toContain('if ((fitCandidateBounds || androidFitCandidateBounds) && mkrs.length === 0) {');
     expect(nativeSource).toContain('Skipping injection.');
   });
 
@@ -44,7 +44,8 @@ describe('RouteMap.native Android autofocus fix — fitCandidateBoundsToken hand
     expect(nativeSource).toContain('const mkrs = p.safetyMarkers.map((m) => ({');
     expect(nativeSource).toContain('lat: m.coordinate.latitude,');
     expect(nativeSource).toContain('lng: m.coordinate.longitude,');
-    expect(nativeSource).toContain('fitCandidateBounds,');
+    expect(nativeSource).toContain('fitCandidateBounds: explicitCandidateRefit,');
+    expect(nativeSource).toContain('androidFitCandidateBounds,');
     expect(nativeSource).toContain('safetyMarkers: mkrs,');
   });
 
@@ -113,7 +114,7 @@ describe('RouteMap.native Android autofocus fix — fitCandidateBoundsToken hand
   });
 
   it('webview fitBounds gate still requires bounds and no blocking camera state', () => {
-    expect(nativeSource).toContain('if(!isOutOfRangeCameraHold && data.fitBounds && bounds && !data.navLocation');
+    expect(nativeSource).toContain('if(!isOutOfRangeCameraHold && data.fitBounds && hasValidBounds && !data.navLocation');
   });
 
   it('emits Android diagnostics for tracing token changes and fit bounds execution', () => {

@@ -817,6 +817,10 @@ const buildMapHtml = (
       return [[Math.min(b[0][0],c[0]),Math.min(b[0][1],c[1])],[Math.max(b[1][0],c[0]),Math.max(b[1][1],c[1])]];
     }
 
+    function hasFiniteLngLat(lng,lat){
+      return Number.isFinite(Number(lng)) && Number.isFinite(Number(lat));
+    }
+
     function makeCirclePolygon(centerLng,centerLat,radiusKm,steps){
       steps=steps||64;
       var coords=[];
@@ -853,17 +857,17 @@ const buildMapHtml = (
       var bounds = null;
 
       /* — Origin marker (blue dot) — hidden during nav — */
-      if(data.origin && !data.navLocation){
+      if(data.origin && !data.navLocation && hasFiniteLngLat(data.origin.lng,data.origin.lat)){
         var oe=document.createElement('div');
         oe.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#4285F4" stroke="white" stroke-width="3"/><circle cx="12" cy="12" r="3" fill="white"/></svg>';
         currentMarkers.push(createViewportMarker({element:oe,anchor:'center'}).setLngLat([data.origin.lng,data.origin.lat]).addTo(map));
-        if(!focusCandidatesOnly){
+        if(data.fitCandidateBounds || !focusCandidatesOnly){
           bounds=extBounds(bounds,[data.origin.lng,data.origin.lat]);
         }
       }
 
       /* — Destination marker (red pin) — */
-      if(data.destination){
+      if(data.destination && hasFiniteLngLat(data.destination.lng,data.destination.lat)){
         var de=document.createElement('div');
         de.innerHTML='<svg width="28" height="40" viewBox="0 0 28 40"><path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.3 21.7 0 14 0z" fill="#ef4444" stroke="white" stroke-width="1.5"/><circle cx="14" cy="14" r="5" fill="white"/></svg>';
         currentMarkers.push(createViewportMarker({element:de,anchor:'bottom'}).setLngLat([data.destination.lng,data.destination.lat]).addTo(map));
@@ -941,6 +945,9 @@ const buildMapHtml = (
       var mColors={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
       var selectedCandidate = null;
       var smF=(data.safetyMarkers||[]).flatMap(function(m){
+        if(!hasFiniteLngLat(m.lng,m.lat)){
+          return [];
+        }
         var isCandidate = m.id && String(m.id).indexOf('search-candidate:')===0;
         if(isCandidate){
           var isSelectedCandidate = !!m.isSelected;
@@ -1032,13 +1039,14 @@ const buildMapHtml = (
       var candidateFitBottomPadding = Math.max(40, Number(data.candidateFitBottomPadding || fitBottomPadding));
       var candidateFitSidePadding = Math.max(24, Number(data.candidateFitSidePadding || fitSidePadding));
       var isExplicitCandidateRefit = !!data.fitCandidateBounds;
+      var hasValidBounds = !!(bounds && hasFiniteLngLat(bounds[0][0],bounds[0][1]) && hasFiniteLngLat(bounds[1][0],bounds[1][1]));
 
-      if(!isOutOfRangeCameraHold && data.fitBounds && bounds && !data.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
+      if(!isOutOfRangeCameraHold && data.fitBounds && hasValidBounds && !data.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
         if(isExplicitCandidateRefit){
           console.log('[RouteMap WebView] Calling fitBounds for candidate autofocus');
         }
         map.stop();
-        map.fitBounds(bounds,{padding:{top:isExplicitCandidateRefit ? candidateFitTopPadding : fitTopPadding,right:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding,bottom:isExplicitCandidateRefit ? candidateFitBottomPadding : fitBottomPadding,left:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding},maxZoom:16,duration:420});
+        map.fitBounds(bounds,{padding:{top:isExplicitCandidateRefit ? candidateFitTopPadding : fitTopPadding,right:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding,bottom:isExplicitCandidateRefit ? candidateFitBottomPadding : fitBottomPadding,left:isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding},maxZoom:isExplicitCandidateRefit ? Number(data.androidCandidateRefitMaxZoom || 12) : 16,duration:420});
       }
 
       scheduleSelectedCandidateCardVisibility();
@@ -1363,6 +1371,8 @@ export const RouteMap = ({
   roadLabels = [],
   panTo,
   fitCandidateBoundsToken = 0,
+  androidFitCandidateBoundsToken = 0,
+  androidCandidateRefitMaxZoom,
   fitTopPadding = 40,
   fitBottomPadding = 40,
   fitSidePadding = 40,
@@ -1397,6 +1407,7 @@ export const RouteMap = ({
   const prevGeoKeyRef = useRef("");
   const prevPanKeyRef = useRef(-1);
   const prevFitCandidateBoundsTokenRef = useRef(0);
+  const prevAndroidFitCandidateBoundsTokenRef = useRef(0);
 
   // Keep latest props in refs so pushUpdate always reads fresh values
   // (fixes the stale-closure problem when called from the 'ready' handler)
@@ -1410,6 +1421,8 @@ export const RouteMap = ({
     roadLabels,
     panTo,
     fitCandidateBoundsToken,
+    androidFitCandidateBoundsToken,
+    androidCandidateRefitMaxZoom,
     fitTopPadding,
     fitBottomPadding,
     fitSidePadding,
@@ -1434,6 +1447,8 @@ export const RouteMap = ({
     roadLabels,
     panTo,
     fitCandidateBoundsToken,
+    androidFitCandidateBoundsToken,
+    androidCandidateRefitMaxZoom,
     fitTopPadding,
     fitBottomPadding,
     fitSidePadding,
@@ -1529,17 +1544,26 @@ export const RouteMap = ({
 
     const fitCandidateBounds =
       (p.fitCandidateBoundsToken ?? 0) !== prevFitCandidateBoundsTokenRef.current;
-    if (fitCandidateBounds && mkrs.length > 0) {
+    const androidFitCandidateBounds =
+      (p.androidFitCandidateBoundsToken ?? 0) !==
+      prevAndroidFitCandidateBoundsTokenRef.current;
+    if (fitCandidateBounds) {
       prevFitCandidateBoundsTokenRef.current = p.fitCandidateBoundsToken ?? 0;
     }
-    if (fitCandidateBounds && mkrs.length === 0) {
+    if (androidFitCandidateBounds) {
+      prevAndroidFitCandidateBoundsTokenRef.current =
+        p.androidFitCandidateBoundsToken ?? 0;
+    }
+    if ((fitCandidateBounds || androidFitCandidateBounds) && mkrs.length === 0) {
       console.log(
-        "[RouteMap] fitCandidateBoundsToken changed but no candidate markers yet. Skipping injection.",
+        "[RouteMap] fitCandidateBounds trigger changed but no candidate markers yet. Skipping injection.",
       );
     }
 
     const hasExplicitFitTargets = Boolean(p.destination) || p.routes.length > 0;
-    const fitBounds = fitCandidateBounds || (geoChanged && hasExplicitFitTargets);
+    const fitBounds =
+      fitCandidateBounds || androidFitCandidateBounds || (geoChanged && hasExplicitFitTargets);
+    const explicitCandidateRefit = fitCandidateBounds || androidFitCandidateBounds;
 
     // panTo
     let panToData: { lat: number; lng: number } | null = null;
@@ -1556,7 +1580,9 @@ export const RouteMap = ({
       safetyMarkers: mkrs,
       roadLabels: labels,
       fitBounds,
-      fitCandidateBounds,
+      fitCandidateBounds: explicitCandidateRefit,
+      androidFitCandidateBounds,
+      androidCandidateRefitMaxZoom,
       fitTopPadding: p.fitTopPadding ?? 40,
       fitBottomPadding: p.fitBottomPadding ?? 40,
       fitSidePadding: p.fitSidePadding ?? 40,
@@ -1599,7 +1625,7 @@ export const RouteMap = ({
     } else {
       webViewRef.current.injectJavaScript(js);
     }
-  }, []);
+  }, [androidCandidateRefitMaxZoom]);
 
   // Push whenever any data changes
   useEffect(() => {
@@ -1634,7 +1660,7 @@ export const RouteMap = ({
       fitCandidateBoundsToken,
     );
     pushUpdate();
-  }, [fitCandidateBoundsToken, pushUpdate]);
+  }, [fitCandidateBoundsToken, androidFitCandidateBoundsToken, pushUpdate]);
 
   // ── Immediate PiP mode injection — bypasses the full pushUpdate cycle.
   // Fixes the 1+ second zoom delay: camera snaps to pip zoom as soon as

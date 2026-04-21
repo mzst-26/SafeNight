@@ -1152,6 +1152,59 @@ export default function HomeScreen() {
     );
   }, [distanceFilteredSheetPlaces, activePlaceCategoryKey]);
 
+  const androidCandidateRefitMaxZoom = useMemo(() => {
+    if (Platform.OS !== "android") return 16;
+
+    const distanceBiasByMiles: Record<number, number> = {
+      1: 0,
+      2: 0.15,
+      3: 0.3,
+      4: 0.5,
+      5: 0.7,
+      10: 1.0,
+    };
+
+    const count = visibleFilteredSheetPlaces.length;
+    const countBias =
+      count <= 1 ? 0.0 :
+      count <= 3 ? 0.35 :
+      count <= 6 ? 0.65 :
+      count <= 10 ? 0.95 :
+      1.2;
+
+    const distanceBias = distanceBiasByMiles[searchDistanceFilterMiles] ?? 0;
+    return Math.max(10.8, Math.min(13.2, 12.2 + distanceBias - countBias));
+  }, [searchDistanceFilterMiles, visibleFilteredSheetPlaces.length]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    const query = (h.destSearch?.query || "").trim().toLowerCase();
+    if (query.length < 2) {
+      lastAndroidFitKeyRef.current = "";
+      return;
+    }
+
+    const nextKey = [
+      query,
+      searchDistanceFilterMiles,
+      activePlaceCategoryKey ?? "all",
+    ].join("|");
+
+    if (nextKey === lastAndroidFitKeyRef.current) return;
+    lastAndroidFitKeyRef.current = nextKey;
+
+    if (visibleFilteredSheetPlaces.length === 0 && sheetPlaces.length === 0) return;
+
+    setAndroidFitCandidateBoundsToken((prev) => prev + 1);
+  }, [
+    activePlaceCategoryKey,
+    h.destSearch?.query,
+    searchDistanceFilterMiles,
+    sheetPlaces.length,
+    visibleFilteredSheetPlaces.length,
+  ]);
+
   const categoryFilteredSheetPlaces = visibleFilteredSheetPlaces;
 
   const orderedSheetPlaces = useMemo(() => {

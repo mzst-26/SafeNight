@@ -28,6 +28,10 @@ export type RouteMapProps = {
   panTo?: { location: LatLng; key: number } | null;
   /** Increment to force fitting visible search-candidate markers into view. */
   fitCandidateBoundsToken?: number;
+  /** Android-only extra fit trigger for search distance/category changes. */
+  androidFitCandidateBoundsToken?: number;
+  /** Android-only zoom ceiling used when explicit candidate refits happen. */
+  androidCandidateRefitMaxZoom?: number;
   /** Extra top padding (px) used when fitting bounds so points stay below top search UI. */
   fitTopPadding?: number;
   /** Extra bottom padding (px) used when fitting bounds so points are not hidden behind sheets. */
