@@ -170,6 +170,8 @@ export default function HomeScreen() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [limitModal, setLimitModal] = useState<LimitInfo | null>(null);
+  const dismissedLimitRef = useRef<Record<string, boolean>>({});
+  const [liveSharingNotice, setLiveSharingNotice] = useState<string | null>(null);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showFamilyPackModal, setShowFamilyPackModal] = useState(false);
   const [toast, setToast] = useState<ToastConfig | null>(null);
@@ -371,7 +373,17 @@ export default function HomeScreen() {
   ]);
 
   const handleMapCenterChanged = useCallback((loc: LatLng) => {
-    setMapCenterForSearch(loc);
+    const prevCenter = lastMapCenterForSearchRef.current;
+    const centerChanged =
+      !prevCenter ||
+      Math.abs(prevCenter.latitude - loc.latitude) > 0.00001 ||
+      Math.abs(prevCenter.longitude - loc.longitude) > 0.00001;
+
+    if (centerChanged) {
+      lastMapCenterForSearchRef.current = loc;
+      setMapCenterForSearch(loc);
+    }
+
     const q = (h.destSearch?.query || "").trim();
     if (q.length < 2) {
       setShowSearchAroundButton(false);
@@ -493,6 +505,13 @@ export default function HomeScreen() {
   // Listen for subscription limit events from any service
   useEffect(() => {
     const unsub = onLimitReached((info) => {
+      // If the user already dismissed the live_sessions limit during
+      // the current navigation session, don't re-open the modal — show
+      // a persistent, non-blocking notice instead.
+      if (info.feature === 'live_sessions' && dismissedLimitRef.current['live_sessions']) {
+        setLiveSharingNotice('Location not shared — limit reached for your plan.');
+        return;
+      }
       setLimitModal(info);
     });
     return unsub;
