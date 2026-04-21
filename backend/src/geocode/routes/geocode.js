@@ -656,6 +656,14 @@ async function parseUpstreamJsonOrNull(response, sourceLabel) {
   if (hasTextBody && (!body || !body.trim())) return null;
 
   if (!hasTextBody && typeof response.json === 'function') {
+    const looksJson = contentType.includes('application/json') || contentType.includes('json');
+    if (!looksJson && contentType) {
+      console.log(
+        `[geocode/autocomplete] ⚠️ ${sourceLabel} returned non-JSON payload (status ${status}, content-type: ${contentType || 'unknown'})`
+      );
+      return null;
+    }
+
     try {
       return await response.json();
     } catch {
@@ -719,7 +727,7 @@ async function resolveBiasLocality(locationBias) {
   calls.reverse++;
   const url = `${NOMINATIM_BASE}/reverse?format=jsonv2&lat=${locationBias.lat}&lon=${locationBias.lng}&addressdetails=1`;
   const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
-  const data = await response.json();
+  const data = await parseUpstreamJsonOrNull(response, 'Nominatim reverse');
   const locality = normalizeLocalityName(extractLocalityFromAddress(data?.address || {}));
   const resolved = locality || null;
   cityBiasCache.set(cacheKey, resolved);
@@ -1224,7 +1232,7 @@ router.get('/details', async (req, res) => {
     console.log(`[geocode/details] 🌐 Nominatim call #${calls.details} → "${placeId}"`);
 
     const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
-    const data = await response.json();
+    const data = await parseUpstreamJsonOrNull(response, 'Nominatim details');
     const result = Array.isArray(data) ? data[0] : data;
 
     if (!result || !result.lat || !result.lon) {
@@ -1282,7 +1290,7 @@ router.get('/reverse', async (req, res) => {
     console.log(`[geocode/reverse] 🌐 Nominatim call #${calls.reverse} → (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
 
     const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
-    const data = await response.json();
+    const data = await parseUpstreamJsonOrNull(response, 'Nominatim reverse');
 
     if (!data || data.error || !data.lat || !data.lon) {
       return res.json({ status: 'NOT_FOUND', result: null });

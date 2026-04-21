@@ -83,6 +83,26 @@ describe('GET /autocomplete validation', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  test('ignores XML error pages from upstream instead of crashing', async () => {
+    const app = createApp();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/xml; charset=utf-8' : null),
+      },
+      text: async () => '<?xml version="1.0" encoding="UTF-8"?><error>rate limit</error>',
+    });
+
+    const response = await request(app)
+      .get('/api/geocode/autocomplete')
+      .query({ input: 'Plymouth' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('ZERO_RESULTS');
+    expect(response.body.predictions).toEqual([]);
+  });
+
   test('runs structured address search for address-like inputs', async () => {
     const app = createApp();
     global.fetch

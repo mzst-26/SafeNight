@@ -98,7 +98,25 @@ const fetchJson = async <T>(url: string): Promise<T> => {
       );
     }
 
-    return (await response.json()) as T;
+    const contentType = String(response.headers?.get?.('content-type') || '').toLowerCase();
+    const body = await response.text();
+    const trimmed = body.trim();
+
+    if (!trimmed) {
+      throw new AppError('google_maps_parse_error', 'Google Maps response was empty');
+    }
+
+    const looksJson =
+      contentType.includes('application/json') ||
+      contentType.includes('json') ||
+      trimmed.startsWith('{') ||
+      trimmed.startsWith('[');
+
+    if (!looksJson) {
+      throw new AppError('google_maps_parse_error', 'Google Maps response was not JSON');
+    }
+
+    return JSON.parse(trimmed) as T;
   } catch (error) {
     if (error instanceof AppError) {
       throw error;
@@ -401,7 +419,25 @@ export const fetchSmartDirections = async (
       } else {
         // Walking is shorter, prefer walking
         console.log(`[smartDirections] 🚶 Walking preferred (${(walkTime / 60).toFixed(0)}min vs ${(carWalkTime / 60).toFixed(0)}min car-walked)`);
-        return [
+          const contentType = String(response.headers?.get?.('content-type') || '').toLowerCase();
+          const body = await response.text();
+          const trimmed = body.trim();
+
+          if (!trimmed) {
+            throw new AppError('google_maps_parse_error', 'Google Maps response was empty');
+          }
+
+          const looksJson =
+            contentType.includes('application/json') ||
+            contentType.includes('json') ||
+            trimmed.startsWith('{') ||
+            trimmed.startsWith('[');
+
+          if (!looksJson) {
+            throw new AppError('google_maps_parse_error', 'Google Maps response was not JSON');
+          }
+
+          return JSON.parse(trimmed) as T;
           ...smartRoutes.filter((r) => r.mode === 'walking'),
           ...smartRoutes.filter((r) => r.mode === 'car'),
         ];
