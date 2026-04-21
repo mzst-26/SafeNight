@@ -3053,13 +3053,14 @@ export default function HomeScreen() {
         />
 
         {Platform.OS !== "web" && (
-          <NavigationOverlay
-            nav={h.nav}
-            topInset={insets.top}
-            bottomInset={insets.bottom}
-            showRecenter={h.isNavActive && !isNavFollowing}
-            onRecenter={handleRecenterNavigation}
-          />
+            <NavigationOverlay
+              nav={h.nav}
+              topInset={insets.top}
+              bottomInset={insets.bottom}
+              showRecenter={h.isNavActive && !isNavFollowing}
+              onRecenter={handleRecenterNavigation}
+              liveSharingNotice={liveSharingNotice}
+            />
         )}
 
         <DownloadAppModal
@@ -3107,7 +3108,13 @@ export default function HomeScreen() {
         <LimitReachedModal
           visible={limitModal !== null}
           limitInfo={limitModal}
-          onClose={() => setLimitModal(null)}
+          onClose={() => {
+            if (limitModal?.feature === 'live_sessions') {
+              dismissedLimitRef.current['live_sessions'] = true;
+              setLiveSharingNotice('Location not shared — limit reached for your plan.');
+            }
+            setLimitModal(null);
+          }}
           onUpgrade={() => setShowSubscriptionModal(true)}
         />
 

@@ -186,61 +186,63 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
 
           {/* Bottom bar */}
           <View style={[styles.bottomBar, { marginBottom: bottomInset + 8 }]}>
-            <View>
-              <Text style={styles.remaining}>
-                {formatNavDistance(nav.remainingDistance)} remaining
-              </Text>
-              <Text style={styles.eta}>
-                ETA{' '}
-                <Text style={styles.arrivalTime}>
-                  {new Date(clockTickMs + nav.remainingDuration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            <View style={styles.bottomBarMainRow}>
+              <View style={styles.metaBlock}>
+                <Text style={styles.remaining}>
+                  {formatNavDistance(nav.remainingDistance)} remaining
                 </Text>
-                {' · '}{formatDuration(nav.remainingDuration)} walking
-              </Text>
-              {nav.state === 'off-route' && (
-                <Text style={styles.offRoute}>Off route — rerouting…</Text>
-              )}
-              {liveSharingNotice ? (
-                <View style={styles.liveShareBadge}>
-                  <Ionicons name="radio-outline" size={12} color="#B54708" />
-                  <Text style={styles.liveShareBadgeText}>{liveSharingNotice}</Text>
-                </View>
-              ) : null}
-            </View>
-            <View style={styles.actionsRow}>
-              {showRecenter && onRecenter ? (
-                <Pressable style={styles.recenterButton} onPress={onRecenter}>
-                  <Ionicons name="locate" size={16} color="#ffffff" />
-                  <Text style={styles.recenterText}>Recenter</Text>
-                </Pressable>
-              ) : null}
-              <Pressable onPress={nav.stop}>
-                <Animated.View style={[styles.stopButton, { width: stopButtonWidth }]}> 
-                  <Ionicons name="stop-circle" size={20} color="#ffffff" />
-                  <Animated.View
-                    style={[
-                      styles.stopTextWrap,
-                      {
-                        width: stopTextContainerWidth,
-                        marginLeft: stopTextContainerMarginLeft,
-                      },
-                    ]}
-                  >
-                    <Animated.Text
+                <Text style={styles.eta}>
+                  ETA{' '}
+                  <Text style={styles.arrivalTime}>
+                    {new Date(clockTickMs + nav.remainingDuration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                  {' · '}{formatDuration(nav.remainingDuration)} walking
+                </Text>
+                {nav.state === 'off-route' && (
+                  <Text style={styles.offRoute}>Off route — rerouting…</Text>
+                )}
+              </View>
+              <View style={styles.actionsRow}>
+                {showRecenter && onRecenter ? (
+                  <Pressable style={styles.recenterButton} onPress={onRecenter}>
+                    <Ionicons name="locate" size={16} color="#ffffff" />
+                    <Text style={styles.recenterText}>Recenter</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable onPress={nav.stop}>
+                  <Animated.View style={[styles.stopButton, { width: stopButtonWidth }]}> 
+                    <Ionicons name="stop-circle" size={20} color="#ffffff" />
+                    <Animated.View
                       style={[
-                        styles.stopText,
+                        styles.stopTextWrap,
                         {
-                          opacity: stopTextOpacity,
-                          transform: [{ translateX: stopTextTranslateX }],
+                          width: stopTextContainerWidth,
+                          marginLeft: stopTextContainerMarginLeft,
                         },
                       ]}
                     >
-                      Stop
-                    </Animated.Text>
+                      <Animated.Text
+                        style={[
+                          styles.stopText,
+                          {
+                            opacity: stopTextOpacity,
+                            transform: [{ translateX: stopTextTranslateX }],
+                          },
+                        ]}
+                      >
+                        Stop
+                      </Animated.Text>
+                    </Animated.View>
                   </Animated.View>
-                </Animated.View>
-              </Pressable>
+                </Pressable>
+              </View>
             </View>
+            {liveSharingNotice ? (
+              <View style={styles.liveShareBadge}>
+                <Ionicons name="radio-outline" size={12} color="#B54708" />
+                <Text style={styles.liveShareBadgeText}>{liveSharingNotice}</Text>
+            </View>
+            ) : null}
           </View>
         </View>
       )}
@@ -372,15 +374,24 @@ const styles = StyleSheet.create({
     color: '#667085',
   },
   bottomBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
+    alignItems: 'stretch',
     margin: 16,
     padding: 16,
     borderRadius: 18,
     backgroundColor: '#ffffff',
     ...(Platform.OS === 'web' ? { boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' } : {}),
     elevation: 10,
+  },
+  bottomBarMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  metaBlock: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 12,
   },
   remaining: {
     fontSize: 15,
@@ -405,7 +416,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   liveShareBadge: {
-    marginTop: 6,
+    marginTop: 10,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
