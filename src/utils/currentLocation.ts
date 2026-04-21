@@ -1,4 +1,4 @@
-import type { LatLng } from '@/src/types/google';
+import type { LatLng } from '@/src/types/geo';
 
 export type MoveToCurrentLocationDeps = {
   location: LatLng | null;

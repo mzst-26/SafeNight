@@ -1,5 +1,5 @@
 /**
- * WebSidebar — Google Maps-style left sidebar for web only.
+ * WebSidebar — left sidebar for web only.
  *
  * Replaces the centered SearchBar + DraggableSheet bottom sheet on web.
  * Features:

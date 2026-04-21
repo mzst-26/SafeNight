@@ -16,7 +16,7 @@ import type {
     LatLng,
     NavigationStep,
     RouteSegment,
-} from "@/src/types/google";
+} from "@/src/types/geo";
 import {
     emitLimitReached,
     LimitError,
@@ -95,7 +95,7 @@ const bearing = (a: LatLng, b: LatLng): number => {
 /**
  * Build turn-by-turn NavigationSteps from enriched segments.
  *
- * Follows the Google Maps model:
+ * Follows a familiar turn-by-turn navigation model:
  *  - Short initial stretches (<100 m) get merged into a single
  *    "Continue towards [first named road ahead]" step.
  *  - Each step instruction tells you what to do when you reach
@@ -173,7 +173,7 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
   }
 
   // ── 2c. Merge leading short groups (<100 m total) ─────────────────────
-  //    Google Maps doesn't show "In 3 m turn right" when you're basically
+  //    Turn-by-turn apps don't show "In 3 m turn right" when you're basically
   //    already at the road. It merges them into one initial step like
   //    "Continue towards [first meaningful road ahead]".
   while (groups.length >= 2 && groups[0].totalDist < 100) {

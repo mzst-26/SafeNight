@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { memo, useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import type { PlacePrediction } from "@/src/types/google";
+import type { PlacePrediction } from "@/src/types/geo";
 
 import { PlaceActionRow } from "./PlaceActionRow";
 import { placeCardTokens } from "./placeCard.tokens";

@@ -164,7 +164,7 @@ export function PrivacyPolicyContent() {
       <Text style={styles.body}>
         The Service integrates the following third-party services, each governed by their own
         privacy policies:{'\n\n'}
-        • <Text style={styles.bold}>Google Maps API</Text> — map display and geocoding{'\n'}
+        • <Text style={styles.bold}>OpenStreetMap / Nominatim</Text> — map display and geocoding{'\n'}
         • <Text style={styles.bold}>OpenStreetMap / OSRM</Text> — routing and map tiles{'\n'}
         • <Text style={styles.bold}>UK Police Data API</Text> — public crime statistics{'\n'}
         • <Text style={styles.bold}>Stripe</Text> — payment processing{'\n'}

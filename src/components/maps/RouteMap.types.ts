@@ -1,5 +1,5 @@
 import type { RoadLabel, RouteSegment, SafetyMarker } from '@/src/services/safetyMapData';
-import type { DirectionsRoute, LatLng } from '@/src/types/google';
+import type { DirectionsRoute, LatLng } from '@/src/types/geo';
 
 export type MapType = 'roadmap';
 

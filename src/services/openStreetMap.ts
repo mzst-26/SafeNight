@@ -1,6 +1,6 @@
 import { env, requireOsmUserAgent } from '@/src/config/env';
 import { AppError } from '@/src/types/errors';
-import type { DirectionsRoute, LatLng, PlaceDetails, PlacePrediction } from '@/src/types/google';
+import type { DirectionsRoute, LatLng, PlaceDetails, PlacePrediction } from '@/src/types/geo';
 import type { NominatimLookupResult, NominatimSearchResult, OsrmRouteResponse } from '@/src/types/osm';
 import { decodePolyline } from '@/src/utils/polyline';
 

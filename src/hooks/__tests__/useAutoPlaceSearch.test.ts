@@ -11,7 +11,7 @@
  */
 
 import * as osmDirections from '@/src/services/osmDirections';
-import type { PlacePrediction } from '@/src/types/google';
+import type { PlacePrediction } from '@/src/types/geo';
 
 jest.mock('@/src/services/osmDirections');
 

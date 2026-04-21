@@ -1,7 +1,7 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { useNavigation, type NavigationInfo } from '@/src/hooks/useNavigation';
-import type { DirectionsRoute } from '@/src/types/google';
+import type { DirectionsRoute } from '@/src/types/geo';
 import * as Location from 'expo-location';
 
 jest.mock('expo-location', () => ({

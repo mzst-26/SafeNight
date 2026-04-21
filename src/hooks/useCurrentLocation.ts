@@ -6,7 +6,7 @@ import {
     requestForegroundLocationPermission,
 } from '@/src/services/location';
 import { AppError } from '@/src/types/errors';
-import type { LatLng } from '@/src/types/google';
+import type { LatLng } from '@/src/types/geo';
 
 export type LocationStatus = 'idle' | 'loading' | 'denied' | 'error' | 'ready';
 

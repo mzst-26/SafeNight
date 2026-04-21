@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { fetchPlaceDetails, fetchPlacePredictions } from '@/src/services/osmDirections';
 import { AppError } from '@/src/types/errors';
-import type { LatLng, PlaceDetails, PlacePrediction } from '@/src/types/google';
+import type { LatLng, PlaceDetails, PlacePrediction } from '@/src/types/geo';
 
 export type AutoSearchStatus = 'idle' | 'searching' | 'found' | 'error';
 

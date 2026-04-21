@@ -6,7 +6,7 @@ import type {
   NavigationStep,
   PlaceDetails,
   PlacePrediction,
-} from '@/src/types/google';
+} from '@/src/types/geo';
 import { decodePolyline } from '@/src/utils/polyline';
 import {
   directionsRateLimiter,
@@ -158,7 +158,7 @@ export const fetchPlacePredictions = async (
 
   if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
     throw new AppError(
-      'google_places_autocomplete_error',
+      'osm_places_autocomplete_error',
       data.error_message ?? `Google Places Autocomplete failed: ${data.status}`
     );
   }

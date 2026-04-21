@@ -185,8 +185,8 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
           </View>
 
           {/* Bottom bar */}
-          <View style={[styles.bottomBar, { marginBottom: bottomInset + 8 }]}>
-            <View style={styles.bottomBarMainRow}>
+          <View style={[styles.bottomStack, { marginBottom: bottomInset + 8 }]}>
+            <View style={styles.bottomBar}>
               <View style={styles.metaBlock}>
                 <Text style={styles.remaining}>
                   {formatNavDistance(nav.remainingDistance)} remaining
@@ -241,7 +241,7 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
               <View style={styles.liveShareBadge}>
                 <Ionicons name="radio-outline" size={12} color="#B54708" />
                 <Text style={styles.liveShareBadgeText}>{liveSharingNotice}</Text>
-            </View>
+              </View>
             ) : null}
           </View>
         </View>
@@ -373,20 +373,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#667085',
   },
-  bottomBar: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
+  bottomStack: {
     margin: 16,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 16,
     borderRadius: 18,
     backgroundColor: '#ffffff',
     ...(Platform.OS === 'web' ? { boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' } : {}),
     elevation: 10,
-  },
-  bottomBarMainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
   metaBlock: {
     flex: 1,
@@ -416,7 +414,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   liveShareBadge: {
-    marginTop: 10,
+    marginTop: 8,
+    marginHorizontal: 16,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
@@ -437,6 +436,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexShrink: 0,
   },
   recenterButton: {
     flexDirection: 'row',

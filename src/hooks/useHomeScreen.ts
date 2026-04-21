@@ -26,7 +26,7 @@ import type {
   LatLng,
   PlaceDetails,
   PlacePrediction,
-} from "@/src/types/google";
+} from "@/src/types/geo";
 
 const FAKE_PROGRESS_MESSAGES = [
   "Preparing route analysis…",
@@ -704,7 +704,7 @@ export function useHomeScreen() {
     setHighlightCategory(null);
   }, [destSearch]);
 
-  /** Swap origin and destination (like Google Maps). */
+  /** Swap origin and destination. */
   const swapOriginAndDest = useCallback(() => {
     // Snapshot current effective values
     const prevOriginIsGPS = isUsingCurrentLocation;

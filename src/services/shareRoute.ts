@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { env } from "@/src/config/env";
-import type { LatLng } from "@/src/types/google";
+import type { LatLng } from "@/src/types/geo";
 
 const ACCESS_TOKEN_KEY = "safenight_access_token";
 const SHARE_TIMEOUT_MS = 12_000;

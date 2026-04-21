@@ -1,5 +1,5 @@
 /**
- * MobileWebSearchBar — Google Maps-style collapsible search.
+ * MobileWebSearchBar — collapsible search.
  *
  * Behaviour:
  *   - Default: single "Where to?" pill at the top
@@ -28,7 +28,7 @@ import {
 
 import type { UseAutoPlaceSearchReturn } from "@/src/hooks/useAutoPlaceSearch";
 import type { SavedPlace, SaveResult } from "@/src/hooks/useSavedPlaces";
-import type { LatLng, PlaceDetails, PlacePrediction } from "@/src/types/google";
+import type { LatLng, PlaceDetails, PlacePrediction } from "@/src/types/geo";
 import { SavedPlaces } from "./SavedPlaces";
 
 const CATEGORY_CHIP_DEFINITIONS: {
