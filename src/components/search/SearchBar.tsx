@@ -469,7 +469,8 @@ export function SearchBar({
                 {!isUsingCurrentLocation && (
                   <Pressable
                     style={styles.mapPinButton}
-                    onPress={() => {
+                    onPress={(e) => {
+                      e.stopPropagation();
                       setIsUsingCurrentLocation(true);
                       setManualOrigin(null);
                       originSearch.clear();

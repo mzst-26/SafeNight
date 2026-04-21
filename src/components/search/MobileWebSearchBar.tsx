@@ -647,7 +647,8 @@ export function MobileWebSearchBar({
               {isUsingCurrentLocation ? (
                 <Pressable
                   style={[
-                    styles.inputField,
+                    onPress={(e) => {
+                      e.stopPropagation();
                     focusedField === "origin" && styles.inputFieldFocused,
                   ]}
                   hitSlop={4}
