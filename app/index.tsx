@@ -68,6 +68,7 @@ import { useAuth } from "@/src/hooks/useAuth";
 import { useContacts } from "@/src/hooks/useContacts";
 import { useFriendLocations } from "@/src/hooks/useFriendLocations";
 import { useHomeScreen } from "@/src/hooks/useHomeScreen";
+import { moveToCurrentLocation } from "../src/utils/currentLocation";
 import { fetchPlacePredictions } from "@/src/services/osmDirections";
 import type { PlacePrediction, LatLng } from "@/src/types/google";
 import { useLiveTracking } from "@/src/hooks/useLiveTracking";
@@ -754,6 +755,14 @@ export default function HomeScreen() {
       liveRef.current.stopTracking(
         h.nav.state === "arrived" ? "completed" : "cancelled",
       );
+    }
+  }, [h.nav.state]);
+
+  // Clear any dismissal suppressions and persistent notices when navigation ends
+  useEffect(() => {
+    if (h.nav.state === 'arrived' || h.nav.state === 'idle') {
+      dismissedLimitRef.current = {};
+      setLiveSharingNotice(null);
     }
   }, [h.nav.state]);
 
@@ -1850,7 +1859,13 @@ export default function HomeScreen() {
         routeSegments={isWebGuest ? [] : h.routeSegments}
         roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
-        fitCandidateBoundsToken={h.destinationCandidatesFitToken + sheetPlacesFitToken}
+        fitCandidateBoundsToken={
+          Platform.OS === "android"
+            ? h.destinationCandidatesFitToken + sheetPlacesFitToken + androidFitCandidateBoundsToken
+            : h.destinationCandidatesFitToken + sheetPlacesFitToken
+        }
+        androidFitCandidateBoundsToken={Platform.OS === "android" ? androidFitCandidateBoundsToken : 0}
+        androidCandidateRefitMaxZoom={Platform.OS === "android" ? androidCandidateRefitMaxZoom : 16}
         fitTopPadding={mapFitTopPadding}
         fitBottomPadding={mapFitBottomPadding}
         fitSidePadding={mapFitSidePadding}
