@@ -403,10 +403,13 @@ export function MobileWebSearchBar({
 
     const isTyping =
       !!originRef.current?.isFocused?.() || !!destRef.current?.isFocused?.();
+    const hasSelectedDestination = !!manualDest || !!destSearch.place;
     const shouldCollapse =
       gainedResults &&
       expanded &&
-      (Platform.OS === "android" ? !hasDestinationSearchResults : !isTyping);
+      (Platform.OS === "android" 
+        ? !hasDestinationSearchResults 
+        : !isTyping || hasSelectedDestination);
     if (shouldCollapse) {
       // On Android, delay collapse by 2s to match routes-found behaviour
       if (Platform.OS === "android") {
@@ -421,6 +424,8 @@ export function MobileWebSearchBar({
     collapse,
     hasDestinationSearchResults,
     scheduleCollapse,
+    manualDest,
+    destSearch.place,
   ]);
 
   useEffect(
@@ -647,12 +652,12 @@ export function MobileWebSearchBar({
               {isUsingCurrentLocation ? (
                 <Pressable
                   style={[
-                    onPress={(e) => {
-                      e.stopPropagation();
+                    styles.inputField,
                     focusedField === "origin" && styles.inputFieldFocused,
                   ]}
                   hitSlop={4}
-                  onPress={() => {
+                  onPress={(e) => {
+                    e.stopPropagation();
                     if (onGuestTap) {
                       onGuestTap();
                       return;

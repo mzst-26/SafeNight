@@ -70,8 +70,9 @@ import { useFriendLocations } from "@/src/hooks/useFriendLocations";
 import { useHomeScreen } from "@/src/hooks/useHomeScreen";
 import { moveToCurrentLocation } from "../src/utils/currentLocation";
 import { fetchPlacePredictions } from "@/src/services/osmDirections";
-import type { PlacePrediction, LatLng } from "@/src/types/google";
+import type { PlacePrediction, LatLng } from "@/src/types/geo";
 import { useLiveTracking } from "@/src/hooks/useLiveTracking";
+import { useNavAlerts } from "@/src/hooks/useNavAlerts";
 import { useSavedPlaces, type SavedPlace } from "@/src/hooks/useSavedPlaces";
 import { useWebBreakpoint } from "@/src/hooks/useWebBreakpoint";
 import { stripeApi } from "@/src/services/stripeApi";
@@ -103,7 +104,7 @@ const PLACE_CATEGORY_CHIPS: {
 ];
 
 const MILES_TO_METERS = 1609.34;
-const SEARCH_AROUND_MAX_MILES = 30;
+const SEARCH_AROUND_MAX_MILES = 10;
 const SHEET_RESULTS_RENDER_LIMIT = 20;
 const SEARCH_DISTANCE_FILTER_OPTIONS_MILES = [1, 2, 3, 4, 5, 10] as const;
 
@@ -406,9 +407,15 @@ export default function HomeScreen() {
       return;
     }
 
+    // Hide "search around here" once safe routes have been found
+    if (h.safeRoutes.length > 0) {
+      setShowSearchAroundButton(false);
+      return;
+    }
+
     setSearchAroundLimitReached(false);
     setShowSearchAroundButton(true);
-  }, [h.destSearch, h.location, h.effectiveOrigin, searchAnchor]);
+  }, [h.destSearch, h.location, h.effectiveOrigin, searchAnchor, h.safeRoutes]);
 
   const performSearchAround = useCallback(async () => {
     if (!mapCenterForSearch || isSearchAroundLoading) return;
@@ -427,6 +434,12 @@ export default function HomeScreen() {
     const movedDistance = haversineDistanceMeters(anchor, mapCenterForSearch);
     if (movedDistance > maxMeters) {
       setSearchAroundLimitReached(true);
+      setShowSearchAroundButton(false);
+      return;
+    }
+
+    // Hide "search around here" once safe routes have been found
+    if (h.safeRoutes.length > 0) {
       setShowSearchAroundButton(false);
       return;
     }
@@ -458,6 +471,12 @@ export default function HomeScreen() {
       setShowSearchAroundButton(false);
     }
   }, [mapCenterForSearch, isSearchAroundLoading, h.destSearch, h.location, h.effectiveOrigin, searchAnchor, subscriptionTier]);
+
+  // Navigation alerts (crime / CCTV / street)
+  const navAlert = useNavAlerts({
+    nav: h.nav,
+    selectedSafeRoute: h.selectedSafeRoute,
+  });
 
   // Web guest detection (also exposed from useHomeScreen)
   const isWebGuest = Platform.OS === "web" && !auth.isLoggedIn;
@@ -2634,7 +2653,10 @@ export default function HomeScreen() {
                     <Text style={styles.searchAroundFloatingBtnText}>Searching…</Text>
                   </View>
                 ) : (
-                  <Text style={styles.searchAroundFloatingBtnText}>Search around here</Text>
+                  <View style={styles.searchAroundFloatingBtnInner}>
+                    <View style={styles.searchAroundPulse} />
+                    <Text style={styles.searchAroundFloatingBtnText}>Search around here</Text>
+                  </View>
                 )}
               </Pressable>
             ) : (
@@ -3113,6 +3135,9 @@ export default function HomeScreen() {
               showRecenter={h.isNavActive && !isNavFollowing}
               onRecenter={handleRecenterNavigation}
               liveSharingNotice={liveSharingNotice}
+              navAlert={navAlert}
+              showReportButton={auth.isLoggedIn && h.isNavActive}
+              onPressReport={() => setShowReportModal(true)}
             />
         )}
 
@@ -3571,6 +3596,17 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "600",
+  },
+  searchAroundFloatingBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  searchAroundPulse: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#1570ef",
   },
   placeResultsTitle: {
     fontSize: 13,

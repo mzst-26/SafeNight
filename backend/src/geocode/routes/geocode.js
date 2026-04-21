@@ -318,6 +318,45 @@ function resultMatchesExactAddress(r, addressQuery) {
   return roadMatchesAddressQuery(r.display_name || '', queryStreet);
 }
 
+function getNormalizedRoadForAddressResult(r) {
+  const addr = r.address || {};
+  return String(addr.road || r.display_name || '');
+}
+
+function resultMatchesStreetAddress(r, addressQuery) {
+  if (!addressQuery) return false;
+  const road = getNormalizedRoadForAddressResult(r);
+  return roadMatchesAddressQuery(road, addressQuery.street);
+}
+
+function resultHasHouseNumber(r) {
+  const addr = r.address || {};
+  return Boolean(normalizeAddressToken(addr.house_number));
+}
+
+function isAddressResult(r) {
+  const addr = r.address || {};
+  if (resultHasHouseNumber(r) && addr.road) return true;
+
+  // Fallback for sparse address payloads where display_name starts with a door number.
+  return /^\s*\d+[a-z]?\b/i.test(String(r.display_name || ''));
+}
+
+function parseHouseNumberNumeric(value) {
+  const token = String(value || '').trim().match(/^(\d+)/);
+  return token ? Number(token[1]) : null;
+}
+
+function predictionClassificationForResult(r) {
+  if (isAddressResult(r)) {
+    return { category: 'address', placeType: 'address' };
+  }
+  return {
+    category: r.class || null,
+    placeType: r.type || null,
+  };
+}
+
 function looksLikeParkingQuery(input) {
   return /\b(parking|car\s*park|garage|park\s*&\s*ride|park and ride|multi[-\s]?storey)\b/i.test(
     input.trim()
@@ -862,6 +901,16 @@ function dedupeAndRank(results, input, context) {
       } else if (hasRoadMatch) {
         score -= 2;
       }
+
+      // Prefer nearby house numbers on the same road when exact number is unavailable.
+      if (hasRoadMatch && resultHouse && queryHouse !== resultHouse) {
+        const queryNumeric = parseHouseNumberNumeric(queryHouse);
+        const resultNumeric = parseHouseNumberNumeric(resultHouse);
+        if (queryNumeric != null && resultNumeric != null) {
+          const diff = Math.abs(queryNumeric - resultNumeric);
+          score += Math.max(0, 4 - diff / 25);
+        }
+      }
     }
 
     if (
@@ -1130,9 +1179,24 @@ router.get('/autocomplete', async (req, res) => {
       const exactAddressMatches = mergedBase.filter((r) =>
         resultMatchesExactAddress(r, addressQuery)
       );
+      const numberedStreetMatches = mergedBase.filter(
+        (r) => resultMatchesStreetAddress(r, addressQuery) && resultHasHouseNumber(r)
+      );
+      const streetOnlyMatches = mergedBase.filter((r) => resultMatchesStreetAddress(r, addressQuery));
+
       if (exactAddressMatches.length > 0) {
         mergedBase = exactAddressMatches;
         console.log('[geocode/autocomplete] 🏠 Exact address filter enabled');
+      } else if (numberedStreetMatches.length > 0) {
+        mergedBase = numberedStreetMatches;
+        console.log('[geocode/autocomplete] 🏠 Numbered-address fallback enabled');
+      } else if (streetOnlyMatches.length > 0) {
+        // Keep same-street candidates only, and avoid business/POI entries.
+        mergedBase = streetOnlyMatches.filter((r) => !['amenity', 'shop', 'tourism', 'leisure'].includes(String(r.class || '').toLowerCase()));
+        if (mergedBase.length === 0) {
+          mergedBase = streetOnlyMatches;
+        }
+        console.log('[geocode/autocomplete] 🏠 Street-address fallback enabled');
       }
     }
 
@@ -1163,11 +1227,13 @@ router.get('/autocomplete', async (req, res) => {
       ? mergedBase
       : mergedBase.slice(0, requestedLimit);
 
-    const predictions = merged.map((r) => ({
+    const predictions = merged.map((r) => {
+      const classification = predictionClassificationForResult(r);
+      return ({
       place_id: `osm-${r.osm_type}-${r.osm_id}`,
       description: r.display_name,
-      category: r.class || null,
-      place_type: r.type || null,
+      category: classification.category,
+      place_type: classification.placeType,
       structured_formatting: {
         main_text: buildMainText(r),
         secondary_text: buildSecondaryText(r),
@@ -1183,7 +1249,8 @@ router.get('/autocomplete', async (req, res) => {
         postcode: r.address?.postcode || null,
         country: r.address?.country || null,
       },
-    }));
+    });
+    });
 
     const payload = {
       status: predictions.length > 0 ? 'OK' : 'ZERO_RESULTS',

@@ -199,10 +199,73 @@ describe('GET /autocomplete validation', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(response.body.predictions).toHaveLength(1);
     expect(response.body.predictions[0].description).toContain('431 Eggbuckland Road');
+    expect(response.body.predictions[0].category).toBe('address');
+    expect(response.body.predictions[0].place_type).toBe('address');
 
     const structuredUrl = String(global.fetch.mock.calls[1][0]);
     expect(structuredUrl).toContain('housenumber=431');
     expect(structuredUrl).toContain('street=Eggbuckland+Road');
+  });
+
+  test('for address-like query, falls back to numbered same-street addresses over road or business entries', async () => {
+    const app = createApp();
+    global.fetch
+      .mockResolvedValueOnce({
+        json: async () => ([
+          {
+            osm_type: 'way',
+            osm_id: 9001,
+            lat: '50.3750',
+            lon: '-4.1100',
+            display_name: 'Eggbuckland Road, Plymouth',
+            importance: 0.95,
+            class: 'highway',
+            type: 'residential',
+            address: { road: 'Eggbuckland Road', city: 'Plymouth' },
+          },
+          {
+            osm_type: 'node',
+            osm_id: 9002,
+            lat: '50.3751',
+            lon: '-4.1101',
+            display_name: 'Eggbuckland Pharmacy, Eggbuckland Road, Plymouth',
+            importance: 0.9,
+            class: 'amenity',
+            type: 'pharmacy',
+            address: { amenity: 'pharmacy', road: 'Eggbuckland Road', city: 'Plymouth' },
+          },
+        ]),
+      })
+      .mockResolvedValueOnce({
+        json: async () => ([
+          {
+            osm_type: 'node',
+            osm_id: 9003,
+            lat: '50.3752',
+            lon: '-4.1102',
+            display_name: '429 Eggbuckland Road, Plymouth',
+            importance: 0.6,
+            class: 'building',
+            type: 'house',
+            address: {
+              house_number: '429',
+              road: 'Eggbuckland Road',
+              city: 'Plymouth',
+            },
+          },
+        ]),
+      });
+
+    const response = await request(app)
+      .get('/api/geocode/autocomplete')
+      .query({ input: '431 Eggbuckland Road' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('OK');
+    expect(response.body.predictions).toHaveLength(1);
+    expect(response.body.predictions[0].description).toContain('429 Eggbuckland Road');
+    expect(response.body.predictions[0].category).toBe('address');
+    expect(response.body.predictions[0].place_type).toBe('address');
   });
 
   test('respects requested result limit and caps output length', async () => {
