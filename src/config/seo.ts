@@ -52,7 +52,7 @@ export const PAGE_SEO: Record<
   { title: string; description: string; canonical?: string }
 > = {
   '/': {
-    title: 'SafeNight — Walk Safer at Night | AI-Powered Route Safety',
+    title: 'SafeNight — Walk Safer at Night | Route Safety Insights',
     description:
       'Find safer walking routes at night with route safety scoring, street-light context, crime data overlays, and live turn-by-turn navigation on Android.',
   },

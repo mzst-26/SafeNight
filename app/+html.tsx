@@ -91,7 +91,7 @@ export default function Root({ children }: PropsWithChildren) {
               },
               screenshot: `${SEO.siteUrl}${SEO.ogImage}`,
               featureList:
-                'AI-powered route safety scores, Real-time navigation, Live location sharing, Safety Circle, Street lighting analysis, Crime data integration',
+                'Route safety scores, Real-time navigation, Live location sharing, Safety Circle, Street lighting analysis, Crime data integration',
             }),
           }}
         />
