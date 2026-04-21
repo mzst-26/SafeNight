@@ -63,6 +63,25 @@ describe('GET /reverse validation', () => {
     expect(response.body.result.place_id).toBe('osm-node-123');
   });
 
+  test('returns NOT_FOUND when upstream responds with XML error page', async () => {
+    const app = createApp();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/xml; charset=utf-8' : null),
+      },
+      text: async () => '<?xml version="1.0" encoding="UTF-8"?><error>rate limit</error>',
+    });
+
+    const response = await request(app)
+      .get('/api/geocode/reverse')
+      .query({ lat: 50.37, lng: -4.14 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: 'NOT_FOUND', result: null });
+  });
+
   test('returns 500 when upstream throws', async () => {
     const app = createApp();
     global.fetch.mockRejectedValue(new Error('reverse offline'));

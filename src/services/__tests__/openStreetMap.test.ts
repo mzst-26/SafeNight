@@ -7,6 +7,22 @@ import {
   reverseGeocode,
 } from '@/src/services/openStreetMap';
 
+const jsonResponse = (body: unknown) => ({
+  ok: true,
+  headers: {
+    get: (name: string) => (String(name).toLowerCase() === 'content-type' ? 'application/json' : null),
+  },
+  text: async () => JSON.stringify(body),
+} as Response);
+
+const xmlResponse = (body: string) => ({
+  ok: true,
+  headers: {
+    get: (name: string) => (String(name).toLowerCase() === 'content-type' ? 'text/xml; charset=utf-8' : null),
+  },
+  text: async () => body,
+} as Response);
+
 describe('openStreetMap service', () => {
   beforeEach(() => {
     jest.spyOn(global, 'fetch');
@@ -22,9 +38,8 @@ describe('openStreetMap service', () => {
   });
 
   it('maps prediction response into place predictions and filters invalid coordinates', async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      jsonResponse([
         {
           osm_type: 'node',
           osm_id: 123,
@@ -39,8 +54,8 @@ describe('openStreetMap service', () => {
           lat: 'not-number',
           lon: '0',
         },
-      ],
-    } as Response);
+      ]),
+    );
 
     const places = await fetchPlacePredictions('oxford');
 
@@ -54,16 +69,15 @@ describe('openStreetMap service', () => {
   });
 
   it('maps place lookup result into place details', async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      jsonResponse([
         {
           display_name: 'Piccadilly Circus, London, UK',
           lat: '51.5101',
           lon: '-0.1340',
         },
-      ],
-    } as Response);
+      ]),
+    );
 
     const details = await fetchPlaceDetails('node:42');
 
@@ -78,10 +92,38 @@ describe('openStreetMap service', () => {
     expect(result).toBeNull();
   });
 
-  it('maps reverse geocode response shape to place details', async () => {
+  it('returns null from reverse geocode for XML error payloads', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      xmlResponse('<?xml version="1.0" encoding="UTF-8"?><error>rate limit</error>'),
+    );
+
+    const result = await reverseGeocode({ latitude: 51.5, longitude: -0.12 });
+    expect(result).toBeNull();
+  });
+
+  it('throws AppError for XML prediction payloads', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      xmlResponse('<?xml version="1.0" encoding="UTF-8"?><error>bad gateway</error>'),
+    );
+
+    await expect(fetchPlacePredictions('oxford')).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('throws AppError for empty details payloads', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
+      headers: {
+        get: (name: string) => (String(name).toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      text: async () => '   ',
+    } as Response);
+
+    await expect(fetchPlaceDetails('node:42')).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('maps reverse geocode response shape to place details', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      jsonResponse({
         status: 'OK',
         result: {
           place_id: 'node:11',
@@ -94,7 +136,7 @@ describe('openStreetMap service', () => {
           },
         },
       }),
-    } as Response);
+    );
 
     const result = await reverseGeocode({ latitude: 51.5, longitude: -0.12 });
     expect(result?.name).toBe('Test Place');

@@ -47,6 +47,25 @@ describe('GET /details validation', () => {
     expect(response.body.result.geometry.location.lat).toBeCloseTo(50.3770);
   });
 
+  test('returns NOT_FOUND when upstream responds with XML error page', async () => {
+    const app = createApp();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => (String(name).toLowerCase() === 'content-type' ? 'text/xml; charset=utf-8' : null),
+      },
+      text: async () => '<?xml version="1.0" encoding="UTF-8"?><error>rate limit</error>',
+    });
+
+    const response = await request(app)
+      .get('/api/geocode/details')
+      .query({ place_id: 'osm-way-99999' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: 'NOT_FOUND', result: null });
+  });
+
   test('returns NOT_FOUND when upstream has no geometry', async () => {
     const app = createApp();
     global.fetch.mockResolvedValue({ json: async () => [] });
