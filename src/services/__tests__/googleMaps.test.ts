@@ -64,9 +64,9 @@ describe('googleMaps service', () => {
       xmlResponse('<?xml version="1.0" encoding="UTF-8"?><error>rate limit</error>'),
     );
 
-    await expect(fetchPlacePredictions('plymouth')).rejects.toMatchObject({
-      name: 'google_maps_parse_error',
-    });
+    const promise = fetchPlacePredictions('plymouth');
+    await expect(promise).rejects.toBeInstanceOf(AppError);
+    await expect(promise).rejects.toThrow('Google Maps response was not JSON');
   });
 
   it('throws AppError when details response is empty', async () => {
@@ -78,9 +78,9 @@ describe('googleMaps service', () => {
       text: async () => '   ',
     } as Response);
 
-    await expect(fetchPlaceDetails('abc123')).rejects.toMatchObject({
-      name: 'google_maps_parse_error',
-    });
+    const promise = fetchPlaceDetails('abc123');
+    await expect(promise).rejects.toBeInstanceOf(AppError);
+    await expect(promise).rejects.toThrow('Google Maps response was empty');
   });
 
   it('maps details JSON into place details', async () => {
