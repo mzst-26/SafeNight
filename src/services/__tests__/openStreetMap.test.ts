@@ -146,7 +146,10 @@ describe('openStreetMap service', () => {
   it('maps OSRM route responses into app routes', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
+      headers: {
+        get: (name: string) => (String(name).toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      text: async () => JSON.stringify({
         code: 'Ok',
         routes: [
           {
@@ -171,7 +174,10 @@ describe('openStreetMap service', () => {
   it('throws directions error when OSRM response is invalid', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ code: 'NoRoute', message: 'No route found' }),
+      headers: {
+        get: (name: string) => (String(name).toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      text: async () => JSON.stringify({ code: 'NoRoute', message: 'No route found' }),
     } as Response);
 
     await expect(
