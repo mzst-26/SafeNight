@@ -92,6 +92,19 @@ function toOverpassElement(feature) {
 }
 
 /**
+ * Collect a node element for each vertex of a road way, using the way's coords (aligned with its nodes).
+ */
+function addRoadVertices(way, vertices) {
+  const { nodes, coords } = way;
+  if (!Array.isArray(nodes) || !Array.isArray(coords) || nodes.length !== coords.length) return;
+  for (let i = 0; i < nodes.length; i++) {
+    if (vertices.has(nodes[i])) continue;
+    const [lon, lat] = coords[i];
+    vertices.set(nodes[i], { type: 'node', id: nodes[i], lat, lon, tags: {} });
+  }
+}
+
+/**
  * Classify features into the categories the safety service expects.
  */
 function classifyFeatures(ways, nodes) {
@@ -103,6 +116,7 @@ function classifyFeatures(ways, nodes) {
 
   const roadWayNodeIds = new Set();
   const lightWayNodeIds = new Set();
+  const roadVertices = new Map();
 
   // Classify ways
   for (const f of ways || []) {
@@ -111,6 +125,7 @@ function classifyFeatures(ways, nodes) {
     if (el.tags?.highway) {
       roadElements.push(el);
       if (el.nodes) for (const nid of el.nodes) roadWayNodeIds.add(nid);
+      addRoadVertices(f, roadVertices);
     }
     if (el.tags?.lit === 'yes') {
       lightElements.push(el);
@@ -144,6 +159,12 @@ function classifyFeatures(ways, nodes) {
     ) {
       transitElements.push(el);
     }
+  }
+
+  // Road vertices are not in the node dataset (it keeps tagged nodes only), so add them from the ways
+  const emittedRoadNodeIds = new Set(roadElements.filter((el) => el.type === 'node').map((el) => el.id));
+  for (const [id, vertex] of roadVertices) {
+    if (!emittedRoadNodeIds.has(id)) roadElements.push(vertex);
   }
 
   return {
@@ -244,5 +265,6 @@ module.exports = {
   fetchLocalOsmSafetyData,
   fetchLocalOsmRoadNetwork,
   fetchLocalOsmOnlySafetyData,
+  classifyFeatures,
   __resetForTests,
 };
