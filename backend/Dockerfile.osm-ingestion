@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:20.19.0-bookworm-slim
 
 # Install osmium-tool for fast PBF processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,4 +19,4 @@ ENV NODE_ENV=production
 ENV DATA_DIR=/app/data
 EXPOSE 3006
 
-CMD ["node", "src/osm-ingestion/src/server.js"]
+CMD ["node", "src/osm-ingestion/src/main.js"]
