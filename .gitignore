@@ -106,3 +106,6 @@ coverage-final.json
 
 # osm-ingestion generated test coverage
 backend/src/osm-ingestion/coverage/
+
+# Local OSM dataset: source PBF, published data and build intermediates (12 GB, never commit)
+backend/data/
