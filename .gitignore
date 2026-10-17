@@ -103,3 +103,6 @@ coverage-final.json
 
 # Environment files (all variants - never commit real secrets)
 .env*
+
+# osm-ingestion generated test coverage
+backend/src/osm-ingestion/coverage/
