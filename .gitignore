@@ -116,3 +116,12 @@ backend/data/
 !/docs/os-first-operational-runbook.md
 !/backend/src/osm-ingestion/README.md
 !/backend/tests/TESTING.md
+
+# Terraform: state and real variables contain secrets; never commit
+deploy/oracle/.terraform/
+deploy/oracle/*.tfstate
+deploy/oracle/*.tfstate.*
+deploy/oracle/terraform.tfvars
+# Plan files serialize resolved values, including secrets
+deploy/oracle/tfplan*
+

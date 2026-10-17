@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Compose runs this image as uid 1000; create the data dir it can write to
+RUN mkdir -p /app/data && chown 1000:1000 /app/data
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 

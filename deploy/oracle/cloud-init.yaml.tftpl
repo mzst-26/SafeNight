@@ -1,0 +1,27 @@
+#cloud-config
+# Runs once on first boot. Logs: /var/log/cloud-init-output.log on the VM.
+
+package_update: true
+packages:
+  - git
+  - ca-certificates
+  - curl
+  - iptables-persistent
+
+
+runcmd:
+  # Docker Engine + compose plugin
+  - curl -fsSL https://get.docker.com | sh
+  - systemctl enable --now docker
+  - usermod -aG docker ubuntu
+
+  # Open 80/443 on the host firewall (Oracle images ship with a REJECT rule at the end of INPUT)
+  - iptables -I INPUT 1 -p tcp -m multiport --dports 80,443 -j ACCEPT
+  - netfilter-persistent save
+
+  # Code and secrets
+  - git clone ${repo_url} /opt/safenight
+  # .env is not in metadata: copy backend/.env to the VM manually (secrets stay off the cloud side)
+
+  # Build and start everything. restart: unless-stopped brings it back after reboots.
+  - cd /opt/safenight/backend && docker compose up -d --build

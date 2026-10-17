@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (git-ignored) and fill in. Never commit the real file.
+tenancy_ocid     = "ocid1.tenancy.oc1..xxxxxxxx"
+user_ocid        = "ocid1.user.oc1..xxxxxxxx"
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path = "~/.oci/oci_api_key.pem"
+region           = "uk-london-1"
+compartment_ocid = "ocid1.tenancy.oc1..xxxxxxxx"
+ssh_public_key   = "ssh-ed25519 AAAA... you@example.com"
+
+# Optional overrides
+# ad_index       = 0
+# boot_volume_gb = 100
+# repo_url       = "https://github.com/mzst-26/SafeNight.git"

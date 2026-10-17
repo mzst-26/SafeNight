@@ -2,6 +2,9 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
+# Compose runs this image as uid 1000; create the cache dir it can write to
+RUN mkdir -p /app/cache && chown 1000:1000 /app/cache
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 

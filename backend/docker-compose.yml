@@ -1,17 +1,45 @@
+# Single-VM deployment (Oracle Cloud Always Free, Ampere A1, Ubuntu).
+# Only Caddy is exposed (80/443). Services talk to each other on the internal network.
+# Public URLs are path-based on one domain, e.g. https://$DOMAIN/safety -> safety:3002.
+#
+# Configure in backend/.env (never commit it):
+#   DOMAIN=your.domain.example
+#   ALLOWED_ORIGINS=https://safenight.netlify.app
+#   ...the same secrets the Render services use (Supabase, Stripe, OpenAI, ...)
+
 services:
+  caddy:
+    image: caddy:2
+    container_name: safenight-caddy
+    environment:
+      - DOMAIN=${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - gateway
+      - safety
+      - user
+      - subscription
+      - geocode
+    restart: unless-stopped
+
   gateway:
     build:
       context: .
       dockerfile: Dockerfile.gateway
     image: safenight/gateway:latest
     container_name: safenight-gateway
+    user: "1000:1000"
     env_file:
       - .env
     environment:
       - PORT=3001
       - NODE_ENV=production
-    ports:
-      - "3001:3001"
     restart: unless-stopped
 
   safety:
@@ -20,13 +48,17 @@ services:
       dockerfile: Dockerfile.safety
     image: safenight/safety:latest
     container_name: safenight-safety
+    user: "1000:1000"
     env_file:
       - .env
     environment:
       - PORT=3002
       - NODE_ENV=production
-    ports:
-      - "3002:3002"
+      # Route data is read from the local OSM service first, over the internal network
+      - OSM_INGESTION_URL=http://osm-ingestion:3006
+      - SAFE_ROUTES_CACHE_DIR=/app/cache
+    volumes:
+      - safety-cache:/app/cache
     restart: unless-stopped
 
   user:
@@ -35,13 +67,13 @@ services:
       dockerfile: Dockerfile.user
     image: safenight/user:latest
     container_name: safenight-user
+    user: "1000:1000"
     env_file:
       - .env
     environment:
       - PORT=3003
       - NODE_ENV=production
-    ports:
-      - "3003:3003"
+      - SUBSCRIPTION_SERVICE_URL=http://subscription:3004
     restart: unless-stopped
 
   subscription:
@@ -50,13 +82,12 @@ services:
       dockerfile: Dockerfile.subscription
     image: safenight/subscription:latest
     container_name: safenight-subscription
+    user: "1000:1000"
     env_file:
       - .env
     environment:
       - PORT=3004
       - NODE_ENV=production
-    ports:
-      - "3004:3004"
     restart: unless-stopped
 
   geocode:
@@ -65,13 +96,12 @@ services:
       dockerfile: Dockerfile.geocode
     image: safenight/geocode:latest
     container_name: safenight-geocode
+    user: "1000:1000"
     env_file:
       - .env
     environment:
       - PORT=3005
       - NODE_ENV=production
-    ports:
-      - "3005:3005"
     restart: unless-stopped
 
   osm-ingestion:
@@ -80,17 +110,19 @@ services:
       dockerfile: Dockerfile.osm-ingestion
     image: safenight/osm-ingestion:latest
     container_name: safenight-osm-ingestion
+    user: "1000:1000"
     env_file:
       - .env
     environment:
       - PORT=3006
       - NODE_ENV=production
       - DATA_DIR=/app/data
-    ports:
-      - "3006:3006"
     volumes:
       - osm-data:/app/data
     restart: unless-stopped
 
 volumes:
   osm-data:
+  safety-cache:
+  caddy-data:
+  caddy-config:
