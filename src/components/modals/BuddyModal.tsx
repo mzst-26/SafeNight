@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * BuddyModal.tsx — QR code pairing modal.
  *
@@ -666,13 +667,13 @@ const styles = StyleSheet.create({
   },
   // QR code
   qrTabContent: {
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
     borderRadius: 16,
     margin: 8,
   },
   qrContainer: {
     padding: 24,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
     borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -745,7 +746,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    ...glassScrim,
   },
   scanFrame: {
     width: 220,
@@ -780,7 +781,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFF',
+    ...glassSurface,
     padding: 14,
     borderRadius: 12,
     marginBottom: 8,

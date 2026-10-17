@@ -17,14 +17,17 @@ function createSafeRoutesOrchestrator({
     const capsPart = categories
       .map((category) => {
         const capValue = poiCaps[category];
+        if (capValue === Infinity) return `${category}:all`;
         return Number.isFinite(capValue) ? `${category}:${capValue}` : `${category}:default`;
       })
       .join("|");
+    const openPart = responsePolicy?.openPlacesOnly === false ? "all-places" : "open-only";
 
-    return `${verbosity}|${capsPart}`;
+    return `${verbosity}|${openPart}|${capsPart}`;
   }
 
-  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards) {
+  // Standard and extra results differ, so the safety level is part of the key.
+  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel = "extra") {
     const r = (v) => Math.round(v * 1000) / 1000;
     const base = `${r(oLat)},${r(oLng)}->${r(dLat)},${r(dLng)}`;
     const routeKey = wpLat != null && wpLng != null
@@ -33,7 +36,7 @@ function createSafeRoutesOrchestrator({
     const dhPart = departureHour != null ? `h${departureHour}` : '';
     const hazardPart = allowHazards ? 'H' : '';
 
-    return `${routeKey}${dhPart}${hazardPart}#${getResponsePolicyKey(responsePolicy)}`;
+    return `${routeKey}${dhPart}${hazardPart}|${safetyLevel}#${getResponsePolicyKey(responsePolicy)}`;
   }
 
   function emitInflightProgress(entry, phase, message, pct) {
@@ -71,6 +74,7 @@ function createSafeRoutesOrchestrator({
     responsePolicy,
     onProgress,
     cancelToken = null,
+    safetyLevel = "extra",
   }) {
     cancelToken?.throwIfCancelled?.();
     const cacheKey = getCacheKey(
@@ -83,6 +87,7 @@ function createSafeRoutesOrchestrator({
       responsePolicy,
       departureHour,
       allowHazards,
+      safetyLevel,
     );
     const cached = routeCache.get(cacheKey);
 
@@ -166,6 +171,7 @@ function createSafeRoutesOrchestrator({
             (phase, message, pct) =>
               emitInflightProgress(inflightEntry, phase, message, pct),
             responsePolicy,
+            safetyLevel,
           ),
         onQueueUpdate: ({
           queuePosition,
@@ -243,8 +249,9 @@ function createSafeRoutesOrchestrator({
     responsePolicy,
     departureHour,
     allowHazards,
+    safetyLevel = "extra",
   }) {
-    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards);
+    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel);
     return inflight.has(key);
   }
 

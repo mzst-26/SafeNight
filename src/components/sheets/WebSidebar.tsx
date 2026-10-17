@@ -245,8 +245,8 @@ export function WebSidebar({
       >
         <Ionicons
           name={isCollapsed ? 'chevron-forward' : 'chevron-back'}
-          size={18}
-          color="#0f172a"
+          size={16}
+          color="#344054"
         />
       </Pressable>
     </Animated.View>
@@ -259,17 +259,22 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     bottom: 0,
-    backgroundColor: '#ffffff',
     zIndex: 15,
     flexDirection: 'row',
-    boxShadow: '4px 0 16px rgba(0, 0, 0, 0.08)',
     overflow: 'visible',
   } as any,
   sidebarInner: {
     flex: 1,
+    margin: 12,
     paddingHorizontal: 8,
     overflow: 'visible',
-  },
+    backgroundColor: 'rgba(255, 255, 255, 0.74)',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.7)',
+    boxShadow: '0 12px 40px rgba(15, 23, 42, 0.14)',
+    backdropFilter: 'blur(28px) saturate(180%)',
+  } as any,
   searchArea: {
     paddingTop: 12,
     paddingHorizontal: 0,
@@ -283,6 +288,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f2f4f7',
     marginTop: 8,
+    // Keep results clear of the pinned legal links at the bottom.
+    marginBottom: 44,
   },
   resultsHeader: {
     flexDirection: 'row',
@@ -312,19 +319,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   policyFooter: {
+    // Pinned to the bottom of the panel in every state, outside the scrolling results.
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 8,
+    zIndex: 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
     paddingHorizontal: 4,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E2E8F0',
     gap: 4,
     flexWrap: 'wrap',
   },
   policyLink: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: '#475467',
     fontWeight: '500',
     paddingHorizontal: 2,
   },
@@ -334,18 +345,19 @@ const styles = StyleSheet.create({
   },
   centerToggleButton: {
     position: 'absolute',
-    right: -18,
+    right: -4,
     top: '50%',
-    marginTop: -32,
-    width: 42,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
-    borderColor: '#dbe4f0',
+    marginTop: -16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderColor: 'rgba(255, 255, 255, 0.95)',
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '3px 6px 14px rgba(15, 23, 42, 0.16)',
+    boxShadow: '0 2px 10px rgba(15, 23, 42, 0.12)',
+    backdropFilter: 'blur(20px) saturate(180%)',
     zIndex: 999,
     cursor: 'pointer',
   } as any,

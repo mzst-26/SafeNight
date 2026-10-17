@@ -1,3 +1,4 @@
+import { glassSurface } from '@/src/components/ui/glass';
 /**
  * TermsModal.tsx — Terms & Conditions modal.
  *
@@ -221,7 +222,7 @@ export default function TermsModal({ visible, onClose }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
   },
   header: {
     flexDirection: 'row',

@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * CustomAlert — Styled replacement for React Native Alert.alert.
  *
@@ -106,7 +107,7 @@ export function CustomAlert({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    ...glassScrim,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
     borderRadius: 20,
     padding: 28,
     alignItems: 'center',

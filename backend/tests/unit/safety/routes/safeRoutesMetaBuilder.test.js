@@ -55,6 +55,51 @@ describe('safeRoutesMetaBuilder', () => {
     });
   });
 
+  test('lightsSource reports the actual provenance of the lights data', () => {
+    const baseArgs = {
+      straightLineKm: 1.2,
+      maxDistanceKm: 10,
+      responseRoutes: [{ routeIndex: 0 }],
+      roadCount: 42,
+      crimes: [],
+      elapsed: 200,
+      phase1Time: 40,
+      dataTime: 60,
+      graphTime: 50,
+      pathfindTime: 50,
+      recorrectionMs: 0,
+    };
+    const emptyLayer = { elements: [] };
+    const provenance = (lightsSource) => ({
+      source: lightsSource,
+      reason: 'test',
+    });
+
+    const fromOsm = buildSafeRoutesMeta({
+      ...baseArgs,
+      allData: {
+        lights: emptyLayer,
+        cctv: emptyLayer,
+        places: emptyLayer,
+        transit: emptyLayer,
+        _sourceMeta: { lights: provenance('osm') },
+      },
+    });
+    expect(fromOsm.dataQuality.freshness.lightsSource).toBe('osm');
+
+    const fromLocal = buildSafeRoutesMeta({
+      ...baseArgs,
+      allData: {
+        lights: emptyLayer,
+        cctv: emptyLayer,
+        places: emptyLayer,
+        transit: emptyLayer,
+        _sourceMeta: { lights: provenance('local_osm') },
+      },
+    });
+    expect(fromLocal.dataQuality.freshness.lightsSource).toBe('local_osm');
+  });
+
   test('includes data source observability metadata when provided', () => {
     const meta = buildSafeRoutesMeta({
       straightLineKm: 1.2,

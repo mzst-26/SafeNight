@@ -1,3 +1,4 @@
+import { glassSurface } from '@/src/components/ui/glass';
 /**
  * PrivacyPolicyModal.tsx — Full privacy policy accessible from ProfileMenu.
  *
@@ -229,7 +230,7 @@ export default function PrivacyPolicyModal({ visible, onClose }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
   },
   header: {
     flexDirection: 'row',

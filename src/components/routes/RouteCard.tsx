@@ -2,6 +2,7 @@
  * RouteCard — A single route in the route list.
  * Safety details are hidden behind a collapsible toggle (Google-Maps style).
  */
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -75,14 +76,17 @@ export function RouteCard({
       </View>
 
       {/* ── Summary line ─────────────────────────────────────── */}
-      <Text style={styles.details}>
-        🚶 {formatDistance(route.distanceMeters)} ·{" "}
-        {formatDuration(route.durationSeconds)}
-        {"  "}
-        <Text style={[styles.safetyInline, { color: safety.color }]}>
-          {safety.label}
+      <View style={styles.summaryRow}>
+        <Ionicons name="walk-outline" size={14} color="#475467" />
+        <Text style={styles.details}>
+          {formatDistance(route.distanceMeters)} ·{" "}
+          {formatDuration(route.durationSeconds)}
+          {"  "}
+          <Text style={[styles.safetyInline, { color: safety.color }]}>
+            {safety.label}
+          </Text>
         </Text>
-      </Text>
+      </View>
 
       {/* ── Safety Details toggle (only when selected + data available) ── */}
       {isSelected && detailsPanel != null && (
@@ -177,10 +181,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 2,
+  },
   details: {
     fontSize: 14,
     color: "#667085",
-    marginBottom: 2,
   },
   safetyInline: {
     fontSize: 13,

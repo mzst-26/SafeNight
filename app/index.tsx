@@ -61,6 +61,7 @@ import { AndroidDownloadBanner } from "@/src/components/ui/AndroidDownloadBanner
 import { BuddyButton } from "@/src/components/ui/BuddyButton";
 import { JailLoadingAnimation } from "@/src/components/ui/JailLoadingAnimation";
 import { MapControlRail } from "@/src/components/ui/MapControlRail";
+import { MapGlassButton } from "@/src/components/ui/MapGlassButton";
 import { MapToast, type ToastConfig } from "@/src/components/ui/MapToast";
 import { ProfileMenu } from "@/src/components/ui/ProfileMenu";
 import { WebLoginButton } from "@/src/components/ui/WebLoginButton";
@@ -482,8 +483,8 @@ export default function HomeScreen() {
   // Web guest detection (also exposed from useHomeScreen)
   const isWebGuest = Platform.OS === "web" && !auth.isLoggedIn;
 
-  // Extra top offset on web to clear the AndroidDownloadBanner (32px + 4px gap)
-  const webBannerOffset = Platform.OS === "web" ? 36 : 0;
+  // The web Android banner was removed, so no extra top offset is reserved on web.
+  const webBannerOffset = 0;
 
   // Open the login modal (dismissable) for web guests
   const promptLogin = useCallback(() => {
@@ -873,7 +874,7 @@ export default function HomeScreen() {
   }, [h.nav.state]);
 
   const distanceLabel = h.selectedRoute
-    ? `🚶 ${formatDistance(h.selectedRoute.distanceMeters)}`
+    ? formatDistance(h.selectedRoute.distanceMeters)
     : "--";
   const durationLabel = h.selectedRoute
     ? formatDuration(h.selectedRoute.durationSeconds)
@@ -2048,14 +2049,11 @@ export default function HomeScreen() {
             onClearResults={h.clearRouteResults}
             showClearButton={hasRouteRequestState}
             onWidthChange={setWebSidebarOverlayOffset}
-            downloadBanner={<AndroidDownloadBanner embedded />}
             loginButton={
               isWebGuest ? <WebLoginButton onPress={promptLogin} /> : null
             }
             searchBar={
               <SearchBar
-                safetyLevel={h.safetyLevel}
-                onSafetyLevelChange={h.setSafetyLevel}
                 topInset={0}
                 location={h.location}
                 isUsingCurrentLocation={h.isUsingCurrentLocation}
@@ -2093,9 +2091,6 @@ export default function HomeScreen() {
             {/* Sheet content rendered inside sidebar */}
             {hasRouteRequestState && (
               <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>
-                  {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
-                </Text>
                 {!hasError && h.selectedRoute && (
                   <Text style={styles.sheetMeta}>
                     {distanceLabel} · {durationLabel}
@@ -2294,13 +2289,8 @@ export default function HomeScreen() {
          * ══════════════════════════════════════════════════════════════ */}
         {isPhoneWeb && !h.isNavActive && (
           <>
-            {/* Download banner */}
-            <AndroidDownloadBanner />
-
             {/* MobileWebSearchBar — collapsible pill */}
             <MobileWebSearchBar
-              safetyLevel={h.safetyLevel}
-              onSafetyLevelChange={h.setSafetyLevel}
               location={h.location}
               isUsingCurrentLocation={h.isUsingCurrentLocation}
               setIsUsingCurrentLocation={h.setIsUsingCurrentLocation}
@@ -2357,9 +2347,6 @@ export default function HomeScreen() {
 
               {hasRouteRequestState && (
                 <View style={styles.sheetHeader}>
-                  <Text style={styles.sheetTitle}>
-                    {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
-                  </Text>
                   {!hasError && h.selectedRoute && (
                     <Text style={styles.sheetMeta}>
                       {distanceLabel} · {durationLabel}
@@ -2592,8 +2579,6 @@ export default function HomeScreen() {
         {/* ── Search bar (mobile only — web uses sidebar) ── */}
         {!isWeb && !h.isNavActive && (
           <MobileWebSearchBar
-            safetyLevel={h.safetyLevel}
-            onSafetyLevelChange={h.setSafetyLevel}
             topInset={insets.top + webBannerOffset}
             location={h.location}
             isUsingCurrentLocation={h.isUsingCurrentLocation}
@@ -2733,67 +2718,50 @@ export default function HomeScreen() {
             liveLocationControl={() => {
               if (h.isNavActive || !auth.isLoggedIn) return null;
               return (
-                <Pressable
+                <MapGlassButton
+                  toggle
+                  active={showFriendsOnMap}
                   onPress={handleFriendToggle}
-                  style={[
-                    styles.friendToggle,
-                    showFriendsOnMap && styles.friendToggleActive,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={
+                  icon={showFriendsOnMap ? "people" : "people-outline"}
+                  iconColor="#344054"
+                  activeColor="#7C3AED"
+                  label={
                     showFriendsOnMap
                       ? "Hide friends on map"
                       : "Show friends on map"
                   }
-                >
-                  <Ionicons
-                    name={showFriendsOnMap ? "people" : "people-outline"}
-                    size={20}
-                    color={showFriendsOnMap ? "#fff" : "#7C3AED"}
-                  />
-                </Pressable>
+                />
               );
             }}
             currentLocationControl={() => {
               return (
-                <Pressable
+                <MapGlassButton
+                  toggle
+                  active={isAtCurrentLocation}
                   onPress={handleMoveToCurrentLocation}
-                  style={[
-                    styles.currentLocationBtn,
-                    isAtCurrentLocation
-                      ? styles.currentLocationBtnActive
-                      : styles.currentLocationBtnInactive,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={
+                  disabled={isFindingCurrentLocation}
+                  icon={isAtCurrentLocation ? "navigate" : "locate-outline"}
+                  iconColor="#344054"
+                  activeColor="#1570EF"
+                  label={
                     isAtCurrentLocation
                       ? "You are at current location"
                       : isFindingCurrentLocation
                         ? "Finding current location"
                         : "Move to current location"
                   }
-                >
-                  {isAtCurrentLocation ? (
-                    <View style={styles.currentLocationDotOuter}>
-                      <View style={styles.currentLocationDotInner} />
-                    </View>
-                  ) : (
-                    <Ionicons name="locate-outline" size={20} color="#E5E7EB" />
-                  )}
-                </Pressable>
+                />
               );
             }}
             reportControl={() => {
               if (!auth.isLoggedIn) return null;
               return (
-                <Pressable
+                <MapGlassButton
                   onPress={() => setShowReportModal(true)}
-                  style={styles.reportBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Report a hazard"
-                >
-                  <Ionicons name="flag-outline" size={20} color="#EF4444" />
-                </Pressable>
+                  icon="flag-outline"
+                  iconColor="#EF4444"
+                  label="Report a hazard"
+                />
               );
             }}
           />
@@ -2957,9 +2925,6 @@ export default function HomeScreen() {
             {/* Header — hide distance/duration when there's only an error */}
             {hasRouteRequestState && (
               <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>
-                  {hasError && h.routes.length === 0 ? "Oops!!" : "Routes"}
-                </Text>
                 {!hasError && h.selectedRoute && (
                   <Text style={styles.sheetMeta}>
                     {distanceLabel} · {durationLabel}
@@ -3317,21 +3282,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#7C3AED",
     borderColor: "#7C3AED",
   },
-  reportBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#EF4444",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-  },
   currentLocationBtn: {
     width: 40,
     height: 40,
@@ -3510,11 +3460,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
-  },
-  sheetTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#101828",
   },
   sheetMeta: {
     fontSize: 14,

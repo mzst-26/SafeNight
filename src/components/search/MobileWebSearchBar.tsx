@@ -1,4 +1,3 @@
-
 /**
  * MobileWebSearchBar — collapsible search.
  *
@@ -1119,7 +1118,10 @@ const styles = StyleSheet.create({
   pillInner: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#ffffff",
+    backgroundColor: "rgba(255, 255, 255, 0.74)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.7)",
+    backdropFilter: "blur(28px) saturate(180%)",
     borderRadius: 28,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -1150,11 +1152,14 @@ const styles = StyleSheet.create({
 
   // ── Expanded card ──
   expandedCard: {
-    backgroundColor: "#ffffff",
+    backgroundColor: "rgba(255, 255, 255, 0.74)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.7)",
+    backdropFilter: "blur(28px) saturate(180%)",
     borderRadius: 16,
     padding: 12,
     ...(Platform.OS === "web"
-      ? { boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }
+      ? { boxShadow: "0 4px 20px rgba(15, 23, 42, 0.12)" }
       : {
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 4 },

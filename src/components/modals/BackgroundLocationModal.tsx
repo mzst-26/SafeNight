@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * BackgroundLocationModal — Prominent disclosure required by Google Play.
  *
@@ -96,11 +97,11 @@ export function BackgroundLocationModal({ visible, onAllow, onDeny }: Props) {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    ...glassScrim,
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: '#fff',
+    ...glassSurface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,

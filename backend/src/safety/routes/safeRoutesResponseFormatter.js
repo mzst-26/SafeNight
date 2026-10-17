@@ -18,17 +18,18 @@ const WALKING_SPEED_MPS = 1.35;
 const DEFAULT_RESPONSE_POLICY = {
   verbosity: "full",
   poiCaps: {
-    cctv: 200,
-    transit: 200,
-    deadEnds: 200,
-    lights: 200,
-    places: 200,
-    crimes: 200,
+    cctv: 500,
+    transit: 500,
+    deadEnds: 500,
+    lights: 500,
+    places: 500,
+    crimes: 500,
   },
 };
 
 function normalizeResponsePolicy(responsePolicy) {
   const verbosity = responsePolicy?.verbosity === "compact" ? "compact" : "full";
+  const openPlacesOnly = responsePolicy?.openPlacesOnly !== false;
   const mergedPoiCaps = {
     ...DEFAULT_RESPONSE_POLICY.poiCaps,
     ...(responsePolicy?.poiCaps || {}),
@@ -36,6 +37,11 @@ function normalizeResponsePolicy(responsePolicy) {
 
   const poiCaps = {};
   for (const [category, value] of Object.entries(mergedPoiCaps)) {
+    if (value === Infinity) {
+      poiCaps[category] = Infinity;
+      continue;
+    }
+
     poiCaps[category] = Number.isFinite(value) && value > 0
       ? Math.floor(value)
       : DEFAULT_RESPONSE_POLICY.poiCaps[category];
@@ -43,6 +49,7 @@ function normalizeResponsePolicy(responsePolicy) {
 
   return {
     verbosity,
+    openPlacesOnly,
     poiCaps,
   };
 }
@@ -53,8 +60,58 @@ function distanceSqFromOrigin(point, oLat, oLng) {
   return dLat * dLat + dLng * dLng;
 }
 
-function limitCategoryPois(points, cap, oLat, oLng) {
+function buildRouteVertices(routePath, osmNodes) {
+  const vertices = [];
+  for (const nodeId of routePath || []) {
+    const node = osmNodes.get(nodeId);
+    if (!node) continue;
+    if (!Number.isFinite(node.lat) || !Number.isFinite(node.lng)) continue;
+    vertices.push({ lat: node.lat, lng: node.lng });
+  }
+  return vertices;
+}
+
+function distanceSqToSegment(point, from, to) {
+  const segLat = to.lat - from.lat;
+  const segLng = to.lng - from.lng;
+  const segLenSq = segLat * segLat + segLng * segLng;
+  if (segLenSq <= 0) {
+    return distanceSqFromOrigin(point, from.lat, from.lng);
+  }
+
+  const relLat = point.lat - from.lat;
+  const relLng = point.lng - from.lng;
+  const projection = (relLat * segLat + relLng * segLng) / segLenSq;
+  const clamped = Math.max(0, Math.min(1, projection));
+  const nearestLat = from.lat + segLat * clamped;
+  const nearestLng = from.lng + segLng * clamped;
+  return distanceSqFromOrigin(point, nearestLat, nearestLng);
+}
+
+function nearestRouteSegment(point, routeVertices) {
+  if (!Array.isArray(routeVertices) || routeVertices.length < 2) {
+    return null;
+  }
+
+  let segmentIndex = 0;
+  let distanceSq = Infinity;
+
+  for (let i = 0; i < routeVertices.length - 1; i++) {
+    const from = routeVertices[i];
+    const to = routeVertices[i + 1];
+    const candidateDistanceSq = distanceSqToSegment(point, from, to);
+    if (candidateDistanceSq < distanceSq) {
+      distanceSq = candidateDistanceSq;
+      segmentIndex = i;
+    }
+  }
+
+  return { segmentIndex, distanceSq };
+}
+
+function limitCategoryPoisByOrigin(points, cap, oLat, oLng) {
   if (!Array.isArray(points)) return [];
+  if (cap === Infinity) return points;
   if (!Number.isFinite(cap) || cap < 1) return [];
   if (points.length <= cap) return points;
 
@@ -69,14 +126,68 @@ function limitCategoryPois(points, cap, oLat, oLng) {
     .map((entry) => entry.point);
 }
 
-function limitRoutePois(routePOIs, poiCaps, oLat, oLng) {
+function limitCategoryPois(points, cap, routeVertices, oLat, oLng) {
+  if (!Array.isArray(routeVertices) || routeVertices.length < 2) {
+    return limitCategoryPoisByOrigin(points, cap, oLat, oLng);
+  }
+  if (!Array.isArray(points)) return [];
+  if (cap === Infinity) return points;
+  if (!Number.isFinite(cap) || cap < 1) return [];
+  if (points.length <= cap) return points;
+
+  const segmentBuckets = new Map();
+  for (let index = 0; index < points.length; index++) {
+    const point = points[index];
+    const nearest = nearestRouteSegment(point, routeVertices);
+    const segmentIndex = nearest?.segmentIndex ?? 0;
+    if (!segmentBuckets.has(segmentIndex)) {
+      segmentBuckets.set(segmentIndex, []);
+    }
+
+    segmentBuckets.get(segmentIndex).push({
+      point,
+      index,
+      distanceSq: nearest?.distanceSq ?? Infinity,
+      fallbackDistanceSq: distanceSqFromOrigin(point, oLat, oLng),
+    });
+  }
+
+  const segmentOrder = Array.from(segmentBuckets.keys()).sort((a, b) => a - b);
+  for (const bucket of segmentBuckets.values()) {
+    bucket.sort(
+      (a, b) => (
+        a.distanceSq - b.distanceSq ||
+        a.fallbackDistanceSq - b.fallbackDistanceSq ||
+        a.index - b.index
+      ),
+    );
+  }
+
+  const selected = [];
+  let madeProgress = true;
+
+  while (selected.length < cap && madeProgress) {
+    madeProgress = false;
+    for (const segmentIndex of segmentOrder) {
+      const bucket = segmentBuckets.get(segmentIndex);
+      if (!bucket?.length) continue;
+      selected.push(bucket.shift().point);
+      madeProgress = true;
+      if (selected.length >= cap) break;
+    }
+  }
+
+  return selected;
+}
+
+function limitRoutePois(routePOIs, poiCaps, routeVertices, oLat, oLng) {
   return {
-    cctv: limitCategoryPois(routePOIs?.cctv, poiCaps.cctv, oLat, oLng),
-    transit: limitCategoryPois(routePOIs?.transit, poiCaps.transit, oLat, oLng),
-    deadEnds: limitCategoryPois(routePOIs?.deadEnds, poiCaps.deadEnds, oLat, oLng),
-    lights: limitCategoryPois(routePOIs?.lights, poiCaps.lights, oLat, oLng),
-    places: limitCategoryPois(routePOIs?.places, poiCaps.places, oLat, oLng),
-    crimes: limitCategoryPois(routePOIs?.crimes, poiCaps.crimes, oLat, oLng),
+    cctv: limitCategoryPois(routePOIs?.cctv, poiCaps.cctv, routeVertices, oLat, oLng),
+    transit: limitCategoryPois(routePOIs?.transit, poiCaps.transit, routeVertices, oLat, oLng),
+    deadEnds: limitCategoryPois(routePOIs?.deadEnds, poiCaps.deadEnds, routeVertices, oLat, oLng),
+    lights: limitCategoryPois(routePOIs?.lights, poiCaps.lights, routeVertices, oLat, oLng),
+    places: limitCategoryPois(routePOIs?.places, poiCaps.places, routeVertices, oLat, oLng),
+    crimes: limitCategoryPois(routePOIs?.crimes, poiCaps.crimes, routeVertices, oLat, oLng),
   };
 }
 
@@ -291,7 +402,7 @@ function collectLightNodes(lightElements) {
   return lightNodes;
 }
 
-function collectOpenPlaceNodes(placeElements, enableOpeningHoursParse) {
+function collectOpenPlaceNodes(placeElements, enableOpeningHoursParse, openPlacesOnly = true) {
   const placeNodes = [];
   for (const el of placeElements || []) {
     const lat = el.lat || el.center?.lat;
@@ -327,7 +438,7 @@ function collectOpenPlaceNodes(placeElements, enableOpeningHoursParse) {
       nextChange = heuristic.nextChange;
     }
 
-    if (open !== true) continue;
+    if (openPlacesOnly && open !== true) continue;
 
     placeNodes.push({
       lat,
@@ -368,6 +479,7 @@ function buildRouteResponses({
   const placeNodes = collectOpenPlaceNodes(
     allData?.places?.elements,
     enableOpeningHoursParse,
+    normalizedResponsePolicy.openPlacesOnly,
   );
 
   const routes = rawRoutes.map((route, idx) => {
@@ -453,9 +565,11 @@ function buildRouteResponses({
       placeNodes,
       crimes,
     );
+    const routeVertices = buildRouteVertices(route.path, osmNodes);
     const limitedRoutePOIs = limitRoutePois(
       routePOIs,
       normalizedResponsePolicy.poiCaps,
+      routeVertices,
       oLat,
       oLng,
     );
@@ -580,8 +694,23 @@ function buildRouteResponses({
   return routes.slice(0, Math.max(minRoutes, routes.length));
 }
 
+/**
+ * Errors such as NO_WALKING_NETWORK or NO_ROUTE_FOUND carry a 4xx status and a code: they are answers
+ * about the request, not server faults. Returns the status and payload to send, or null for everything else.
+ */
+function routeErrorResponse(err) {
+  if (!err || !Number.isInteger(err.statusCode) || err.statusCode < 400 || err.statusCode >= 500 || !err.code) {
+    return null;
+  }
+  return {
+    status: err.statusCode,
+    payload: { error: err.code, message: err.message },
+  };
+}
+
 module.exports = {
   collectLightNodes,
   collectOpenPlaceNodes,
   buildRouteResponses,
+  routeErrorResponse,
 };

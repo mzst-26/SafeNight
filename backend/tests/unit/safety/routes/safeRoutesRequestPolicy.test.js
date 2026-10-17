@@ -43,6 +43,7 @@ describe('safeRoutesRequestPolicy', () => {
     expect(result.value.allowHazards).toBe(false);
     expect(result.value.responsePolicy).toEqual({
       verbosity: RESPONSE_VERBOSITY_FULL,
+      openPlacesOnly: true,
       poiCaps: FULL_MODE_POI_CAPS,
     });
   });
@@ -90,6 +91,7 @@ describe('safeRoutesRequestPolicy', () => {
 
     expect(result.value.responsePolicy).toEqual({
       verbosity: RESPONSE_VERBOSITY_COMPACT,
+      openPlacesOnly: true,
       poiCaps: COMPACT_MODE_POI_CAPS,
     });
   });
@@ -109,6 +111,7 @@ describe('safeRoutesRequestPolicy', () => {
 
     expect(result.value.responsePolicy).toEqual({
       verbosity: RESPONSE_VERBOSITY_FULL,
+      openPlacesOnly: true,
       poiCaps: {
         cctv: 25,
         transit: 25,

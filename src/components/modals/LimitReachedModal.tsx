@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * LimitReachedModal — Popup shown when a subscription limit is hit.
  *
@@ -236,13 +237,13 @@ export function LimitReachedModal({ visible, limitInfo, onClose, onUpgrade }: Pr
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    ...glassScrim,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   card: {
-    backgroundColor: '#ffffff',
+    ...glassSurface,
     borderRadius: 20,
     padding: 28,
     width: '100%',

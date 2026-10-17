@@ -56,6 +56,10 @@ export function SavedPlaces({
   const [addingCustom, setAddingCustom] = useState(false);
   const [customLabel, setCustomLabel] = useState('');
   const [showListPopup, setShowListPopup] = useState(false);
+  // Geometry for the thin horizontal scroll indicator under the chips
+  const [chipViewportW, setChipViewportW] = useState(0);
+  const [chipContentW, setChipContentW] = useState(0);
+  const [chipOffset, setChipOffset] = useState(0);
   const { width } = useWindowDimensions();
 
   const existingLabels = useMemo(
@@ -180,29 +184,15 @@ export function SavedPlaces({
 
   return (
     <View style={styles.container}>
-      <View style={styles.listActionRow}>
-        <Text style={styles.listActionText}>Want to see every saved place?</Text>
-        <Pressable
-          style={({ pressed }) => [
-            styles.listActionButton,
-            pressed && styles.listActionButtonPressed,
-          ]}
-          onPress={() => setShowListPopup((prev) => !prev)}
-          accessibilityRole="button"
-          accessibilityLabel="Open saved locations list"
-        >
-          <Ionicons name="list-outline" size={14} color="#344054" />
-          <Text style={styles.listActionButtonText} numberOfLines={1}>
-            Open saved list
-          </Text>
-        </Pressable>
-      </View>
-
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="always"
+        scrollEventThrottle={16}
+        onLayout={(e) => setChipViewportW(e.nativeEvent.layout.width)}
+        onContentSizeChange={(w) => setChipContentW(w)}
+        onScroll={(e) => setChipOffset(e.nativeEvent.contentOffset.x)}
       >
         {/* Saved places — small pills */}
         {places.map((place) => (
@@ -260,7 +250,41 @@ export function SavedPlaces({
         >
           <Ionicons name="add" size={14} color="#1570ef" />
         </Pressable>
+
+        {/* Saved list: icon only, sitting next to the add button */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.listIconPill,
+            pressed && styles.pillPressed,
+          ]}
+          onPress={() => setShowListPopup((prev) => !prev)}
+          accessibilityRole="button"
+          accessibilityLabel="Open saved locations list"
+        >
+          <Ionicons name="list-outline" size={15} color="#344054" />
+        </Pressable>
       </ScrollView>
+
+      {/* Thin scroll indicator: only when the chips overflow sideways */}
+      {chipContentW > chipViewportW + 1 && chipViewportW > 0 && (
+        <View style={styles.scrollTrack}>
+          <View
+            style={[
+              styles.scrollThumb,
+              {
+                width: Math.max(24, (chipViewportW / chipContentW) * (chipViewportW - 24)),
+                transform: [
+                  {
+                    translateX:
+                      (chipOffset / (chipContentW - chipViewportW)) *
+                      (chipViewportW - 24 - Math.max(24, (chipViewportW / chipContentW) * (chipViewportW - 24))),
+                  },
+                ],
+              },
+            ]}
+          />
+        </View>
+      )}
 
       {/* Inline custom label input */}
       {addingCustom && (
@@ -373,93 +397,86 @@ const styles = StyleSheet.create({
   container: {
     marginTop: 0,
     position: 'relative',
-  },
-  listActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    paddingHorizontal: 2,
-    marginBottom: 12,
-  },
-  listActionText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#475467',
-    fontWeight: '600',
-  },
-  listActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#d0d5dd',
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  listActionButtonPressed: {
-    opacity: 0.75,
-  },
-  listActionButtonText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#344054',
+    paddingTop: 10,
+    paddingBottom: 12,
   },
   scrollContent: {
-    paddingHorizontal: 2,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    gap: 8,
     alignItems: 'center',
   },
+
+  scrollTrack: {
+    alignSelf: 'center',
+    width: '70%',
+    height: 2,
+    marginTop: 8,
+    borderRadius: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.07)',
+    overflow: 'hidden',
+  },
+  scrollThumb: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.32)',
+  },
+  listIconPill: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+  } as any,
 
   // ── Pill base ──
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 16,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   pillSaved: {
-    backgroundColor: '#eff8ff',
-    borderWidth: 1,
-    borderColor: '#b2ddff',
+    backgroundColor: 'rgba(21, 112, 239, 0.10)',
+    borderColor: 'rgba(21, 112, 239, 0.25)',
   },
   pillEmpty: {
-    backgroundColor: '#f9fafb',
-    borderWidth: 1,
-    borderColor: '#e4e7ec',
-    borderStyle: 'dashed',
-  },
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+  } as any,
   pillAdd: {
-    backgroundColor: '#eff8ff',
-    borderWidth: 1,
-    borderColor: '#b2ddff',
-    borderStyle: 'dashed',
-    paddingHorizontal: 6,
-  },
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 10,
+    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+  } as any,
   pillList: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#d0d5dd',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderColor: 'rgba(255, 255, 255, 0.95)',
   },
   pillPressed: {
     opacity: 0.7,
     transform: [{ scale: 0.95 }],
   },
   pillLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#1570ef',
-    maxWidth: 64,
+    maxWidth: 80,
   },
   pillLabelEmpty: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
-    color: '#98a2b3',
-    maxWidth: 64,
+    color: '#475467',
+    maxWidth: 80,
   },
   pillListLabel: {
     fontSize: 11,

@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * OnboardingModal — First-launch consent overlay.
  */
@@ -52,7 +53,7 @@ export function OnboardingModal({ visible, error, onAccept, onDismiss }: Onboard
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(16, 24, 40, 0.45)',
+    ...glassScrim,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -63,7 +64,7 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 20,
     padding: 20,
-    backgroundColor: '#ffffff',
+    ...glassSurface,
     ...(Platform.OS === 'web' ? { boxShadow: '0 8px 12px rgba(16, 24, 40, 0.2)' } : {}),
     elevation: 6,
   },

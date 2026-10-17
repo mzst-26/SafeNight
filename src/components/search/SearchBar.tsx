@@ -1,4 +1,3 @@
-
 /**
  * SearchBar — Origin + Destination inputs with prediction dropdown.
  *

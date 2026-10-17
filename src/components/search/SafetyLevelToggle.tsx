@@ -3,7 +3,6 @@
  * Extra (full dataset, default) and Standard (roads + lights only, faster).
  */
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { SafetyLevel } from '@/src/services/safeRoutes';
@@ -21,20 +20,14 @@ export function SafetyLevelToggle({ value, onChange }: SafetyLevelToggleProps) {
       onPress={() => onChange(isExtra ? 'standard' : 'extra')}
       accessibilityRole="switch"
       accessibilityState={{ checked: isExtra }}
-      aria-checked={isExtra}
       accessibilityLabel="Extra safety data"
       hitSlop={8}
     >
       {isExtra ? (
-        <LinearGradient
-          colors={['#7c3aed', '#06b6d4']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.pill}
-        >
+        <View style={[styles.pill, styles.pillOn]}>
           <Ionicons name="sparkles" size={14} color="#ffffff" />
           <Text style={styles.textOn}>Extra</Text>
-        </LinearGradient>
+        </View>
       ) : (
         <View style={[styles.pill, styles.pillOff]}>
           <Ionicons name="sparkles-outline" size={14} color="#667085" />
@@ -54,6 +47,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
+  },
+  pillOn: {
+    backgroundColor: '#7c3aed',
   },
   pillOff: {
     backgroundColor: '#f2f4f7',

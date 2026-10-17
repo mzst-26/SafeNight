@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * ProfileMenu.tsx — Profile / account floating button + dropdown.
  *
@@ -8,6 +9,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
+import { MapGlassButton } from '@/src/components/ui/MapGlassButton';
 import {
     Alert,
     Linking,
@@ -92,15 +94,12 @@ export function ProfileMenu({ name, email, subscriptionTier, isGift, subscriptio
   return (
     <>
       {/* Trigger button */}
-      <Pressable
-        style={styles.button}
+      <MapGlassButton
+        icon="person-circle-outline"
+        iconColor="#101828"
         onPress={() => setOpen(true)}
-        accessibilityRole="button"
-        accessibilityLabel="Open profile menu"
-        hitSlop={8}
-      >
-        <Ionicons name="person-circle-outline" size={26} color="#1E293B" />
-      </Pressable>
+        label="Open profile menu"
+      />
 
       {/* Dropdown modal */}
       <Modal
@@ -307,7 +306,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    ...glassScrim,
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
     paddingTop: 100,
@@ -315,7 +314,7 @@ const styles = StyleSheet.create({
   },
   menu: {
     width: 240,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
     borderRadius: 16,
     ...(Platform.OS === 'web'
       ? { boxShadow: '0px 8px 24px rgba(0,0,0,0.15)' }

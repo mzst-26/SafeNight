@@ -7,9 +7,10 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 
 import BuddyModal from '../modals/BuddyModal';
+import { MapGlassButton } from './MapGlassButton';
 
 interface Props {
   username: string | null;
@@ -50,18 +51,14 @@ export function BuddyButton({ username, userId, hasLiveContacts = false, onConta
   return (
     <>
       <View style={styles.container}>
-        <Pressable
-          style={styles.button}
+        <MapGlassButton
+          active={hasLiveContacts}
           onPress={() => setVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Open Safety Circle"
-          hitSlop={8}
+          icon={hasLiveContacts ? 'people' : 'qr-code'}
+          iconColor="#101828"
+          activeColor="#16A34A"
+          label="Open Safety Circle"
         >
-          <Ionicons
-            name={hasLiveContacts ? 'people' : 'qr-code'}
-            size={22}
-            color={hasLiveContacts ? '#22C55E' : '#1E293B'}
-          />
           {hasLiveContacts && (
             <Animated.View
               style={[
@@ -70,7 +67,7 @@ export function BuddyButton({ username, userId, hasLiveContacts = false, onConta
               ]}
             />
           )}
-        </Pressable>
+        </MapGlassButton>
       </View>
 
       <BuddyModal

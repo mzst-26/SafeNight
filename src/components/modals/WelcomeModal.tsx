@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * WelcomeModal — Post-login onboarding wizard.
  *
@@ -350,7 +351,7 @@ function FeatureRow({ icon, text }: { icon: string; text: string }) {
 const styles = StyleSheet.create({
   overlay: {
     flexGrow: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    ...glassScrim,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
@@ -359,7 +360,7 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 480,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
     borderRadius: 24,
     padding: 32,
     ...(Platform.OS !== 'web'

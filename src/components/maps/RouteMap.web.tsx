@@ -59,8 +59,6 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     .hide-pin-labels .search-pin-wrap:not(.selected) .search-pin-label{display:none}
     .hide-pin-labels .friend-chip > div:last-child{display:none}
     .nav-dot{width:18px;height:18px;border-radius:50%;background:#1570EF;border:3px solid #fff;box-shadow:0 0 0 2px rgba(21,112,239,.25)}
-    .viz-progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#7C3AED,#3b82f6,#06b6d4);z-index:9999;transition:width .3s ease;box-shadow:0 0 8px rgba(124,58,237,.6)}
-    .viz-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:none;background:rgba(15,15,30,.88);color:#e0e7ff;padding:6px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:9999;letter-spacing:.3px;white-space:nowrap;border:1px solid rgba(124,58,237,.4);box-shadow:0 2px 12px rgba(0,0,0,.4);backdrop-filter:blur(8px);transition:opacity .3s}
     /* Hide default leaflet zoom controls for our web layout */
     .leaflet-control-zoom{display:none!important}
     .leaflet-top.leaflet-left{margin-top:10px;margin-left:10px}
@@ -90,8 +88,6 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     var vizAnimTimer = null;
     var vizClearTimer = null;
     var vizExternalPct = null;
-    var vizProgressEl = null;
-    var vizStatusEl = null;
     var lastOutOfRangeCueToken = 0;
     var outOfRangeCameraHoldUntil = 0;
     var outOfRangeBlinkTimers = [];
@@ -342,41 +338,13 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       return true;
     }
 
-    function ensureVizUI(){
-      if(!vizProgressEl){
-        vizProgressEl = document.createElement('div');
-        vizProgressEl.className = 'viz-progress-bar';
-        vizProgressEl.style.width = '0%';
-        vizProgressEl.style.opacity = '0';
-        document.body.appendChild(vizProgressEl);
-      }
-      if(!vizStatusEl){
-        vizStatusEl = document.createElement('div');
-        vizStatusEl.className = 'viz-status';
-        vizStatusEl.style.opacity = '0';
-        document.body.appendChild(vizStatusEl);
-      }
-    }
-
-    function vizSetProgress(pct, msg){
-      ensureVizUI();
-      if(pct!=null && isFinite(Number(pct))){
-        vizProgressEl.style.opacity='1';
-        vizProgressEl.style.width=Math.max(0,Math.min(100,Number(pct)))+'%';
-      }
-      if(msg){
-        vizStatusEl.style.display='block';
-        vizStatusEl.style.opacity='1';
-        vizStatusEl.textContent=msg;
-      }
-    }
+    // Progress text is no longer drawn on the map; the loader in the sidebar shows it.
+    function vizSetProgress(pct, msg){}
 
     function clearVisualization(){
       if(vizAnimTimer){ clearInterval(vizAnimTimer); vizAnimTimer=null; }
       if(vizRect){ map.removeLayer(vizRect); vizRect=null; }
       if(vizLabel){ map.removeLayer(vizLabel); vizLabel=null; }
-      if(vizProgressEl){ vizProgressEl.style.width='0%'; vizProgressEl.style.opacity='0'; }
-      if(vizStatusEl){ vizStatusEl.style.opacity='0'; vizStatusEl.style.display='none'; }
     }
 
     function drawSearchZoneFromCoords(coords){
@@ -554,6 +522,10 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       sendMsg('ready', {});
       if(lastData) updateMap(lastData);
     }
+
+    // London is only a first-load fallback. Later updates (e.g. the origin
+    // field being edited) must not move the map away from where the user is.
+    var londonFallbackShown=false;
 
     function updateMap(d){
       if(!ready || !d) return;
@@ -759,7 +731,8 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
           duration:0.36,
           easeLinearity:0.25,
         });
-      } else if(!isOutOfRangeCameraHold && !isUserCameraOverride && !d.origin && !d.navLocation && bounds.length===0){
+      } else if(!isOutOfRangeCameraHold && !isUserCameraOverride && !d.origin && !d.navLocation && bounds.length===0 && !londonFallbackShown){
+        londonFallbackShown=true;
         map.stop();
         map.flyTo(london,13,{animate:true,duration:0.45,easeLinearity:0.2});
       }
@@ -856,7 +829,6 @@ export const RouteMap = ({
   const prevPanKeyRef = useRef(-1);
   const prevFitCandidateBoundsTokenRef = useRef(0);
   const prevVizUrlRef = useRef<string | null>(null);
-  const prevMapTypeRef = useRef<string | null>(null);
 
   const callbacksRef = useRef({
     onMapPress,

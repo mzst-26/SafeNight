@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * FamilyPackModal.tsx — Family/Friends Pack subscription UI.
  *
@@ -858,13 +859,13 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    ...glassScrim,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
   },
   container: {
-    backgroundColor: '#fff',
+    ...glassSurface,
     borderRadius: 20,
     width: '100%',
     maxWidth: 440,

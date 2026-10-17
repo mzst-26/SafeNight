@@ -109,3 +109,10 @@ backend/src/osm-ingestion/coverage/
 
 # Local OSM dataset: source PBF, published data and build intermediates (12 GB, never commit)
 backend/data/
+
+# Markdown: only these are kept in the repo
+!/README.md
+!/docs/google-play-metadata.en-GB.md
+!/docs/os-first-operational-runbook.md
+!/backend/src/osm-ingestion/README.md
+!/backend/tests/TESTING.md

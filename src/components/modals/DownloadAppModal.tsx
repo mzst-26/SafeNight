@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * DownloadAppModal — Shown on web when user tries to start navigation.
  * Prompts them to download the native app.
@@ -156,7 +157,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    ...glassScrim,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
@@ -164,7 +165,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: 320,
-    backgroundColor: '#fff',
+    ...glassSurface,
     borderRadius: 20,
     padding: 28,
     alignItems: 'center',

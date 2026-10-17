@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * ReportModal — Centered pop-up two-step report flow.
  *
@@ -1447,7 +1448,7 @@ export function ReportModal({ visible, location, onClose, onSubmitted }: Props) 
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    ...glassScrim,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1460,7 +1461,7 @@ const styles = StyleSheet.create({
     width: '95%',
     maxWidth: Platform.OS === 'web' ? 520 : undefined,
     maxHeight: POPUP_MAX_H,
-    backgroundColor: '#fff',
+    ...glassSurface,
     borderRadius: 20,
     overflow: 'hidden',
     elevation: 24,
@@ -1534,7 +1535,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    backgroundColor: '#fff',
+    ...glassSurface,
     marginTop: 10,
   },
   typeIcon: {
@@ -1580,7 +1581,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    backgroundColor: '#fff',
+    ...glassSurface,
     position: 'relative',
   },
   categoryIcon: {
@@ -1712,7 +1713,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    backgroundColor: '#fff',
+    ...glassSurface,
     marginTop: 8,
   },
   wizardCardIcon: {
@@ -1739,7 +1740,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    backgroundColor: '#fff',
+    ...glassSurface,
     marginTop: 10,
   },
   wizardCardIconLarge: {

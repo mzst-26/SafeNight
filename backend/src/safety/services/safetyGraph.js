@@ -1,4 +1,3 @@
-
 /**
  * safetyGraph.js — Optimised safety-first walking graph + pathfinding.
  *

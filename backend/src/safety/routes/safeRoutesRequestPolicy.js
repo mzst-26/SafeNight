@@ -5,7 +5,10 @@ const {
 
 const RESPONSE_VERBOSITY_FULL = 'full';
 const RESPONSE_VERBOSITY_COMPACT = 'compact';
-const POI_CAP_MAX = 500;
+const POI_CAP_MAX = Math.max(
+  1,
+  Number(process.env.SAFE_ROUTES_POI_CAP_MAX || 5000),
+);
 
 const FULL_MODE_POI_CAPS = {
   cctv: 200,
@@ -43,6 +46,13 @@ function parsePoiCap(rawValue, fallback) {
     return fallback;
   }
 
+  if (typeof rawValue === 'string') {
+    const normalized = rawValue.trim().toLowerCase();
+    if (normalized === 'all' || normalized === 'max' || normalized === 'uncapped') {
+      return Infinity;
+    }
+  }
+
   const numeric = Number(rawValue);
   if (!Number.isFinite(numeric)) {
     return fallback;
@@ -54,6 +64,18 @@ function parsePoiCap(rawValue, fallback) {
   }
 
   return Math.min(rounded, POI_CAP_MAX);
+}
+
+function parseBoolean(rawValue, fallback = false) {
+  if (rawValue == null || rawValue === '') return fallback;
+  if (typeof rawValue === 'boolean') return rawValue;
+  if (typeof rawValue === 'number') return rawValue === 1;
+  if (typeof rawValue !== 'string') return fallback;
+
+  const normalized = rawValue.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes') return true;
+  if (normalized === '0' || normalized === 'false' || normalized === 'no') return false;
+  return fallback;
 }
 
 function parseResponsePolicy(query = {}) {
@@ -69,6 +91,7 @@ function parseResponsePolicy(query = {}) {
 
   return {
     verbosity,
+    openPlacesOnly: parseBoolean(query.open_places_only, true),
     poiCaps: {
       cctv: parsePoiCap(query.poi_cap_cctv, fallbackCap('cctv')),
       transit: parsePoiCap(query.poi_cap_transit, fallbackCap('transit')),

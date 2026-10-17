@@ -1,81 +1,177 @@
 /**
- * JailLoadingAnimation — Animated loading indicator with rotating safety facts.
+ * JailLoadingAnimation — A glossy 3D glass cube with a thin progress line tracing its outline,
+ * plus rotating safety facts. Transparent background, neutral palette.
  *
- * Progress bar strategy:
+ * Progress strategy:
  *   1. Starts immediately at 20% to confirm work has begun.
  *   2. Follows the progress value supplied by the screen state (client-driven).
  *   3. While loading, progress is clamped to 20–90 and completes at 100 on done.
+ * Visuals:
+ *   – A rounded-square glass body with a top gloss, bottom shading and a bevelled rim.
+ *   – The progress line runs around the cube's outline, starting at the top-left corner.
+ *   – The cube breathes slowly; motion is disabled when the OS asks for reduced motion.
  * Text strategy:
- *   – Rotates through 35 educational safety facts, one every 5 s.
- *   – Keeps running regardless of backend progress state.
+ *   – Rotates through safety facts, one every 5 s. Facts stay high-contrast (WCAG AA).
  */
+import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 type JailLoadingAnimationProps = {
   progressPct?: number | null;
   statusMessage?: string | null;
 };
 
-const LOADING_STAGES = [
-  { icon: '🗺️', text: 'Building a walkable road graph from OpenStreetMap geometry around your route.' },
-  { icon: '🧭', text: 'Tracing realistic corridor boundaries so we score the streets you can actually walk.' },
-  { icon: '💡', text: 'Street-light density matters: better-lit segments usually reduce nighttime risk.' },
-  { icon: '📹', text: 'Nearby CCTV coverage can raise confidence and improve segment safety weighting.' },
-  { icon: '🚨', text: 'Recent crime patterns are weighted by category, not every incident equally.' },
-  { icon: '🏪', text: 'Open venues add passive guardianship by increasing eyes-on-street at night.' },
-  { icon: '🚌', text: 'Transit stops can improve safety by keeping routes in active, visible corridors.' },
-  { icon: '🧱', text: 'Dead-end heavy stretches are penalized because escape options are limited.' },
-  { icon: '🛣️', text: 'Main-road exposure is balanced with comfort so the route is safer, not just shorter.' },
-  { icon: '👣', text: 'Sidewalk presence is scored because separated walking space reduces conflict with traffic.' },
-  { icon: '🌙', text: 'Night routing prioritizes visibility and activity where possible.' },
-  { icon: '📐', text: 'Distance-only shortest paths are compared against safety-optimized alternatives.' },
-  { icon: '🧠', text: 'We rank candidates by multi-factor safety score, then keep practical travel time in check.' },
-  { icon: '🔍', text: 'Sampling node connectivity to avoid sending you through isolated fragments.' },
-  { icon: '🚶', text: 'Footway and pedestrian segments are evaluated differently from vehicle-heavy roads.' },
-  { icon: '⚖️', text: 'No single signal dominates: lighting, crime, roads, and activity are blended together.' },
-  { icon: '📊', text: 'Each segment receives a local score before total route safety is computed.' },
-  { icon: '🛰️', text: 'Map data quality varies by area, so confidence is considered during route ranking.' },
-  { icon: '🧯', text: 'Higher-risk micro-segments are softened by finding nearby safer alternatives.' },
-  { icon: '🧵', text: 'We stitch safe segments into continuous paths that still feel natural to walk.' },
-  { icon: '🏙️', text: 'Urban routes often gain from denser lighting and services after dark.' },
-  { icon: '🌳', text: 'Quiet park or path segments may be scenic but can score lower at night if isolated.' },
-  { icon: '📈', text: 'Progress updates reflect backend phases so your progress bar is deterministic.' },
-  { icon: '🧪', text: 'Route candidates are validated for connectivity before final ranking.' },
-  { icon: '🧰', text: 'If one data source slows down, fallback logic keeps routing resilient.' },
-  { icon: '⏱️', text: 'Caching helps repeated searches complete faster with less redundant computation.' },
-  { icon: '🔐', text: 'Safety scoring is computed server-side so your device stays responsive.' },
-  { icon: '🌍', text: 'Local context matters: the same distance can have very different night risk by street.' },
-  { icon: '🏁', text: 'Final candidates are compared side-by-side before the safest practical route is returned.' },
-  { icon: '🛡️', text: 'Goal: reduce exposure to low-light and high-risk segments without huge detours.' },
-  { icon: '📌', text: 'Longer trips trigger wider corridor analysis to capture realistic route options.' },
-  { icon: '🔄', text: 'Dynamic weighting keeps route selection consistent even when data density changes.' },
-  { icon: '🕸️', text: 'Graph search explores multiple branches, not just one straight-line guess.' },
-  { icon: '🚦', text: 'Road class influences comfort and predictability during nighttime walking.' },
-  { icon: '📚', text: 'Safety score is interpretable: road type, lighting, crime, CCTV, and activity all contribute.' },
-  { icon: '✅', text: 'Assembling your final options now and preparing map overlays.' },
+const LOADING_FACTS = [
+  'Building a walkable road graph from OpenStreetMap geometry around your route.',
+  'Tracing realistic corridor boundaries so we score the streets you can actually walk.',
+  'Street-light density matters: better-lit segments usually reduce nighttime risk.',
+  'Nearby CCTV coverage can raise confidence and improve segment safety weighting.',
+  'Recent crime patterns are weighted by category, not every incident equally.',
+  'Open venues add passive guardianship by increasing eyes-on-street at night.',
+  'Transit stops can improve safety by keeping routes in active, visible corridors.',
+  'Dead-end heavy stretches are penalized because escape options are limited.',
+  'Main-road exposure is balanced with comfort so the route is safer, not just shorter.',
+  'Sidewalk presence is scored because separated walking space reduces conflict with traffic.',
+  'Night routing prioritizes visibility and activity where possible.',
+  'Distance-only shortest paths are compared against safety-optimized alternatives.',
+  'We rank candidates by multi-factor safety score, then keep practical travel time in check.',
+  'Sampling node connectivity to avoid sending you through isolated fragments.',
+  'Footway and pedestrian segments are evaluated differently from vehicle-heavy roads.',
+  'No single signal dominates: lighting, crime, roads, and activity are blended together.',
+  'Each segment receives a local score before total route safety is computed.',
+  'Map data quality varies by area, so confidence is considered during route ranking.',
+  'Higher-risk micro-segments are softened by finding nearby safer alternatives.',
+  'We stitch safe segments into continuous paths that still feel natural to walk.',
+  'Urban routes often gain from denser lighting and services after dark.',
+  'Quiet park or path segments may be scenic but can score lower at night if isolated.',
+  'Progress updates reflect backend phases so your progress bar is deterministic.',
+  'Route candidates are validated for connectivity before final ranking.',
+  'If one data source slows down, fallback logic keeps routing resilient.',
+  'Caching helps repeated searches complete faster with less redundant computation.',
+  'Safety scoring is computed server-side so your device stays responsive.',
+  'Local context matters: the same distance can have very different night risk by street.',
+  'Final candidates are compared side-by-side before the safest practical route is returned.',
+  'Goal: reduce exposure to low-light and high-risk segments without huge detours.',
+  'Longer trips trigger wider corridor analysis to capture realistic route options.',
+  'Dynamic weighting keeps route selection consistent even when data density changes.',
+  'Graph search explores multiple branches, not just one straight-line guess.',
+  'Road class influences comfort and predictability during nighttime walking.',
+  'Safety score is interpretable: road type, lighting, crime, CCTV, and activity all contribute.',
+  'Assembling your final options now and preparing map overlays.',
 ];
+
+const CUBE_SIZE = 176;
+const INSET = 10; // space for the progress line and its glow
+const CUBE_RADIUS = 46;
+const LINE_WIDTH = 1.6;
+const BODY_W = CUBE_SIZE - INSET * 2;
+const BODY_H = CUBE_SIZE - INSET * 2;
+const PERIMETER = 2 * (BODY_W - 2 * CUBE_RADIUS) + 2 * (BODY_H - 2 * CUBE_RADIUS) + 2 * Math.PI * CUBE_RADIUS;
+
+// Path for the rounded-square outline, clockwise from the top-left corner's end.
+const OUTLINE_PATH = [
+  `M ${INSET + CUBE_RADIUS} ${INSET}`,
+  `L ${INSET + BODY_W - CUBE_RADIUS} ${INSET}`,
+  `A ${CUBE_RADIUS} ${CUBE_RADIUS} 0 0 1 ${INSET + BODY_W} ${INSET + CUBE_RADIUS}`,
+  `L ${INSET + BODY_W} ${INSET + BODY_H - CUBE_RADIUS}`,
+  `A ${CUBE_RADIUS} ${CUBE_RADIUS} 0 0 1 ${INSET + BODY_W - CUBE_RADIUS} ${INSET + BODY_H}`,
+  `L ${INSET + CUBE_RADIUS} ${INSET + BODY_H}`,
+  `A ${CUBE_RADIUS} ${CUBE_RADIUS} 0 0 1 ${INSET} ${INSET + BODY_H - CUBE_RADIUS}`,
+  `L ${INSET} ${INSET + CUBE_RADIUS}`,
+  `A ${CUBE_RADIUS} ${CUBE_RADIUS} 0 0 1 ${INSET + CUBE_RADIUS} ${INSET}`,
+  'Z',
+].join(' ');
+
+/** Point at distance `distance` along the outline (clockwise from the top-left corner). */
+function pointOnOutline(distance: number): { x: number; y: number } {
+  const straightTop = BODY_W - 2 * CUBE_RADIUS;
+  const straightSide = BODY_H - 2 * CUBE_RADIUS;
+  const arc = (Math.PI / 2) * CUBE_RADIUS;
+  const segments: Array<{ len: number; at: (t: number) => { x: number; y: number } }> = [];
+  const x0 = INSET;
+  const y0 = INSET;
+  const x1 = INSET + BODY_W;
+  const y1 = INSET + BODY_H;
+  const r = CUBE_RADIUS;
+
+  segments.push({ len: straightTop, at: (t) => ({ x: x0 + r + straightTop * t, y: y0 }) });
+  segments.push({ len: arc, at: (t) => cornerPoint(x1 - r, y0 + r, r, -Math.PI / 2 + Math.PI / 2 * t) });
+  segments.push({ len: straightSide, at: (t) => ({ x: x1, y: y0 + r + straightSide * t }) });
+  segments.push({ len: arc, at: (t) => cornerPoint(x1 - r, y1 - r, r, Math.PI / 2 * t) });
+  segments.push({ len: straightTop, at: (t) => ({ x: x1 - r - straightTop * t, y: y1 }) });
+  segments.push({ len: arc, at: (t) => cornerPoint(x0 + r, y1 - r, r, Math.PI / 2 + Math.PI / 2 * t) });
+  segments.push({ len: straightSide, at: (t) => ({ x: x0, y: y1 - r - straightSide * t }) });
+  segments.push({ len: arc, at: (t) => cornerPoint(x0 + r, y0 + r, r, Math.PI + Math.PI / 2 * t) });
+
+  let remaining = Math.max(0, Math.min(PERIMETER, distance));
+  for (const seg of segments) {
+    if (remaining <= seg.len) return seg.at(seg.len === 0 ? 0 : remaining / seg.len);
+    remaining -= seg.len;
+  }
+  return { x: x0 + r, y: y0 };
+}
+
+function cornerPoint(cx: number, cy: number, r: number, angle: number) {
+  return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+}
 
 export function JailLoadingAnimation({ progressPct = null, statusMessage = null }: JailLoadingAnimationProps) {
   const MIN_START_PCT = 20;
   const MAX_LOADING_PCT = 90;
 
-  const [stageIdx, setStageIdx] = useState(0);
+  const [factIdx, setFactIdx] = useState(0);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  // Displayed progress 0→100 (driven by the hook-provided progressPct)
+  const breathAnim = useRef(new Animated.Value(1)).current;
+  // Displayed progress 0→1 (driven by the screen-provided progressPct)
   const barAnim = useRef(new Animated.Value(0)).current;
   const [displayPct, setDisplayPct] = useState(MIN_START_PCT);
+  const [fraction, setFraction] = useState(MIN_START_PCT / 100);
+
+  // Mirror the animated value into state so the SVG line can follow it.
+  useEffect(() => {
+    const id = barAnim.addListener(({ value }) => setFraction(value));
+    return () => barAnim.removeListener(id);
+  }, [barAnim]);
+
+  // Respect the OS "reduce motion" setting.
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled?.().then((enabled) => {
+      if (mounted) setReduceMotion(!!enabled);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // ── Fact rotation: every 5 s, cross-fade to next fact ──
   useEffect(() => {
     const interval = setInterval(() => {
-      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
-        setStageIdx((prev) => (prev + 1) % LOADING_STAGES.length);
+      Animated.timing(fadeAnim, { toValue: 0.4, duration: 200, useNativeDriver: true }).start(() => {
+        setFactIdx((prev) => (prev + 1) % LOADING_FACTS.length);
         Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
       });
     }, 5000);
     return () => clearInterval(interval);
   }, [fadeAnim]);
+
+  // ── Slow breathing of the cube (skipped with reduced motion) ──
+  useEffect(() => {
+    if (reduceMotion) {
+      breathAnim.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathAnim, { toValue: 1.02, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(breathAnim, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [breathAnim, reduceMotion]);
 
   // Start instantly at 20% so users see immediate feedback.
   useEffect(() => {
@@ -105,48 +201,126 @@ export function JailLoadingAnimation({ progressPct = null, statusMessage = null 
 
     Animated.timing(barAnim, {
       toValue: nextPct / 100,
-      duration: 400,
+      duration: 500,
       easing: Easing.out(Easing.quad),
       useNativeDriver: false,
     }).start();
   }, [progressPct, barAnim]);
 
-  const stage = LOADING_STAGES[stageIdx];
+  const fact = LOADING_FACTS[factIdx];
   const backendStatus = statusMessage?.trim() || null;
+  const clamped = Math.max(0, Math.min(1, fraction));
+  const dashOffset = PERIMETER * (1 - clamped);
+  const head = pointOnOutline(PERIMETER * clamped);
 
   return (
     <View style={styles.container}>
-      <View style={styles.barsContainer}>
-        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-          <View key={i} style={styles.bar} />
-        ))}
-      </View>
+      <Text style={styles.eyebrow}>Analysing routes</Text>
 
-      <Text style={styles.icon}>{stage.icon}</Text>
+      <Animated.View style={[styles.cubeWrap, { transform: [{ scale: breathAnim }] }]}>
+        <Svg width={CUBE_SIZE} height={CUBE_SIZE} style={styles.svg}>
+          <Defs>
+            {/* Glass layer: barely tinted, so the background shows through like a widget */}
+            <LinearGradient id="cubeBody" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#ffffff" stopOpacity="0.22" />
+              <Stop offset="1" stopColor="#ffffff" stopOpacity="0.06" />
+            </LinearGradient>
+            {/* Very light bottom shading gives the layer depth */}
+            <LinearGradient id="cubeShade" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0.6" stopColor="#475467" stopOpacity="0" />
+              <Stop offset="1" stopColor="#475467" stopOpacity="0.06" />
+            </LinearGradient>
+            {/* Gloss along the top edge */}
+            <LinearGradient id="cubeGloss" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#ffffff" stopOpacity="0.95" />
+              <Stop offset="1" stopColor="#ffffff" stopOpacity="0" />
+            </LinearGradient>
+            {/* Outline: bright at the top, darker toward the bottom, like a polished edge */}
+            <LinearGradient id="edgeStroke" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#ffffff" stopOpacity="1" />
+              <Stop offset="1" stopColor="#98a2b3" stopOpacity="0.7" />
+            </LinearGradient>
+            {/* Progress line: graphite, so it reads on a light glass background */}
+            <LinearGradient id="progressStroke" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#1d2939" />
+              <Stop offset="1" stopColor="#667085" />
+            </LinearGradient>
+          </Defs>
 
-      <Animated.Text style={[styles.statusText, { opacity: fadeAnim }]}>
-        {stage.text}
-      </Animated.Text>
+          {/* Cube body */}
+          <Path d={OUTLINE_PATH} fill="url(#cubeBody)" />
+          <Path d={OUTLINE_PATH} fill="url(#cubeShade)" />
+          {/* Top gloss, inset from the edge */}
+          <Path
+            d={`M ${INSET + 18} ${INSET + 14} Q ${CUBE_SIZE / 2} ${INSET - 2} ${CUBE_SIZE - INSET - 18} ${INSET + 14} Q ${CUBE_SIZE / 2} ${INSET + 44} ${INSET + 18} ${INSET + 14} Z`}
+            fill="url(#cubeGloss)"
+            opacity={0.7}
+          />
+          {/* Bevelled edge: a bright inner rim so the body looks 3D */}
+          <Path
+            d={OUTLINE_PATH}
+            fill="none"
+            stroke="rgba(255, 255, 255, 0.9)"
+            strokeWidth={1.5}
+          />
+          <Path
+            d={OUTLINE_PATH}
+            fill="none"
+            stroke="url(#edgeStroke)"
+            strokeWidth={1}
+            opacity={0.55}
+          />
 
-      {backendStatus ? (
-        <Text style={styles.backendStatusText}>{backendStatus}</Text>
-      ) : null}
+          {/* Progress line track */}
+          <Path d={OUTLINE_PATH} fill="none" stroke="rgba(15, 23, 42, 0.08)" strokeWidth={LINE_WIDTH} />
+          {/* Progress line with a 3D touch: a soft shadow below, a light highlight above */}
+          <Path
+            d={OUTLINE_PATH}
+            fill="none"
+            stroke="rgba(15, 23, 42, 0.28)"
+            strokeWidth={LINE_WIDTH}
+            strokeLinecap="round"
+            strokeDasharray={`${PERIMETER} ${PERIMETER}`}
+            strokeDashoffset={dashOffset}
+            transform="translate(0 0.9)"
+          />
+          <Path
+            d={OUTLINE_PATH}
+            fill="none"
+            stroke="url(#progressStroke)"
+            strokeWidth={LINE_WIDTH}
+            strokeLinecap="round"
+            strokeDasharray={`${PERIMETER} ${PERIMETER}`}
+            strokeDashoffset={dashOffset}
+          />
+          <Path
+            d={OUTLINE_PATH}
+            fill="none"
+            stroke="rgba(255, 255, 255, 0.85)"
+            strokeWidth={LINE_WIDTH * 0.3}
+            strokeLinecap="round"
+            strokeDasharray={`${PERIMETER} ${PERIMETER}`}
+            strokeDashoffset={dashOffset}
+            transform="translate(0 -0.4)"
+          />
+          {/* Head marker at the end of the progress line */}
+          {clamped > 0.02 && (
+            <>
+              <Circle cx={head.x} cy={head.y} r={6} fill="#1d2939" opacity={0.12} />
+              <Circle cx={head.x} cy={head.y} r={3.2} fill="#ffffff" stroke="#1d2939" strokeWidth={1.5} />
+            </>
+          )}
+        </Svg>
 
-      <View style={styles.progressTrack}>
-        <Animated.View
-          style={[
-            styles.progressFill,
-            {
-              width: barAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0%', '100%'],
-              }),
-            },
-          ]}
-        />
-      </View>
+        <View style={styles.percentWrap} pointerEvents="none">
+          <Text style={styles.percentText}>{displayPct}%</Text>
+          <Text style={styles.percentLabel}>analysed</Text>
+        </View>
+      </Animated.View>
 
-      <Text style={styles.subtitle}>{displayPct}% analysed</Text>
+      <Animated.Text style={[styles.factText, { opacity: fadeAnim }]}>{fact}</Animated.Text>
+
+      {backendStatus ? <Text style={styles.statusText}>{backendStatus}</Text> : null}
     </View>
   );
 }
@@ -154,59 +328,57 @@ export function JailLoadingAnimation({ progressPct = null, statusMessage = null 
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: 28,
+    alignSelf: 'center',
+    maxWidth: 420,
+    width: '100%',
+    paddingVertical: 24,
     paddingHorizontal: 16,
-    gap: 12,
+    gap: 16,
+    backgroundColor: 'transparent',
   },
-  barsContainer: {
+  eyebrow: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#344054',
+    letterSpacing: 0.2,
+  },
+  cubeWrap: {
+    width: CUBE_SIZE,
+    height: CUBE_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  svg: {
     position: 'absolute',
-    top: 10,
-    left: 20,
-    right: 20,
-    bottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    opacity: 0.06,
+    backgroundColor: 'transparent',
   },
-  bar: {
-    width: 4,
-    height: '100%',
-    backgroundColor: '#1e293b',
-    borderRadius: 2,
+  percentWrap: {
+    alignItems: 'center',
   },
-  icon: {
-    fontSize: 40,
-    marginBottom: 4,
+  percentText: {
+    fontSize: 34,
+    fontWeight: '600',
+    color: '#0f172a',
+    letterSpacing: -0.8,
+  },
+  percentLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#344054',
+    marginTop: -2,
+  },
+  factText: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#475467',
+    textAlign: 'center',
+    lineHeight: 19,
+    maxWidth: 300,
   },
   statusText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1e293b',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  backendStatusText: {
     fontSize: 12,
-    color: '#475467',
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  progressTrack: {
-    width: '85%',
-    height: 7,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 4,
-    marginTop: 4,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#3b82f6',
-    borderRadius: 4,
-  },
-  subtitle: {
-    fontSize: 12,
-    color: '#94a3b8',
+    color: '#667085',
     fontWeight: '500',
+    textAlign: 'center',
   },
 });

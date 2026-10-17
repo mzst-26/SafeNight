@@ -1,3 +1,4 @@
+import { glassSurface } from '@/src/components/ui/glass';
 /**
  * DisclaimerModal — Safety disclaimer that must be accepted before using the app.
  *
@@ -222,7 +223,7 @@ export default function DisclaimerModal({ visible, onAccept }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
     paddingHorizontal: 20,
   },
   header: {

@@ -1,3 +1,4 @@
+import { glassSurface } from '@/src/components/ui/glass';
 /**
  * LoginModal.tsx — Login modal with conditional auth methods.
  *
@@ -755,7 +756,7 @@ const styles = StyleSheet.create({
   webCard: {
     width: '100%',
     maxWidth: 440,
-    backgroundColor: '#FFFFFF',
+    ...glassSurface,
     borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },

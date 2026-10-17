@@ -398,4 +398,140 @@ describe('safeRoutesResponseFormatter', () => {
     expect(route.routePOIs.crimes).toHaveLength(1);
     expect(route.routePOIs.cctv[0]).toEqual({ lat: 50.37001, lng: -4.14001 });
   });
+
+  describe('route-aware POI selection and open-place filtering', () => {
+    // Two-segment route: n1 -> n2 -> n3. n3 is far from the origin.
+    const buildArgs = (responsePolicy) => ({
+      rawRoutes: [{ path: ['n1', 'n2', 'n3'], edges: [0, 1], totalDist: 2000 }],
+      osmNodes: new Map([
+        ['n1', { lat: 50.37, lng: -4.14 }],
+        ['n2', { lat: 50.38, lng: -4.13 }],
+        ['n3', { lat: 50.39, lng: -4.12 }],
+      ]),
+      edges: [
+        {
+          distance: 1000,
+          safetyScore: 0.6,
+          highway: 'residential',
+          roadName: 'Main St',
+          isDeadEnd: false,
+          hasSidewalk: true,
+          surfacePenalty: 0,
+          surfaceType: 'paved',
+          lightScore: 0.7,
+          crimeScore: 0.8,
+          cctvScore: 0.4,
+          placeScore: 0.3,
+          trafficScore: 0.5,
+          nearbyTransitCount: 0,
+          nearbyCctvCount: 0,
+        },
+        {
+          distance: 1000,
+          safetyScore: 0.6,
+          highway: 'residential',
+          roadName: 'Main St',
+          isDeadEnd: false,
+          hasSidewalk: true,
+          surfacePenalty: 0,
+          surfaceType: 'paved',
+          lightScore: 0.7,
+          crimeScore: 0.8,
+          cctvScore: 0.4,
+          placeScore: 0.3,
+          trafficScore: 0.5,
+          nearbyTransitCount: 0,
+          nearbyCctvCount: 0,
+        },
+      ],
+      weights: {},
+      cctvNodes: [],
+      transitNodes: [],
+      nodeDegree: new Map(),
+      crimes: [],
+      allData: { lights: { elements: [] }, places: { elements: [] } },
+      oLat: 50.37,
+      oLng: -4.14,
+      dLat: 50.39,
+      dLng: -4.12,
+      enableOpeningHoursParse: false,
+      responsePolicy,
+    });
+
+    const emptyPOIs = () => ({
+      cctv: [],
+      transit: [],
+      deadEnds: [],
+      lights: [],
+      places: [],
+      crimes: [],
+    });
+
+    test('cap keeps POIs spread across route segments instead of clustering at the origin', () => {
+      // Three CCTV cameras near segment 0 (close to origin), three near segment 1.
+      collectRoutePOIs.mockReturnValueOnce({
+        ...emptyPOIs(),
+        cctv: [
+          { lat: 50.3701, lng: -4.1401 },
+          { lat: 50.3702, lng: -4.1402 },
+          { lat: 50.3703, lng: -4.1403 },
+          { lat: 50.3851, lng: -4.1251 },
+          { lat: 50.3852, lng: -4.1252 },
+          { lat: 50.3853, lng: -4.1253 },
+        ],
+      });
+
+      const [route] = buildRouteResponses(
+        buildArgs({
+          verbosity: 'full',
+          poiCaps: { ...emptyPOIs(), cctv: 2 },
+        }),
+      );
+
+      expect(route.routePOIs.cctv).toHaveLength(2);
+      const lats = route.routePOIs.cctv.map((p) => p.lat);
+      expect(lats.some((lat) => lat < 50.38)).toBe(true);
+      expect(lats.some((lat) => lat > 50.38)).toBe(true);
+    });
+
+    test('Infinity cap keeps every POI', () => {
+      const cctv = Array.from({ length: 12 }, (_, i) => ({
+        lat: 50.37 + i * 0.001,
+        lng: -4.14 + i * 0.001,
+      }));
+      collectRoutePOIs.mockReturnValueOnce({ ...emptyPOIs(), cctv });
+
+      const [route] = buildRouteResponses(
+        buildArgs({
+          verbosity: 'full',
+          poiCaps: {
+            cctv: Infinity,
+            transit: Infinity,
+            deadEnds: Infinity,
+            lights: Infinity,
+            places: Infinity,
+            crimes: Infinity,
+          },
+        }),
+      );
+
+      expect(route.routePOIs.cctv).toHaveLength(12);
+    });
+
+    test('collectOpenPlaceNodes keeps closed places when openPlacesOnly is false', () => {
+      const closed = { open: false, nextChange: 'opens at 07:00' };
+      safeRoutesUtils.heuristicOpen
+        .mockReturnValueOnce(closed)
+        .mockReturnValueOnce(closed);
+      const elements = [
+        { lat: 50.37, lon: -4.14, tags: { name: 'Closed Cafe', amenity: 'cafe' } },
+      ];
+
+      expect(collectOpenPlaceNodes(elements, false, true)).toEqual([]);
+
+      const result = collectOpenPlaceNodes(elements, false, false);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ name: 'Closed Cafe', open: false });
+    });
+  });
 });

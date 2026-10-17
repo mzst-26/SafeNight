@@ -1,3 +1,4 @@
+import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * AIExplanationModal — Modal showing AI-generated route safety insights.
  */
@@ -71,7 +72,7 @@ export function AIExplanationModal({ visible, ai, onClose }: AIExplanationModalP
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(16, 24, 40, 0.5)',
+    ...glassScrim,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -81,7 +82,7 @@ const styles = StyleSheet.create({
     maxWidth: 440,
     maxHeight: '70%',
     borderRadius: 20,
-    backgroundColor: '#ffffff',
+    ...glassSurface,
     padding: 20,
     ...(Platform.OS === 'web' ? { boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)' } : {}),
     elevation: 10,

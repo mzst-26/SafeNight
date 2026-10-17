@@ -1,5 +1,12 @@
-import { memo, useMemo, type ReactNode } from 'react';
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Platform,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 import {
   computeClusterPlacement,
@@ -56,6 +63,506 @@ function renderControlStack(
         {control}
       </View>
     ));
+}
+
+/** Where the web dock was last dropped. Stored per browser (localStorage). */
+// v2: positions saved by v1 are ignored, so everyone starts at the new default (right, mid-height).
+const DOCK_POSITION_KEY = 'safenight.mapDock.position.v2';
+const DOCK_THICKNESS = 56; // width of a vertical dock, height of a horizontal one
+const DOCK_CHROME = 32; // padding + grip + gap, along the dock's length
+const DOCK_ITEM_GAP = 12;
+const DOCK_EDGE = 8; // minimum distance from the viewport edge
+
+const DRAG_TAP_SLOP_PX = 4; // movement below this is a tap, not a drag
+const DRAG_RESIST = 0.35; // share of an edge overshoot that the dock still follows
+const FLICK_SPEED_PX_MS = 0.9; // release faster than this carries the dock on
+const MAX_FLICK_SPEED_PX_MS = 2.5; // flick speed beyond this counts as this speed
+const FLICK_PROJECTION_MS = 180; // how far ahead a flick carries the dock
+const VELOCITY_WINDOW_MS = 100; // only recent movement decides flick speed
+const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+const LIFT_TRANSITION = 'transform 180ms ease, box-shadow 180ms ease';
+/** While held: the dock rises with a deeper shadow. Against an edge: an accent ring. */
+const DOCK_LIFT_SHADOW = '0 18px 44px rgba(15, 23, 42, 0.22)';
+const DOCK_EDGE_SHADOW =
+  '0 0 0 3px rgba(21, 112, 239, 0.35), 0 18px 44px rgba(21, 112, 239, 0.25)';
+
+type DockPos = { x: number; y: number };
+/** A saved dock: where it was left and which layout it had there. */
+type SavedDock = DockPos & { o?: DockOrientation };
+type DockPhase = 'idle' | 'dragging' | 'edge';
+type DockOrientation = 'vertical' | 'horizontal';
+type DockSize = { w: number; h: number };
+
+function clampRange(v: number, min: number, max: number): number {
+  return Math.min(Math.max(v, min), max);
+}
+
+/** Lets the dock follow past an edge at reduced strength instead of stopping dead. */
+function resistRange(v: number, min: number, max: number): number {
+  if (v < min) return min - (min - v) * DRAG_RESIST;
+  if (v > max) return max + (v - max) * DRAG_RESIST;
+  return v;
+}
+
+function sizeOf(o: DockOrientation, len: number): DockSize {
+  return o === 'vertical' ? { w: DOCK_THICKNESS, h: len } : { w: len, h: DOCK_THICKNESS };
+}
+
+/** Keeps the whole dock inside the viewport. */
+function clampToViewport(p: DockPos, vw: number, vh: number, size: DockSize): DockPos {
+  return {
+    x: clampRange(p.x, DOCK_EDGE, Math.max(DOCK_EDGE, vw - size.w - DOCK_EDGE)),
+    y: clampRange(p.y, DOCK_EDGE, Math.max(DOCK_EDGE, vh - size.h - DOCK_EDGE)),
+  };
+}
+
+/**
+ * When the dock turns horizontal. It only turns horizontal inside the top or bottom
+ * band, and only when that band is clearly closer than the side edges (the HYST
+ * margin). Once horizontal it stays so until it leaves the band, so near a corner
+ * it does not flicker between layouts.
+ */
+const ORIENT_ENTER_BAND = 64; // px from the top or bottom edge to turn horizontal
+const ORIENT_LEAVE_BAND = 96; // px from the top or bottom edge before turning back
+const ORIENT_HYSTERESIS = 24; // px margin against the side edges
+
+function decideOrientation(
+  p: DockPos,
+  vw: number,
+  vh: number,
+  len: number,
+  prev: DockOrientation,
+): DockOrientation {
+  // Use the footprint the dock currently has, so distances to the far edges are right.
+  // Each layout is judged with its own footprint, so the answer for a given pointer
+  // position does not depend on which layout the dock is currently in.
+  const horizontalSize = { w: len, h: DOCK_THICKNESS };
+  const verticalSize = { w: DOCK_THICKNESS, h: len };
+  const asHorizontal = clampToViewport(p, vw, vh, horizontalSize);
+  const asVertical = clampToViewport(p, vw, vh, verticalSize);
+  // Distance from the top/bottom edge if horizontal, and from the left/right edge if vertical.
+  const topBottom = Math.min(asHorizontal.y, vh - (asHorizontal.y + horizontalSize.h));
+  const leftRight = Math.min(asVertical.x, vw - (asVertical.x + verticalSize.w));
+  if (prev === 'horizontal') {
+    // Stay horizontal inside the dead zone; leave only when clearly away from the edge.
+    return topBottom > ORIENT_LEAVE_BAND || leftRight + ORIENT_HYSTERESIS < topBottom
+      ? 'vertical'
+      : 'horizontal';
+  }
+  return topBottom <= ORIENT_ENTER_BAND && topBottom + ORIENT_HYSTERESIS < leftRight
+    ? 'horizontal'
+    : 'vertical';
+}
+
+/** Places a dock: picks its orientation, keeps it inside the viewport, and re-checks once. */
+function fitDock(
+  p: DockPos,
+  vw: number,
+  vh: number,
+  len: number,
+  prev: DockOrientation,
+): { pos: DockPos; o: DockOrientation; size: DockSize } {
+  let o = decideOrientation(p, vw, vh, len, prev);
+  let size = sizeOf(o, len);
+  let pos = clampToViewport(p, vw, vh, size);
+  const settled = decideOrientation(pos, vw, vh, len, o);
+  if (settled !== o) {
+    o = settled;
+    size = sizeOf(o, len);
+    pos = clampToViewport(pos, vw, vh, size);
+  }
+  return { pos, o, size };
+}
+
+/** Layout values for an orientation. Numbers are pixels; the DOM copy adds the unit. */
+function orientationStyle(o: DockOrientation) {
+  return o === 'vertical'
+    ? { flexDirection: 'column' as const, paddingTop: 8, paddingBottom: 8, paddingLeft: 4, paddingRight: 4 }
+    : { flexDirection: 'row' as const, paddingTop: 4, paddingBottom: 4, paddingLeft: 8, paddingRight: 8 };
+}
+
+function handleStyle(o: DockOrientation) {
+  return o === 'vertical' ? { width: 28, height: 4 } : { width: 4, height: 28 };
+}
+
+/** Converts numeric layout values to CSS strings for direct DOM updates. */
+function toDomStyle(values: Record<string, string | number>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(values)) {
+    const v = values[key];
+    out[key] = typeof v === 'number' ? `${v}px` : String(v);
+  }
+  return out;
+}
+
+function savePosition(p: SavedDock) {
+  try {
+    localStorage.setItem(DOCK_POSITION_KEY, JSON.stringify(p));
+  } catch {
+    // Keep working for this session even if storage is unavailable.
+  }
+}
+
+/**
+ * One frosted container for the whole map dock. Drag it anywhere on the map.
+ *
+ * Web drag model: pointer events go to the dock element with pointer capture,
+ * so the drag keeps following when the pointer leaves the dock, the map, or the
+ * browser window. Position and layout follow the pointer directly while held:
+ * horizontal near the top or bottom edge, vertical near the left or right edge.
+ * Past a viewport edge the dock resists, and on release a fast flick carries on
+ * briefly while anything outside the viewport eases back in. The position is
+ * saved on release.
+ */
+function DraggableDock({
+  children,
+  controlsHeight,
+}: {
+  children: ReactNode;
+  controlsHeight: number;
+}) {
+  const { width: viewportW, height: viewportH } = useWindowDimensions();
+  const len = controlsHeight + DOCK_CHROME;
+  const [saved, setSaved] = useState<SavedDock | null>(null);
+  const dockRef = useRef<any>(null);
+
+  // Default: right side of the screen, vertically centred.
+  const placed = fitDock(
+    saved ?? { x: viewportW - 12 - DOCK_THICKNESS, y: Math.round((viewportH - len) / 2) },
+    viewportW,
+    viewportH,
+    len,
+    saved?.o ?? 'vertical',
+  );
+
+  // The DOM listeners below are attached once; they read the latest values from here.
+  const liveRef = useRef({ len, o: placed.o });
+  liveRef.current = { len, o: placed.o };
+
+  // Load the remembered position once.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DOCK_POSITION_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (typeof p?.x === 'number' && typeof p?.y === 'number') setSaved(p);
+      }
+    } catch {
+      // Storage can be blocked (private mode); the default position still works.
+    }
+  }, []);
+
+  // Pointer handling on the dock element itself (web only).
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = dockRef.current as HTMLElement | null;
+    if (!node) return;
+
+    type Sample = { t: number; x: number; y: number };
+    type Session = {
+      id: number;
+      held: boolean; // the press itself reported a held button
+      sx: number;
+      sy: number;
+      ox: number;
+      oy: number;
+      x: number;
+      y: number;
+      moved: boolean;
+      captured: boolean;
+      samples: Sample[];
+    };
+
+    let session: Session | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    let suppressClick = false;
+    let lastPhase: DockPhase = 'idle';
+    let domOrientation: DockOrientation | null = null;
+
+    // Visual states are applied straight to the element. A React re-render during a
+    // drag would re-apply the saved left/top and undo the move.
+    const setPhaseOnce = (p: DockPhase) => {
+      if (p === lastPhase) return;
+      lastPhase = p;
+      node.style.transform = p === 'idle' ? '' : 'scale(1.04)';
+      node.style.boxShadow =
+        p === 'idle' ? '' : p === 'edge' ? DOCK_EDGE_SHADOW : DOCK_LIFT_SHADOW;
+    };
+
+    const place = (x: number, y: number) => {
+      node.style.left = `${x}px`;
+      node.style.top = `${y}px`;
+    };
+
+    /** Lays the dock out horizontally or vertically, with its size, directly on the element. */
+    /**
+     * Lays the dock out horizontally or vertically. A change of layout is animated:
+     * each button (and the grip) flies from its old slot to its new one with its own
+     * short delay and a small bounce, and the dock gives a little squish.
+     */
+    const applyLayout = (o: DockOrientation, size: DockSize) => {
+      if (o === domOrientation) {
+        node.style.width = `${size.w}px`;
+        node.style.height = `${size.h}px`;
+        return;
+      }
+
+      const kids = Array.from(node.children) as HTMLElement[];
+      // Measure the real slots: stop any running motion and drop the dock's own
+      // scale/transition, otherwise the measured positions are off and the buttons jump.
+      node.getAnimations().forEach((a) => a.cancel());
+      kids.forEach((k) => k.getAnimations().forEach((a) => a.cancel()));
+      const savedTransform = node.style.transform;
+      const savedTransition = node.style.transition;
+      node.style.transition = 'none';
+      node.style.transform = 'none';
+      const before = kids.map((k) => k.getBoundingClientRect());
+
+      domOrientation = o;
+      Object.assign(node.style, toDomStyle(orientationStyle(o)));
+      node.style.width = `${size.w}px`;
+      node.style.height = `${size.h}px`;
+      const handle = node.firstElementChild as HTMLElement | null;
+      if (handle) Object.assign(handle.style, toDomStyle(handleStyle(o)));
+
+      const after = kids.map((k) => k.getBoundingClientRect());
+      node.style.transform = savedTransform;
+      node.style.transition = savedTransition;
+
+      if (typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        return;
+      }
+
+      kids.forEach((kid, i) => {
+        const a = before[i];
+        const b = after[i];
+        const dx = a.left - b.left;
+        const dy = a.top - b.top;
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+        kid.animate(
+          [
+            { transform: `translate(${dx}px, ${dy}px) scale(0.84)` },
+            { transform: 'translate(0px, 0px) scale(1.06)', offset: 0.7 },
+            { transform: 'translate(0px, 0px) scale(1)' },
+          ],
+          {
+            duration: 560,
+            delay: i * 60,
+            easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+            fill: 'backwards',
+          },
+        );
+      });
+
+      node.animate(
+        [
+          { transform: 'scale(0.94)' },
+          { transform: 'scale(1.03)', offset: 0.6 },
+          { transform: 'scale(1)' },
+        ],
+        { duration: 460, easing: 'ease-out' },
+      );
+    };
+
+    const onDown = (e: PointerEvent) => {
+      if (session) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+      // Presses on a button must reach the button. Elsewhere on the dock, stop the
+      // press here so the map underneath does not start panning.
+      const target = e.target as HTMLElement | null;
+      const onControl = !!target?.closest?.('[role="button"], [role="switch"]');
+      if (!onControl) e.stopPropagation();
+      const start = { x: parseFloat(node.style.left) || 0, y: parseFloat(node.style.top) || 0 };
+      // The layout React last rendered is the one on screen; flips are measured from it.
+      domOrientation = liveRef.current.o;
+      session = {
+        id: e.pointerId,
+        held: e.pointerType !== 'mouse' || e.buttons > 0,
+        sx: e.clientX,
+        sy: e.clientY,
+        ox: start.x,
+        oy: start.y,
+        x: start.x,
+        y: start.y,
+        moved: false,
+        captured: false,
+        samples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
+      };
+      // Grabbing the dock itself (not a button) captures the pointer now, so a fast
+      // move that leaves the dock still reaches it. Buttons only capture once a drag starts.
+      if (!onControl) {
+        session.captured = true;
+        try {
+          node.setPointerCapture(e.pointerId);
+        } catch {
+          // Capture unsupported: moves still arrive while the pointer is over the dock.
+        }
+      }
+      node.style.transition = LIFT_TRANSITION;
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const s = session;
+      if (!s || e.pointerId !== s.id) return;
+      // A mouse move with no button held, after the press showed a held button,
+      // means the release was missed (it can happen when the pointer leaves the
+      // browser window). End the drag here.
+      if (s.held && e.pointerType === 'mouse' && e.buttons === 0) {
+        finish(e.pointerId);
+        return;
+      }
+      const dx = e.clientX - s.sx;
+      const dy = e.clientY - s.sy;
+      if (!s.moved && Math.hypot(dx, dy) < DRAG_TAP_SLOP_PX) return;
+      if (!s.captured) {
+        // Only a real drag captures the pointer, so taps keep their click target.
+        s.captured = true;
+        try {
+          node.setPointerCapture(e.pointerId);
+        } catch {
+          // Capture unsupported: moves still arrive while the pointer is over the dock.
+        }
+      }
+      s.moved = true;
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const len = liveRef.current.len;
+      const rawX = s.ox + dx;
+      const rawY = s.oy + dy;
+      const o = decideOrientation({ x: rawX, y: rawY }, vw, vh, len, domOrientation ?? liveRef.current.o);
+      const size = sizeOf(o, len);
+      const lo = clampToViewport({ x: 0, y: 0 }, vw, vh, size);
+      const hi = clampToViewport({ x: vw, y: vh }, vw, vh, size);
+      const x = resistRange(rawX, lo.x, hi.x);
+      const y = resistRange(rawY, lo.y, hi.y);
+      s.x = x;
+      s.y = y;
+      place(x, y);
+      applyLayout(o, size);
+
+      const now = performance.now();
+      s.samples.push({ t: now, x: e.clientX, y: e.clientY });
+      while (s.samples.length > 2 && now - s.samples[0].t > VELOCITY_WINDOW_MS) {
+        s.samples.shift();
+      }
+
+      const atEdge = x !== rawX || y !== rawY;
+      setPhaseOnce(atEdge ? 'edge' : 'dragging');
+    };
+
+    const finish = (pointerId: number) => {
+      const s = session;
+      if (!s || pointerId !== s.id) return;
+      session = null;
+      try {
+        node.releasePointerCapture(s.id);
+      } catch {
+        // Capture already released by the browser.
+      }
+
+      if (!s.moved) {
+        node.style.transition = '';
+        setPhaseOnce('idle');
+        return;
+      }
+
+      // The click that follows a drag must not press a button.
+      suppressClick = true;
+      setTimeout(() => {
+        suppressClick = false;
+      }, 0);
+
+      const first = s.samples[0];
+      const last = s.samples[s.samples.length - 1];
+      const dt = Math.max(1, last.t - first.t);
+      const rawVx = (last.x - first.x) / dt;
+      const rawVy = (last.y - first.y) / dt;
+      const speed = Math.hypot(rawVx, rawVy);
+      // Cap the speed so an extreme flick cannot throw the dock across the whole screen.
+      const scale = speed > MAX_FLICK_SPEED_PX_MS ? MAX_FLICK_SPEED_PX_MS / speed : 1;
+      const vx = rawVx * scale;
+      const vy = rawVy * scale;
+      const flick = speed > FLICK_SPEED_PX_MS;
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const projected = flick
+        ? { x: s.x + vx * FLICK_PROJECTION_MS, y: s.y + vy * FLICK_PROJECTION_MS }
+        : { x: s.x, y: s.y };
+      const fitted = fitDock(projected, vw, vh, liveRef.current.len, domOrientation ?? liveRef.current.o);
+      const moveNeeded = fitted.pos.x !== s.x || fitted.pos.y !== s.y;
+      const duration = flick ? 360 : 200;
+
+      node.style.transition = moveNeeded
+        ? `left ${duration}ms ${EASE}, top ${duration}ms ${EASE}, ${LIFT_TRANSITION}`
+        : LIFT_TRANSITION;
+      place(fitted.pos.x, fitted.pos.y);
+      applyLayout(fitted.o, fitted.size);
+      setPhaseOnce('idle');
+      // React and the DOM now agree on the same position and layout.
+      const dropped = { x: fitted.pos.x, y: fitted.pos.y, o: fitted.o };
+      setSaved(dropped);
+      savePosition(dropped);
+
+      if (moveNeeded) {
+        settleTimer = setTimeout(() => {
+          node.style.transition = LIFT_TRANSITION;
+          settleTimer = null;
+        }, duration + 20);
+      }
+    };
+
+    const onEnd = (e: PointerEvent) => finish(e.pointerId);
+
+    const onClickCapture = (e: MouseEvent) => {
+      if (suppressClick) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+
+    node.addEventListener('pointerdown', onDown);
+    node.addEventListener('pointermove', onMove);
+    node.addEventListener('pointerup', onEnd);
+    node.addEventListener('pointercancel', onEnd);
+    node.addEventListener('lostpointercapture', onEnd);
+    node.addEventListener('click', onClickCapture, true);
+
+    return () => {
+      node.removeEventListener('pointerdown', onDown);
+      node.removeEventListener('pointermove', onMove);
+      node.removeEventListener('pointerup', onEnd);
+      node.removeEventListener('pointercancel', onEnd);
+      node.removeEventListener('lostpointercapture', onEnd);
+      node.removeEventListener('click', onClickCapture, true);
+      if (settleTimer) clearTimeout(settleTimer);
+    };
+  }, []);
+
+  return (
+    <View
+      ref={dockRef}
+      style={[
+        styles.dock,
+        {
+          left: placed.pos.x,
+          top: placed.pos.y,
+          width: placed.size.w,
+          height: placed.size.h,
+          gap: DOCK_ITEM_GAP,
+        },
+        orientationStyle(placed.o),
+      ]}
+    >
+      <View style={[styles.dockHandle, handleStyle(placed.o)]} />
+      {children}
+    </View>
+  );
 }
 
 function MapControlRailComponent({
@@ -155,12 +662,8 @@ function MapControlRailComponent({
 
   const actionSide = placement.action.side || 'right';
   const webDockHeight = webDockControls.length > 0
-    ? webDockControls.length * 44 + Math.max(0, webDockControls.length - 1) * 12
+    ? webDockControls.length * 48 + Math.max(0, webDockControls.length - 1) * 12
     : 0;
-  const webDockTop = clamp(
-    placement.safeBounds.top + (placement.safeBounds.height - webDockHeight) / 2,
-    webDockHeight,
-  );
 
   const rootStyle = [
     styles.root,
@@ -204,18 +707,12 @@ function MapControlRailComponent({
   }
 
   if (Platform.OS === 'web') {
+    // Full-screen layer that lets map input through; the dock itself is draggable.
     return (
-      <View pointerEvents="box-none" style={rootStyle} testID={testID}>
-        <View
-          pointerEvents="box-none"
-          style={[
-            styles.cluster,
-            styles.webDock,
-            { top: webDockTop },
-          ]}
-        >
-          {renderControlStack(webDockControls, 12, false)}
-        </View>
+      <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 1500 }, style]} testID={testID}>
+        <DraggableDock controlsHeight={webDockHeight}>
+          {renderControlStack(webDockControls, 0, false)}
+        </DraggableDock>
       </View>
     );
   }
@@ -297,16 +794,30 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   webDock: {
+    // Transparent: each round glass button floats on its own, Apple-style.
     right: 0,
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(226, 232, 240, 0.95)',
-    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.14)',
   } as any,
+  dock: {
+    // One translucent glass container for all dock buttons. More transparent than
+    // the buttons, so the map shows through it. Orientation sets the direction and padding.
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+    backdropFilter: 'blur(24px) saturate(180%)',
+    cursor: 'grab',
+    userSelect: 'none',
+    touchAction: 'none',
+  } as any,
+  dockHandle: {
+    borderRadius: 2,
+    backgroundColor: 'rgba(15, 23, 42, 0.22)',
+  },
   clusterCompressed: {
     transform: [{ scale: 0.96 }],
   },

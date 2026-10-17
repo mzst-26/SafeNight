@@ -124,13 +124,33 @@ export default function Root({ children }: PropsWithChildren) {
         <style
           dangerouslySetInnerHTML={{
             __html: `
+              :root {
+                --font-sans: "anthropic-sans", system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                --ink: #101828;
+                --ink-muted: #475467;
+                --glass-fill: rgba(255, 255, 255, 0.74);
+                --glass-border: rgba(255, 255, 255, 0.7);
+                --glass-shadow: 0 12px 40px rgba(15, 23, 42, 0.14);
+                --glass-blur: blur(28px) saturate(180%);
+                --accent: #1570ef;
+              }
               html, body { height: 100%; margin: 0; padding: 0; }
+              html, body, #root, input, textarea, button {
+                font-family: var(--font-sans);
+                color: var(--ink);
+              }
               body {
                 overflow: hidden;
+                background: linear-gradient(160deg, #f4f1ff 0%, #e6f0ff 45%, #fdf1e7 100%);
                 -webkit-font-smoothing: antialiased;
                 -moz-osx-font-smoothing: grayscale;
               }
               #root { display: flex; flex: 1; height: 100%; }
+              [role="button"], [role="link"], button, a { cursor: pointer; }
+              :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+              @media (prefers-reduced-motion: reduce) {
+                *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+              }
             `,
           }}
         />

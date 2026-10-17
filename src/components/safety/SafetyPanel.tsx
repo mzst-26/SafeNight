@@ -1,11 +1,15 @@
 /**
  * SafetyPanel — Hero score + 2×2 grid + detailed breakdown cards.
  */
+import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CircleProgress } from '@/src/components/ui/CircleProgress';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
+
+type IconName = ComponentProps<typeof Ionicons>['name'];
 
 interface SafetyPanelProps {
   safetyResult: SafetyMapResult;
@@ -36,10 +40,10 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
 
       {/* 2×2 grid */}
       <View style={styles.grid}>
-        <GridCard emoji="🔴" value={safetyResult.crimeCount} label="Crimes" color="#ef4444" onPress={() => onCategoryPress?.('crime')} />
-        <GridCard emoji="💡" value={safetyResult.streetLights} label="Lights" color="#eab308" onPress={() => onCategoryPress?.('light')} />
-        <GridCard emoji="📷" value={safetyResult.cctvCount} label="CCTV" color="#6366f1" onPress={() => onCategoryPress?.('cctv')} />
-        <GridCard emoji="🏪" value={safetyResult.openPlaces} label="Open" color="#22c55e" onPress={() => onCategoryPress?.('shop')} />
+        <GridCard icon="warning-outline" value={safetyResult.crimeCount} label="Crimes" color="#ef4444" onPress={() => onCategoryPress?.('crime')} />
+        <GridCard icon="bulb-outline" value={safetyResult.streetLights} label="Lights" color="#eab308" onPress={() => onCategoryPress?.('light')} />
+        <GridCard icon="videocam-outline" value={safetyResult.cctvCount} label="CCTV" color="#6366f1" onPress={() => onCategoryPress?.('cctv')} />
+        <GridCard icon="storefront-outline" value={safetyResult.openPlaces} label="Open" color="#22c55e" onPress={() => onCategoryPress?.('shop')} />
       </View>
 
       {/* Detailed route stats */}
@@ -48,24 +52,24 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
           <Text style={styles.sectionLabel}>Route Details</Text>
 
           <View style={styles.row}>
-            <DetailCard icon="🛣️" value={`${selectedSafeRoute.safety.mainRoadRatio}%`} label="Main Roads" />
-            <DetailCard icon="🚶" value={`${stats.sidewalkPct}%`} label="Sidewalks" />
-            <DetailCard icon="🚏" value={`${stats.transitStopsNearby}`} label="Transit" />
+            <DetailCard icon="car-outline" value={`${selectedSafeRoute.safety.mainRoadRatio}%`} label="Main Roads" />
+            <DetailCard icon="walk-outline" value={`${stats.sidewalkPct}%`} label="Sidewalks" />
+            <DetailCard icon="bus-outline" value={`${stats.transitStopsNearby}`} label="Transit" />
           </View>
           <View style={styles.row}>
             <DetailCard
-              icon="⛔"
+              icon="close-circle-outline"
               value={`${stats.deadEnds}`}
               label="Dead Ends"
               warn={stats.deadEnds > 0}
             />
             <DetailCard
-              icon="🪨"
+              icon="layers-outline"
               value={`${stats.unpavedPct}%`}
               label="Unpaved"
               warn={stats.unpavedPct > 0}
             />
-            <DetailCard icon="👣" value={`${selectedSafeRoute.safety.breakdown.traffic}%`} label="Foot Traffic" />
+            <DetailCard icon="people-outline" value={`${selectedSafeRoute.safety.breakdown.traffic}%`} label="Foot Traffic" />
           </View>
 
           {/* Road type bar rendered externally for full width */}
@@ -77,7 +81,7 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function GridCard({ emoji, value, label, color, onPress }: { emoji: string; value: number; label: string; color: string; onPress?: () => void }) {
+function GridCard({ icon, value, label, color, onPress }: { icon: IconName; value: number; label: string; color: string; onPress?: () => void }) {
   return (
     <Pressable
       style={[styles.gridCard, { borderColor: color + '44' }]}
@@ -85,7 +89,9 @@ function GridCard({ emoji, value, label, color, onPress }: { emoji: string; valu
       accessibilityRole="button"
       accessibilityLabel={`Show ${label} on map`}
     >
-      <Text style={[styles.gridIcon, { color }]}>{emoji}</Text>
+      <View style={[styles.gridIconWrap, { backgroundColor: color + '1A' }]}>
+        <Ionicons name={icon} size={18} color={color} />
+      </View>
       <View>
         <Text style={[styles.gridValue, { color }]}>{value}</Text>
         <Text style={styles.gridLabel}>{label}</Text>
@@ -94,10 +100,10 @@ function GridCard({ emoji, value, label, color, onPress }: { emoji: string; valu
   );
 }
 
-function DetailCard({ icon, value, label, warn }: { icon: string; value: string; label: string; warn?: boolean }) {
+function DetailCard({ icon, value, label, warn }: { icon: IconName; value: string; label: string; warn?: boolean }) {
   return (
     <View style={[styles.detailCard, warn && styles.detailCardWarning]}>
-      <Text style={styles.detailIcon}>{icon}</Text>
+      <Ionicons name={icon} size={18} color={warn ? '#c2410c' : '#1570ef'} style={styles.detailIcon} />
       <Text style={[styles.detailValue, warn && { color: '#f97316' }]}>{value}</Text>
       <Text style={styles.detailLabel}>{label}</Text>
     </View>
@@ -188,8 +194,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#eaecf0',
   },
-  gridIcon: {
-    fontSize: 20,
+  gridIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   gridValue: {
     fontSize: 20,
@@ -217,22 +227,22 @@ const styles = StyleSheet.create({
   detailCard: {
     flex: 1,
     minWidth: 85,
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    borderRadius: 16,
     padding: 10,
     alignItems: 'center',
     marginHorizontal: 3,
     marginVertical: 3,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+    boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)',
+  } as any,
   detailCardWarning: {
     backgroundColor: '#fff7ed',
     borderColor: '#fed7aa',
   },
   detailIcon: {
-    fontSize: 18,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   detailValue: {
     fontSize: 15,

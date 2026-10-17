@@ -15,7 +15,6 @@ import {
   fetchSafeRoutes,
   type SafeRoute,
   type SafeRoutesResponse,
-  type SafetyLevel,
 } from '@/src/services/safeRoutes';
 import { AppError } from '@/src/types/errors';
 import type { LatLng } from '@/src/types/geo';
@@ -58,7 +57,6 @@ export function useSafeRoutes(
   subscriptionTier: string = 'free',
   maxDistanceKmOverride?: number,
   waypoint?: LatLng | null,
-  safetyLevel: SafetyLevel = 'extra',
 ): UseSafeRoutesState {
   const [status, setStatus] = useState<SafeRoutesStatus>('idle');
   const [routes, setRoutes] = useState<SafeRoute[]>([]);
@@ -117,7 +115,7 @@ export function useSafeRoutes(
           `${stableDest.latitude.toFixed(4)},${stableDest.longitude.toFixed(4)}`,
       );
 
-      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint, safetyLevel);
+      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint);
 
       if (cancelRef.current !== batchId) return; // stale
 
@@ -159,7 +157,7 @@ export function useSafeRoutes(
       setError(appError);
       setStatus('error');
     }
-  }, [stableOrigin, stableDest, stableWaypoint, subscriptionTier, maxDistanceKmOverride, safetyLevel]);
+  }, [stableOrigin, stableDest, stableWaypoint, subscriptionTier, maxDistanceKmOverride]);
 
   useEffect(() => {
     refresh().catch(() => {

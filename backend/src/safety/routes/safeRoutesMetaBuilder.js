@@ -56,9 +56,11 @@ function buildSafeRoutesMeta({
   const coverageRatio = osmLightCount + osGapFillCount > 0
     ? osmLightCount / (osmLightCount + osGapFillCount)
     : 1;
+  // The local OSM path records no source metadata; only the Overpass fallback does
+  const lightsProvenance = allData._sourceMeta?.lights?.source || 'local_osm';
   meta.dataQuality.freshness = {
     crimeLastUpdated: crimes.length > 0 && crimes[0]?.month ? crimes[0].month : null,
-    lightsSource: osGapFillCount > 0 ? 'local_osm+os_ngd_gapfill' : 'local_osm',
+    lightsSource: osGapFillCount > 0 ? `${lightsProvenance}+os_ngd_gapfill` : lightsProvenance,
     coverageRatio: Math.round(coverageRatio * 100) / 100,
     lightVerificationStatus: lightVerificationStatus || 'not_needed',
   };
