@@ -46,6 +46,8 @@ async function reloadIfNeeded() {
       console.log('[dataStore] Dataset loaded');
     }
   } catch (err) {
+    // No meta.json yet means the first ingestion run has not published; that is expected, not a failure.
+    if (err.code === 'ENOENT' && err.path === META_PATH) return;
     console.warn(`[dataStore] Failed to load dataset: ${err.message}`);
   }
 }

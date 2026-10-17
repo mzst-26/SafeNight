@@ -26,7 +26,7 @@ function startScheduler() {
   const metaPath = path.join(PUBLISH_DIR, 'meta.json');
   if (!fs.existsSync(metaPath)) {
     console.log('[scheduler] No dataset found — triggering initial ingestion');
-    runPipeline().catch((err) => {
+    runPipeline({ reuseIfFresh: true }).catch((err) => {
       console.error('[scheduler] Initial ingestion failed:', err.message);
     });
   }

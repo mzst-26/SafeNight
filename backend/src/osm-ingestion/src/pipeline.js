@@ -85,14 +85,14 @@ async function atomicPublish(
   console.log('[pipeline] Published atomically');
 }
 
-async function runPipeline() {
+async function runPipeline({ reuseIfFresh = false } = {}) {
   const t0 = Date.now();
   console.log('[pipeline] Starting daily ingestion...');
 
   await ensureDirs();
 
-  // 1. Download
-  const { path: pbfPath } = await downloadPbf();
+  // 1. Download (or reuse a fresh local PBF on the startup run)
+  const { path: pbfPath } = await downloadPbf({ reuseIfFresh });
 
   // 2. Filter
   const { waysPath: waysPbf, nodesPath: nodesPbf } = await filterPbf(pbfPath);
@@ -118,11 +118,10 @@ async function runPipeline() {
     NODES_OFFSETS_PATH
   );
 
-  // 7. Cleanup staging
+  // 7. Cleanup staging. The source PBF is kept so the next run can reuse it instead of re-downloading.
   await Promise.all([
     fs.promises.unlink(waysPbf).catch(() => {}),
     fs.promises.unlink(nodesPbf).catch(() => {}),
-    fs.promises.unlink(pbfPath).catch(() => {}),
   ]);
 
   const elapsed = Date.now() - t0;

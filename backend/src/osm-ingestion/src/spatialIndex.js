@@ -4,7 +4,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const Flatbush = require(path.join(__dirname, '../node_modules/flatbush/flatbush.js'));
+// flatbush ships as an ES module; take its default export whichever way the loader hands it back
+const flatbushModule = require('flatbush');
+const Flatbush = flatbushModule.default || flatbushModule;
 const { DATA_DIR } = require('./config');
 
 const WAYS_INDEX_PATH = path.join(DATA_DIR, 'ways-rtree.idx');

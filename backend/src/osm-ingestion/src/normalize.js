@@ -14,11 +14,16 @@ function getOsmiumPath() {
   return process.env.OSMIUM_PATH || 'osmium';
 }
 
+// osmium's geojsonseq output prefixes every record with an RS byte (0x1e), which JSON.parse rejects
+function stripRecordSeparator(line) {
+  return line.replace(/\x1e/g, '');
+}
+
 async function exportToGeoJSON(pbfPath, outPath) {
   const child = spawn(getOsmiumPath(), [
     'export',
     '-f', 'geojsonseq',
-    '-c', 'id,tags,geometry,nodes',
+    '-a', 'id,way_nodes',
     pbfPath,
     '-o', outPath,
     '--overwrite',
@@ -65,14 +70,17 @@ async function normalizeWays(waysGeoJSONPath, outPath) {
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
-        const feature = JSON.parse(line);
+        const feature = JSON.parse(stripRecordSeparator(line));
+        if (feature.geometry?.type === 'Point') continue;
         const tags = filterWayTags(feature.properties || {});
         if (!tags.highway) continue;
 
         const record = {
           type: 'way',
-          id: feature.id || feature.properties?.id,
-          nodes: feature.properties?.nodes || [],
+          id: feature.properties?.['@id'] ?? feature.id,
+          nodes: feature.properties?.['@way_nodes'] || [],
+          // Vertex coordinates in node order, so routing can place each way node
+          ...(feature.geometry?.type === 'LineString' && { coords: feature.geometry.coordinates }),
           tags,
           bbox: computeBbox(feature.geometry),
         };
@@ -109,7 +117,7 @@ async function normalizeNodes(nodesGeoJSONPath, outPath) {
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
-        const feature = JSON.parse(line);
+        const feature = JSON.parse(stripRecordSeparator(line));
         const tags = filterNodeTags(feature.properties || {});
         if (Object.keys(tags).length === 0) continue;
 
@@ -118,7 +126,7 @@ async function normalizeNodes(nodesGeoJSONPath, outPath) {
 
         const record = {
           type: 'node',
-          id: feature.id || feature.properties?.id,
+          id: feature.properties?.['@id'] ?? feature.id,
           lat,
           lon,
           tags,
@@ -171,5 +179,7 @@ async function normalizeFiltered(waysPbfPath, nodesPbfPath) {
 
 module.exports = {
   normalizeFiltered,
+  normalizeWays,
   computeBbox,
+  exportToGeoJSON,
 };

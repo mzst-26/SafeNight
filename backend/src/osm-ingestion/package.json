@@ -21,6 +21,11 @@
     "supertest": "^7.1.4"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
+  },
+  "jest": {
+    "moduleNameMapper": {
+      "^flatbush$": "<rootDir>/node_modules/flatbush/flatbush.js"
+    }
   }
 }

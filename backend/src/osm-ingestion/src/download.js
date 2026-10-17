@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { PBF_URL, DATA_DIR } = require('./config');
+const { PBF_URL, DATA_DIR, MAX_AGE_HOURS } = require('./config');
 
 function getPbfPath() {
   return path.join(DATA_DIR, 'gb-latest.osm.pbf');
@@ -15,9 +15,19 @@ function getPbfTempPath() {
   return path.join(DATA_DIR, `gb-latest.osm.pbf.tmp-${Date.now()}`);
 }
 
-async function downloadPbf() {
+async function downloadPbf({ reuseIfFresh = false, maxAgeHours = MAX_AGE_HOURS } = {}) {
   const dest = getPbfPath();
   const temp = getPbfTempPath();
+
+  if (reuseIfFresh) {
+    // A PBF is only renamed into place once fully downloaded, so an existing file is complete
+    const existing = await fs.promises.stat(dest).catch(() => null);
+    const ageHours = existing ? (Date.now() - existing.mtimeMs) / 3600000 : Infinity;
+    if (existing && ageHours < maxAgeHours) {
+      console.log(`[download] Reusing existing ${dest} (${ageHours.toFixed(1)}h old)`);
+      return { path: dest, sizeBytes: existing.size };
+    }
+  }
 
   await fs.promises.mkdir(DATA_DIR, { recursive: true });
 
