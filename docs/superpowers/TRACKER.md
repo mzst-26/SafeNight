@@ -80,14 +80,21 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 | P1b | polish safetyGraph/crimeClient F6,F8,F9,F10 | a5fd8 | done; brain fixes: ACTIVITY_FLOOR=0.4, crime recency anchored on newest data month; suite 856 green |
 | CAL | calibration archetypes A-K + route-level targets (calibration.test.js) | aaa5b (Haiku) | partial: 15/18 pass; E=44, H=56, allE label Moderate unmet; RATE_SCALE 6->4 |
 | EV | lighting leave-out + lamp-thinning backtests (backend/scripts/eval) | a4b09 | leave-out done (73 tests); thinning + Bristol pending; rerun after LI |
-| LI | lighting fix from backtest (sidewalk-vs-isolated footway by road proximity, priors, absence only for isolated paths, neighbour-lit separate) + coupled recalibration E/H + rerun EV | a1776 (SONNET: heavy, coupled, Haiku CAL only partly met targets) | doing |
-| VIS | Visual verification on :8084 (stop user dev server, serve worktree with SAFETY url -> :3012, then RESTORE original `npx expo start` in main checkout) | brain | todo after CAL |
+| LI (done d6dd0fe) | lighting fix from backtest (sidewalk-vs-isolated footway by road proximity, priors, absence only for isolated paths, neighbour-lit separate) + coupled recalibration E/H + rerun EV | a1776 (SONNET: heavy, coupled, Haiku CAL only partly met targets) | doing |
+| VIS | BLOCKED (permission): visual verification on :8084 needs the user's dev server restarted from the worktree; classifier denied killing pid 72040. Browser restricted to :8084 by owner. Needs owner decision. Original: Visual verification on :8084 (stop user dev server, serve worktree with SAFETY url -> :3012, then RESTORE original `npx expo start` in main checkout) | brain | todo after CAL |
 | S4b | multi-month crime history (background-enrich, bounded) | | stretch, decide after VIS |
 
 ## A/B result (Frogmore -> Thurlestone, 22:00, local service)
 
 - v1 (:3002): 67/60/58, recommended 4.4 km (free extra distance).
 - v2 (:3012): 54/50/59, recommended = lowest exposure 3.4 km, reason string shown; certainty .57-.58; absolute scores lower than v1: calibrate (CAL).
+
+## Gate status (full branch)
+
+- R2 performance: PASS (cold 4.7s v2 vs 8.9s v1 on a fresh route; warm ~2ms both; RSS 290 vs 307 MB).
+- R3 security (a5d96), R6/R7 UX+parity (aeb99): running.
+- Real-route check after LI (service :3012): 66/62/58 all 'Safe'; recommended route has the smallest weak stretch (137 m vs 564/733 m).
+- Tests: backend 1009 (89 suites) x3 green; frontend 316 green; tsc clean.
 
 ## Review log (round Phase-1a, commit 4515237)
 
