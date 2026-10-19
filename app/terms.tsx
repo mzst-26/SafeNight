@@ -5,7 +5,7 @@
  */
 import { PageHead } from '@/src/components/seo/PageHead';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { Link } from 'expo-router';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { TermsContent } from '../src/components/modals/TermsModal';
 import { PolicyFooter } from './privacy';
@@ -19,15 +19,16 @@ export default function TermsPage() {
       {/* Top nav */}
       <View style={styles.nav}>
         <View style={styles.navInner}>
-          <Pressable
-            onPress={() => router.push('/')}
-            style={styles.backButton}
-            accessibilityRole="link"
-            accessibilityLabel="Back to SafeNight"
-          >
-            <Ionicons name="arrow-back" size={18} color="#1570EF" />
-            <Text style={styles.backText}>SafeNight</Text>
-          </Pressable>
+          <Link href="/" asChild>
+            <Pressable
+              style={styles.backButton}
+              accessibilityRole="link"
+              accessibilityLabel="Back to SafeNight"
+            >
+              <Ionicons name="arrow-back" size={18} color="#1570EF" />
+              <Text style={styles.backText}>SafeNight</Text>
+            </Pressable>
+          </Link>
           <Text style={styles.navTitle}>Terms & Conditions</Text>
           <View style={styles.navSpacer} />
         </View>
@@ -36,22 +37,22 @@ export default function TermsPage() {
       {/* Policy links bar */}
       <View style={styles.policyBar}>
         <View style={styles.policyBarInner}>
-          <Pressable onPress={() => router.push('/privacy' as any)} accessibilityRole="link">
-            <Text style={styles.policyLink}>Privacy</Text>
-          </Pressable>
+          <Link href="/privacy" style={styles.policyLink}>
+            Privacy
+          </Link>
           <Text style={styles.policyBarSep}>·</Text>
-          <Pressable onPress={() => router.push('/refund' as any)} accessibilityRole="link">
-            <Text style={styles.policyLink}>Refund & Payment</Text>
-          </Pressable>
+          <Link href="/refund" style={styles.policyLink}>
+            Refund & Payment
+          </Link>
           <Text style={styles.policyBarSep}>·</Text>
-          <Pressable onPress={() => router.push('/terms' as any)} accessibilityRole="link">
-            <Text style={[styles.policyLink, styles.policyLinkActive]}>Terms & Conditions</Text>
-          </Pressable>
+          <Link href="/terms" style={[styles.policyLink, styles.policyLinkActive]}>
+            Terms & Conditions
+          </Link>
         </View>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.pageTitle}>Terms & Conditions</Text>
+        <Text style={styles.pageTitle} role="heading" aria-level={1}>Terms & Conditions</Text>
         <View style={styles.card}>
           <TermsContent />
         </View>

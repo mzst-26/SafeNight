@@ -40,7 +40,7 @@ export default function DeleteAccountPage() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.pageTitle}>Delete Your Account & Data</Text>
+        <Text style={styles.pageTitle} role="heading" aria-level={1}>Delete Your Account & Data</Text>
 
         <View style={styles.card}>
           {/* Method 1 — in-app */}
