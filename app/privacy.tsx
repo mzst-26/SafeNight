@@ -5,8 +5,9 @@
  */
 import { PageHead } from '@/src/components/seo/PageHead';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { Link } from 'expo-router';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SiteFooterLinks } from '@/src/components/seo/SiteFooterLinks';
 import { PrivacyPolicyContent } from '../src/components/modals/PrivacyPolicyModal';
 
 export default function PrivacyPage() {
@@ -19,15 +20,16 @@ export default function PrivacyPage() {
       {/* Top nav */}
       <View style={styles.nav}>
         <View style={styles.navInner}>
-          <Pressable
-            onPress={() => router.push('/')}
-            style={styles.backButton}
-            accessibilityRole="link"
-            accessibilityLabel="Back to SafeNight"
-          >
-            <Ionicons name="arrow-back" size={18} color="#1570EF" />
-            <Text style={styles.backText}>SafeNight</Text>
-          </Pressable>
+          <Link href="/" asChild>
+            <Pressable
+              style={styles.backButton}
+              accessibilityRole="link"
+              accessibilityLabel="Back to SafeNight"
+            >
+              <Ionicons name="arrow-back" size={18} color="#1570EF" />
+              <Text style={styles.backText}>SafeNight</Text>
+            </Pressable>
+          </Link>
           <Text style={styles.navTitle}>Privacy Policy</Text>
           <View style={styles.navSpacer} />
         </View>
@@ -36,22 +38,22 @@ export default function PrivacyPage() {
       {/* Policy links bar */}
       <View style={styles.policyBar}>
         <View style={styles.policyBarInner}>
-          <Pressable onPress={() => router.push('/privacy' as any)} accessibilityRole="link">
-            <Text style={[styles.policyLink, styles.policyLinkActive]}>Privacy</Text>
-          </Pressable>
+          <Link href="/privacy" style={[styles.policyLink, styles.policyLinkActive]}>
+            Privacy
+          </Link>
           <Text style={styles.policyBarSep}>·</Text>
-          <Pressable onPress={() => router.push('/refund' as any)} accessibilityRole="link">
-            <Text style={styles.policyLink}>Refund & Payment</Text>
-          </Pressable>
+          <Link href="/refund" style={styles.policyLink}>
+            Refund & Payment
+          </Link>
           <Text style={styles.policyBarSep}>·</Text>
-          <Pressable onPress={() => router.push('/terms' as any)} accessibilityRole="link">
-            <Text style={styles.policyLink}>Terms & Conditions</Text>
-          </Pressable>
+          <Link href="/terms" style={styles.policyLink}>
+            Terms & Conditions
+          </Link>
         </View>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.pageTitle}>Privacy Policy</Text>
+        <Text style={styles.pageTitle} role="heading" aria-level={1}>Privacy Policy</Text>
         <View style={styles.card}>
           <PrivacyPolicyContent />
         </View>
@@ -66,22 +68,23 @@ export function PolicyFooter() {
     <View style={styles.footer}>
       <Text style={styles.footerText}>© {new Date().getFullYear()} SafeNight. All rights reserved.</Text>
       <View style={styles.footerLinks}>
-        <Pressable onPress={() => router.push('/privacy' as any)} accessibilityRole="link">
-          <Text style={styles.footerLink}>Privacy</Text>
-        </Pressable>
+        <Link href="/privacy" style={styles.footerLink}>
+          Privacy
+        </Link>
         <Text style={styles.footerSep}>·</Text>
-        <Pressable onPress={() => router.push('/refund' as any)} accessibilityRole="link">
-          <Text style={styles.footerLink}>Refund & Payment</Text>
-        </Pressable>
+        <Link href="/refund" style={styles.footerLink}>
+          Refund & Payment
+        </Link>
         <Text style={styles.footerSep}>·</Text>
-        <Pressable onPress={() => router.push('/terms' as any)} accessibilityRole="link">
-          <Text style={styles.footerLink}>Terms & Conditions</Text>
-        </Pressable>
+        <Link href="/terms" style={styles.footerLink}>
+          Terms & Conditions
+        </Link>
         <Text style={styles.footerSep}>·</Text>
-        <Pressable onPress={() => router.push('/delete-account' as any)} accessibilityRole="link">
-          <Text style={[styles.footerLink, { color: '#EF4444' }]}>Delete My Account</Text>
-        </Pressable>
+        <Link href="/delete-account" style={[styles.footerLink, { color: '#B42318' }]}>
+          Delete My Account
+        </Link>
       </View>
+      <SiteFooterLinks />
     </View>
   );
 }

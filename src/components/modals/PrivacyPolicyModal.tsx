@@ -36,8 +36,8 @@ export function PrivacyPolicyContent() {
       <Text style={styles.body}>
         SafeNight (&quot;we&quot;, &quot;our&quot;, &quot;us&quot;) is committed to protecting your privacy. This Privacy Policy
         explains how we collect, use, store, and share your personal information when you use the
-        SafeNight application (the &quot;Service&quot;), available on Android, iOS, and via web at
-        safenight.netlify.app.
+        SafeNight application (the &quot;Service&quot;), available on Android and via web at
+        safenight.netlify.app (an iOS version is coming soon).
       </Text>
 
       <Text style={styles.sectionTitle}>1. Information We Collect</Text>

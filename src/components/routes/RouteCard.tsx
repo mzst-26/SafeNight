@@ -27,7 +27,7 @@ export function RouteCard({
 }: RouteCardProps) {
   const isBest = route.isSafest;
   const safety = route.safety;
-  const label = isBest ? "Safest Route" : `Route ${index + 1}`;
+  const label = isBest ? "Top Safety Score" : `Route ${index + 1}`;
   const [expanded, setExpanded] = useState(false);
 
   // Collapse whenever the card is deselected

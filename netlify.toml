@@ -1,13 +1,17 @@
 # Netlify config for Expo web static export
 [build]
-  command = "npx expo export --platform web"
+  # Expo exports one HTML file per route (privacy.html, terms.html, ...). Netlify serves those directly.
+  # dist/404.html is the Expo not-found page; Netlify serves it with a 404 status for unmatched paths.
+  # dist/_sitemap.html is Expo Router's dev route list (empty title, no public content), so it is deleted
+  # rather than published. The /_sitemap redirect below is a second guard.
+  command = "npx expo export --platform web && cp dist/+not-found.html dist/404.html && rm -f dist/_sitemap.html"
   publish = "dist"
 
 # Environment variables (set these in Netlify Dashboard > Site settings > Environment variables):
-#   EXPO_PUBLIC_API_BASE_URL          = https://safenighthome-gateway.onrender.com
-#   EXPO_PUBLIC_SAFETY_API_URL        = https://safenighthome-safety.onrender.com
-#   EXPO_PUBLIC_USER_API_URL          = https://safenighthome-user.onrender.com
-#   EXPO_PUBLIC_SUBSCRIPTION_API_URL  = https://safenighthome-subscription.onrender.com
+#   EXPO_PUBLIC_API_BASE_URL          = https://safenight-gateway.onrender.com
+#   EXPO_PUBLIC_SAFETY_API_URL        = https://safenight-safety.onrender.com
+#   EXPO_PUBLIC_USER_API_URL          = https://safenight-user.onrender.com
+#   EXPO_PUBLIC_SUBSCRIPTION_API_URL  = https://safenight-subscription.onrender.com
 #   EXPO_PUBLIC_OSM_USER_AGENT        = SafeNightHome/1.0
 
 # ── Security & SEO Headers (all pages) ──────────────────────────────────
@@ -20,6 +24,27 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "geolocation=(self), camera=(), microphone=()"
     Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+
+# ── Keep private and utility routes out of search indexes ───────────────
+[[headers]]
+  for = "/share/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/reset-password*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/modal"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/_sitemap"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
 
 # ── Cache static assets aggressively ────────────────────────────────────
 [[headers]]
@@ -41,6 +66,22 @@
   for = "*.css"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Icons and images: one day, not immutable, because files under public/ can change without a rename
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/*.webp"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/*.ico"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
 
 # ── Short cache for HTML (allow SEO changes to propagate quickly) ───────
 [[headers]]
@@ -67,29 +108,18 @@
     Content-Type = "application/manifest+json; charset=utf-8"
     Cache-Control = "public, max-age=86400"
 
-# ── Non-SPA routes (static files should be served directly) ─────────────
+# ── Hide Expo Router's dev route list (dist/_sitemap.html) from the public ──
 [[redirects]]
-  from = "/robots.txt"
-  to = "/robots.txt"
-  status = 200
+  from = "/_sitemap"
+  to = "/404.html"
+  status = 404
+  force = true
 
+# ── Deep links ──────────────────────────────────────────────────────────
+# The root layout parses /share/<token> deep links, so these are the only
+# requests rewritten to the SPA shell. All other routes are static HTML files
+# from the export, and unmatched paths fall through to 404.html.
 [[redirects]]
-  from = "/sitemap.xml"
-  to = "/sitemap.xml"
-  status = 200
-
-[[redirects]]
-  from = "/manifest.json"
-  to = "/manifest.json"
-  status = 200
-
-[[redirects]]
-  from = "/og-image.png"
-  to = "/og-image.png"
-  status = 200
-
-# SPA fallback — all other routes serve index.html (Expo Router handles client-side routing)
-[[redirects]]
-  from = "/*"
+  from = "/share/*"
   to = "/index.html"
   status = 200

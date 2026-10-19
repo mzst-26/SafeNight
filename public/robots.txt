@@ -1,13 +1,57 @@
 # SafeNight robots.txt
 # https://safenight.netlify.app
+#
+# Search and answer-engine crawlers are allowed.
+# AI training crawlers are allowed below. This is an owner policy choice, not a technical requirement;
+# to opt out, change the training-bot groups to "Disallow: /".
+# Private and utility routes (/share/*, /reset-password, /modal, /_sitemap) are kept out of
+# search with X-Robots-Tag headers in netlify.toml, not robots.txt, so crawlers can read the noindex.
 
 User-agent: *
 Allow: /
-Disallow: /modal
-Disallow: /api/
 
-# Sitemap location
+# Search and answer-engine crawlers
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+# AI training crawlers (owner policy choice)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
 Sitemap: https://safenight.netlify.app/sitemap.xml
-
-# Crawl-delay (optional — respected by some bots)
-Crawl-delay: 1

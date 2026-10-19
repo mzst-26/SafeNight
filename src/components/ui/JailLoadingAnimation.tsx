@@ -51,7 +51,7 @@ const LOADING_FACTS = [
   'Caching helps repeated searches complete faster with less redundant computation.',
   'Safety scoring is computed server-side so your device stays responsive.',
   'Local context matters: the same distance can have very different night risk by street.',
-  'Final candidates are compared side-by-side before the safest practical route is returned.',
+  'Final candidates are compared side-by-side before a recommended route is returned.',
   'Goal: reduce exposure to low-light and high-risk segments without huge detours.',
   'Longer trips trigger wider corridor analysis to capture realistic route options.',
   'Dynamic weighting keeps route selection consistent even when data density changes.',

@@ -51,7 +51,7 @@ export const useAIExplanation = (
       return;
     }
     if (!bestRouteId) {
-      setError('No safest route selected yet.');
+      setError('No route selected yet.');
       setStatus('error');
       return;
     }

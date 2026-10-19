@@ -1,7 +1,7 @@
 {
-  "name": "SafeNight — Walk Safer at Night",
+  "name": "SafeNight – Safe Walking Route App",
   "short_name": "SafeNight",
-  "description": "Find safer walking routes at night with route safety scores, street-light data, optional crime overlays, and live turn-by-turn walking navigation.",
+  "description": "Plan a safer walking route home. SafeNight scores streets on crime data, lighting, CCTV and foot traffic, with live location sharing. Free to start.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
@@ -11,10 +11,22 @@
   "categories": ["navigation", "utilities", "lifestyle"],
   "icons": [
     {
-      "src": "/favicon.png",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "screenshots": [],
@@ -24,6 +36,5 @@
       "url": "https://play.google.com/store/apps/details?id=com.safenight.app",
       "id": "com.safenight.app"
     }
-  ],
-  "prefer_related_applications": true
+  ]
 }

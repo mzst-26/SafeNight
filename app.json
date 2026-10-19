@@ -55,7 +55,7 @@
       "favicon": "./assets/images/favicon.png",
       "name": "SafeNight — Walk Safer at Night",
       "shortName": "SafeNight",
-      "description": "Find safer walking routes at night with route safety scores, street-light data, optional crime overlays, and live turn-by-turn walking navigation.",
+      "description": "Plan a safer walking route home. SafeNight scores streets on crime data, lighting, CCTV and foot traffic, with live location sharing. Free to start.",
       "lang": "en",
       "themeColor": "#1570EF",
       "backgroundColor": "#FFFFFF"

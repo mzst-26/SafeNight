@@ -1,9 +1,12 @@
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { PageHead } from '@/src/components/seo/PageHead';
+
 export default function ModalScreen() {
   return (
     <View style={styles.container}>
+      <PageHead path="/modal" title="Modal — SafeNight" noindex />
       <Text style={styles.title}>Modal</Text>
       <Text style={styles.subtitle}>This is a modal route.</Text>
       <Pressable accessibilityRole="button" style={styles.button} onPress={() => router.back()}>
