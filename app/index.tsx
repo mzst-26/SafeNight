@@ -28,6 +28,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PageHead } from "@/src/components/seo/PageHead";
+import { HomeIntro } from "@/src/components/seo/HomeIntro";
 
 import { AndroidOverlayHost } from "@/src/components/android/AndroidOverlayHost";
 import RouteMap from "@/src/components/maps/RouteMap";
@@ -1934,6 +1935,7 @@ export default function HomeScreen() {
       ]}
     >
       <PageHead path="/" />
+      <HomeIntro />
       {/* ── Map (fills the screen as a flex child) ── */}
       <RouteMap
         origin={h.effectiveOrigin}
@@ -2902,10 +2904,10 @@ export default function HomeScreen() {
                   if (h.ai.status === "idle") h.ai.ask();
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="Why is this the safest route"
+                accessibilityLabel="Why we recommend this route"
               >
                 <Ionicons name="sparkles" size={16} color="#ffffff" />
-                <Text style={styles.aiText}>Why is this the safest route?</Text>
+                <Text style={styles.aiText}>Why we recommend this route</Text>
               </Pressable>
             </Animated.View>
           )}

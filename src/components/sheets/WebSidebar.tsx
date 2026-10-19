@@ -11,17 +11,20 @@
  * - Minimum width preserves search inputs; cannot collapse below docked rail
  */
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { Link } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+
+import { SiteFooterLinks } from '@/src/components/seo/SiteFooterLinks';
 
 import {
   clampWebSidebarWidth,
@@ -215,23 +218,37 @@ export function WebSidebar({
           </View>
         )}
 
+        {!isCollapsed && Platform.OS === 'web' && (
+          <View style={styles.siteLinksFooter}>
+            <SiteFooterLinks compact />
+          </View>
+        )}
+
         {!isCollapsed && (
           <View style={styles.policyFooter}>
-            <Pressable onPress={() => router.push('/privacy' as any)} accessibilityRole="link">
-              <Text style={styles.policyLink}>Privacy</Text>
-            </Pressable>
+            <Link href="/privacy" asChild>
+              <Pressable accessibilityRole="link">
+                <Text style={styles.policyLink}>Privacy</Text>
+              </Pressable>
+            </Link>
             <Text style={styles.policySep}>·</Text>
-            <Pressable onPress={() => router.push('/refund' as any)} accessibilityRole="link">
-              <Text style={styles.policyLink}>Refund</Text>
-            </Pressable>
+            <Link href="/refund" asChild>
+              <Pressable accessibilityRole="link">
+                <Text style={styles.policyLink}>Refund</Text>
+              </Pressable>
+            </Link>
             <Text style={styles.policySep}>·</Text>
-            <Pressable onPress={() => router.push('/terms' as any)} accessibilityRole="link">
-              <Text style={styles.policyLink}>Terms</Text>
-            </Pressable>
+            <Link href="/terms" asChild>
+              <Pressable accessibilityRole="link">
+                <Text style={styles.policyLink}>Terms</Text>
+              </Pressable>
+            </Link>
             <Text style={styles.policySep}>·</Text>
-            <Pressable onPress={() => router.push('/delete-account' as any)} accessibilityRole="link">
-              <Text style={[styles.policyLink, { color: '#EF4444' }]}>Delete Account</Text>
-            </Pressable>
+            <Link href="/delete-account" asChild>
+              <Pressable accessibilityRole="link">
+                <Text style={[styles.policyLink, { color: '#B42318' }]}>Delete Account</Text>
+              </Pressable>
+            </Link>
           </View>
         )}
       </View>
@@ -288,8 +305,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f2f4f7',
     marginTop: 8,
-    // Keep results clear of the pinned legal links at the bottom.
-    marginBottom: 44,
+    // Keep results clear of the pinned site and legal links at the bottom
+    // (site links row: up to 3 wrapped lines of ~18px plus 8px gap above it).
+    marginBottom: 112,
   },
   resultsHeader: {
     flexDirection: 'row',
@@ -332,6 +350,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     gap: 4,
     flexWrap: 'wrap',
+  },
+  siteLinksFooter: {
+    // Muted row sitting just above the legal links footer. policyFooter spans
+    // bottom 8 to ~42 (10px padding + ~14px text + 10px padding), so bottom 48
+    // clears it with a 6px gap.
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 48,
+    zIndex: 2,
+    paddingHorizontal: 12,
   },
   policyLink: {
     fontSize: 11,
