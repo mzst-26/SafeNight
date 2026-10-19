@@ -1961,6 +1961,7 @@ export default function HomeScreen() {
               ]
         }
         routeSegments={isWebGuest ? [] : h.routeSegments}
+        routeLayers={isWebGuest ? null : h.routeLayers}
         roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
         fitCandidateBoundsToken={
@@ -2208,6 +2209,7 @@ export default function HomeScreen() {
                 routes={h.safeRoutes}
                 selectedRouteId={h.selectedRouteId}
                 onSelectRoute={h.setSelectedRouteId}
+                routeComparison={h.routeComparison}
                 inSidebar
               />
 
@@ -2471,6 +2473,7 @@ export default function HomeScreen() {
                 routes={h.safeRoutes}
                 selectedRouteId={h.selectedRouteId}
                 onSelectRoute={h.setSelectedRouteId}
+                routeComparison={h.routeComparison}
                 inSidebar
               />
 
@@ -3043,6 +3046,7 @@ export default function HomeScreen() {
               routes={h.safeRoutes}
               selectedRouteId={h.selectedRouteId}
               onSelectRoute={h.setSelectedRouteId}
+              routeComparison={h.routeComparison}
               detailsPanel={
                 showSafety && h.safetyResult && h.selectedSafeRoute ? (
                   <>

@@ -12,6 +12,144 @@ import {
   ROADMAP_STYLE,
 } from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
+import type {
+  LineLayer,
+  RouteLayerSpec,
+} from "@/src/components/maps/routeLayers";
+
+// ---------------------------------------------------------------------------
+// Route layers (v2 safety model): RouteLayerSpec -> GeoJSON for the WebView
+// ---------------------------------------------------------------------------
+
+export interface LineGeometry {
+  type: "LineString";
+  /** GeoJSON order: [lng, lat]. */
+  coordinates: [number, number][];
+}
+
+export interface PointGeometry {
+  type: "Point";
+  /** GeoJSON order: [lng, lat]. */
+  coordinates: [number, number];
+}
+
+export interface NativeFeatureCollection<G> {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    properties: Record<string, string | number>;
+    geometry: G;
+  }[];
+}
+
+export type NativeFeature<G> = NativeFeatureCollection<G>["features"][number];
+
+export interface NativeRouteLayerCollections {
+  /** Every route line, drawn as a white casing under the coloured lines. */
+  casing: NativeFeatureCollection<LineGeometry>;
+  /** Solid (certain) lines, coloured by the `color` property. */
+  solid: NativeFeatureCollection<LineGeometry>;
+  /** Dashed (estimated lighting or low certainty) lines, coloured by `color`. */
+  dashed: NativeFeatureCollection<LineGeometry>;
+  /** Crime cluster badges. Individual crime incidents are never emitted. */
+  clusters: NativeFeatureCollection<PointGeometry>;
+  /** Worst-stretch callout, at most one feature. */
+  callouts: NativeFeatureCollection<PointGeometry>;
+  /** Lights always (layer minzoom gates them); cctv and shops only when highlighted. */
+  points: NativeFeatureCollection<PointGeometry>;
+}
+
+/** True for finite WGS84 coordinates (matches the builder's bounds). */
+const isFiniteLngLat = (lat: number, lng: number): boolean =>
+  Number.isFinite(lat) &&
+  Number.isFinite(lng) &&
+  Math.abs(lat) <= 90 &&
+  Math.abs(lng) <= 180;
+
+function lineFeature(line: LineLayer): NativeFeature<LineGeometry> | null {
+  if (!line || !Array.isArray(line.coords) || line.coords.length < 2) return null;
+  if (!line.coords.every(([lat, lng]) => isFiniteLngLat(lat, lng))) return null;
+  return {
+    type: "Feature",
+    properties: { color: line.color, risk: line.risk },
+    geometry: {
+      type: "LineString",
+      // The builder emits [lat, lng]; GeoJSON needs [lng, lat].
+      coordinates: line.coords.map(([lat, lng]): [number, number] => [lng, lat]),
+    },
+  };
+}
+
+function pointFeature(
+  lat: number,
+  lng: number,
+  properties: Record<string, string | number>,
+): NativeFeature<PointGeometry> | null {
+  if (!isFiniteLngLat(lat, lng)) return null;
+  return {
+    type: "Feature",
+    properties,
+    geometry: { type: "Point", coordinates: [lng, lat] },
+  };
+}
+
+function collect<T>(items: (T | null)[]): T[] {
+  return items.filter((item): item is T => item !== null);
+}
+
+/**
+ * Converts a renderer-agnostic RouteLayerSpec into the GeoJSON collections the
+ * MapLibre WebView draws. Pure: no map SDK, no mutation of the spec.
+ *
+ * Points are gated here too (cctv and shops only when highlighted), so the
+ * native output matches the web contract even if a caller passes every point.
+ */
+export function buildNativeRouteLayerCollections(
+  spec: RouteLayerSpec,
+  highlightCategory?: string | null,
+): NativeRouteLayerCollections {
+  const highlight = highlightCategory ?? null;
+  return {
+    casing: { type: "FeatureCollection", features: collect(spec.lines.map(lineFeature)) },
+    solid: {
+      type: "FeatureCollection",
+      features: collect(spec.lines.filter((l) => !l.dashed).map(lineFeature)),
+    },
+    dashed: {
+      type: "FeatureCollection",
+      features: collect(spec.lines.filter((l) => l.dashed).map(lineFeature)),
+    },
+    clusters: {
+      type: "FeatureCollection",
+      features: collect(
+        spec.crimeClusters.map((c) =>
+          pointFeature(c.lat, c.lng, {
+            count: c.count,
+            label: String(c.count),
+            maxSeverity: c.maxSeverity,
+          }),
+        ),
+      ),
+    },
+    callouts: {
+      type: "FeatureCollection",
+      features: collect(spec.callouts.map((c) => pointFeature(c.lat, c.lng, { text: c.text }))),
+    },
+    points: {
+      type: "FeatureCollection",
+      features: collect(
+        spec.points
+          .filter((p) => p.kind === "light" || p.kind === highlight)
+          .map((p) =>
+            pointFeature(p.lat, p.lng, {
+              kind: p.kind,
+              emph: p.kind === highlight ? 1 : 0,
+            }),
+          ),
+      ),
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Build the HTML page that runs MapLibre GL JS inside the WebView
@@ -26,8 +164,8 @@ const buildMapHtml = (
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-  <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet"/>
-  <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"><\/script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" integrity="sha384-MinO0mNliZ3vwppuPOUnGa+iq619pfMhLVUXfC4LHwSCvF9H+6P/KO4Q7qBOYV5V" crossorigin="anonymous"/>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" integrity="sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj" crossorigin="anonymous"><\/script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;overflow:hidden;background:#e8eaed}
@@ -113,10 +251,30 @@ const buildMapHtml = (
       border-radius:5px;padding:4px 12px;color:#ddd6fe;font-size:10px;font-weight:700;letter-spacing:.5px;
       white-space:nowrap;display:flex;align-items:center;gap:5px;
       animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
+
+    /* ─── Route safety layers (v2) ─── */
+    .rl-cluster{width:30px;height:30px;border-radius:50%;background:#b42318;color:#fff;font-size:13px;font-weight:700;line-height:30px;text-align:center;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.35);pointer-events:none}
+    .rl-callout{color:#101828;font-size:13px;font-weight:800;line-height:1.2;white-space:nowrap;pointer-events:none;text-shadow:-1px 0 #fff,0 1px #fff,1px 0 #fff,0 -1px #fff,0 0 3px #fff}
+    .rl-legend{position:absolute;left:12px;bottom:38px;z-index:5;display:none;min-width:150px;max-width:200px;background:rgba(255,255,255,.95);color:#101828;border-radius:10px;padding:6px 10px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(15,23,42,.2)}
+    .rl-legend.on{display:block}
+    .rl-legend-head{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
+    .rl-legend-body{margin-top:6px}
+    .rl-legend.collapsed .rl-legend-body{display:none}
+    .rl-legend-bar{height:8px;border-radius:4px}
+    .rl-legend-scale{display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:#344054}
+    .rl-legend-dash{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#344054}
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div id="rlLegend" class="rl-legend" role="region" aria-label="Route safety legend">
+    <button type="button" class="rl-legend-head" id="rlLegendToggle" aria-expanded="true" aria-controls="rlLegendBody"><span>Route safety</span><span aria-hidden="true">&#9662;</span></button>
+    <div class="rl-legend-body" id="rlLegendBody">
+      <div class="rl-legend-bar" id="rlLegendBar"></div>
+      <div class="rl-legend-scale"><span>Safer</span><span>Riskier</span></div>
+      <div class="rl-legend-dash"><svg width="36" height="8" aria-hidden="true"><line x1="2" y1="4" x2="34" y2="4" stroke="#475467" stroke-width="6" stroke-linecap="round" stroke-dasharray="0.1 12"/></svg><span>Estimated lighting</span></div>
+    </div>
+  </div>
 
 
   <script>
@@ -317,6 +475,33 @@ const buildMapHtml = (
 
     var emptyFC = { type: 'FeatureCollection', features: [] };
 
+    /* Marker kinds replaced by the route safety layer when routeLayers is set (crime is clustered, never dotted). */
+    var RL_REPLACED_KINDS = ['crime','light','cctv','shop'];
+    var rlLegendWired = false;
+
+    function renderRouteLegend(legend, show){
+      var box = document.getElementById('rlLegend');
+      if(!box) return;
+      if(!rlLegendWired){
+        rlLegendWired = true;
+        var toggle = document.getElementById('rlLegendToggle');
+        if(toggle){
+          toggle.addEventListener('click', function(ev){
+            ev.preventDefault();
+            ev.stopPropagation();
+            var collapsed = box.classList.toggle('collapsed');
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+          });
+        }
+      }
+      box.classList.toggle('on', !!show);
+      if(!show || !legend) return;
+      var stops = (legend.ramp || []).map(function(s){ return s.color; });
+      if(stops.length){
+        document.getElementById('rlLegendBar').style.background = 'linear-gradient(to right,' + stops.join(',') + ')';
+      }
+    }
+
     function clearMarkerArray(arr) { arr.forEach(function(m){m.remove()}); arr.length=0; }
     function sendMsg(t, d) { try { window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({type:t},d||{}))); } catch(e){} }
     function safeLabel(text){
@@ -494,6 +679,13 @@ const buildMapHtml = (
       map.addSource('friend-paths', { type:'geojson', data:emptyFC });
       map.addSource('friend-planned-routes', { type:'geojson', data:emptyFC });
 
+      /* Route safety layer sources (routeLayers mode only; empty otherwise) */
+      map.addSource('rl-unselected', { type:'geojson', data:emptyFC });
+      map.addSource('rl-casing', { type:'geojson', data:emptyFC });
+      map.addSource('rl-solid', { type:'geojson', data:emptyFC });
+      map.addSource('rl-dashed', { type:'geojson', data:emptyFC });
+      map.addSource('rl-points', { type:'geojson', data:emptyFC });
+
       /* Visualisation sources */
       map.addSource('viz-bbox', { type:'geojson', data:emptyFC });
       map.addSource('viz-corridor', { type:'geojson', data:emptyFC });
@@ -516,6 +708,23 @@ const buildMapHtml = (
       map.addLayer({ id:'unselected-routes-line', type:'line', source:'unselected-routes',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#98a2b3','line-opacity':0.5,'line-width':5} });
+      /* Route safety layers (routeLayers mode). Inserted before the traversed/remaining
+         overlays so navigation progress still draws on top. */
+      map.addLayer({ id:'rl-unselected-line', type:'line', source:'rl-unselected',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#98a2b3','line-opacity':0.55,'line-width':4} });
+      map.addLayer({ id:'rl-unselected-hit', type:'line', source:'rl-unselected',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#000000','line-width':22,'line-opacity':0} });
+      map.addLayer({ id:'rl-casing', type:'line', source:'rl-casing',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#ffffff','line-opacity':1,'line-width':11} });
+      map.addLayer({ id:'rl-solid', type:'line', source:'rl-solid',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':7} });
+      map.addLayer({ id:'rl-dashed', type:'line', source:'rl-dashed',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':7,'line-dasharray':[0.1,2.2]} });
       map.addLayer({ id:'route-traversed-line', type:'line', source:'route-traversed',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#1D2939','line-opacity':0.7,'line-width':7} });
@@ -545,6 +754,19 @@ const buildMapHtml = (
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#7C3AED','line-opacity':0.45,'line-width':5,'line-dasharray':[4,3]} });
 
+      /* Route safety point layers. Lights are zoom-gated (minzoom 17; setLayerZoomRange
+         lowers it when lights are the highlighted category). cctv and shops only arrive
+         in the source when highlighted. Emphasised points (highlighted category) are larger. */
+      map.addLayer({ id:'rl-lights', type:'circle', source:'rl-points', minzoom:17,
+        filter:['==',['get','kind'],'light'],
+        paint:{'circle-radius':['case',['==',['get','emph'],1],8,5.5],'circle-color':'#facc15','circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
+      map.addLayer({ id:'rl-cctv', type:'circle', source:'rl-points',
+        filter:['==',['get','kind'],'cctv'],
+        paint:{'circle-radius':['case',['==',['get','emph'],1],9,6],'circle-color':'#8b5cf6','circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
+      map.addLayer({ id:'rl-shop', type:'circle', source:'rl-points',
+        filter:['==',['get','kind'],'shop'],
+        paint:{'circle-radius':['case',['==',['get','emph'],1],9,6],'circle-color':'#22c55e','circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
+
       // Click unselected route to select it
       map.on('click','unselected-routes-line',function(e){
         if(e.features&&e.features[0]) sendMsg('selectRoute',{id:e.features[0].properties.routeId});
@@ -559,6 +781,13 @@ const buildMapHtml = (
       map.on('mouseleave','unselected-routes-line',function(){map.getCanvas().style.cursor=''});
       map.on('mouseenter','safety-circles',function(){map.getCanvas().style.cursor='pointer'});
       map.on('mouseleave','safety-circles',function(){map.getCanvas().style.cursor=''});
+
+      // routeLayers mode: wide invisible hit line selects an unselected route (>= 44 pt target)
+      map.on('click','rl-unselected-hit',function(e){
+        if(e.features&&e.features[0]) sendMsg('selectRoute',{id:e.features[0].properties.routeId});
+      });
+      map.on('mouseenter','rl-unselected-hit',function(){map.getCanvas().style.cursor='pointer'});
+      map.on('mouseleave','rl-unselected-hit',function(){map.getCanvas().style.cursor=''});
 
       /* ── Visualisation layers (rendered below route layers) ── */
       // Bounding box — solid bright border + subtle fill
@@ -845,6 +1074,8 @@ const buildMapHtml = (
       var focusCandidatesOnly = !!data.fitCandidateBounds;
       lastData = data;
       isPipMode = !!(data.isInPipMode);
+      var rl = data.routeLayers || null;
+      var routeLayersMode = !!rl;
 
       // Ensure controls reflect PiP state immediately
       var ctrl = document.getElementById('mapCtrl');
@@ -886,7 +1117,7 @@ const buildMapHtml = (
           coords.forEach(function(c){bounds=extBounds(bounds,c)});
         }
       });
-      map.getSource('unselected-routes').setData({type:'FeatureCollection',features:unselF});
+      map.getSource('unselected-routes').setData(routeLayersMode ? emptyFC : {type:'FeatureCollection',features:unselF});
 
       /* — Selected route — */
       var sel=(data.routes||[]).find(function(r){return r.selected});
@@ -937,6 +1168,8 @@ const buildMapHtml = (
         }
       }
 
+      // routeLayers mode: the spec lines carry the whole route, so legacy segment/remaining overlays stay empty.
+      if(routeLayersMode){segF=[];remF=[];}
       map.getSource('route-traversed').setData({type:'FeatureCollection',features:travF});
       map.getSource('route-segments').setData({type:'FeatureCollection',features:segF});
       map.getSource('route-remaining').setData({type:'FeatureCollection',features:remF});
@@ -946,6 +1179,9 @@ const buildMapHtml = (
       var selectedCandidate = null;
       var smF=(data.safetyMarkers||[]).flatMap(function(m){
         if(!hasFiniteLngLat(m.lng,m.lat)){
+          return [];
+        }
+        if(routeLayersMode && RL_REPLACED_KINDS.indexOf(m.kind)!==-1){
           return [];
         }
         var isCandidate = m.id && String(m.id).indexOf('search-candidate:')===0;
@@ -970,6 +1206,15 @@ const buildMapHtml = (
           geometry:{type:'Point',coordinates:[m.lng,m.lat]}}];
       });
       map.getSource('safety-markers').setData({type:'FeatureCollection',features:smF});
+
+      /* — Route safety layers (routeLayers mode; empty and hidden otherwise) — */
+      map.getSource('rl-unselected').setData(routeLayersMode ? {type:'FeatureCollection',features:unselF} : emptyFC);
+      map.getSource('rl-casing').setData(rl ? rl.casing : emptyFC);
+      map.getSource('rl-solid').setData(rl ? rl.solid : emptyFC);
+      map.getSource('rl-dashed').setData(rl ? rl.dashed : emptyFC);
+      map.getSource('rl-points').setData(rl ? rl.points : emptyFC);
+      map.setLayerZoomRange('rl-lights', rl && rl.highlightCategory === 'light' ? 0 : 17, 24);
+      renderRouteLegend(rl ? rl.legend : null, routeLayersMode);
 
       if(selectedCandidate){
         var selectedRaw = String(selectedCandidate.popupTitle || selectedCandidate.label || 'Place').trim();
@@ -1017,6 +1262,23 @@ const buildMapHtml = (
             .addTo(map)
         );
         scheduleSelectedCandidateCardVisibility();
+      }
+
+      /* — Route safety: crime count badges and worst-stretch callout (HTML markers) — */
+      if(rl){
+        (rl.clusters.features||[]).forEach(function(f){
+          var badge=document.createElement('div');
+          badge.className='rl-cluster';
+          badge.textContent=String(f.properties.label);
+          badge.setAttribute('aria-label', f.properties.count+' crime reports nearby');
+          currentMarkers.push(createViewportMarker({element:badge,anchor:'center'}).setLngLat(f.geometry.coordinates).addTo(map));
+        });
+        (rl.callouts.features||[]).forEach(function(f){
+          var callout=document.createElement('div');
+          callout.className='rl-callout';
+          callout.textContent=String(f.properties.text);
+          currentMarkers.push(createViewportMarker({element:callout,anchor:'center'}).setLngLat(f.geometry.coordinates).addTo(map));
+        });
       }
 
       /* — Road labels (navigation mode only) — */
@@ -1393,6 +1655,8 @@ export const RouteMap = ({
   vizStreamUrl = null,
   vizProgressPct = null,
   vizProgressMessage = null,
+  routeLayers = null,
+  highlightCategory = null,
   onSelectRoute,
   onSelectMarker,
   onFindSafeRoutes,
@@ -1439,6 +1703,8 @@ export const RouteMap = ({
     friendMarkers,
     isInPipMode,
     outOfRangeCueSignal,
+    routeLayers,
+    highlightCategory,
   });
   propsRef.current = {
     origin,
@@ -1466,6 +1732,8 @@ export const RouteMap = ({
     friendMarkers,
     isInPipMode,
     outOfRangeCueSignal,
+    routeLayers,
+    highlightCategory,
   };
 
   const callbacksRef = useRef({
@@ -1603,6 +1871,14 @@ export const RouteMap = ({
       maxDistanceKm: p.maxDistanceKm || null,
       outOfRangeCueToken: p.outOfRangeCueSignal || 0,
       isInPipMode: p.isInPipMode ?? false,
+      // Route safety layers (v2). Null keeps the legacy segment/safety-marker drawing.
+      routeLayers: p.routeLayers
+        ? {
+            ...buildNativeRouteLayerCollections(p.routeLayers, p.highlightCategory),
+            highlightCategory: p.highlightCategory ?? null,
+            legend: p.routeLayers.legend,
+          }
+        : null,
       friendMarkers: p.friendMarkers.map((f) => ({
         userId: f.userId,
         name: f.name,
@@ -1656,6 +1932,8 @@ export const RouteMap = ({
     friendMarkers,
     isInPipMode,
     outOfRangeCueSignal,
+    routeLayers,
+    highlightCategory,
     pushUpdate,
   ]);
 

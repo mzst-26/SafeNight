@@ -39,6 +39,11 @@ export interface WorstStretchInput {
 
 export interface CrimeInput extends GeoPoint {
   severity?: number;
+  /**
+   * Incidents represented by this point (v2 server-side clusters). Defaults to 1.
+   * Non-finite or non-positive values count as 1; fractions are floored.
+   */
+  count?: number;
 }
 
 export interface RouteLayerInput {
@@ -292,15 +297,21 @@ function buildCrimeClusters(crimes: CrimeInput[] | undefined, cellM: number): Cr
     const severity = isFiniteNumber(crime.severity)
       ? Math.max(0, crime.severity)
       : DEFAULT_CRIME_SEVERITY;
+    const weight = isFiniteNumber(crime.count) && crime.count >= 1 ? Math.floor(crime.count) : 1;
 
     const cell = cells.get(key);
     if (cell) {
-      cell.latSum += crime.lat;
-      cell.lngSum += crime.lng;
-      cell.count += 1;
+      cell.latSum += crime.lat * weight;
+      cell.lngSum += crime.lng * weight;
+      cell.count += weight;
       cell.maxSeverity = Math.max(cell.maxSeverity, severity);
     } else {
-      cells.set(key, { latSum: crime.lat, lngSum: crime.lng, count: 1, maxSeverity: severity });
+      cells.set(key, {
+        latSum: crime.lat * weight,
+        lngSum: crime.lng * weight,
+        count: weight,
+        maxSeverity: severity,
+      });
     }
   }
 

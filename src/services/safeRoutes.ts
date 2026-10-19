@@ -22,6 +22,7 @@ import {
     LimitError,
     parseLimitResponse,
 } from "@/src/types/limitError";
+import type { LayerSegment, RouteLayerInput } from "@/src/components/maps/routeLayers";
 import { decodePolyline } from "@/src/utils/polyline";
 
 const BACKEND_BASE = env.safetyApiUrl;
@@ -380,6 +381,26 @@ export interface SafetyBreakdown {
   traffic: number; // 0-100
 }
 
+/** Backend v2 lit estimate for a segment. Absent or null on v1 responses. */
+export type SegmentLitEstimate = "lit" | "unlit" | "estimated_lit" | "estimated_unlit";
+
+export type LightingDataQuality = "verified" | "mixed" | "estimated";
+export type CrimeDataQuality = "ok" | "unavailable";
+
+/** Data quality flags for a route (v2 only). Each field may be missing. */
+export interface RouteDataQuality {
+  crime?: CrimeDataQuality;
+  lighting?: LightingDataQuality;
+}
+
+/** The single worst stretch of a route, for the map callout (v2 only). */
+export interface WorstStretch {
+  start: { lat: number; lng: number };
+  end: { lat: number; lng: number };
+  lengthM: number;
+  cause: string | null;
+}
+
 export interface RouteSafety {
   score: number; // 0-100
   label: string; // "Very Safe" | "Safe" | "Moderate" | "Use Caution"
@@ -387,6 +408,13 @@ export interface RouteSafety {
   breakdown: SafetyBreakdown;
   roadTypes: Record<string, number>; // e.g. { primary: 40, residential: 35, footway: 25 }
   mainRoadRatio: number; // 0-100
+  // ── v2 additive fields. Absent on v1 backends. ──
+  /** 0-1 evidence strength for the score. */
+  certainty?: number | null;
+  /** One-sentence explanation of why this route ranks where it does. */
+  reason?: string;
+  worstStretch?: WorstStretch | null;
+  dataQuality?: RouteDataQuality;
 }
 
 export interface SafeRoute extends DirectionsRoute {
@@ -435,11 +463,26 @@ export interface RouteStats {
   unpavedPct: number;
   transitStopsNearby: number;
   cctvCamerasNearby: number;
+  /** True total of crimes near the route (v2). Crime POIs may be clusters, so do not count them instead. */
+  crimeCount?: number;
   roadNameChanges: Array<{
     segmentIndex: number;
     name: string;
     distance: number;
   }>;
+}
+
+/**
+ * A crime marker. v1 sends one raw crime per entry; v2 sends one grid cluster per entry
+ * (`kind: "crime"`, `count` incidents, `maxSeverity` of the worst one).
+ */
+export interface RouteCrimePOI {
+  lat: number;
+  lng: number;
+  category?: string;
+  count?: number;
+  maxSeverity?: number;
+  kind?: "crime";
 }
 
 export interface RoutePOIs {
@@ -448,7 +491,7 @@ export interface RoutePOIs {
   deadEnds: Array<{ lat: number; lng: number }>;
   lights: Array<{ lat: number; lng: number }>;
   places: Array<{ lat: number; lng: number }>;
-  crimes: Array<{ lat: number; lng: number; category?: string }>;
+  crimes: RouteCrimePOI[];
 }
 
 export interface EnrichedSegment {
@@ -468,6 +511,12 @@ export interface EnrichedSegment {
   placeScore: number;
   trafficScore: number;
   distance: number;
+  // ── v2 additive fields. Undefined on v1 responses. ──
+  /** 0-1 segment risk, higher = riskier. Authoritative for colour when present. */
+  risk?: number;
+  certainty?: number | null;
+  litEstimate?: SegmentLitEstimate | null;
+  cause?: string | null;
 }
 
 export interface SafeRoutesResponse {
@@ -515,6 +564,10 @@ interface RawSafeRouteSegment {
   placeScore?: number;
   trafficScore?: number;
   distance?: number;
+  risk?: number;
+  litEstimate?: SegmentLitEstimate | null;
+  certainty?: number | null;
+  cause?: string | null;
 }
 
 interface RawSafeRoute {
@@ -529,35 +582,10 @@ interface RawSafeRoute {
     steps: Array<unknown>;
   }>;
   summary: string;
-  safety: {
-    score: number;
-    label: string;
-    color: string;
-    breakdown: SafetyBreakdown;
-    roadTypes: Record<string, number>;
-    mainRoadRatio: number;
-  };
+  safety: RouteSafety;
   segments: RawSafeRouteSegment[];
-  routeStats?: {
-    deadEnds: number;
-    sidewalkPct: number;
-    unpavedPct: number;
-    transitStopsNearby: number;
-    cctvCamerasNearby: number;
-    roadNameChanges: Array<{
-      segmentIndex: number;
-      name: string;
-      distance: number;
-    }>;
-  };
-  routePOIs?: {
-    cctv: Array<{ lat: number; lng: number }>;
-    transit: Array<{ lat: number; lng: number }>;
-    deadEnds: Array<{ lat: number; lng: number }>;
-    lights: Array<{ lat: number; lng: number }>;
-    places: Array<{ lat: number; lng: number }>;
-    crimes: Array<{ lat: number; lng: number; category?: string }>;
-  };
+  routeStats?: RouteStats;
+  routePOIs?: RoutePOIs;
   queryFootprints?: Array<{
     cellKey?: string;
     south: number;
@@ -606,6 +634,71 @@ interface RawResponse {
   graphEdges?: number;
   roadCount?: number;
   which?: string;
+}
+
+// ── v2 helpers (pure) ───────────────────────────────────────────────────────
+
+const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/**
+ * True when the route carries any v2 safety field. A v1 backend sends none of them, so the
+ * caller should fall back to the legacy drawing. Any one of these counts as v2:
+ * a finite `safety.certainty`, a `reason` string, a `worstStretch` key (even null),
+ * a `dataQuality` object, or a finite per-segment `risk`.
+ */
+export function isV2SafeRoute(route: Pick<SafeRoute, "safety" | "enrichedSegments">): boolean {
+  const safety = route.safety as Partial<RouteSafety> | undefined;
+  if (!safety) return false;
+  if (isFiniteNumber(safety.certainty)) return true;
+  if (typeof safety.reason === "string") return true;
+  if (safety.worstStretch !== undefined) return true;
+  if (safety.dataQuality && typeof safety.dataQuality === "object") return true;
+  return (route.enrichedSegments ?? []).some((seg) => isFiniteNumber(seg.risk));
+}
+
+/**
+ * Converts a v2 route into the renderer-agnostic input for buildRouteLayers.
+ * Returns null for a v1 route, so the caller keeps the legacy overlay.
+ */
+export function buildRouteLayerInput(route: SafeRoute): RouteLayerInput | null {
+  if (!isV2SafeRoute(route)) return null;
+
+  const segments: LayerSegment[] = (route.enrichedSegments ?? []).map((seg) => ({
+    start: { lat: seg.startCoord.latitude, lng: seg.startCoord.longitude },
+    end: { lat: seg.endCoord.latitude, lng: seg.endCoord.longitude },
+    risk: isFiniteNumber(seg.risk) ? seg.risk : undefined,
+    safetyScore: seg.safetyScore,
+    certainty: isFiniteNumber(seg.certainty) ? seg.certainty : undefined,
+    litEstimate: seg.litEstimate ?? undefined,
+  }));
+
+  const pois = route.routePOIs;
+  return {
+    segments,
+    worstStretch: route.safety.worstStretch ?? null,
+    crimes: (pois?.crimes ?? []).map((c) => ({
+      lat: c.lat,
+      lng: c.lng,
+      count: c.count,
+      severity: c.maxSeverity,
+    })),
+    lights: pois?.lights ?? [],
+    cctv: pois?.cctv ?? [],
+    places: pois?.places ?? [],
+  };
+}
+
+/**
+ * Total crimes near a route. Prefers the server's routeStats.crimeCount (v2). Otherwise sums
+ * cluster counts, and counts each raw crime as one (v1).
+ */
+export function getRouteCrimeTotal(route: SafeRoute): number {
+  const reported = route.routeStats?.crimeCount;
+  if (isFiniteNumber(reported) && reported >= 0) return reported;
+  return (route.routePOIs?.crimes ?? []).reduce(
+    (sum, c) => sum + (isFiniteNumber(c.count) && c.count >= 1 ? Math.floor(c.count) : 1),
+    0,
+  );
 }
 
 // ── Cache ────────────────────────────────────────────────────────────────────
@@ -808,6 +901,10 @@ export async function fetchSafeRoutes(
           placeScore: seg.placeScore ?? 0,
           trafficScore: seg.trafficScore ?? 0,
           distance: seg.distance ?? 0,
+          risk: seg.risk,
+          certainty: seg.certainty,
+          litEstimate: seg.litEstimate,
+          cause: seg.cause,
         }),
       );
 

@@ -6,10 +6,26 @@ import type { ComponentProps } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CircleProgress } from '@/src/components/ui/CircleProgress';
-import type { SafeRoute } from '@/src/services/safeRoutes';
+import type { SafeRoute, WorstStretch } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
+
+const CRIME_UNAVAILABLE_LABEL = 'Crime data unavailable';
+
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * One line describing the route's weakest stretch, e.g. "Weakest stretch: 240 m, unlit".
+ * Returns null when there is no stretch or its length is not a usable number.
+ */
+export function formatWorstStretch(stretch: WorstStretch | null | undefined): string | null {
+  if (!stretch || !isFiniteNumber(stretch.lengthM) || stretch.lengthM <= 0) return null;
+  const metres = Math.round(stretch.lengthM);
+  const length = metres < 1000 ? `${metres} m` : `${(stretch.lengthM / 1000).toFixed(1)} km`;
+  const cause = stretch.cause === 'lighting' ? 'unlit' : 'higher risk';
+  return `Weakest stretch: ${length}, ${cause}`;
+}
 
 interface SafetyPanelProps {
   safetyResult: SafetyMapResult;
@@ -22,6 +38,14 @@ interface SafetyPanelProps {
 
 export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, inSidebar }: SafetyPanelProps) {
   const stats = selectedSafeRoute.routeStats;
+  const crimeUnavailable = selectedSafeRoute.safety.dataQuality?.crime === 'unavailable';
+  // v2 routes report the true crime total in routeStats; v1 keeps the panel's own count.
+  const crimeValue: number | string = crimeUnavailable
+    ? '–'
+    : isFiniteNumber(stats?.crimeCount)
+      ? stats.crimeCount
+      : safetyResult.crimeCount;
+  const weakestLine = formatWorstStretch(selectedSafeRoute.safety.worstStretch);
 
   return (
     <View style={[styles.column, Platform.OS === 'web' && !inSidebar && styles.columnWeb]}>
@@ -38,9 +62,21 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
         </Text>
       </View>
 
+      {/* Route notes: data gaps and weakest stretch (v2 only) */}
+      {(crimeUnavailable || weakestLine !== null) && (
+        <View style={styles.notes}>
+          {crimeUnavailable && (
+            <View style={styles.crimeChip} accessible accessibilityLabel={CRIME_UNAVAILABLE_LABEL}>
+              <Text style={styles.crimeChipText}>{CRIME_UNAVAILABLE_LABEL}</Text>
+            </View>
+          )}
+          {weakestLine !== null && <Text style={styles.weakestLine}>{weakestLine}</Text>}
+        </View>
+      )}
+
       {/* 2×2 grid */}
       <View style={styles.grid}>
-        <GridCard icon="warning-outline" value={safetyResult.crimeCount} label="Crimes" color="#ef4444" onPress={() => onCategoryPress?.('crime')} />
+        <GridCard icon="warning-outline" value={crimeValue} label="Crimes" color="#ef4444" onPress={() => onCategoryPress?.('crime')} valueAccessibilityLabel={crimeUnavailable ? CRIME_UNAVAILABLE_LABEL : undefined} />
         <GridCard icon="bulb-outline" value={safetyResult.streetLights} label="Lights" color="#eab308" onPress={() => onCategoryPress?.('light')} />
         <GridCard icon="videocam-outline" value={safetyResult.cctvCount} label="CCTV" color="#6366f1" onPress={() => onCategoryPress?.('cctv')} />
         <GridCard icon="storefront-outline" value={safetyResult.openPlaces} label="Open" color="#22c55e" onPress={() => onCategoryPress?.('shop')} />
@@ -81,7 +117,7 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function GridCard({ icon, value, label, color, onPress }: { icon: IconName; value: number; label: string; color: string; onPress?: () => void }) {
+function GridCard({ icon, value, label, color, onPress, valueAccessibilityLabel }: { icon: IconName; value: number | string; label: string; color: string; onPress?: () => void; valueAccessibilityLabel?: string }) {
   return (
     <Pressable
       style={[styles.gridCard, { borderColor: color + '44' }]}
@@ -93,7 +129,7 @@ function GridCard({ icon, value, label, color, onPress }: { icon: IconName; valu
         <Ionicons name={icon} size={18} color={color} />
       </View>
       <View>
-        <Text style={[styles.gridValue, { color }]}>{value}</Text>
+        <Text style={[styles.gridValue, { color }]} accessibilityLabel={valueAccessibilityLabel}>{value}</Text>
         <Text style={styles.gridLabel}>{label}</Text>
       </View>
     </Pressable>
@@ -176,6 +212,31 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 8,
     textAlign: 'center',
+  },
+  notes: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  crimeChip: {
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  crimeChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#c2410c',
+  },
+  weakestLine: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
   },
   grid: {
     flexDirection: 'row',

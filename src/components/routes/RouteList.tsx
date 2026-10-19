@@ -5,6 +5,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 
 import { RouteCard } from '@/src/components/routes/RouteCard';
 import type { SafeRoute } from '@/src/services/safeRoutes';
+import type { RouteComparison } from '@/src/utils/routeComparison';
 
 interface RouteListProps {
   routes: SafeRoute[];
@@ -14,6 +15,8 @@ interface RouteListProps {
   inSidebar?: boolean;
   /** Node rendered inside the selected card's collapsible safety section */
   detailsPanel?: React.ReactNode;
+  /** Per-route comparison rows (buildRouteComparison). Drives the v2 delta lines. */
+  routeComparison?: RouteComparison[];
 }
 
 export function RouteList({
@@ -22,7 +25,12 @@ export function RouteList({
   onSelectRoute,
   inSidebar,
   detailsPanel,
+  routeComparison,
 }: RouteListProps) {
+  const recommendedId = routes.find((r) => r.isSafest)?.id;
+  const recommendedComparison =
+    routeComparison?.find((c) => c.routeId === recommendedId) ?? null;
+
   return (
     <View style={[styles.column, Platform.OS === 'web' && !inSidebar && styles.columnWeb]}>
       {routes.slice(0, 5).map((route, index) => (
@@ -33,6 +41,8 @@ export function RouteList({
           isSelected={route.id === selectedRouteId}
           onSelect={() => onSelectRoute(route.id)}
           detailsPanel={route.id === selectedRouteId ? detailsPanel : undefined}
+          comparison={routeComparison?.find((c) => c.routeId === route.id) ?? null}
+          recommendedComparison={recommendedComparison}
         />
       ))}
     </View>

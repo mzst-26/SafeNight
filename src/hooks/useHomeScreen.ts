@@ -9,6 +9,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Dimensions, Keyboard, Platform } from "react-native";
 
 import type { MapType } from "@/src/components/maps/RouteMap.types";
+import {
+  buildRouteLayers,
+  type HighlightCategory,
+  type RouteLayerSpec,
+} from "@/src/components/maps/routeLayers";
 import { SHEET_DEFAULT } from "@/src/components/sheets/DraggableSheet";
 import { useAIExplanation } from "@/src/hooks/useAIExplanation";
 import type { RouteScore } from "@/src/hooks/useAllRoutesSafety";
@@ -19,7 +24,11 @@ import { useNavigation } from "@/src/hooks/useNavigation";
 import { useOnboarding } from "@/src/hooks/useOnboarding";
 import { useSafeRoutes } from "@/src/hooks/useSafeRoutes";
 import { reverseGeocode } from "@/src/services/openStreetMap";
-import type { SafeRoute } from "@/src/services/safeRoutes";
+import {
+  buildRouteLayerInput,
+  getRouteCrimeTotal,
+  type SafeRoute,
+} from "@/src/services/safeRoutes";
 import type { SafetyMapResult } from "@/src/services/safetyMapData";
 import type {
   DirectionsRoute,
@@ -27,6 +36,10 @@ import type {
   PlaceDetails,
   PlacePrediction,
 } from "@/src/types/geo";
+import {
+  buildRouteComparison,
+  type RouteComparison,
+} from "@/src/utils/routeComparison";
 
 const FAKE_PROGRESS_MESSAGES = [
   "Preparing route analysis…",
@@ -35,6 +48,25 @@ const FAKE_PROGRESS_MESSAGES = [
   "Scoring lighting and crime factors…",
   "Ranking route options by safety score…",
 ];
+
+/**
+ * Zoom passed to buildRouteLayers. Fixed at 17 so the spec includes light points; the renderer
+ * applies the live zoom gate, so the spec does not change as the user zooms.
+ */
+const ROUTE_LAYER_SPEC_ZOOM = 17;
+
+/** Maps the hook's highlight state to the categories the route layer spec understands. */
+function toRouteLayerHighlight(category: string | null): HighlightCategory | null {
+  switch (category) {
+    case "crime":
+    case "light":
+    case "cctv":
+    case "shop":
+      return category;
+    default:
+      return null;
+  }
+}
 
 // ── Public interface ────────────────────────────────────────────────────────
 
@@ -503,14 +535,19 @@ export function useHomeScreen() {
         label: `${name}${status}`,
       });
     });
-    pois.crimes?.forEach((cr, i) =>
+    pois.crimes?.forEach((cr, i) => {
+      // v2 sends grid clusters with a count; v1 sends one raw crime per entry.
+      const count =
+        typeof cr.count === "number" && Number.isFinite(cr.count) && cr.count >= 1
+          ? Math.floor(cr.count)
+          : 1;
       markers.push({
         id: `poi-crime-${i}`,
         kind: "crime",
         coordinate: { latitude: cr.lat, longitude: cr.lng },
-        label: cr.category || "Crime",
-      }),
-    );
+        label: count > 1 ? `${count} crimes` : cr.category || "Crime",
+      });
+    });
     return markers;
   }, [selectedSafeRoute]);
 
@@ -536,8 +573,8 @@ export function useHomeScreen() {
       else unlitSegments++;
     }
 
-    // Use actual POI counts so every number matches what's on the map
-    const crimeCount = pois?.crimes?.length ?? 0;
+    // Crimes: the server's true total (v2 clusters are not individual crimes); lights/CCTV/places: POI counts.
+    const crimeCount = getRouteCrimeTotal(selectedSafeRoute);
     const lightCount = pois?.lights?.length ?? 0;
     const openPlaceCount = pois?.places?.length ?? 0;
     const cctvCount = pois?.cctv?.length ?? 0;
@@ -562,6 +599,34 @@ export function useHomeScreen() {
       dataConfidence: 1,
     };
   }, [selectedSafeRoute]);
+
+  // ── v2 route layers (selected route only). Null for a v1 route, so renderers draw the legacy overlay. ──
+  const routeLayers = useMemo<RouteLayerSpec | null>(() => {
+    if (!selectedSafeRoute) return null;
+    const input = buildRouteLayerInput(selectedSafeRoute);
+    if (!input) return null;
+    return buildRouteLayers(input, {
+      zoom: ROUTE_LAYER_SPEC_ZOOM,
+      highlightCategory: toRouteLayerHighlight(highlightCategory),
+    });
+  }, [selectedSafeRoute, highlightCategory]);
+
+  // ── Per-route comparison data for the route cards (fastest = min duration) ──
+  const routeComparison = useMemo<RouteComparison[]>(
+    () =>
+      buildRouteComparison(
+        (safeRoutes as SafeRoute[]).map((r) => ({
+          id: r.id,
+          score: r.safety?.score,
+          certainty: r.safety?.certainty,
+          reason: r.safety?.reason,
+          dataQuality: r.safety?.dataQuality,
+          durationSec: r.durationSeconds,
+          distanceM: r.distanceMeters,
+        })),
+      ),
+    [safeRoutes],
+  );
 
   // ── Route segments for coloured overlay ──
   const routeSegments = useMemo(() => {
@@ -867,6 +932,8 @@ export function useHomeScreen() {
     safetyResult,
     poiMarkers: displayMarkers,
     routeSegments,
+    routeLayers,
+    routeComparison,
     roadLabels,
     highlightCategory,
     setHighlightCategory,

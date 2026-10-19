@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
+import { RISK_RAMP } from "@/src/components/maps/routeLayers";
 
 export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
 <html>
@@ -64,6 +65,18 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     .leaflet-top.leaflet-left{margin-top:10px;margin-left:10px}
     @keyframes vizscan{0%,100%{opacity:.95}50%{opacity:.45}}
     .viz-search-zone{pointer-events:none;background:rgba(88,28,235,.22);border:1.5px solid rgba(167,139,250,.7);border-radius:5px;padding:4px 12px;color:#ddd6fe;font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap;display:flex;align-items:center;gap:5px;animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
+    /* Route layers (routeLayers prop). Only applied to elements the route layer code creates. */
+    .leaflet-control.rl-legend{background:rgba(255,255,255,.94);color:#101828;border-radius:10px;box-shadow:0 2px 10px rgba(16,24,40,.18);padding:6px 8px;font-size:12px;line-height:1.3;max-width:min(190px,46vw);pointer-events:auto}
+    .rl-legend-head{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:0;background:transparent;padding:0;margin:0;font:700 12px/1.3 system-ui,-apple-system,sans-serif;color:#101828;cursor:pointer}
+    .rl-legend-body{margin-top:6px}
+    .rl-ramp{height:8px;border-radius:4px}
+    .rl-ramp-labels{display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:#344054}
+    .rl-dash-row{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:#344054}
+    .rl-dash-row svg{flex:none}
+    .rl-callout-icon{background:none;border:0;pointer-events:none}
+    .rl-callout{position:relative;transform:translate(-50%,calc(-100% - 10px));white-space:nowrap;background:#ffffff;color:#101828;font:600 13px/1.2 system-ui,-apple-system,sans-serif;padding:5px 9px;border-radius:999px;box-shadow:0 2px 8px rgba(16,24,40,.25);pointer-events:none}
+    .rl-crime-icon{background:none;border:0}
+    .rl-crime{box-sizing:border-box;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#b42318;color:#ffffff;font:700 12px/1 system-ui,-apple-system,sans-serif;border:2px solid #ffffff;box-shadow:0 0 0 2px rgba(180,35,24,.35),0 1px 4px rgba(0,0,0,.35)}
   </style>
 </head>
 <body>
@@ -95,6 +108,22 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     var PIN_LABEL_MIN_ZOOM = 13.0;
     var isMapDragging = false;
     var lastMapDragAt = 0;
+
+    // Route layers (routeLayers prop). Everything below is inert unless a route layer spec is present.
+    var RL_RAMP = ${JSON.stringify(RISK_RAMP)};
+    var RL_GREY = '#98a2b3';
+    var RL_FALLBACK_BLUE = '#4285F4';
+    var RL_LIGHT_ZOOM = 17;
+    var RL_POINT_COLORS = { light:'#facc15', cctv:'#8b5cf6', shop:'#22c55e' };
+    var routeOverlayLayer = null;
+    var routePointsLayer = null;
+    var lastRouteLayers = null;
+    var lastRouteHighlight = null;
+    var legendEl = null;
+    var legendToggleEl = null;
+    var legendBodyEl = null;
+    var legendControl = null;
+    var legendCollapsed = false;
     
     // Offset strategies for non-overlapping label placement (relative to pin center)
     // Prefer close placement first; only spread out when overlap requires it.
@@ -236,10 +265,19 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       else document.body.classList.remove('pin-card-compact');
     }
 
+    // Explicit target origin for messages to the parent. The srcDoc iframe has no sandbox,
+    // so it shares the parent's origin. If that cannot be read, fall back to '*'.
+    var POST_TARGET_ORIGIN = (function(){
+      try{
+        var o = window.parent.location.origin;
+        return (typeof o === 'string' && o && o !== 'null') ? o : '*';
+      }catch(e){ return '*'; }
+    })();
+
     function sendMsg(t, d){
       try{
         var m = Object.assign({ type:t }, d || {});
-        window.parent.postMessage(JSON.stringify(m), '*');
+        window.parent.postMessage(JSON.stringify(m), POST_TARGET_ORIGIN);
         window.dispatchEvent(new CustomEvent('leaflet-msg', { detail:m }));
       }catch(e){}
     }
@@ -273,6 +311,9 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     }
 
     function clearLayers(){
+      if(routeOverlayLayer) routeOverlayLayer.clearLayers();
+      if(routePointsLayer) routePointsLayer.clearLayers();
+      lastRouteLayers = null;
       layerRoutes.clearLayers();
       layerMarkers.clearLayers();
       layerFriends.clearLayers();
@@ -440,6 +481,149 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       return '#ef4444';
     }
 
+    function rlNormalize(raw){
+      if(!raw || typeof raw!=='object') return null;
+      return {
+        lines: Array.isArray(raw.lines) ? raw.lines : [],
+        callouts: Array.isArray(raw.callouts) ? raw.callouts : [],
+        crimeClusters: Array.isArray(raw.crimeClusters) ? raw.crimeClusters : [],
+        points: Array.isArray(raw.points) ? raw.points : []
+      };
+    }
+
+    function rlIsNum(v){ return typeof v==='number' && isFinite(v); }
+
+    function rlCoords(list){
+      var out=[];
+      if(!Array.isArray(list)) return out;
+      for(var i=0;i<list.length;i++){
+        var c=list[i];
+        if(Array.isArray(c) && rlIsNum(c[0]) && rlIsNum(c[1])) out.push([c[0],c[1]]);
+      }
+      return out;
+    }
+
+    function rlLatLng(p){
+      return (p && rlIsNum(p.lat) && rlIsNum(p.lng)) ? [p.lat,p.lng] : null;
+    }
+
+    function rlColor(c, fallback){
+      return (typeof c==='string' && /^#[0-9a-fA-F]{6}$/.test(c)) ? c : fallback;
+    }
+
+    // Light points only from zoom 17, or when lights are the highlighted category.
+    // CCTV and shops only when highlighted.
+    function rlPointVisible(kind, zoom, hl){
+      if(kind==='light') return hl==='light' || (rlIsNum(zoom) && zoom>=RL_LIGHT_ZOOM);
+      if(kind==='cctv' || kind==='shop') return hl===kind;
+      return false;
+    }
+
+    // Unselected route: thin grey line, plus a wide invisible hit line that selects it.
+    function rlDrawUnselected(group, latlngs, onSelect){
+      L.polyline(latlngs,{color:RL_GREY,weight:4,opacity:0.55,lineCap:'round',lineJoin:'round',interactive:false}).addTo(group);
+      var hit=L.polyline(latlngs,{color:RL_GREY,weight:22,opacity:0,lineCap:'round',lineJoin:'round'});
+      hit.on('click', onSelect);
+      hit.addTo(group);
+    }
+
+    // Selected route: a white casing under every coloured line (all casings first),
+    // then the coloured lines. Dashed lines use a dotted dash as a second channel.
+    function rlDrawSelected(group, lines, fallbackLatLngs){
+      var runs=[];
+      for(var i=0;i<lines.length;i++){
+        var ln=lines[i]||{};
+        var coords=rlCoords(ln.coords);
+        if(coords.length<2) continue;
+        runs.push({ coords:coords, color:rlColor(ln.color,RL_FALLBACK_BLUE), dashed:ln.dashed===true });
+      }
+      if(runs.length===0 && fallbackLatLngs.length>=2){
+        runs.push({ coords:fallbackLatLngs, color:RL_FALLBACK_BLUE, dashed:false });
+      }
+      runs.forEach(function(run){
+        L.polyline(run.coords,{color:'#ffffff',weight:11,opacity:0.9,lineCap:'round',lineJoin:'round',interactive:false}).addTo(group);
+      });
+      runs.forEach(function(run){
+        var opts={color:run.color,weight:7,opacity:1,lineCap:'round',lineJoin:'round',interactive:false};
+        if(run.dashed) opts.dashArray='1 10';
+        L.polyline(run.coords,opts).addTo(group);
+      });
+    }
+
+    // Only one label: the first callout with a valid position.
+    function rlDrawCallouts(group, callouts){
+      for(var i=0;i<callouts.length;i++){
+        var c=callouts[i]||{};
+        var p=rlLatLng(c);
+        if(!p) continue;
+        var icon=L.divIcon({
+          className:'rl-callout-icon',
+          html:'<div class="rl-callout">'+safeLabel(c.text)+'</div>',
+          iconSize:[0,0],
+          iconAnchor:[0,0]
+        });
+        L.marker(p,{icon:icon,interactive:false,keyboard:false,zIndexOffset:1000}).addTo(group);
+        return;
+      }
+    }
+
+    // Crime is shown as count badges only, never as individual dots.
+    function rlDrawCrime(group, clusters){
+      for(var i=0;i<clusters.length;i++){
+        var c=clusters[i]||{};
+        var p=rlLatLng(c);
+        if(!p || !rlIsNum(c.count) || c.count<1) continue;
+        var n=Math.floor(c.count);
+        var size=n>=20?34:(n>=5?30:26);
+        var label=n>99?'99+':String(n);
+        var icon=L.divIcon({
+          className:'rl-crime-icon',
+          html:'<div class="rl-crime" style="width:'+size+'px;height:'+size+'px">'+label+'</div>',
+          iconSize:[size,size],
+          iconAnchor:[size/2,size/2]
+        });
+        L.marker(p,{icon:icon,interactive:false,keyboard:false,zIndexOffset:500}).addTo(group);
+      }
+    }
+
+    function rlDrawPoints(group, points, zoom, hl){
+      for(var i=0;i<points.length;i++){
+        var pt=points[i]||{};
+        var kind=pt.kind;
+        if(!rlPointVisible(kind, zoom, hl)) continue;
+        var p=rlLatLng(pt);
+        if(!p || !RL_POINT_COLORS.hasOwnProperty(kind)) continue;
+        L.circleMarker(p,{radius:kind===hl?7:5,color:'#ffffff',weight:1.5,fillColor:RL_POINT_COLORS[kind],fillOpacity:1,interactive:false}).addTo(group);
+      }
+    }
+
+    // Points depend on the zoom, so this runs again on every zoomend.
+    function rlRenderPoints(){
+      if(!routePointsLayer) return;
+      routePointsLayer.clearLayers();
+      if(!lastRouteLayers) return;
+      rlDrawPoints(routePointsLayer, lastRouteLayers.points, map.getZoom(), lastRouteHighlight);
+    }
+
+    function rlLegendMarkup(){
+      var grad='linear-gradient(to right,'+RL_RAMP.join(',')+')';
+      return '<button type="button" class="rl-legend-head" aria-expanded="true"><span>Route safety</span><span class="rl-chev">&#9662;</span></button>'+
+        '<div class="rl-legend-body">'+
+          '<div class="rl-ramp" style="background:'+grad+'"></div>'+
+          '<div class="rl-ramp-labels"><span>Safer</span><span>Riskier</span></div>'+
+          '<div class="rl-dash-row"><svg width="28" height="8" viewBox="0 0 28 8" aria-hidden="true"><line x1="2" y1="4" x2="26" y2="4" stroke="#344054" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 6"/></svg><span>Estimated lighting</span></div>'+
+        '</div>';
+    }
+
+    function rlApplyLegendState(){
+      if(legendBodyEl) legendBodyEl.style.display = legendCollapsed ? 'none' : '';
+      if(legendToggleEl) legendToggleEl.setAttribute('aria-expanded', legendCollapsed ? 'false' : 'true');
+    }
+
+    function rlSetLegendVisible(on){
+      if(legendEl) legendEl.style.display = on ? '' : 'none';
+    }
+
     function init(){
       map = L.map('map', {
         zoomControl:${showZoomControls ? "true" : "false"},
@@ -467,6 +651,28 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       layerFriends = L.layerGroup().addTo(map);
       layerLabels = L.layerGroup().addTo(map);
       layerRange = L.layerGroup().addTo(map);
+      routeOverlayLayer = L.layerGroup().addTo(map);
+      routePointsLayer = L.layerGroup().addTo(map);
+
+      legendControl = L.control({position:'bottomleft'});
+      legendControl.onAdd = function(){
+        var el=document.createElement('div');
+        el.className='leaflet-control rl-legend';
+        el.style.display='none';
+        el.innerHTML=rlLegendMarkup();
+        legendEl=el;
+        legendToggleEl=el.querySelector('.rl-legend-head');
+        legendBodyEl=el.querySelector('.rl-legend-body');
+        if(legendToggleEl) legendToggleEl.addEventListener('click', function(ev){
+          if(ev && ev.stopPropagation) ev.stopPropagation();
+          legendCollapsed=!legendCollapsed;
+          rlApplyLegendState();
+        });
+        if(L.DomEvent && L.DomEvent.disableClickPropagation) L.DomEvent.disableClickPropagation(el);
+        rlApplyLegendState();
+        return el;
+      };
+      legendControl.addTo(map);
 
       map.on('click', function(e){
         sendMsg('press', { lat:e.latlng.lat, lng:e.latlng.lng });
@@ -508,6 +714,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       map.on('wheel', function(){ markUserCameraOverride(); });
 
       map.on('zoomend', function(){
+        rlRenderPoints();
         updatePinLabelVisibility();
         schedulePinLabelLayout();
       });
@@ -537,6 +744,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       var focusCandidatesOnly = !!d.fitCandidateBounds;
       var isUserCameraOverride = Date.now() < userCameraOverrideUntil;
       var colorMap={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
+      var rl = rlNormalize(d.routeLayers);
 
       if(typeof d.isInPipMode!=='undefined') isPipMode=!!d.isInPipMode;
 
@@ -557,8 +765,12 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       (d.routes||[]).forEach(function(r){
         if(r.selected) return;
         var latlngs=r.path.map(function(p){return [p.lat,p.lng];});
+        if(rl){
+          rlDrawUnselected(layerRoutes, latlngs, function(){ sendMsg('selectRoute', { id:r.id }); });
+        } else {
         var poly=L.polyline(latlngs,{color:'#98a2b3',weight:5,opacity:0.6}).addTo(layerRoutes);
         poly.on('click', function(){ sendMsg('selectRoute', { id:r.id }); });
+        }
         if(!focusCandidatesOnly){
           for(var i=0;i<latlngs.length;i++) bounds.push(latlngs[i]);
         }
@@ -569,7 +781,9 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
 
       if(selected){
         var selLatLngs=selected.path.map(function(p){ return [p.lat,p.lng]; });
-        if(d.segments && d.segments.length>0){
+        if(rl){
+          rlDrawSelected(layerRoutes, rl.lines, selLatLngs);
+        } else if(d.segments && d.segments.length>0){
           d.segments.forEach(function(seg){
             L.polyline(seg.path.map(function(p){return [p.lat,p.lng];}),{color:seg.color,weight:7,opacity:0.9}).addTo(layerRoutes);
           });
@@ -585,6 +799,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       var includeCandidateBounds = !!d.fitCandidateBounds;
       (d.safetyMarkers||[]).forEach(function(m){
         var isCandidate = m.id && String(m.id).indexOf('search-candidate:')===0;
+        if(rl && !isCandidate) return;
         var k=m.kind||'crime';
         if(hl && hl!==k) return;
         if(isCandidate){
@@ -674,6 +889,15 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         }
         addFriendMarker(f);
       });
+
+      lastRouteLayers = rl && selected ? rl : null;
+      lastRouteHighlight = hl;
+      if(lastRouteLayers){
+        rlDrawCallouts(routeOverlayLayer, rl.callouts);
+        rlDrawCrime(routeOverlayLayer, rl.crimeClusters);
+        rlRenderPoints();
+      }
+      rlSetLegendVisible(!!lastRouteLayers);
 
       var hasRoutes = Array.isArray(d.routes) && d.routes.length > 0;
       if(d.showExtraDetail && hasRoutes){
@@ -790,6 +1014,7 @@ export const RouteMap = ({
   safetyMarkers = [],
   routeSegments = [],
   roadLabels = [],
+  routeLayers = null,
   panTo,
   fitCandidateBoundsToken = 0,
   fitTopPadding = 40,
@@ -873,6 +1098,7 @@ export const RouteMap = ({
     safetyMarkers,
     routeSegments,
     roadLabels,
+    routeLayers,
     panTo,
     fitCandidateBoundsToken,
     fitTopPadding,
@@ -899,6 +1125,7 @@ export const RouteMap = ({
     safetyMarkers,
     routeSegments,
     roadLabels,
+    routeLayers,
     panTo,
     fitCandidateBoundsToken,
     fitTopPadding,
@@ -989,6 +1216,7 @@ export const RouteMap = ({
       segments,
       safetyMarkers: mkrs,
       roadLabels: labels,
+      routeLayers: p.routeLayers ?? null,
       fitBounds,
       fitCandidateBounds,
       fitTopPadding: p.fitTopPadding ?? 40,
@@ -1120,6 +1348,7 @@ export const RouteMap = ({
     safetyMarkers,
     routeSegments,
     roadLabels,
+    routeLayers,
     panTo,
     isNavigating,
     navigationLocation,
