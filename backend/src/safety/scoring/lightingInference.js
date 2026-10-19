@@ -6,20 +6,23 @@
  * of the evidence behind it. effectiveLit shrinks that estimate towards 0.5 when
  * the evidence is thin, so a guess never looks as certain as a surveyed tag.
  *
- * Every numeric tunable lives in config.js (LIGHTING, EVIDENCE_PSEUDO_COUNT). The sets below are
+ * Every numeric tunable lives in config.js (LIGHTING). The sets below are
  * OSM class taxonomy, not tunables. Evidence strength comes from evidence.js, shared with edgeRisk.
  *
  * All functions are pure and never mutate their inputs.
  */
 
-const { LIGHTING, EVIDENCE_PSEUDO_COUNT } = require('./config');
+const { LIGHTING } = require('./config');
 const { assertNonNegative, assertNonNegativeInteger, assertInRange } = require('./validation');
 const { evidenceStrength } = require('./evidence');
 
 const MAXSPEED_PATTERN = /^(\d+(?:\.\d+)?)\s*(mph|km\/h|kmh)?$/;
 
 const SIDEWALK_PRESENT = new Set(['yes', 'both', 'left', 'right', 'separate']);
-const PATH_HIGHWAYS = new Set(['path', 'track', 'bridleway', 'footway', 'cycleway', 'steps']);
+// Isolated by nature: low prior whatever is around them.
+const PATH_HIGHWAYS = new Set(['path', 'track', 'bridleway']);
+// Often a sidewalk beside a road, so the prior depends on whether a road is nearby (nearRoad).
+const SIDEWALK_LIKE_HIGHWAYS = new Set(['footway', 'cycleway', 'steps', 'pedestrian']);
 const MAJOR_HIGHWAYS = new Set(['trunk', 'primary', 'secondary']);
 const RESIDENTIAL_HIGHWAYS = new Set(['living_street', 'residential']);
 
@@ -63,13 +66,29 @@ function parseMaxspeedKmh(value) {
 }
 
 /**
+ * True when the way is an isolated path: a path class, or a footway-like way known to have no road nearby.
+ * Only these are subject to the absence-of-lamps rule.
+ * @param {string|undefined} highway - normalised
+ * @param {boolean|undefined} nearRoad
+ * @returns {boolean}
+ */
+function isIsolatedPath(highway, nearRoad) {
+  return PATH_HIGHWAYS.has(highway) || (SIDEWALK_LIKE_HIGHWAYS.has(highway) && nearRoad === false);
+}
+
+/**
  * Prior from road class, speed and sidewalk tags (no lamp evidence).
- * Path classes are checked before speed, so a footway with a speed tag stays a path.
+ * Path and footway-like classes are checked before speed, so a footway with a speed tag keeps its footway prior.
  * @param {{highway, maxspeed, sidewalk}} tags - normalised tags
+ * @param {boolean|undefined} nearRoad - a road lies within SIDEWALK_RADIUS_M (undefined: unknown)
  * @returns {{pLit: number, n: number}}
  */
-function tagPrior({ highway, maxspeed, sidewalk }) {
+function tagPrior({ highway, maxspeed, sidewalk }, nearRoad) {
   if (PATH_HIGHWAYS.has(highway)) return LIGHTING.PRIOR.PATH;
+  if (SIDEWALK_LIKE_HIGHWAYS.has(highway)) {
+    if (nearRoad === true) return LIGHTING.PRIOR.SIDEWALK_NEAR_ROAD;
+    return nearRoad === false ? LIGHTING.PRIOR.SIDEWALK_ISOLATED : LIGHTING.PRIOR.SIDEWALK_UNKNOWN;
+  }
   if (MAJOR_HIGHWAYS.has(highway)) return LIGHTING.PRIOR.MAJOR;
 
   const speedKmh = parseMaxspeedKmh(maxspeed);
@@ -111,32 +130,51 @@ function assertTags(tags) {
 }
 
 /**
+ * @param {*} value
+ * @param {string} name
+ * @throws {TypeError}
+ */
+function assertOptionalBoolean(value, name) {
+  if (value !== undefined && typeof value !== 'boolean') {
+    throw new TypeError(`${name} must be a boolean when present`);
+  }
+}
+
+/**
  * Estimate P(lit) and its evidence strength for one road segment.
  *
  * An explicit lit tag is ground truth and wins outright. Otherwise the tag prior
- * is raised by nearby lamps, or lowered when lamps are mapped densely around
- * the segment but none is nearby.
+ * is raised by nearby lamps, or (weaker) by a neighbouring lit=yes way. Where lamps are mapped
+ * densely around an isolated path but none is nearby, the prior is lowered; roads are never lowered
+ * by missing lamps because lamps are sparsely mapped.
  *
  * @param {Object} input
  * @param {Object} input.tags - OSM tags of the way
  * @param {number} input.lampCount30m - street lamps within LAMP_RADIUS_M of the segment, counted by the caller (integer >= 0)
  * @param {number} input.areaLampDensityPerKm - mapped lamps per km in the surrounding area
  * @param {number} input.areaWayKm - mapped road length in the surrounding area, km
- * @returns {{pLit: number, n: number, source: 'tag'|'lamp'|'absence'|'prior'}}
+ * @param {boolean} [input.nearRoad] - a road (trunk to service) lies within SIDEWALK_RADIUS_M of the way;
+ *   used only for footway-like classes. Omit when unknown.
+ * @param {boolean} [input.litNeighbour=false] - a vertex of a lit=yes way lies within LAMP_RADIUS_M. Not a lamp.
+ * @returns {{pLit: number, n: number, source: 'tag'|'lamp'|'neighbour-lit'|'absence'|'prior'}}
  * @throws {TypeError} when any input is malformed
  */
-function inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm }) {
+function inferLighting({
+  tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour = false,
+}) {
   assertTags(tags);
   assertNonNegativeInteger('lampCount30m', lampCount30m);
   assertNonNegative('areaLampDensityPerKm', areaLampDensityPerKm);
   assertNonNegative('areaWayKm', areaWayKm);
+  assertOptionalBoolean(nearRoad, 'nearRoad');
+  assertOptionalBoolean(litNeighbour, 'litNeighbour');
 
   const normalised = normaliseTags(tags);
   if (hasOwn(LIGHTING.EXPLICIT, normalised.lit)) {
     return { ...LIGHTING.EXPLICIT[normalised.lit], source: 'tag' };
   }
 
-  const prior = tagPrior(normalised);
+  const prior = tagPrior(normalised, nearRoad);
 
   if (lampCount30m >= 1) {
     const pLit = Math.max(
@@ -146,7 +184,16 @@ function inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm }) 
     return { pLit, n: prior.n + LIGHTING.LAMP.EVIDENCE_N, source: 'lamp' };
   }
 
-  const absenceIsInformative = areaLampDensityPerKm > LIGHTING.ABSENCE.MIN_LAMP_DENSITY_PER_KM
+  if (litNeighbour) {
+    return {
+      pLit: Math.max(prior.pLit, LIGHTING.NEIGHBOUR_LIT.PLIT),
+      n: prior.n + LIGHTING.NEIGHBOUR_LIT.EVIDENCE_N,
+      source: 'neighbour-lit',
+    };
+  }
+
+  const absenceIsInformative = isIsolatedPath(normalised.highway, nearRoad)
+    && areaLampDensityPerKm > LIGHTING.ABSENCE.MIN_LAMP_DENSITY_PER_KM
     && areaWayKm >= LIGHTING.ABSENCE.MIN_AREA_WAY_KM;
   if (absenceIsInformative) {
     return {
@@ -168,7 +215,7 @@ function inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm }) 
 function effectiveLit({ pLit, n }) {
   assertInRange('pLit', pLit, 0, 1);
   assertNonNegative('n', n);
-  return (pLit * n + LIGHTING.NEUTRAL_LIT * EVIDENCE_PSEUDO_COUNT) / (n + EVIDENCE_PSEUDO_COUNT);
+  return (pLit * n + LIGHTING.NEUTRAL_LIT * LIGHTING.SHRINK_PSEUDO_COUNT) / (n + LIGHTING.SHRINK_PSEUDO_COUNT);
 }
 
 /**
@@ -186,4 +233,5 @@ module.exports = {
   effectiveLit,
   lightingCertainty,
   parseMaxspeedKmh,
+  SIDEWALK_LIKE_HIGHWAYS,
 };

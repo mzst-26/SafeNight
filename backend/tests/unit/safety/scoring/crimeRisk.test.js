@@ -145,7 +145,8 @@ describe('crimeRisk', () => {
   });
 
   test('risk is about 0.63 when the rate equals RATE_SCALE', () => {
-    const result = crimeRisk({ weightedCount: 12, exposureKm: 0, priorRate: 0, priorStrength: 2, status: 'ok' });
+    // With zero exposure the rate is weightedCount / priorStrength, so 2 * RATE_SCALE gives a rate of RATE_SCALE.
+    const result = crimeRisk({ weightedCount: 2 * RATE_SCALE, exposureKm: 0, priorRate: 0, priorStrength: 2, status: 'ok' });
     expect(result.lambda).toBeCloseTo(RATE_SCALE, 12);
     expect(result.risk).toBeCloseTo(1 - Math.exp(-1), 12);
   });

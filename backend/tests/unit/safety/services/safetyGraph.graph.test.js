@@ -156,7 +156,8 @@ describe('v2 lamp radius comes from config (LAMP_RADIUS_M)', () => {
     const narrow = await loadWithLampRadius(30).buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
     const wide = await loadWithLampRadius(60).buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
 
-    expect(wide.edges[4].pLit).toBeGreaterThan(narrow.edges[4].pLit);
+    // The residential prior (0.88) already exceeds the one-lamp floor (0.85), so a lamp adds evidence (n), not pLit.
+    expect(wide.edges[4].lightScore).toBeGreaterThan(narrow.edges[4].lightScore);
   });
 });
 
@@ -366,7 +367,8 @@ describe('v2 graph branches: cancellation, clock, lit ways, cache, A* edges, emp
     net.roadData.elements.push({ type: 'node', id: 15, lat: UNMAPPED_MID.lat, lon: UNMAPPED_MID.lng });
     net.lightData.elements.push({ type: 'way', id: 300, nodes: [15, 99999], tags: { lit: 'yes' } });
     const lit = await buildStreetsWith(net, null);
-    expect(lit.edges[4].pLit).toBeGreaterThan(none.edges[4].pLit);
+    // The residential prior (0.88) already exceeds the lit-neighbour floor (0.85): the neighbour adds evidence (n).
+    expect(lit.edges[4].lightScore).toBeGreaterThan(none.edges[4].lightScore);
   });
 
   test('a verified-lit cache entry gives pLit 0.95 with a cache source, and an unverified entry still feeds the estimate', async () => {

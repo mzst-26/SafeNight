@@ -169,19 +169,18 @@ Factors (5, no double counting): `lighting`, `crime`, `road` (class only), `acti
 `risk = 1 - prod_i( max(eps, s_i) ^ w~_i )`, `eps = 0.05`, `w~` = weights over available factors, renormalised to sum 1. Lighting weight is multiplied by darkness `d(t)` before renormalising (so sums stay 1). No separate veto in v1; revisit if backtest demands.
 
 ### 11.3 Lighting
-`inferLighting` returns `{pLit, n, source}`. Explicit tags win: `lit=yes` and `24/7` 0.95/n20, `lit=no` 0.05/n20, `limited` and `automatic` 0.5/n10. Otherwise lamps within `LAMP_RADIUS_M` (30 m, counted by the caller) raise it: one lamp gives at least 0.85, three or more at least 0.92, and n rises by 6.
-Otherwise the tag prior, checked in this order (config `LIGHTING.PRIOR`):
-- path classes (`path`, `track`, `bridleway`, `footway`, `cycleway`, `steps`): 0.15/n3. Checked before speed, so a footway with a speed tag stays a path.
-- `trunk`, `primary`, `secondary` (MAJOR): 0.85/n4.
-- an urban speed limit: `maxspeed` at most 50 km/h after mph conversion (30 mph is about 48 km/h), or `gb:urban` (48 km/h): 0.80/n4.
-- `residential` or `living_street` with a `sidewalk` tag: 0.80/n4; without one: 0.70/n3.
-- `tertiary`: 0.70/n3.
-- `service`: 0.40/n2.
-- anything else (`unclassified`, unknown class): 0.40/n2.
+`inferLighting` returns `{pLit, n, source}`. Inputs beyond tags and area stats are two optional flags from the caller: `nearRoad` (a trunk..service road within 25 m of the segment midpoint, from `scoring/roadProximity.js`; omitted when unknown) and `litNeighbour` (a `lit=yes` way vertex within 30 m). Explicit tags win: `lit=yes` and `24/7` 0.95/n20, `lit=no` 0.05/n20, `limited` and `automatic` 0.5/n10. Otherwise evidence is applied in this order:
+- Lamps within `LAMP_RADIUS_M` (30 m, counted by the caller; lamps only): one lamp gives at least 0.85, three or more at least 0.92, n rises by 6 (`source: lamp`).
+- A neighbouring `lit=yes` vertex is a mapper's tag, not a lamp, so it is weaker evidence and never counted as one: pLit at least 0.85, n rises by 3 (`source: neighbour-lit`). A real lamp takes precedence.
+- Otherwise the tag prior (config `LIGHTING.PRIOR`), checked in this order:
+  - `path`, `track`, `bridleway`: 0.12/n3.
+  - `footway`, `cycleway`, `steps`, `pedestrian` (checked before speed): road within 25 m (sidewalk-like) 0.72/n3; no road within 25 m (isolated) 0.33/n3; geometry unknown 0.5/n2.
+  - `trunk`, `primary`, `secondary`: 0.90/n4. Urban speed (`maxspeed` at most 50 km/h after mph conversion, or `gb:urban`): 0.90/n4. `residential`/`living_street` with a `sidewalk` tag 0.90/n4, without 0.88/n3. `tertiary` 0.90/n3. `service` 0.62/n3. `unclassified` and unknown 0.72/n3.
+- Absence: only for isolated paths (path classes, and footway-like ways with no road within 25 m), only where lamp density in the area exceeds 2 per km with at least 0.3 km of mapped road: `pLit` times 0.6, n + 3 (`source: absence`). It never applies to road classes: lamps are sparsely mapped and a road with no mapped lamp within 30 m is still about 82% lit in the Plymouth data.
 
-Data context: maxspeed=30 mph is 94.7% lit=yes among tagged ways and residential 96%. Tagged ways are a biased sample, so these priors are shrunk with modest n rather than taken at the data rate.
-Mapping completeness: when the surrounding area has lamp density above 2 per km and at least 0.3 km of mapped road, "no lamp nearby" lowers `pLit` to 0.6 of the prior and n rises by 3 (`source: absence`). Where lamps are sparsely mapped, the prior alone applies.
-`effectiveLit = (pLit*n + 0.5*n0)/(n + n0)`, `n0 = 4` (config `EVIDENCE_PSEUDO_COUNT`). **Property (replaces the old one):** known-dark <= unknown <= known-lit, always. Lighting certainty = `n/(n+n0)`, shared with edge risk through `evidence.js`; uncertainty is `1 - n/(n+n0)`.
+Data context (Plymouth, 15,478 `lit=yes/no` ways): residential .97, primary/secondary/tertiary .98, trunk .89, unclassified .77, service .68, pedestrian .97, cycleway .81, footway .54, steps .55, path .19, track .02. Near a road footway .65, steps .61, cycleway .87; with no road within 25 m footway .36, steps .43, cycleway .64. Tagged ways are a biased sample (42% of walkable ways, 80% lit), so road priors are the observed rates shrunk towards 0.5 (about observed*0.9+0.05) with n of 3 or 4; sidewalk-like (0.72) is held below the pooled .68-.87 near-road rates only slightly, and isolated (0.33) below the pooled .41 because untagged park paths are likely darker.
+`effectiveLit = (pLit*n + 0.5*c)/(n + c)` with `c = 1` (config `LIGHTING.SHRINK_PSEUDO_COUNT`). The priors are already shrunk, so the older shrink by `n0 = 4` double-counted the caution (backtest Brier .139 against .121 for the road-class rate); certainty keeps `n/(n+n0)` with `n0 = 4` (`EVIDENCE_PSEUDO_COUNT`), shared with edge risk through `evidence.js`; uncertainty is `1 - n/(n+n0)`. **Property:** known-dark <= any inferred <= known-lit, and more lamps never lower the estimate.
+Isolation (graph level, `safetyGraph.js`): a footway-like way within 25 m of a road is a sidewalk and takes no unlit-path penalty; dead-end penalty 0.5 and unlit isolated path penalty 0.95.
 Phase 2 (optional, only if backtest shows value): per-way pre-aggregated `buildingCount40m`, landuse class (~60 B/way, ~0.5 GB, second osmium pass; ~400-600 LOC plus re-ingest). Not required for v1.
 
 ### 11.4 Crime
@@ -195,8 +194,9 @@ The score is contiguity-blind by design. It depends only on the length-weighted 
 
 ### 11.6 Constants and acceptance
 All tunables live in one `scoring/config.js` with the rationale; a test asserts weights sum to 1 after renormalisation. **Acceptance criteria (measurable):**
-- Lighting leave-out (1 km spatial blocks): beats global-rate and road-class baselines on Brier and ECE.
-- Lamp thinning (remove 50% of lamps on lit streets): route score never rises.
+- Lighting leave-out (1 km spatial blocks): beats global-rate and road-class baselines on Brier and AUC with lamps visible. Measured after LI (Plymouth, 5 folds): Brier .119 against .121 for the road-class rate, AUC .847 against .820; lamps hidden Brier .128 (worse than .121), AUC .840. ECE .076 against .012 does not beat the class rate (known gap: road priors are deliberately shrunk below the observed .97).
+- Lamp thinning (remove 50% of lamps on lit streets): route score never rises. Roads never rise; the only rises are isolated paths whose absence penalty switches off when area density falls below 2 per km (0.2% of ways with the tag hidden).
+- Calibration archetypes (`tests/unit/safety/scoring/calibration.test.js`, 23:00): A 68-85, B 75-92, C 55-72, D 55-75, E (isolated unlit park path) 12-35, F 22-42, G 38-58, H1 (dead-end service lane, lighting unknown) 38-58, H2 (same lane, `lit=no`) 15-35, K 65-85; an all-E route reads Use Caution. Base weights after joint tuning: lighting .28, crime .25, road .15, activity .20, isolation .12.
 - Property tests: more crime never raises score; known-dark <= unknown <= known-lit; score invariant to segment splitting; `eps` bounded risk.
 - Crime temporal backtest: top-decile segments show lift over uniform and raw-count baselines (tool in `backend/scripts/eval`, runs when data is available; not a CI gate).
 - Placebo: shuffled lamps give baseline skill.
@@ -205,7 +205,7 @@ All tunables live in one `scoring/config.js` with the rationale; a test asserts 
 ### 11.7 Module interfaces (pure functions, CommonJS, `backend/src/safety/scoring/`)
 - `darkness.js`: `sunElevationDeg({lat,lng,date})`; `darknessFactor({lat,lng,date})` smoothstep from 0 at elevation +6 deg to 1 at -6 deg; `darknessForHour({lat,lng,hour,now})`.
 - `config.js`: constants. `weights.js`: `getWeights({darkness, safetyLevel})` renormalised. `evidence.js`: `evidenceStrength(n)` = `n/(n+EVIDENCE_PSEUDO_COUNT)`, shared by `lightingInference` and `edgeRisk`.
-- `lightingInference.js`: `inferLighting({tags,lampCount30m,areaLampDensityPerKm,areaWayKm})` -> `{pLit,n,source}`; `effectiveLit({pLit,n})`; `lightingCertainty`.
+- `lightingInference.js`: `inferLighting({tags,lampCount30m,areaLampDensityPerKm,areaWayKm,nearRoad?,litNeighbour?})` -> `{pLit,n,source}`; `roadProximity.js`: `buildRoadProximityIndex(segments)`, `isNearRoad(index,lat,lng)`; `effectiveLit({pLit,n})`; `lightingCertainty`.
 - `crimeRisk.js`: `crimeRisk({weightedCount,exposureKm,priorRate,priorStrength,status})` -> `{risk,lambda,n,status}`.
 - `edgeRisk.js`: `edgeRisk({factors,weights,eps})` -> `{risk,certainty,dominantCause}`.
 - `routeAggregate.js`: `aggregateRoute(edges,{g})` -> `{routeRisk,mean,m3,score,certainty,worstStretch}`; `exposure`; `rankRoutes(routes)`; `buildReason(best,all)`.

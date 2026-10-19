@@ -10,14 +10,18 @@ const MIN_FACTOR_SAFETY = 0.05;
 
 // Base weights per factor, before the darkness gate and level renormalisation. Sum to 1.
 const BASE_WEIGHTS = Object.freeze({
-  // Darkness is the main night-time hazard; scaled by darkness so daylight routes ignore it.
-  lighting: 0.3,
+  // Darkness is the main night-time hazard; scaled by darkness so daylight routes ignore it. Was 0.30: with the
+  // lighting estimate no longer shrunk by 4 (LIGHTING.SHRINK_PSEUDO_COUNT) it spans a wider range, so the weight
+  // can fall a little and the calibration archetypes still land in range (scripts/eval/calibration-table.js).
+  lighting: 0.28,
   // Recent crime is the other direct harm signal, but cells are coarse (500 m, 12 months), so it sits just below lighting.
   crime: 0.25,
   // Road class only; dead-end and footpath effects moved to isolation, so this drops from the old 0.22-0.25.
   road: 0.15,
   // Open places, CCTV and transit merged; matches the old CCTV+openPlaces weight (0.15-0.19) with transit folded in.
-  activity: 0.18,
+  // Was 0.18: raised to 0.20 so a quiet street (nothing open nearby at night) sits clearly below a busy one, which
+  // keeps unmapped residential (C) and the crime hotspot (G) under their calibration ceilings.
+  activity: 0.2,
   // New factor (dead ends, footpath through nothing); weakest evidence, so the smallest weight.
   isolation: 0.12,
 });
@@ -57,8 +61,9 @@ const CRIME = Object.freeze({
   HALF_LIFE_MONTHS: 4,
   // Prior weight k in km-equivalents: 2 km of local exposure carries as much weight as the area prior.
   PRIOR_STRENGTH: 2,
-  // Weighted crimes per km that map to a risk of 1 - e^-1 (~0.63).
-  RATE_SCALE: 6,
+  // Weighted crimes per km that map to a risk of 1 - e^-1 (~0.63). Was 6: 20 violent crimes in a 500 m cell with
+  // about 2.5 km of mapped road is 4.4 per km, which reads 53% risk at 6 and 67% at 4 (hotspot target). Confirm on real data via the eval backtest.
+  RATE_SCALE: 4,
   // Severity for a category missing from the table. Middling, so unrecognised data is neither ignored nor alarming.
   SEVERITY_FALLBACK: 0.4,
 });
@@ -75,6 +80,13 @@ const DARKNESS = Object.freeze({
 const LIGHTING = Object.freeze({
   // Neutral P(lit) that effectiveLit shrinks towards: 0.5 is "no idea".
   NEUTRAL_LIT: 0.5,
+
+  // Pseudo-count of neutral evidence in effectiveLit: (pLit*n + 0.5*c) / (n + c). Lighting only; the
+  // certainty weight (EVIDENCE_PSEUDO_COUNT, 4) is separate. The priors below are already shrunk towards 0.5
+  // and use a small n, so shrinking again by 4 double-counts the caution: in the Plymouth backtest it made
+  // the estimate worse than the road-class rate (Brier .139 vs .121, AUC .79 vs .82) while the raw pLit was on
+  // par. At 1 the estimate beats it (see scripts/eval/README.md). Explicit tags still dominate (n = 20).
+  SHRINK_PSEUDO_COUNT: 1,
 
   // Explicit OSM lit tags are surveyed, so they carry strong evidence (n = 20).
   // 'limited' and 'automatic' are conditional, so they stay at 0.5 with less weight (n = 10).
@@ -97,36 +109,63 @@ const LIGHTING = Object.freeze({
     EVIDENCE_N: 6,
   }),
 
-  // Absence of lamps is informative only where lamps are mapped nearby (mapping completeness).
+  // A lit=yes way vertex within LAMP_RADIUS_M of the segment (a neighbouring way is tagged lit). This is
+  // evidence from a mapper's tag, not a lamp: it says the street next door is lit, so it is weaker than a lamp.
+  NEIGHBOUR_LIT: Object.freeze({
+    // Same floor as one lamp: a tagged-lit neighbour makes lit likely, but it never reaches the many-lamp level.
+    PLIT: 0.85,
+    // Half the lamp evidence (LAMP.EVIDENCE_N = 6): the tag may describe the neighbour, not this segment.
+    EVIDENCE_N: 3,
+  }),
+
+  // Absence of lamps is informative only for isolated paths (not roads), and only where lamps are mapped nearby.
+  // On roads it points the wrong way: Plymouth backtest, ways with no mapped lamp within 30 m are still ~82% lit,
+  // because lamps are sparsely mapped. On a path with no road beside it, a lamp-free surrounding is real information.
   ABSENCE: Object.freeze({
     // Below this density the area's lamp mapping is too sparse for a missing lamp to mean anything.
     MIN_LAMP_DENSITY_PER_KM: 2,
     // Need enough mapped road in the area to judge.
     MIN_AREA_WAY_KM: 0.3,
-    // A densely lamped area with no lamp here lowers P(lit) to 60% of its prior.
+    // A densely lamped area with no lamp here lowers an isolated path's P(lit) to 60% of its prior.
     PLIT_FACTOR: 0.6,
     // Evidence added to n for an informative absence.
     EVIDENCE_N: 3,
   }),
 
-  // Tag-based priors by road class and speed, used when there is no explicit lit tag.
+  // A footway, cycleway, steps or pedestrian way within SIDEWALK_RADIUS_M of a road is treated as that road's
+  // sidewalk: Plymouth backtest, such ways are mostly lit because the road beside them is. Roads here are
+  // trunk to service; footway-like and path classes never count as the road.
+  SIDEWALK_RADIUS_M: 25,
+
+  // Tag-based priors by road class and speed, used when there is no explicit lit tag. Road-class priors are the
+  // Plymouth backtest lit rates shrunk towards 0.5 (about observed * 0.9 + 0.05) with small n, because the
+  // labelled sample is the 42% of ways a mapper chose to tag and untagged streets are probably less lit.
   PRIOR: Object.freeze({
-    // Footpaths and tracks are usually unlit.
-    PATH: Object.freeze({ pLit: 0.15, n: 3 }),
-    // Trunk, primary and secondary roads are almost always lit in built-up areas.
-    MAJOR: Object.freeze({ pLit: 0.85, n: 4 }),
-    // An urban speed limit (at most URBAN_SPEED_MAX_KMH) implies street lighting.
-    URBAN_SPEED: Object.freeze({ pLit: 0.8, n: 4 }),
-    // Residential roads with a sidewalk are very likely lit.
-    RESIDENTIAL_SIDEWALK: Object.freeze({ pLit: 0.8, n: 4 }),
-    // Residential roads without sidewalk information are likely lit but less certain.
-    RESIDENTIAL: Object.freeze({ pLit: 0.7, n: 3 }),
-    // Tertiary roads are usually through routes in built-up areas, so likely lit.
-    TERTIARY: Object.freeze({ pLit: 0.7, n: 3 }),
-    // Service roads are often private and sometimes unlit.
-    SERVICE: Object.freeze({ pLit: 0.4, n: 2 }),
-    // Unclassified roads and anything else with no class information.
-    UNKNOWN: Object.freeze({ pLit: 0.4, n: 2 }),
+    // path, track and bridleway: mostly unlit (observed path .19, track .02).
+    PATH: Object.freeze({ pLit: 0.12, n: 3 }),
+    // Footway-like way within SIDEWALK_RADIUS_M of a road. Observed lit rate near a road: footway .65, steps .61,
+    // cycleway .87, pedestrian .95 (pooled about .68), well above the same classes far from a road. The pooled
+    // rate is shrunk only slightly: a prior of .88 (the road rate) was too high for footways and steps.
+    SIDEWALK_NEAR_ROAD: Object.freeze({ pLit: 0.72, n: 3 }),
+    // Footway-like way with no road nearby: a park or woodland path. Observed: footway .36, steps .43, cycleway .64
+    // (pooled about .41, tagged ways only). Held below that because untagged park paths are likely darker.
+    SIDEWALK_ISOLATED: Object.freeze({ pLit: 0.33, n: 3 }),
+    // Footway-like way when the caller has no geometry: the observed pooled rate (footway .54, steps .55), weak.
+    SIDEWALK_UNKNOWN: Object.freeze({ pLit: 0.5, n: 2 }),
+    // Trunk, primary and secondary roads (observed .89 to .98); one shared value, so trunk (.89) sets it.
+    MAJOR: Object.freeze({ pLit: 0.9, n: 4 }),
+    // An urban speed limit (at most URBAN_SPEED_MAX_KMH) implies street lighting (30 mph ways are ~95% lit).
+    URBAN_SPEED: Object.freeze({ pLit: 0.9, n: 4 }),
+    // Residential roads with a sidewalk (observed residential .97).
+    RESIDENTIAL_SIDEWALK: Object.freeze({ pLit: 0.9, n: 4 }),
+    // Residential roads without sidewalk information: same class rate, a little less certain.
+    RESIDENTIAL: Object.freeze({ pLit: 0.88, n: 3 }),
+    // Tertiary roads (observed .98).
+    TERTIARY: Object.freeze({ pLit: 0.9, n: 3 }),
+    // Service roads are often private and sometimes unlit (observed .68).
+    SERVICE: Object.freeze({ pLit: 0.62, n: 3 }),
+    // Unclassified roads (observed .77) and anything else with no class information.
+    UNKNOWN: Object.freeze({ pLit: 0.72, n: 3 }),
   }),
 
   // An OSM maxspeed at or under this (km/h) counts as urban, which implies lit streets.

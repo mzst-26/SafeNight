@@ -34,7 +34,10 @@ const { haversine, fastDistance, buildSpatialGrid, findNearby, countNearby } = r
 const { scoreFromCache } = require('./lightsCacheClient');
 const { SAFETY_LEVEL_STANDARD, SAFETY_LEVEL_EXTRA } = require('./safetyLevels');
 const opening_hours_lib = require('opening_hours');
-const { inferLighting, effectiveLit, parseMaxspeedKmh } = require('../scoring/lightingInference');
+const {
+  inferLighting, effectiveLit, parseMaxspeedKmh, SIDEWALK_LIKE_HIGHWAYS,
+} = require('../scoring/lightingInference');
+const { buildRoadProximityIndex, isNearRoad, ROAD_HIGHWAYS } = require('../scoring/roadProximity');
 const { darknessForHour } = require('../scoring/darkness');
 const { getWeights: getFactorWeights } = require('../scoring/weights');
 const { edgeRisk } = require('../scoring/edgeRisk');
@@ -110,9 +113,12 @@ const V2 = Object.freeze({
   ACTIVITY_N: 8,     // counts of places, CCTV and transit within fixed radii
   ISOLATION_N: 6,    // dead ends come from topology; footpath lamp checks are local
   CACHE_LIGHT_N: 6,  // a non-verified lights-cache record (status lit, limited or unlit)
-  // Isolation penalties (safety units).
-  DEAD_END_PENALTY: 0.3,
-  UNLIT_PATH_PENALTY: 0.25,
+  // Isolation penalties (safety units). A dead end halves safety (was 0.3) and an isolated path with no mapped
+  // lamp within LAMP_NEAR_PATH_M leaves almost none (was 0.25): nobody passes by and nothing is lit. Sidewalks
+  // (footway-like ways within reach of a road) never take the path penalty. Tuned jointly with BASE_WEIGHTS
+  // against the calibration archetypes: a pedestrian alone on a dark path at 23:00 must read Use Caution.
+  DEAD_END_PENALTY: 0.5,
+  UNLIT_PATH_PENALTY: 0.95,
   // Cells for area stats and crime aggregation.
   AREA_CELL_DEG: 0.003,   // ~300 m, the area in which lamp density is judged
   CRIME_CELL_M: 500,      // crime aggregation cell
@@ -893,6 +899,19 @@ async function buildGraphV2(roadData, lightData, cctvData, placeData, transitDat
     totalWayKm > 0 ? totalWeighted / totalWayKm : 0,
   );
 
+  // Road proximity for footway-like ways, built on first use: segments of trunk..service roads,
+  // sampled into a grid, so each lookup is a few cells (no scan of every road per footway).
+  let roadProximity = null;
+  const roadIndex = () => {
+    if (!roadProximity) {
+      roadProximity = buildRoadProximityIndex(
+        pending.filter((p) => ROAD_HIGHWAYS.has(p.highway))
+          .map((p) => ({ aLat: p.nA.lat, aLng: p.nA.lng, bLat: p.nB.lat, bLng: p.nB.lng })),
+      );
+    }
+    return roadProximity;
+  };
+
   // 5. Phase 2: score every edge from the five factors.
   const edges = [];
   const adjacency = new Map();
@@ -900,9 +919,12 @@ async function buildGraphV2(roadData, lightData, cctvData, placeData, transitDat
     tick();
     const { idx: edgeIdx, from, to, nA, nB, dist, highway, tags, midLat, midLng } = p;
 
-    // Lighting: lamps within 30 m (a lit-way node nearby counts as one lamp), then the estimate.
-    const litNearby = countNearby(litGrid, midLat, midLng, LAMP_RADIUS_M) > 0 ? 1 : 0;
-    const lampCount30m = countNearby(lampGrid, midLat, midLng, LAMP_RADIUS_M) + litNearby;
+    // Lighting: lamps within 30 m, a lit=yes way vertex within 30 m (a tag, not a lamp: weaker evidence),
+    // and for footway-like ways whether a road is within reach (sidewalk or isolated), then the estimate.
+    const litNeighbour = countNearby(litGrid, midLat, midLng, LAMP_RADIUS_M) > 0;
+    const lampCount30m = countNearby(lampGrid, midLat, midLng, LAMP_RADIUS_M);
+    const sidewalkLike = SIDEWALK_LIKE_HIGHWAYS.has(highway);
+    const nearRoad = sidewalkLike ? isNearRoad(roadIndex(), midLat, midLng) : undefined;
     const lampCount60m = countNearby(lampGrid, midLat, midLng, V2.LAMP_NEAR_PATH_M);
     const area = areaStats.get(areaCellKey(midLat, midLng));
     const areaWayKm = area.wayKm;
@@ -911,7 +933,9 @@ async function buildGraphV2(roadData, lightData, cctvData, placeData, transitDat
     const cache = options.lightsCacheByEdgeIdx?.get(edgeIdx) || null;
     const cacheConfidence = cache?.confidence || 0;
     const cacheVerified = (status) => cache?.lit_status === status && cacheConfidence >= 0.8;
-    const inferred = inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm });
+    const inferred = inferLighting({
+      tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour,
+    });
     let lighting;
     if (cacheVerified('unlit')) {
       lighting = { pLit: 0.05, n: 20, source: 'cache' };
@@ -947,9 +971,11 @@ async function buildGraphV2(roadData, lightData, cctvData, placeData, transitDat
       activity = { safety: activitySafety, n: V2.ACTIVITY_N };
     }
 
-    // Isolation: dead end at true degree, or a footpath with no lamp within 60 m.
+    // Isolation: dead end at true degree, or a footpath with no lamp within 60 m. A sidewalk (footway-like
+    // way beside a road) is not isolated: it is lit with, and walked beside, the road.
     const deadEnd = (nodeDegree.get(from) || 0) <= 1 || (nodeDegree.get(to) || 0) <= 1;
-    const unlitPath = PATH_CLASS_HIGHWAYS.has(highway) && lampCount60m === 0 && tags.lit !== 'yes';
+    const unlitPath = PATH_CLASS_HIGHWAYS.has(highway) && lampCount60m === 0 && tags.lit !== 'yes'
+      && nearRoad !== true;
     const isolationSafety = clamp01(
       1 - (deadEnd ? V2.DEAD_END_PENALTY : 0) - (unlitPath ? V2.UNLIT_PATH_PENALTY : 0),
     );
