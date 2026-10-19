@@ -67,24 +67,7 @@ export function PolicyFooter() {
   return (
     <View style={styles.footer}>
       <Text style={styles.footerText}>© {new Date().getFullYear()} SafeNight. All rights reserved.</Text>
-      <View style={styles.footerLinks}>
-        <Link href="/privacy" style={styles.footerLink}>
-          Privacy
-        </Link>
-        <Text style={styles.footerSep}>·</Text>
-        <Link href="/refund" style={styles.footerLink}>
-          Refund & Payment
-        </Link>
-        <Text style={styles.footerSep}>·</Text>
-        <Link href="/terms" style={styles.footerLink}>
-          Terms & Conditions
-        </Link>
-        <Text style={styles.footerSep}>·</Text>
-        <Link href="/delete-account" style={[styles.footerLink, { color: '#B42318' }]}>
-          Delete My Account
-        </Link>
-      </View>
-      <SiteFooterLinks />
+      <SiteFooterLinks extraLinks={[{ label: 'Delete My Account', href: '/delete-account', tone: 'danger' }]} />
     </View>
   );
 }
@@ -199,19 +182,5 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 13,
     color: '#94A3B8',
-  },
-  footerLinks: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  footerLink: {
-    fontSize: 13,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-  footerSep: {
-    fontSize: 13,
-    color: '#CBD5E1',
   },
 });
