@@ -11,9 +11,10 @@ Spec: `specs/2026-10-19-safety-scoring-v2-design.md`. Branch: `feat/safety-scori
 | P0.1 | Audit backend scoring | explorer a0be… | H | done | 11 weaknesses W1-W11 in spec |
 | P0.2 | Audit frontend map rendering | explorer a0a0… | H | done | M1-M2 in spec |
 | P0.3 | Write spec + tracker | brain | n/a | done | awaiting owner approval |
-| P0.4 | Owner approves spec | owner | n/a | todo | **gate** |
-| P0.5 | Baseline: golden fixtures + current scores recorded | TBD | H | todo | before any change |
-| P0.6 | Live-app baseline on localhost:8084 (3 routes, screenshots) | TBD | H | todo | browser, read-only |
+| P0.4 | Owner approval | owner | n/a | done | owner delegated full autonomy |
+| P0.7 | Review round 1 (R1 a3932, R2/3/6 a5e21) folded into spec v0.3 | brain | n/a | done | |
+| P0.5 | Baseline fixture captured (scratchpad baseline_frogmore.json: 67/60/58, 4.4km vs 3.4km) | brain | n/a | done | copy into tests/fixtures in S10 |
+| P0.6 | Live-app baseline on :8084 | brain | n/a | done | works, slow; recheck repeatedly |
 
 ## Phase 1: Scoring engine (backend/src/safety)
 

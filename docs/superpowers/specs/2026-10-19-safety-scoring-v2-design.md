@@ -1,7 +1,7 @@
 # Safety Scoring v2 and Route Map Redesign: Design Spec
 
 Branch: `feat/safety-scoring-v2` (worktree `SafeNight-worktrees/safety-v2`). Nothing merges to `main` until every gate in the Tracker is green.
-Status: **DRAFT, awaiting owner approval.** Living document; revisions are logged at the bottom.
+Status: **v0.2, owner has delegated full autonomy; approval gate waived by the owner.** Living document; revisions are logged at the bottom.
 
 ## 1. Goals
 
@@ -135,6 +135,71 @@ Rules: a change passes only with **multiple approvals** from the relevant review
 
 Non-route UI, auth, billing, SEO, deploy. No push to `main` until the Tracker shows all gates green and the owner has seen the result.
 
+
+## 10. Revisions from review round 1 (R2 perf, R3 security, R6 UX)
+
+**Crime data pipeline (replaces request-time fan-out).** The Police API takes one month per call (`date=YYYY-MM`), so 12 months per request would be 12 upstream calls with 20 s timeouts, against ~15 req/s. Instead:
+- `osm-ingestion` gets a scheduled **crime aggregation job**: ~500 m grid cells over served areas, 12 months fetched at ≤5 req/s, stored as `(cell, month, category, count)` plus `asOfMonth`; poll `crimes-street-dates` daily.
+- Route requests read aggregates only: zero Police calls on the hot path. Dev fallback: the existing live client for a single month, behind a flag.
+- **Outage contract:** the crime source returns `status: "unavailable"`, never `[]`. Unavailable ⇒ crime factor is unknown (prior mean, low evidence), the route gets a `dataQuality.crime = "unavailable"` flag, and the UI shows a data-confidence chip. Empty 200 or missing month is never cached as zero.
+- Police street data has month only, no hour: **no night multiplier**; category weighting only.
+- Crime count in the UI comes from the aggregate, not the capped POI array.
+
+**Security acceptance criteria (R3).** Validate `max_distance` and `poi_cap` (NaN and Infinity clamped; `origin_lat=` empty rejected); `isFinite` range checks on parsed Police coordinates; per-user compute rate limit; pin MapLibre to an exact version with SRI or bundle it; explicit postMessage target origin (not `'*'`); no network in tests (golden fixtures from recorded responses).
+
+**Map UX changes (R6).**
+- Show all routes' scores in a **comparison strip** under the map: score, time, delta vs fastest, reason, worst stretch. Optionally per-route **risk strips** (distance-axis) for side-by-side comparison.
+- Colour only the selected route; others stay thin grey with a wide invisible hit line (≥44 pt).
+- Palette: single-hue/luminance-stepped, colour-blind-simulated check; dashed vs solid as a second channel; theme-aware casing for light/dark. Drop the separate lit/unlit band (redundant encoding); keep one encoding per property.
+- Callouts ≥13 px.
+- Shared builder emits a **JSON layer spec** (data, not code) consumed by both renderers; zoom/pixel concerns (dash scaling, radius by zoom) stay in each renderer.
+
+**Rollout.** Baseline cold and warm p95 separately; crime v2 behind a flag; golden tests on recorded responses. Baseline route fixture captured from the local backend (Frogmore Ave to Thurlestone Walk, 22:00): routes score 67/60/58, safest is 4.4 km vs 3.4 km alternatives, so the length issue (W3) reproduces.
+
+
+## 11. Model decisions v0.3 (R1 correctness review; supersedes conflicting text in section 4)
+
+Corrections to the audit: W6 is wrong as stated; `riskVector` exists but is built from `safetyScore`, so `max` is the best edge and `p95` a safety percentile (names inverted, caution flag reads them inverted). Extra defects to fix: `maxspeed` parsed with `parseInt` ignoring units ("40 mph" compared to a km/h threshold); sidewalk absent (95% of ways) is treated as "no sidewalk" (unknown-as-bad); dead-end penalty scales with lighting (double count); the local dataset strips `tunnel`, so local and Overpass paths score differently; `[]` on 503 reads as safe.
+
+### 11.1 Units
+Extensive quantity: expected exposure `H = L_km * routeRisk` ("harm per walk"). Displayed score is the intensive street-quality `100*(1-routeRisk)`. **Ranking uses `H`** among candidates with `L <= 1.5 * L_shortest`. No lambda, no detour threshold. The reason string always explains the trade ("Route 2 scores 5 higher but is 0.9 mi longer").
+
+### 11.2 Edge combination
+Factors (5, no double counting): `lighting`, `crime`, `road` (class only), `activity` (open places + CCTV + transit, merged), `isolation` (dead ends at true degree, footpath through nothing). Each factor is `{safety in [0,1] | null, n}`; null = unavailable.
+`risk = 1 - prod_i( max(eps, s_i) ^ w~_i )`, `eps = 0.05`, `w~` = weights over available factors, renormalised to sum 1. Lighting weight is multiplied by darkness `d(t)` before renormalising (so sums stay 1). No separate veto in v1; revisit if backtest demands.
+
+### 11.3 Lighting
+`inferLighting` returns `{pLit, n}`. Explicit `lit=yes` 0.95/n20, `lit=no` 0.05/n20, `limited` 0.5/n10. Else lamps within 30 m raise it; else prior from tags: `maxspeed` 30 mph or `living_street`/residential with `sidewalk` ≈ 0.80 (data: maxspeed=30 mph is 94.7% lit=yes among tagged ways, residential 96%; tagged ways are a biased sample, so shrink), `path/track/bridleway/footway` far from lamps ≈ 0.15, trunk/primary ≈ 0.9, otherwise 0.4. Mapping-completeness: if the area (~300 m) has lamp density above a floor, "no lamp nearby" lowers `pLit`; if none are mapped, prior only.
+`effectiveLit = (pLit*n + 0.5*n0)/(n + n0)`, `n0 = 4`. **Property (replaces the old one):** known-dark <= unknown <= known-lit, always. Lighting uncertainty = `1 - n/(n+n0)`.
+Phase 2 (optional, only if backtest shows value): per-way pre-aggregated `buildingCount40m`, landuse class (~60 B/way, ~0.5 GB, second osmium pass; ~400-600 LOC plus re-ingest). Not required for v1.
+
+### 11.4 Crime
+Aggregate cell (500 m) severity-weighted counts over 12 months, recency half-life chosen by held-out Poisson deviance from {1,2,4,8,inf} (default 4). `lambda = (count + k*mu) / (exposureKm + k)` empirical-Bayes toward area mean `mu`; `risk = 1 - exp(-lambda_scaled)`. Locations are anonymised, so no sub-cell kernels. `status: unavailable` returns the area prior with `n = 0` and flags dataQuality.
+
+### 11.5 Aggregation
+`routeRisk = (1-g)*mean + g*M3`, `M3 = (sum(L_i r_i^3)/sum(L_i))^(1/3)`, `g = 0.4`, length-weighted; invariant to splitting a segment. `worstStretch` = longest merged run of edges with `r >= 0.6` (report only, not in the score). `certainty` = length-weighted mean of per-edge evidence strength.
+
+### 11.6 Constants and acceptance
+All tunables live in one `scoring/config.js` with the rationale; a test asserts weights sum to 1 after renormalisation. **Acceptance criteria (measurable):**
+- Lighting leave-out (1 km spatial blocks): beats global-rate and road-class baselines on Brier and ECE.
+- Lamp thinning (remove 50% of lamps on lit streets): route score never rises.
+- Property tests: more crime never raises score; known-dark <= unknown <= known-lit; score invariant to segment splitting; `eps` bounded risk.
+- Crime temporal backtest: top-decile segments show lift over uniform and raw-count baselines (tool in `backend/scripts/eval`, runs when data is available; not a CI gate).
+- Placebo: shuffled lamps give baseline skill.
+- Frogmore to Thurlestone fixture: scores and ordering recorded before and after, differences explained in the PR.
+
+### 11.7 Module interfaces (pure functions, CommonJS, `backend/src/safety/scoring/`)
+- `darkness.js`: `sunElevationDeg({lat,lng,date})`; `darknessFactor({lat,lng,date})` smoothstep from 0 at elevation +6 deg to 1 at -6 deg; `darknessForHour({lat,lng,hour,now})`.
+- `config.js`: constants. `weights.js`: `getWeights({darkness, safetyLevel})` renormalised.
+- `lightingInference.js`: `inferLighting({tags,lampCount30m,areaLampDensityPerKm,areaWayKm})` -> `{pLit,n,source}`; `effectiveLit({pLit,n})`; `lightingCertainty`.
+- `crimeRisk.js`: `crimeRisk({weightedCount,exposureKm,priorRate,priorStrength,status})` -> `{risk,lambda,n,status}`.
+- `edgeRisk.js`: `edgeRisk({factors,weights,eps})` -> `{risk,certainty,dominantCause}`.
+- `routeAggregate.js`: `aggregateRoute(edges,{g})` -> `{routeRisk,mean,m3,score,certainty,worstStretch}`; `exposure`; `rankRoutes(routes)`; `buildReason(best,all)`.
+- API (additive): `safety.certainty`, `safety.reason`, `safety.worstStretch {start,end,lengthM,cause}`, `safety.dataQuality {crime,lighting}`, segment `risk`, `litEstimate`, `certainty`.
+- Frontend `routeLayers(route, opts)` -> `{lines:[{coords,risk,dashed}],callouts:[{lat,lng,text}],crimeClusters:[{lat,lng,count}],lights:[...on demand]}`.
+
 ## Revision log
 
 - 2026-10-19 v0.1 initial draft.
+- 2026-10-19 v0.2 folded in R2/R3/R6 review (crime precompute, outage contract, security criteria, map comparison strip).
+- 2026-10-19 v0.3 R1 review: units fixed (H ranking), blend eps, unknown ordering, crime EB, acceptance criteria, module interfaces.
