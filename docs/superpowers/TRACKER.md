@@ -92,7 +92,7 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 ## Gate status (full branch)
 
 - R2 performance: PASS (cold 4.7s v2 vs 8.9s v1 on a fresh route; warm ~2ms both; RSS 290 vs 307 MB).
-- R3 security (a5d96), R6/R7 UX+parity (aeb99): running.
+- R3 security: CHANGES (waypoint bbox DoS HIGH; A* no cancel; poi cap; crime key; innerHTML escapes; Leaflet SRI). R6/R7: CHANGES (ramp contrast <3:1 steps 0-2, native attribution missing, dash patterns, hit 22px, crime filter bug, per-kind caps, route score pills). Fix round 3 running: FX-B a4934 (backend), FX-L a793c (builder/hook/cards), FX-W a73a4 (web), FX-N abace (native). Deferred/out of scope (pre-existing): server-side tier enforcement (service unauthenticated), unverified JWT sub for search-cancel keying, iframe sandbox. Report to owner.
 - Real-route check after LI (service :3012): 66/62/58 all 'Safe'; recommended route has the smallest weak stretch (137 m vs 564/733 m).
 - Tests: backend 1009 (89 suites) x3 green; frontend 316 green; tsc clean.
 
