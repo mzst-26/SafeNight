@@ -5,12 +5,14 @@
  * 1 at -6 deg (dark), smooth in between. Hours are local Europe/London time.
  */
 
+const { DARKNESS } = require('./config');
+const { assertInRange } = require('./validation');
+
+// Local on purpose: geo.js does not export its copy, and this is a unit conversion, not a tunable.
 const DEG_TO_RAD = Math.PI / 180;
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
 const UNIX_EPOCH_MINUS_J2000_DAYS = 10957.5;
-const DARKNESS_START_DEG = 6;
-const DARKNESS_FULL_DEG = -6;
 const LONDON_TZ = 'Europe/London';
 
 const londonFormat = new Intl.DateTimeFormat('en-GB', {
@@ -28,10 +30,12 @@ function norm360(deg) {
   return ((deg % 360) + 360) % 360;
 }
 
+/**
+ * @throws {TypeError} unless lat is in [-90, 90] and lng is in [-180, 180].
+ */
 function assertLatLng(lat, lng) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    throw new TypeError('lat and lng must be finite numbers');
-  }
+  assertInRange('lat', lat, -90, 90);
+  assertInRange('lng', lng, -180, 180);
 }
 
 function assertDate(date) {
@@ -102,8 +106,8 @@ function sunElevationDeg({ lat, lng, date }) {
  */
 function darknessFactor({ lat, lng, date }) {
   const elevation = sunElevationDeg({ lat, lng, date });
-  const span = DARKNESS_START_DEG - DARKNESS_FULL_DEG;
-  const x = Math.max(0, Math.min(1, (DARKNESS_START_DEG - elevation) / span));
+  const span = DARKNESS.START_DEG - DARKNESS.FULL_DEG;
+  const x = Math.max(0, Math.min(1, (DARKNESS.START_DEG - elevation) / span));
   return x * x * (3 - 2 * x);
 }
 
@@ -113,9 +117,7 @@ function darknessFactor({ lat, lng, date }) {
  */
 function darknessForHour({ lat, lng, hour, now }) {
   assertLatLng(lat, lng);
-  if (!Number.isFinite(hour) || hour < 0 || hour > 24) {
-    throw new TypeError('hour must be a number between 0 and 24');
-  }
+  assertInRange('hour', hour, 0, 24);
   assertDate(now);
 
   const today = londonWallMs(now.getTime());

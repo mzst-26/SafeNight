@@ -7,24 +7,25 @@ const {
 const PLYMOUTH = { lat: 50.37, lng: -4.14 };
 
 describe('sunElevationDeg', () => {
-  test('is about 66.5 deg at solar noon on the June solstice at the equator', () => {
+  test('is 66.56 deg at solar noon on the June solstice at the equator (90 - 23.44 declination)', () => {
     const elevation = sunElevationDeg({
       lat: 0,
       lng: 0,
       date: new Date('2026-06-21T12:02:00Z'),
     });
 
-    expect(elevation).toBeCloseTo(66.5, 0);
+    expect(elevation).toBeCloseTo(66.56, 1);
   });
 
-  test('is about 90 deg at solar noon at the equator on the March equinox', () => {
+  test('is 89.88 deg at solar noon at the equator on the March equinox (0.12 deg declination)', () => {
+    // 12:07Z is the daily maximum of elevation at lng 0 on 20 March 2026.
     const elevation = sunElevationDeg({
       lat: 0,
       lng: 0,
-      date: new Date('2026-03-20T12:08:00Z'),
+      date: new Date('2026-03-20T12:07:00Z'),
     });
 
-    expect(elevation).toBeCloseTo(90, 0);
+    expect(elevation).toBeCloseTo(89.88, 1);
   });
 
   test.each([
@@ -34,6 +35,24 @@ describe('sunElevationDeg', () => {
     expect(() =>
       sunElevationDeg({ ...point, date: new Date('2026-06-21T12:00:00Z') }),
     ).toThrow(TypeError);
+  });
+
+  test.each([
+    ['latitude above 90', { lat: 90.5, lng: 0 }],
+    ['latitude below -90', { lat: -91, lng: 0 }],
+    ['longitude above 180', { lat: 0, lng: 180.5 }],
+    ['longitude below -180', { lat: 0, lng: -181 }],
+  ])('throws TypeError for %s', (_name, point) => {
+    expect(() =>
+      sunElevationDeg({ ...point, date: new Date('2026-06-21T12:00:00Z') }),
+    ).toThrow(TypeError);
+  });
+
+  test('accepts the poles and the antimeridian on both edges', () => {
+    const date = new Date('2026-06-21T12:00:00Z');
+
+    expect(() => sunElevationDeg({ lat: 90, lng: -180, date })).not.toThrow();
+    expect(() => sunElevationDeg({ lat: -90, lng: 180, date })).not.toThrow();
   });
 
   test('throws TypeError for an invalid date', () => {
@@ -99,6 +118,20 @@ describe('darknessFactor', () => {
     }
     expect(values[0]).toBe(0);
     expect(values[values.length - 1]).toBe(1);
+  });
+
+  test('equals the smoothstep 3x^2 - 2x^3 of the solar elevation, x = (6 - elevation) / 12, at twilight', () => {
+    const samples = ['2026-06-21T20:00:00Z', '2026-06-21T20:30:00Z', '2026-06-21T21:00:00Z'];
+
+    for (const iso of samples) {
+      const date = new Date(iso);
+      const elevation = sunElevationDeg({ ...PLYMOUTH, date });
+      expect(elevation).toBeGreaterThan(-6);
+      expect(elevation).toBeLessThan(6);
+
+      const x = (6 - elevation) / 12;
+      expect(darknessFactor({ ...PLYMOUTH, date })).toBeCloseTo(3 * x * x - 2 * x * x * x, 9);
+    }
   });
 });
 
@@ -188,6 +221,17 @@ describe('darknessForHour', () => {
         hour,
         now: new Date('2026-06-21T10:00:00Z'),
       }),
+    ).toThrow(TypeError);
+  });
+
+  test.each([
+    ['latitude above 90', 90.5, 0],
+    ['latitude below -90', -91, 0],
+    ['longitude above 180', 0, 180.5],
+    ['longitude below -180', 0, -181],
+  ])('throws TypeError for %s', (_name, lat, lng) => {
+    expect(() =>
+      darknessForHour({ lat, lng, hour: 12, now: new Date('2026-06-21T10:00:00Z') }),
     ).toThrow(TypeError);
   });
 

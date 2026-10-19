@@ -6,96 +6,82 @@
  * of the evidence behind it. effectiveLit shrinks that estimate towards 0.5 when
  * the evidence is thin, so a guess never looks as certain as a surveyed tag.
  *
+ * Every numeric tunable lives in config.js (LIGHTING, N0). The sets below are
+ * OSM class taxonomy, not tunables.
+ *
  * All functions are pure and never mutate their inputs.
  */
 
-/** Pseudo-count n0: how much the neutral 0.5 counts against the evidence. */
-const PRIOR_STRENGTH = 4;
-const NEUTRAL_LIT = 0.5;
+const { LIGHTING, N0 } = require('./config');
+const { assertNonNegative, assertInRange } = require('./validation');
 
-/** Explicit lit tag values and their evidence. Anything else falls through. */
-const EXPLICIT_LIT = new Map([
-  ['yes', { pLit: 0.95, n: 20 }],
-  ['24/7', { pLit: 0.95, n: 20 }],
-  ['no', { pLit: 0.05, n: 20 }],
-  ['limited', { pLit: 0.5, n: 10 }],
-  ['automatic', { pLit: 0.5, n: 10 }],
-]);
-
-/** Lamp evidence within 30 m. */
-const LAMP_PLIT_ONE = 0.85;
-const LAMP_PLIT_MANY = 0.92;
-const LAMP_MANY_THRESHOLD = 3;
-const LAMP_EVIDENCE_N = 6;
-
-/** Absence of lamps is informative only where lamps are mapped nearby. */
-const ABSENCE_MIN_LAMP_DENSITY_PER_KM = 2;
-const ABSENCE_MIN_AREA_WAY_KM = 0.3;
-const ABSENCE_PLIT_FACTOR = 0.6;
-const ABSENCE_EVIDENCE_N = 3;
-
-/** Speed limits: OSM bare numbers are km/h; 30 mph is about 48 km/h. */
-const MPH_TO_KMH = 1.609344;
-const URBAN_SPEED_MAX_KMH = 50;
-const MAXSPEED_PATTERN = /^(\d+(?:\.\d+)?)\s*(mph|km\/h|kmh)?$/i;
+const MAXSPEED_PATTERN = /^(\d+(?:\.\d+)?)\s*(mph|km\/h|kmh)?$/;
 
 const SIDEWALK_PRESENT = new Set(['yes', 'both', 'left', 'right', 'separate']);
 const PATH_HIGHWAYS = new Set(['path', 'track', 'bridleway', 'footway', 'cycleway', 'steps']);
 const MAJOR_HIGHWAYS = new Set(['trunk', 'primary', 'secondary']);
 const RESIDENTIAL_HIGHWAYS = new Set(['living_street', 'residential']);
 
-const PRIOR_PATH = Object.freeze({ pLit: 0.15, n: 3 });
-const PRIOR_MAJOR = Object.freeze({ pLit: 0.85, n: 4 });
-const PRIOR_URBAN_SPEED = Object.freeze({ pLit: 0.8, n: 4 });
-const PRIOR_RESIDENTIAL_SIDEWALK = Object.freeze({ pLit: 0.8, n: 4 });
-const PRIOR_RESIDENTIAL = Object.freeze({ pLit: 0.7, n: 3 });
-const PRIOR_TERTIARY = Object.freeze({ pLit: 0.7, n: 3 });
-const PRIOR_SERVICE = Object.freeze({ pLit: 0.4, n: 2 });
-const PRIOR_UNKNOWN = Object.freeze({ pLit: 0.4, n: 2 });
+/** Own-property lookup, so inherited keys such as 'constructor' never match a tag value. */
+function hasOwn(object, key) {
+  return key !== undefined && Object.prototype.hasOwnProperty.call(object, key);
+}
 
 /**
- * Parse an OSM maxspeed value into km/h.
- * @param {string|undefined} value - e.g. '30 mph', '30', '50 km/h'
- * @returns {number|null} speed in km/h, or null when not a plain number
+ * Trim and lower-case the tag values used for inference, so ' Footway ', 'FOOTWAY' and
+ * 'footway' are the same class. Absent tags stay undefined.
+ * @param {Object} tags - validated OSM tags
+ * @returns {{highway: string|undefined, lit: string|undefined, maxspeed: string|undefined, sidewalk: string|undefined}}
+ */
+function normaliseTags(tags) {
+  const norm = (value) => (value === undefined ? undefined : value.trim().toLowerCase());
+  return {
+    highway: norm(tags.highway),
+    lit: norm(tags.lit),
+    maxspeed: norm(tags.maxspeed),
+    sidewalk: norm(tags.sidewalk),
+  };
+}
+
+/**
+ * Parse an OSM maxspeed value into km/h. A list ('30;50') uses its first value.
+ * Zero, negative and non-numeric values give null, so they cannot count as urban.
+ * @param {string|undefined} value - normalised: trimmed and lower-case, e.g. '30 mph', '30', '50 km/h', 'gb:urban'
+ * @returns {number|null} speed in km/h, or null when there is no usable limit
  */
 function parseMaxspeedKmh(value) {
   if (value === undefined) return null;
-  const match = MAXSPEED_PATTERN.exec(value.trim());
+  const first = value.split(';')[0].trim();
+  if (hasOwn(LIGHTING.NAMED_MAXSPEED_KMH, first)) return LIGHTING.NAMED_MAXSPEED_KMH[first];
+
+  const match = MAXSPEED_PATTERN.exec(first);
   if (!match) return null;
   const speed = Number(match[1]);
-  return match[2] && match[2].toLowerCase() === 'mph' ? speed * MPH_TO_KMH : speed;
+  if (speed <= 0) return null;
+  return match[2] === 'mph' ? speed * LIGHTING.MPH_TO_KMH : speed;
 }
 
 /**
  * Prior from road class, speed and sidewalk tags (no lamp evidence).
- * @param {Object} tags - OSM tags
+ * Path classes are checked before speed, so a footway with a speed tag stays a path.
+ * @param {{highway, maxspeed, sidewalk}} tags - normalised tags
  * @returns {{pLit: number, n: number}}
  */
-function tagPrior(tags) {
-  const { highway } = tags;
-  if (PATH_HIGHWAYS.has(highway)) return PRIOR_PATH;
-  if (MAJOR_HIGHWAYS.has(highway)) return PRIOR_MAJOR;
+function tagPrior({ highway, maxspeed, sidewalk }) {
+  if (PATH_HIGHWAYS.has(highway)) return LIGHTING.PRIOR.PATH;
+  if (MAJOR_HIGHWAYS.has(highway)) return LIGHTING.PRIOR.MAJOR;
 
-  const speedKmh = parseMaxspeedKmh(tags.maxspeed);
-  if (speedKmh !== null && speedKmh <= URBAN_SPEED_MAX_KMH) return PRIOR_URBAN_SPEED;
+  const speedKmh = parseMaxspeedKmh(maxspeed);
+  if (speedKmh !== null && speedKmh <= LIGHTING.URBAN_SPEED_MAX_KMH) return LIGHTING.PRIOR.URBAN_SPEED;
 
   if (RESIDENTIAL_HIGHWAYS.has(highway)) {
-    return SIDEWALK_PRESENT.has(tags.sidewalk) ? PRIOR_RESIDENTIAL_SIDEWALK : PRIOR_RESIDENTIAL;
+    return SIDEWALK_PRESENT.has(sidewalk)
+      ? LIGHTING.PRIOR.RESIDENTIAL_SIDEWALK
+      : LIGHTING.PRIOR.RESIDENTIAL;
   }
-  if (highway === 'tertiary') return PRIOR_TERTIARY;
-  if (highway === 'service') return PRIOR_SERVICE;
-  return PRIOR_UNKNOWN;
-}
-
-/**
- * @param {*} value
- * @param {string} name
- * @throws {TypeError}
- */
-function assertNonNegativeNumber(value, name) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new TypeError(`${name} must be a non-negative finite number`);
-  }
+  if (highway === 'tertiary') return LIGHTING.PRIOR.TERTIARY;
+  if (highway === 'service') return LIGHTING.PRIOR.SERVICE;
+  return LIGHTING.PRIOR.UNKNOWN;
 }
 
 /**
@@ -143,29 +129,30 @@ function inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm }) 
   if (!Number.isInteger(lampCount30m) || lampCount30m < 0) {
     throw new TypeError('lampCount30m must be a non-negative integer');
   }
-  assertNonNegativeNumber(areaLampDensityPerKm, 'areaLampDensityPerKm');
-  assertNonNegativeNumber(areaWayKm, 'areaWayKm');
+  assertNonNegative('areaLampDensityPerKm', areaLampDensityPerKm);
+  assertNonNegative('areaWayKm', areaWayKm);
 
-  if (EXPLICIT_LIT.has(tags.lit)) {
-    return { ...EXPLICIT_LIT.get(tags.lit), source: 'tag' };
+  const normalised = normaliseTags(tags);
+  if (hasOwn(LIGHTING.EXPLICIT, normalised.lit)) {
+    return { ...LIGHTING.EXPLICIT[normalised.lit], source: 'tag' };
   }
 
-  const prior = tagPrior(tags);
+  const prior = tagPrior(normalised);
 
   if (lampCount30m >= 1) {
     const pLit = Math.max(
       prior.pLit,
-      lampCount30m >= LAMP_MANY_THRESHOLD ? LAMP_PLIT_MANY : LAMP_PLIT_ONE,
+      lampCount30m >= LIGHTING.LAMP.MANY_THRESHOLD ? LIGHTING.LAMP.PLIT_MANY : LIGHTING.LAMP.PLIT_ONE,
     );
-    return { pLit, n: prior.n + LAMP_EVIDENCE_N, source: 'lamp' };
+    return { pLit, n: prior.n + LIGHTING.LAMP.EVIDENCE_N, source: 'lamp' };
   }
 
-  const absenceIsInformative = areaLampDensityPerKm > ABSENCE_MIN_LAMP_DENSITY_PER_KM
-    && areaWayKm >= ABSENCE_MIN_AREA_WAY_KM;
+  const absenceIsInformative = areaLampDensityPerKm > LIGHTING.ABSENCE.MIN_LAMP_DENSITY_PER_KM
+    && areaWayKm >= LIGHTING.ABSENCE.MIN_AREA_WAY_KM;
   if (absenceIsInformative) {
     return {
-      pLit: prior.pLit * ABSENCE_PLIT_FACTOR,
-      n: prior.n + ABSENCE_EVIDENCE_N,
+      pLit: prior.pLit * LIGHTING.ABSENCE.PLIT_FACTOR,
+      n: prior.n + LIGHTING.ABSENCE.EVIDENCE_N,
       source: 'absence',
     };
   }
@@ -180,11 +167,9 @@ function inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm }) 
  * @throws {TypeError} when pLit is not in [0, 1] or n is negative
  */
 function effectiveLit({ pLit, n }) {
-  if (typeof pLit !== 'number' || !Number.isFinite(pLit) || pLit < 0 || pLit > 1) {
-    throw new TypeError('pLit must be a number in [0, 1]');
-  }
-  assertNonNegativeNumber(n, 'n');
-  return (pLit * n + NEUTRAL_LIT * PRIOR_STRENGTH) / (n + PRIOR_STRENGTH);
+  assertInRange('pLit', pLit, 0, 1);
+  assertNonNegative('n', n);
+  return (pLit * n + LIGHTING.NEUTRAL_LIT * N0) / (n + N0);
 }
 
 /**
@@ -194,8 +179,8 @@ function effectiveLit({ pLit, n }) {
  * @throws {TypeError} when n is negative or not finite
  */
 function lightingCertainty({ n }) {
-  assertNonNegativeNumber(n, 'n');
-  return n / (n + PRIOR_STRENGTH);
+  assertNonNegative('n', n);
+  return n / (n + N0);
 }
 
 module.exports = {

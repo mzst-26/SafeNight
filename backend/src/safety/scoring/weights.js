@@ -1,15 +1,6 @@
 const { BASE_WEIGHTS } = require('./config');
+const { assertInRange } = require('./validation');
 const { SAFETY_LEVEL_STANDARD } = require('../services/safetyLevels');
-
-/**
- * Throws TypeError unless darkness is a finite number in [0, 1].
- * @param {*} darkness
- */
-function assertDarkness(darkness) {
-  if (typeof darkness !== 'number' || !Number.isFinite(darkness) || darkness < 0 || darkness > 1) {
-    throw new TypeError(`darkness must be a number in [0, 1], got ${String(darkness)}`);
-  }
-}
 
 /**
  * Rescales weights so they sum to 1.
@@ -28,7 +19,7 @@ function normalise(raw) {
  * @returns {{lighting: number, crime: number, road: number, activity: number, isolation: number}}
  */
 function getWeights({ darkness, safetyLevel }) {
-  assertDarkness(darkness);
+  assertInRange('darkness', darkness, 0, 1);
   const raw = { ...BASE_WEIGHTS, lighting: BASE_WEIGHTS.lighting * darkness };
   if (safetyLevel === SAFETY_LEVEL_STANDARD) raw.activity = 0;
   return normalise(raw);

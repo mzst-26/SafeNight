@@ -102,6 +102,23 @@ describe('inferLighting: tag-based priors', () => {
     expect(infer({ highway: 'tertiary' })).toEqual({ pLit: 0.7, n: 3, source: 'prior' });
   });
 
+  test('a footway with a speed tag stays 0.15: the path class is checked before speed', () => {
+    expect(infer({ highway: 'footway', maxspeed: '30' })).toEqual({
+      pLit: 0.15,
+      n: 3,
+      source: 'prior',
+    });
+  });
+
+  test('unclassified roads take the explicit unknown prior (0.40, n 2), or the speed prior when 30 mph applies', () => {
+    expect(infer({ highway: 'unclassified' })).toEqual({ pLit: 0.4, n: 2, source: 'prior' });
+    expect(infer({ highway: 'unclassified', maxspeed: '30' })).toEqual({
+      pLit: 0.8,
+      n: 4,
+      source: 'prior',
+    });
+  });
+
   test('service is 0.40 with n 2', () => {
     expect(infer({ highway: 'service' })).toEqual({ pLit: 0.4, n: 2, source: 'prior' });
   });
@@ -147,6 +164,26 @@ describe('inferLighting: tag-based priors', () => {
   });
 });
 
+describe('inferLighting: tag value normalisation', () => {
+  test('highway is trimmed and case-insensitive', () => {
+    expect(infer({ highway: ' Footway ' })).toEqual({ pLit: 0.15, n: 3, source: 'prior' });
+    expect(infer({ highway: 'PRIMARY' })).toEqual({ pLit: 0.85, n: 4, source: 'prior' });
+  });
+
+  test('lit is trimmed and case-insensitive', () => {
+    expect(infer({ lit: ' YES ' })).toEqual({ pLit: 0.95, n: 20, source: 'tag' });
+    expect(infer({ lit: 'No' })).toEqual({ pLit: 0.05, n: 20, source: 'tag' });
+  });
+
+  test('sidewalk is trimmed and case-insensitive', () => {
+    expect(infer({ highway: 'residential', sidewalk: ' Both ' })).toEqual({
+      pLit: 0.8,
+      n: 4,
+      source: 'prior',
+    });
+  });
+});
+
 describe('inferLighting: maxspeed unit parsing', () => {
   test.each([
     ['30 mph', 0.8], // 48.3 km/h, urban
@@ -154,9 +191,18 @@ describe('inferLighting: maxspeed unit parsing', () => {
     ['20 mph', 0.8],
     ['30', 0.8], // bare OSM number is km/h
     ['50 km/h', 0.8], // 50 km/h is at the urban limit
+    ['31 mph', 0.8], // 49.9 km/h, still urban
+    ['32 mph', 0.7], // 51.5 km/h, not urban
     ['40 mph', 0.7], // 64.4 km/h, not urban; falls through to residential
     ['60 km/h', 0.7],
-    ['GB:urban', 0.7], // not a number, ignored
+    ['GB:urban', 0.8], // named UK urban limit, 48 km/h (30 mph)
+    ['gb:urban', 0.8],
+    [' GB:URBAN ', 0.8],
+    ['30;60', 0.8], // a list uses its first value
+    ['60;30', 0.7], // first value 60 is not urban, even though the second is
+    ['0', 0.7], // zero is not a speed limit, so it must not read as urban
+    ['0 mph', 0.7],
+    ['-10', 0.7],
     ['signals', 0.7],
   ])('maxspeed %p on a residential road gives pLit %p', (maxspeed, pLit) => {
     expect(infer({ highway: 'residential', maxspeed }).pLit).toBe(pLit);
@@ -186,8 +232,12 @@ describe('inferLighting: lamp evidence', () => {
     });
   });
 
-  test('lamp evidence never lowers a strong prior', () => {
-    expect(infer({ highway: 'trunk' }, { lampCount30m: 1 }).pLit).toBe(0.85);
+  test('two lamps within 30 m lift pLit to the one-lamp level 0.85, not the many-lamp 0.92', () => {
+    expect(infer({ highway: 'footway' }, { lampCount30m: 2 })).toEqual({
+      pLit: 0.85,
+      n: 9,
+      source: 'lamp',
+    });
   });
 
   test('pLit never rises as lamps are removed (monotone in lampCount30m)', () => {

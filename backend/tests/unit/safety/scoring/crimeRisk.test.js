@@ -1,10 +1,11 @@
 const {
-  severityOf,
   recencyWeight,
   weightedCrimeCount,
   crimeRisk,
-  RATE_SCALE,
 } = require('../../../../src/safety/scoring/crimeRisk');
+const { CRIME } = require('../../../../src/safety/scoring/config');
+
+const { RATE_SCALE } = CRIME;
 
 /** Deterministic PRNG so property tests are reproducible. */
 function makeRng(seed) {
@@ -14,27 +15,6 @@ function makeRng(seed) {
     return state / 4294967296;
   };
 }
-
-describe('severityOf', () => {
-  test('returns the table severity for a known category', () => {
-    expect(severityOf('violent-crime')).toBe(1.0);
-    expect(severityOf('shoplifting')).toBe(0.2);
-  });
-
-  test('unknown category falls back to 0.3', () => {
-    expect(severityOf('not-a-category')).toBe(0.3);
-    expect(severityOf(undefined)).toBe(0.3);
-  });
-
-  test('does not resolve inherited object keys as categories', () => {
-    expect(severityOf('constructor')).toBe(0.3);
-    expect(severityOf('toString')).toBe(0.3);
-  });
-
-  test('violent crime is more severe than shoplifting', () => {
-    expect(severityOf('violent-crime')).toBeGreaterThan(severityOf('shoplifting'));
-  });
-});
 
 describe('recencyWeight', () => {
   test('is 1 for a crime in the current month', () => {
@@ -47,6 +27,7 @@ describe('recencyWeight', () => {
   });
 
   test('defaults the half-life to 4 months', () => {
+    expect(CRIME.HALF_LIFE_MONTHS).toBe(4);
     expect(recencyWeight(4)).toBeCloseTo(0.5, 12);
     expect(recencyWeight(8)).toBeCloseTo(0.25, 12);
   });
@@ -114,8 +95,21 @@ describe('weightedCrimeCount', () => {
     expect(weightedCrimeCount(crimes)).toBe(1);
   });
 
-  test('unknown categories contribute the fallback severity', () => {
-    expect(weightedCrimeCount([{ category: 'mystery', monthsAgo: 0 }])).toBeCloseTo(0.3, 12);
+  test('skips null and undefined entries instead of throwing', () => {
+    const crimes = [null, { category: 'violent-crime', monthsAgo: 0 }, undefined];
+    expect(weightedCrimeCount(crimes)).toBe(1);
+  });
+
+  test('skips negative monthsAgo (a crime dated in the future is bad data, not a weight)', () => {
+    const crimes = [
+      { category: 'violent-crime', monthsAgo: 0 },
+      { category: 'violent-crime', monthsAgo: -1 },
+    ];
+    expect(weightedCrimeCount(crimes)).toBe(1);
+  });
+
+  test('unknown categories contribute the fallback severity 0.4', () => {
+    expect(weightedCrimeCount([{ category: 'mystery', monthsAgo: 0 }])).toBeCloseTo(0.4, 12);
   });
 
   test('throws TypeError when crimes is not an array', () => {
@@ -134,6 +128,12 @@ describe('crimeRisk', () => {
     expect(result.status).toBe('ok');
   });
 
+  test('defaults status to ok', () => {
+    const result = crimeRisk({ weightedCount: 1, exposureKm: 1, priorRate: 1 });
+    expect(result.status).toBe('ok');
+    expect(result.n).toBeGreaterThan(0);
+  });
+
   test('risk is about 0.63 when the rate equals RATE_SCALE', () => {
     const result = crimeRisk({ weightedCount: 12, exposureKm: 0, priorRate: 0, priorStrength: 2, status: 'ok' });
     expect(result.lambda).toBeCloseTo(RATE_SCALE, 12);
@@ -141,6 +141,7 @@ describe('crimeRisk', () => {
   });
 
   test('defaults priorStrength to 2', () => {
+    expect(CRIME.PRIOR_STRENGTH).toBe(2);
     const withDefault = crimeRisk({ weightedCount: 4, exposureKm: 1, priorRate: 3, status: 'ok' });
     const explicit = crimeRisk({ weightedCount: 4, exposureKm: 1, priorRate: 3, priorStrength: 2, status: 'ok' });
     expect(withDefault).toEqual(explicit);

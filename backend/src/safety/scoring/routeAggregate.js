@@ -6,10 +6,9 @@
  * length spread thinly. Splitting an edge in two never changes the result.
  */
 
-/** Weight of the cubic power mean in routeRisk (spec 11.5). */
-const G = 0.4;
-/** Edge risk at or above which an edge counts as part of a poor stretch. */
-const POOR = 0.6;
+const { G, RISK_POOR_THRESHOLD } = require('./config');
+const { assertFinite, assertNonNegative, assertInRange } = require('./validation');
+
 /** Routes longer than this multiple of the shortest route are excluded. */
 const MAX_LENGTH_RATIO = 1.5;
 const METRES_PER_MILE = 1609.344;
@@ -50,6 +49,17 @@ const ONLY_ROUTE_REASON = 'Only route found';
  * @property {number} certainty Length-weighted mean certainty.
  * @property {Stretch|null} worstStretch Longest run of poor edges, or null.
  */
+
+/**
+ * Throws TypeError unless an edge has finite lengthM >= 0, risk in [0, 1] and
+ * certainty in [0, 1].
+ * @param {Edge} edge
+ */
+function assertEdge(edge) {
+  assertNonNegative('edge.lengthM', edge.lengthM);
+  assertInRange('edge.risk', edge.risk, 0, 1);
+  assertInRange('edge.certainty', edge.certainty, 0, 1);
+}
 
 /**
  * Sums a numeric projection over a list.
@@ -156,10 +166,11 @@ function worstStretch(edges, threshold) {
  * @returns {RouteAggregate}
  * @throws {TypeError} When edges is empty or has no positive-length edge.
  */
-function aggregateRoute(edges, { g = G, poorThreshold = POOR } = {}) {
+function aggregateRoute(edges, { g = G, poorThreshold = RISK_POOR_THRESHOLD } = {}) {
   if (!Array.isArray(edges) || edges.length === 0) {
     throw new TypeError('aggregateRoute requires a non-empty array of edges');
   }
+  edges.forEach(assertEdge);
 
   const measured = edges.filter((edge) => edge.lengthM > 0);
   if (measured.length === 0) {
@@ -193,32 +204,52 @@ function exposure(routeRisk, lengthM) {
 
 /**
  * Orders routes by exposure, then routeRisk, then length.
- * @param {{exposure: number, routeRisk: number, lengthM: number}} a
- * @param {{exposure: number, routeRisk: number, lengthM: number}} b
+ * @param {{routeRisk: number, lengthM: number}} a
+ * @param {{routeRisk: number, lengthM: number}} b
  * @returns {number}
  */
 function compareRoutes(a, b) {
-  return a.exposure - b.exposure || a.routeRisk - b.routeRisk || a.lengthM - b.lengthM;
+  return (
+    exposure(a.routeRisk, a.lengthM) - exposure(b.routeRisk, b.lengthM) ||
+    a.routeRisk - b.routeRisk ||
+    a.lengthM - b.lengthM
+  );
+}
+
+/**
+ * Throws TypeError unless a route has finite lengthM > 0 and finite routeRisk.
+ * @param {{lengthM: number, routeRisk: number}} route
+ */
+function assertRankable(route) {
+  assertFinite('route.lengthM', route.lengthM);
+  if (route.lengthM <= 0) throw new TypeError('route.lengthM must be > 0');
+  assertFinite('route.routeRisk', route.routeRisk);
 }
 
 /**
  * Ranks candidate routes by exposure. Routes longer than 1.5x the shortest are
- * kept at the end, marked excluded. The shortest route is always kept.
+ * kept at the end, marked excluded. The single shortest route is always kept.
  * @param {Array<{id: *, lengthM: number, routeRisk: number}>} routes
- * @returns {Array<object>} Routes with exposure and excluded attached.
+ * @returns {Array<object>} Routes with exposure and excluded attached; empty for no routes.
+ * @throws {TypeError} When a route has a non-positive or non-finite lengthM, or a non-finite routeRisk.
  */
 function rankRoutes(routes) {
   if (routes.length === 0) return [];
+  routes.forEach(assertRankable);
 
-  const shortest = Math.min(...routes.map((route) => route.lengthM));
-  const cap = MAX_LENGTH_RATIO * shortest;
+  const shortestIndex = routes.reduce(
+    (best, route, index) => (route.lengthM < routes[best].lengthM ? index : best),
+    0,
+  );
+  const cap = MAX_LENGTH_RATIO * routes[shortestIndex].lengthM;
+  const keep = routes.map((route, index) => index === shortestIndex || route.lengthM <= cap);
   const scored = routes.map((route) => ({
     ...route,
     exposure: exposure(route.routeRisk, route.lengthM),
   }));
 
-  const kept = scored.filter((route) => route.lengthM <= cap).sort(compareRoutes);
-  const dropped = scored.filter((route) => route.lengthM > cap).sort(compareRoutes);
+  const kept = scored.filter((_, index) => keep[index]).sort(compareRoutes);
+  const dropped = scored.filter((_, index) => !keep[index]).sort(compareRoutes);
 
   return [
     ...kept.map((route) => ({ ...route, excluded: false })),
@@ -238,28 +269,21 @@ function pickBest(routes, isBetter) {
 }
 
 /**
- * Formats a distance in metres as miles with one decimal place.
- * @param {number} metres
- * @returns {string}
- */
-function milesText(metres) {
-  return (Math.abs(metres) / METRES_PER_MILE).toFixed(1);
-}
-
-/**
- * Describes how the best route's length compares with another route's.
+ * Describes how the best route's length compares with another route's. Lengths
+ * that round to the same tenth of a mile count as the same length.
  * @param {object} best
  * @param {object} other
  * @returns {string}
  */
 function lengthClause(best, other) {
   const deltaM = best.lengthM - other.lengthM;
-  const miles = milesText(deltaM);
+  const miles = Math.round((Math.abs(deltaM) / METRES_PER_MILE) * 10) / 10;
 
-  if (miles === '0.0') return `about the same length as Route ${other.id}`;
+  if (miles === 0) return `about the same length as Route ${other.id}`;
+  const text = `${miles.toFixed(1)} mi`;
   return deltaM < 0
-    ? `${miles} mi shorter than Route ${other.id}`
-    : `${miles} mi longer than Route ${other.id}`;
+    ? `${text} shorter than Route ${other.id}`
+    : `${text} longer than Route ${other.id}`;
 }
 
 /**
@@ -300,24 +324,35 @@ function stretchClause(best, alternatives) {
 }
 
 /**
+ * Throws TypeError unless a candidate's numbers are finite, so no reason text
+ * can ever contain NaN or Infinity.
+ * @param {object} route
+ */
+function assertCandidate(route) {
+  assertFinite('route.lengthM', route.lengthM);
+  assertFinite('route.routeRisk', route.routeRisk);
+  assertFinite('route.score', route.score);
+  if (route.worstStretch) assertFinite('route.worstStretch.lengthM', route.worstStretch.lengthM);
+}
+
+/**
  * Builds a one-line, data-derived reason for the best route. Every claim is
- * computed from the inputs.
+ * computed from the inputs. The length and score clauses compare against one
+ * route only: the runner-up, the best alternative by exposure.
  * @param {{id: *, lengthM: number, routeRisk: number, score: number, worstStretch?: Stretch|null}} best
  * @param {Array<object>} others Candidate routes; entries with best's id are ignored.
  * @returns {string}
+ * @throws {TypeError} When a candidate has a non-finite lengthM, routeRisk, score or stretch length.
  */
 function buildReason(best, others) {
+  [best, ...others].forEach(assertCandidate);
+
   const alternatives = others.filter((route) => route.id !== best.id);
   if (alternatives.length === 0) return ONLY_ROUTE_REASON;
 
-  const shortest = pickBest(alternatives, (route, current) => route.lengthM < current.lengthM);
-  const highestScore = pickBest(alternatives, (route, current) => route.score > current.score);
-  const bestExposure = exposure(best.routeRisk, best.lengthM);
+  const runnerUp = [...alternatives].sort(compareRoutes)[0];
   const isSafestAndShortest = alternatives.every(
     (route) => best.score >= route.score && best.lengthM <= route.lengthM,
-  );
-  const isLowestExposure = alternatives.every(
-    (route) => bestExposure <= exposure(route.routeRisk, route.lengthM),
   );
 
   if (isSafestAndShortest) {
@@ -325,14 +360,16 @@ function buildReason(best, others) {
     return stretch ? `Safest and shortest: ${stretch}` : 'Safest and shortest';
   }
 
+  const isLowestExposure =
+    exposure(best.routeRisk, best.lengthM) <= exposure(runnerUp.routeRisk, runnerUp.lengthM);
   const lead = isLowestExposure ? 'Lowest overall exposure' : `Route ${best.id}`;
   const clauses = [
-    lengthClause(best, shortest),
-    scoreClause(best, highestScore),
+    lengthClause(best, runnerUp),
+    scoreClause(best, runnerUp),
     stretchClause(best, alternatives),
   ].filter(Boolean);
 
-  return clauses.length > 0 ? `${lead}: ${clauses.join(', ')}` : lead;
+  return `${lead}: ${clauses.join(', ')}`;
 }
 
 module.exports = {

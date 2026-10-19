@@ -11,27 +11,8 @@
 const POLICE_API_BASE = 'https://data.police.uk/api';
 
 const { createSafetyCacheStore } = require('./cacheStore');
-
-// ── Crime severity weights ──────────────────────────────────────────────────
-// Higher = more impact on safety score. Violent crimes matter MUCH more.
-const CRIME_SEVERITY = {
-  'violent-crime':          1.0,   // Most dangerous
-  'robbery':                1.0,
-  'sexual-offences':        1.0,
-  'possession-of-weapons':  0.9,
-  'public-order':           0.7,
-  'criminal-damage-arson':  0.6,
-  'burglary':               0.5,
-  'vehicle-crime':          0.4,
-  'drugs':                  0.4,
-  'theft-from-the-person':  0.8,   // Direct threat to pedestrians
-  'bicycle-theft':          0.3,
-  'shoplifting':            0.2,
-  'other-theft':            0.3,
-  'anti-social-behaviour':  0.3,
-  'other-crime':            0.4,
-  'unknown':                0.4,
-};
+// Severity table lives in crimeSeverity.js (shared with the v2 scoring model).
+const { CRIME_SEVERITY, severityOf } = require('./crimeSeverity');
 
 // ── Crime data cache (24h — data updates monthly) ───────────────────────────
 const CRIME_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -158,7 +139,7 @@ async function fetchCrimesInBbox(bbox, options = {}) {
             lat: parseFloat(c.location.latitude),
             lng: parseFloat(c.location.longitude),
             category,
-            severity: CRIME_SEVERITY[category] || 0.4,
+            severity: severityOf(category),
             month: c.month || '',
           };
         });
