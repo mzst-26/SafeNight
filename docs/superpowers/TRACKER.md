@@ -64,6 +64,16 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 - Integration running: I1 safetyGraph (adb34), I2 crimeClient/safeRoutes/formatter (a690f). Flag SAFETY_MODEL=v1 keeps old path until final cleanup.
 - TODO next: M2/M3 renderers (web/native), M4 legend/callout, M5 route card reason, M6 browser verification; S4b crime aggregation job; eval backtests; A/B compare script; final review gates; cleanup v1.
 
+## Frontend wave (running)
+
+| ID | Task | Agent | Status |
+|----|------|-------|--------|
+| FP | routeLayers polish (F5, F7 frontend part) | a2796 | done: 68 tests, 100% coverage, 7 mutants killed |
+| FA | service types + useHomeScreen routeLayers + routeComparison helper | abe79 | doing |
+| FW | Leaflet web renderer (casing, dashed, badges, legend) | a08fd | doing |
+| FN | MapLibre native renderer parity (+ pin maplibre version/SRI) | a3845 | doing |
+| FC | Route cards: reason/certainty/dataQuality (route data only) | | todo after FA |
+
 ## Review log (round Phase-1a, commit 4515237)
 
 - R1 a188c: CHANGES: NaN/range validation, null-factor-as-good (decision: neutral prior n=0), rankRoutes shortest kept, tag normalisation, maxspeed list.
