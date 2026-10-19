@@ -570,7 +570,7 @@ export function MobileWebSearchBar({
   // Interpolated heights for expand/collapse
   const containerHeight = expandAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [56, Math.max(160, expandedCardHeight)],
+    outputRange: [56, Platform.OS === "android" ? Math.max(160, expandedCardHeight) : 160],
   });
 
   const dualOpacity = expandAnim.interpolate({
@@ -587,9 +587,9 @@ export function MobileWebSearchBar({
     <View
       style={[styles.wrapper, topInset != null && { top: topInset + 8 }]}
       onLayout={handleContainerLayout}
-      // On native, the empty parts of this card must not fall through to the map
-      // underneath. Buttons and scroll lists inside still take their own touches first.
-      {...(Platform.OS !== "web" ? { onStartShouldSetResponder: () => true } : {})}
+      // On Android, while the card is expanded, its empty space must not fall through
+      // to the map underneath. Buttons and scroll lists inside still take their own touches first.
+      {...(Platform.OS === "android" && expanded ? { onStartShouldSetResponder: () => true } : {})}
     >
       <Animated.View style={[styles.container, { height: containerHeight }]}>
         {/* ── Collapsed single pill ── */}
@@ -637,7 +637,11 @@ export function MobileWebSearchBar({
           // The wrapper must be at least as tall as this card. On Android, touches
           // outside a parent's bounds never reach its children, so anything below
           // the wrapper (chips, saved list) fell through to the map.
-          onLayout={(e) => setExpandedCardHeight(Math.ceil(e.nativeEvent.layout.height))}
+          onLayout={
+            Platform.OS === "android"
+              ? (e) => setExpandedCardHeight(Math.ceil(e.nativeEvent.layout.height))
+              : undefined
+          }
         >
             {/* Back / collapse button */}
             <View style={styles.expandedHeader}>
