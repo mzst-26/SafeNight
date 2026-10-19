@@ -70,3 +70,9 @@ variable "ssh_allowed_cidr" {
   type        = string
   description = "Source address allowed to SSH (port 22). Use your own IP as x.x.x.x/32."
 }
+
+variable "repo_ref" {
+  type        = string
+  default     = "main"
+  description = "Git tag or full commit SHA to deploy. Set a tag or SHA in terraform.tfvars to pin the deploy; the default tracks the main branch."
+}
