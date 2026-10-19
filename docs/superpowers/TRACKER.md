@@ -78,7 +78,10 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 | I2 | API layer: crimeClient status, request hardening, formatter v2 | a690f | done, committed 34e01a0; E2E A/B on :3012 works |
 | P1a | polish scoring modules F1-F3,F6,F7 + spec fixes | ada3c | done (347 scoring tests, 100% cov, 34/35 mutants then 35/35) |
 | P1b | polish safetyGraph/crimeClient F6,F8,F9,F10 | a5fd8 | done; brain fixes: ACTIVITY_FLOOR=0.4, crime recency anchored on newest data month; suite 856 green |
-| CAL | calibration archetypes (labels: typical lit residential should be ~70 not 54) | | todo after P1a/b |
+| CAL | calibration archetypes A-K + route-level targets (calibration.test.js) | aaa5b | doing |
+| EV | lighting leave-out + lamp-thinning backtests (backend/scripts/eval) | a4b09 | doing |
+| VIS | Visual verification on :8084 (stop user dev server, serve worktree with SAFETY url -> :3012, then RESTORE original `npx expo start` in main checkout) | brain | todo after CAL |
+| S4b | multi-month crime history (background-enrich, bounded) | | stretch, decide after VIS |
 
 ## A/B result (Frogmore -> Thurlestone, 22:00, local service)
 
