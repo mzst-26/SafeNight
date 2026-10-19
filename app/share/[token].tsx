@@ -88,7 +88,7 @@ export default function SharedRoutePreviewPage() {
 
   return (
     <View style={styles.container}>
-      <PageHead path="/share/[token]" title="Shared Safe Route" />
+      <PageHead path="/share" title="Shared Safe Route" noindex />
 
       <View style={styles.card}>
         <View style={styles.headerRow}>
