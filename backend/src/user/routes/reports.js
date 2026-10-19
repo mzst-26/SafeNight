@@ -33,6 +33,9 @@ const VALID_CATEGORIES = [
 ];
 
 const MAX_DESC = 500;
+// metadata is returned to everyone on GET /api/reports, so keep it small.
+const MAX_METADATA_BYTES = 2048;
+const MAX_NEARBY_RADIUS_KM = 25;
 
 // ─── POST /api/reports ──────────────────────────────────────────────────────
 // Submit a new safety report. Requires auth.
@@ -66,6 +69,9 @@ router.post('/', requireAuth, checkFeatureLimit('safety_reports'), async (req, r
     if (metadata != null) {
       if (typeof metadata !== 'object' || Array.isArray(metadata)) {
         return res.status(400).json({ error: 'metadata must be a JSON object' });
+      }
+      if (Buffer.byteLength(JSON.stringify(metadata), 'utf8') > MAX_METADATA_BYTES) {
+        return res.status(400).json({ error: `metadata must be at most ${MAX_METADATA_BYTES} bytes` });
       }
       meta = metadata;
     }
@@ -136,9 +142,12 @@ router.get('/nearby', async (req, res, next) => {
   try {
     const latN = parseFloat(req.query.lat);
     const lngN = parseFloat(req.query.lng);
-    const radiusKm = parseFloat(req.query.radius_km) || 1;
+    const radiusRaw = parseFloat(req.query.radius_km);
+    const radiusKm = Number.isFinite(radiusRaw) && radiusRaw > 0
+      ? Math.min(radiusRaw, MAX_NEARBY_RADIUS_KM)
+      : 1;
 
-    if (isNaN(latN) || isNaN(lngN)) {
+    if (isNaN(latN) || isNaN(lngN) || latN < -90 || latN > 90 || lngN < -180 || lngN > 180) {
       return res.status(400).json({ error: 'lat and lng query params are required' });
     }
 

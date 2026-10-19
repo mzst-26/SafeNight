@@ -23,13 +23,28 @@ const { sendPush } = require('../lib/pushNotifications');
 
 const router = express.Router();
 
-// All routes require auth (except the beacon-based /end which uses a query token)
-router.use((req, res, next) => {
-  // Allow /end with ?token= for sendBeacon (no Authorization header)
-  if (req.path === '/end' && req.query.token && !req.headers.authorization) {
-    req.headers.authorization = `Bearer ${req.query.token}`;
+// All routes require auth. /end also accepts the access token in the request
+// BODY for navigator.sendBeacon, which cannot set headers. Tokens are never
+// read from the query string: URLs end up in proxy and access logs.
+// The beacon should send a text/plain Blob (a CORS-safelisted type, so no
+// preflight) containing JSON: { "status": "...", "access_token": "..." }.
+const MAX_BEACON_TOKEN_LENGTH = 4096;
+router.post('/end', express.text({ type: 'text/plain', limit: '8kb' }), (req, _res, next) => {
+  if (typeof req.body === 'string') {
+    try {
+      const parsed = JSON.parse(req.body);
+      req.body = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      req.body = {};
+    }
   }
-  next();
+  const bodyToken = req.body?.access_token;
+  if (!req.headers.authorization && typeof bodyToken === 'string' && bodyToken
+    && bodyToken.length <= MAX_BEACON_TOKEN_LENGTH) {
+    req.headers.authorization = `Bearer ${bodyToken}`;
+  }
+  if (req.body && typeof req.body === 'object') delete req.body.access_token;
+  next('route');
 });
 router.use(requireAuth);
 
@@ -64,10 +79,13 @@ router.post('/start', async (req, res, next) => {
 
     // route_path — the planned polyline sent by the app at nav start.
     // Must be an array of {lat, lng} objects; cap at 1000 points to prevent DB bloat.
+    // Only in-range {lat, lng} pairs are kept; any other fields are dropped.
     const cleanRoutePath = Array.isArray(route_path)
       ? route_path
-          .filter((p) => p && typeof p.lat === 'number' && typeof p.lng === 'number')
+          .slice(0, 5000)
+          .filter((p) => p && isValidCoord(p.lat, p.lng))
           .slice(0, 1000)
+          .map((p) => ({ lat: p.lat, lng: p.lng }))
       : null;
 
     console.log('[live/start] route_path received:', typeof route_path, Array.isArray(route_path) ? route_path.length + ' points' : route_path, '→ cleanRoutePath:', cleanRoutePath ? cleanRoutePath.length + ' points' : null);
