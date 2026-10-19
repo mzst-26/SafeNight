@@ -79,7 +79,8 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 | P1a | polish scoring modules F1-F3,F6,F7 + spec fixes | ada3c | done (347 scoring tests, 100% cov, 34/35 mutants then 35/35) |
 | P1b | polish safetyGraph/crimeClient F6,F8,F9,F10 | a5fd8 | done; brain fixes: ACTIVITY_FLOOR=0.4, crime recency anchored on newest data month; suite 856 green |
 | CAL | calibration archetypes A-K + route-level targets (calibration.test.js) | aaa5b | doing |
-| EV | lighting leave-out + lamp-thinning backtests (backend/scripts/eval) | a4b09 | doing |
+| EV | lighting leave-out + lamp-thinning backtests (backend/scripts/eval) | a4b09 | leave-out done (73 tests); thinning + Bristol pending; rerun after LI |
+| LI | lighting priors fix from backtest (split PATH, priors, absence off) + rerun EV | | todo after CAL |
 | VIS | Visual verification on :8084 (stop user dev server, serve worktree with SAFETY url -> :3012, then RESTORE original `npx expo start` in main checkout) | brain | todo after CAL |
 | S4b | multi-month crime history (background-enrich, bounded) | | stretch, decide after VIS |
 
@@ -100,6 +101,7 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 
 | # | From | Task | Finding | Status |
 |---|------|------|---------|--------|
+| F12 | EV | lightingInference/config | Backtest (Plymouth, 15,478 tagged ways, 5-fold spatial): inference does NOT beat road-class baseline (Brier .205 vs .121; AUC .785 vs .82). Observed lit rate: residential .97, primary/secondary/tertiary .98, service .68, footway .54, cycleway .81, steps .55, path .19. Priors too low; PATH bucket wrongly includes footway/cycleway/steps (sidewalks); ABSENCE rule points the wrong way (no lamp within 30 m => still 82% lit, lamps sparsely mapped); lampCount30m counts neighbouring lit=yes vertices as lamps. Plan LI: split PATH, raise priors conservatively (labelled set is biased toward tagged ways), disable absence penalty (factor 1.0), separate lit-vertex evidence; re-run EV; keep ordering property | open (LI after CAL) |
 | F8 | I1 | safetyGraph | activity safety must not drop to 0 when activity data exists but none nearby: ACTIVITY_FLOOR=0.3 in config: activity = floor + (1-floor)*(1-exp(-x)) | open (P1) |
 | F9 | I1 | safetyGraph | hazard rule: with proper units 40 mph roads w/o sidewalk tag become hazards (sidewalk tag absent on 95% of ways). Set HAZARD_SPEED_KMH=80 (50 mph) in config; absent sidewalk is unknown | open (P1) |
 | F10 | I1 | tests | safetyGraph coverage 77/64%: raise (opening-hours parse, heuristics); buildDistanceOnlyGraph untouched | open (P1) |
