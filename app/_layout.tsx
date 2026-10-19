@@ -29,7 +29,9 @@ SplashScreen.preventAutoHideAsync().then(() => SplashScreen.hideAsync());
 const MIN_SPLASH_MS = 3500;
 
 export default function RootLayout() {
-  const [splashVisible, setSplashVisible] = useState(true);
+  // Web renders the real app immediately: the splash is native-only, so the
+  // pre-rendered HTML that crawlers (and LCP) see is not an opacity-0 shell.
+  const [splashVisible, setSplashVisible] = useState(Platform.OS !== 'web');
   const [appReady, setAppReady] = useState(false);
   const [minTimePassed, setMinTimePassed] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
