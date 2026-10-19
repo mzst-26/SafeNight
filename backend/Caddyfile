@@ -1,6 +1,14 @@
 # Caddy terminates HTTPS (automatic Let's Encrypt certificate for DOMAIN) and routes by path prefix.
 # handle_path strips the prefix, so /safety/api/safe-routes reaches the safety service as /api/safe-routes.
 {$DOMAIN} {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), camera=(), microphone=()"
+		-Server
+	}
 	handle_path /gateway/* {
 		reverse_proxy gateway:3001
 	}
