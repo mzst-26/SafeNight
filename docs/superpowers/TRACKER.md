@@ -72,6 +72,7 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 | FA | service types + useHomeScreen routeLayers + routeComparison helper | abe79 | doing |
 | FW | Leaflet web renderer (casing, dashed, badges, legend) | a08fd | doing |
 | FN | MapLibre native renderer parity (+ pin maplibre version/SRI) | a3845 | doing |
+| I1 | safetyGraph v2 (flag SAFETY_MODEL) | adb34 | done 22 tests, suite 739 green |
 | FC | Route cards: reason/certainty/dataQuality (route data only) | | todo after FA |
 
 ## Review log (round Phase-1a, commit 4515237)
@@ -86,6 +87,10 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 
 | # | From | Task | Finding | Status |
 |---|------|------|---------|--------|
+| F8 | I1 | safetyGraph | activity safety must not drop to 0 when activity data exists but none nearby: ACTIVITY_FLOOR=0.3 in config: activity = floor + (1-floor)*(1-exp(-x)) | open (P1) |
+| F9 | I1 | safetyGraph | hazard rule: with proper units 40 mph roads w/o sidewalk tag become hazards (sidewalk tag absent on 95% of ways). Set HAZARD_SPEED_KMH=80 (50 mph) in config; absent sidewalk is unknown | open (P1) |
+| F10 | I1 | tests | safetyGraph coverage 77/64%: raise (opening-hours parse, heuristics); buildDistanceOnlyGraph untouched | open (P1) |
+| F11 | I1 | env | intermittent whole-suite flakes under load (socket hang-up ECONNRESET, auth, contacts): unrelated HTTP suites; monitor, consider --maxWorkers | watch |
 | F1 | R1r2 | routeAggregate | buildReason 'Safest and shortest' must compare routeRisk not rounded score; assert/document best==rank1 precondition | open (polish P1) |
 | F2 | R1r2 | routeAggregate/edgeRisk | validate g, poorThreshold, exposure() args, rankRoutes routeRisk range; guard huge-length overflow and weights overflow | open (P1) |
 | F3 | R1r2 | crimeRisk | bad monthsAgo rows are silently dropped (counts as zero harm): decide fallback (count at 0 months) | open (P1) |
