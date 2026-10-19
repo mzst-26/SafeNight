@@ -20,13 +20,14 @@ Spec: `specs/2026-10-19-safety-scoring-v2-design.md`. Branch: `feat/safety-scori
 
 | ID | Task | Depends | Model | Status |
 |----|------|---------|-------|--------|
-| S1 | `darkness.js` sun elevation gate + tests | P0.4 | H | todo |
-| S2 | OSM context extraction (landuse, buildings, maxspeed) in ingestion + tests | P0.4 | H→S? | todo |
-| S3 | `lightingInference.js` P(lit)+n, mapping-completeness + tests | S1,S2 | S likely | todo |
-| S4 | Crime: multi-month, recency, smoothing, outage=unknown + tests | P0.4 | H | todo |
-| S5 | `edgeRisk.js` combiner + `weights.js` + property tests | S3,S4 | H | todo |
-| S6 | Route aggregation (mean+weak link+longest stretch) + tests | S5 | H | todo |
-| S7 | Ranking utility + reason generator + tests | S6 | H | todo |
+| S1 | `darkness.js` + tests | P0.4 | H | review done: CHANGES (fix pass B) |
+| S2 | OSM context (landuse/buildings) = PHASE 2 optional; v1 fixes: keep tunnel tag, unit-aware maxspeed | P0.4 | H | deferred |
+| S3 | `lightingInference.js` + tests (tags only, v1) | none | H | review done: CHANGES (fix pass B) |
+| S4a | `crimeRisk.js` pure EB model + tests | none | H | review done: CHANGES (fix pass B) |
+| S4b | Crime aggregation job (osm-ingestion, 500 m cells, 12 months) + outage contract + client | S4a | H/S | todo |
+| S5 | `config.js`, `weights.js`, `edgeRisk.js` + property tests | none | H | review done: CHANGES (fix pass B) |
+| S6/S7 | `routeAggregate.js` (aggregate, exposure rank, reason) + tests | none | H | review done: CHANGES (fix pass A) |
+| S7b | Integration: wire modules into safetyGraph/formatter; fix riskVector inversion, maxspeed units, sidewalk unknown, dead-end double count | S1,S3,S4a,S5,S6 | S | todo |
 | S8 | A* uses edgeRisk; fix dead-end, open-state clock | S5 | H | todo |
 | S9 | Formatter/API additive fields, crime clustering + contract tests | S6,S7 | H | todo |
 | S10 | Integration tests `/safe-routes` | S8,S9 | H | todo |
@@ -55,6 +56,14 @@ Spec: `specs/2026-10-19-safety-scoring-v2-design.md`. Branch: `feat/safety-scori
 | R7 Cross-platform | n/a | n/a | | |
 
 Rule: merge only when each applicable gate has ≥2 independent approvals in the latest cycle.
+
+## Review log (round Phase-1a, commit 4515237)
+
+- R1 a188c: CHANGES: NaN/range validation, null-factor-as-good (decision: neutral prior n=0), rankRoutes shortest kept, tag normalisation, maxspeed list.
+- R4 a4997: CHANGES: duplicated constants (G, N0, severity table), config 'all tunables' claim, shared validation.
+- R5 a4450: CHANGES: mutation survivors (certainty weights, smoothstep, rounding, thresholds), uncovered buildReason branches.
+- Fix pass A ab9f3 (routeAggregate), fix pass B a00a1 (other modules) running. M1 adcb1 (frontend routeLayers) running.
+- Note: one unreproduced full-suite failure seen once (likely concurrent writes); watch for flake.
 
 ## Findings queue (changes requested by reviewers)
 
