@@ -69,11 +69,20 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 | ID | Task | Agent | Status |
 |----|------|-------|--------|
 | FP | routeLayers polish (F5, F7 frontend part) | a2796 | done: 68 tests, 100% coverage, 7 mutants killed |
-| FA | service types + useHomeScreen routeLayers + routeComparison helper | abe79 | doing |
+| FA | service types + useHomeScreen routeLayers + routeComparison helper | abe79 | done (uncommitted; 31 new tests) |
 | FW | Leaflet web renderer (casing, dashed, badges, legend) | a08fd | doing |
 | FN | MapLibre native renderer parity (+ pin maplibre version/SRI) | a3845 | doing |
 | I1 | safetyGraph v2 (flag SAFETY_MODEL) | adb34 | done 22 tests, suite 739 green |
-| FC | Route cards: reason/certainty/dataQuality (route data only) | | todo after FA |
+| FC | Route cards: reason/certainty/dataQuality (route data only) | a9d24 | doing |
+| I2 | API layer: crimeClient status, request hardening, formatter v2 | a690f | done, committed 34e01a0; E2E A/B on :3012 works |
+| P1a | polish scoring modules F1-F3,F6,F7 + spec fixes | ada3c | doing |
+| P1b | polish safetyGraph/crimeClient F6,F8,F9,F10 | a5fd8 | doing |
+| CAL | calibration archetypes (labels: typical lit residential should be ~70 not 54) | | todo after P1a/b |
+
+## A/B result (Frogmore -> Thurlestone, 22:00, local service)
+
+- v1 (:3002): 67/60/58, recommended 4.4 km (free extra distance).
+- v2 (:3012): 54/50/59, recommended = lowest exposure 3.4 km, reason string shown; certainty .57-.58; absolute scores lower than v1: calibrate (CAL).
 
 ## Review log (round Phase-1a, commit 4515237)
 
