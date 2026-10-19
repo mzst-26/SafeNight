@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 
 import { stripeApi } from '@/src/services/stripeApi';
+import { isTrustedPaymentUrl } from '@/src/utils/safeExternalUrl';
 import {
     familyApi,
     type FamilyPackResult
@@ -308,6 +309,9 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
     setActionLoading(true);
     try {
       const result = await stripeApi.createFamilyCheckout(packData.pack.id);
+      if (!isTrustedPaymentUrl(result.url)) {
+        throw new Error('Received an unexpected payment link. Please try again.');
+      }
       if (Platform.OS === 'web') {
         window.open(result.url, '_blank');
       } else {

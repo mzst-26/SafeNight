@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 
 import { stripeApi, type SubscriptionStatus } from '@/src/services/stripeApi';
+import { isTrustedPaymentUrl } from '@/src/utils/safeExternalUrl';
 
 /** Local plan definitions — no need to fetch from Stripe API */
 interface LocalPlan {
@@ -129,6 +130,10 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
   }, [visible]);
 
   const openUrl = useCallback((url: string) => {
+    if (!isTrustedPaymentUrl(url)) {
+      setError('Received an unexpected payment link. Please try again.');
+      return;
+    }
     if (Platform.OS === 'web') {
       window.open(url, '_blank');
     } else {
