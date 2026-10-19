@@ -50,8 +50,10 @@ async function syncFamilyPackContacts(packId) {
       if (existing) {
         // If already accepted, nothing to do
         if (existing.status === 'accepted') continue;
-        // If pending/rejected, upgrade to accepted
-        if (existing.status !== 'blocked') {
+        // Only a pending request is upgraded. 'rejected' and 'blocked' are
+        // explicit decisions by a user and must not be overridden by a pack
+        // owner adding them to a pack (accepted contacts can watch live location).
+        if (existing.status === 'pending') {
           await supabase
             .from('emergency_contacts')
             .update({ status: 'accepted', updated_at: new Date().toISOString() })
