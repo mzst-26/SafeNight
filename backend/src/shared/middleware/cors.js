@@ -31,9 +31,14 @@ function createCorsMiddleware() {
       if (!origin) return callback(null, true);
       // Exact match against whitelist
       if (allowedOrigins.includes(origin)) return callback(null, true);
-      // In development or if no origins configured, allow all
-      if (allowedOrigins.length === 0 || process.env.NODE_ENV !== 'production') {
+      // Outside production, allow all origins for local development.
+      // In production an empty ALLOWED_ORIGINS fails closed: reflecting any
+      // origin with credentials: true would grant every website access.
+      if (!isProduction) {
         return callback(null, true);
+      }
+      if (allowedOrigins.length === 0) {
+        console.warn('[cors] ALLOWED_ORIGINS is empty in production; refusing cross-origin browser requests');
       }
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
