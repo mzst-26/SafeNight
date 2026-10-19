@@ -257,7 +257,7 @@ export default function WelcomeModal({
               </View>
               <Text style={styles.heading}>Enable Location</Text>
               <Text style={styles.subtext}>
-                SafeNight uses your location to find the safest walking routes near you. Your location is never shared without your permission.
+                SafeNight uses your location to find safer walking routes near you. Your location is never shared without your permission.
               </Text>
 
               {locationStatus === 'granted' ? (

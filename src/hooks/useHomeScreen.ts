@@ -33,7 +33,7 @@ const FAKE_PROGRESS_MESSAGES = [
   "Discovering nearby walkable roads…",
   "Building route corridor…",
   "Scoring lighting and crime factors…",
-  "Ranking safest route options…",
+  "Ranking route options by safety score…",
 ];
 
 // ── Public interface ────────────────────────────────────────────────────────
