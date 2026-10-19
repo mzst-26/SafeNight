@@ -1016,12 +1016,14 @@ export const liveApi = {
       try {
         const token = (globalThis as any).__safenight_access_token;
         const url = `${env.userApiUrl}/api/live/end`;
+        // sendBeacon can't set headers, so the token goes in the body (never
+        // the URL, which ends up in logs). text/plain avoids a CORS preflight;
+        // the server parses it as JSON (see backend/src/user/routes/live.js).
         const blob = new Blob(
-          [JSON.stringify({ status })],
-          { type: 'application/json' },
+          [JSON.stringify({ status, access_token: token || '' })],
+          { type: 'text/plain' },
         );
-        // sendBeacon doesn't support custom headers, so we use a query param
-        navigator.sendBeacon(`${url}?token=${encodeURIComponent(token || '')}`, blob);
+        navigator.sendBeacon(url, blob);
       } catch {
         // Best effort
       }
