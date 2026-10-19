@@ -1,9 +1,12 @@
 import {
-  buildRouteLayers,
+  DEFAULT_CRIME_SEVERITY,
   RISK_RAMP,
   RISK_STEPS,
   UNKNOWN_RISK_COLOR,
+  buildRouteLayers,
+  riskBucket,
   riskToColor,
+  type GeoPoint,
   type LayerSegment,
   type RouteLayerInput,
   type RouteLayerOptions,
@@ -29,6 +32,10 @@ const opts = (over: Partial<RouteLayerOptions> = {}): RouteLayerOptions => ({
   zoom: 15,
   ...over,
 });
+
+/** Longitude (degrees) that sits `metres` east of lng 0 at latitude `lat`. */
+const lngForMetres = (metres: number, lat: number): number =>
+  metres / (111320 * Math.cos((lat * Math.PI) / 180));
 
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === 'object') {
@@ -86,6 +93,16 @@ const relativeLuminance = (hex: string) => {
 // difference and keeps neighbouring risk bands separable without relying on hue.
 const MIN_ADJACENT_DELTA_E = 10;
 
+// ── Public types ─────────────────────────────────────────────────────────────
+
+describe('public types', () => {
+  it('exports GeoPoint as the {lat, lng} shape used by every coordinate field', () => {
+    const point: GeoPoint = { lat: 51.5, lng: BASE_LNG };
+    const out = buildRouteLayers({ lights: [point] }, opts({ zoom: 18 }));
+    expect(out.points).toEqual([{ kind: 'light', lat: 51.5, lng: BASE_LNG }]);
+  });
+});
+
 // ── Colour ramp ──────────────────────────────────────────────────────────────
 
 describe('risk colour ramp', () => {
@@ -93,6 +110,10 @@ describe('risk colour ramp', () => {
     expect(RISK_STEPS).toBe(6);
     expect(RISK_RAMP).toHaveLength(6);
     RISK_RAMP.forEach((hex) => expect(hex).toMatch(/^#[0-9A-Fa-f]{6}$/));
+  });
+
+  it('is frozen so consumers cannot mutate the shared palette', () => {
+    expect(Object.isFrozen(RISK_RAMP)).toBe(true);
   });
 
   it('is strictly darker as risk increases (luminance monotone)', () => {
@@ -139,10 +160,27 @@ describe('risk colour ramp', () => {
     expect(riskToColor(0.16)).not.toBe(riskToColor(0.17));
   });
 
-  it('clamps out-of-range risk and returns the unknown colour for NaN', () => {
+  it('clamps out-of-range risk and returns the unknown colour for non-finite risk', () => {
     expect(riskToColor(-3)).toBe(RISK_RAMP[0]);
     expect(riskToColor(7)).toBe(RISK_RAMP[RISK_STEPS - 1]);
     expect(riskToColor(Number.NaN)).toBe(UNKNOWN_RISK_COLOR);
+    expect(riskToColor(Number.POSITIVE_INFINITY)).toBe(UNKNOWN_RISK_COLOR);
+  });
+});
+
+describe('riskBucket', () => {
+  it('returns the ramp index for finite risk, clamped to both ends', () => {
+    expect(riskBucket(0)).toBe(0);
+    expect(riskBucket(0.5)).toBe(3);
+    expect(riskBucket(1)).toBe(RISK_STEPS - 1);
+    expect(riskBucket(-2)).toBe(0);
+    expect(riskBucket(9)).toBe(RISK_STEPS - 1);
+  });
+
+  it('throws a TypeError for non-finite risk instead of returning an out-of-range index', () => {
+    expect(() => riskBucket(Number.NaN)).toThrow(TypeError);
+    expect(() => riskBucket(Number.POSITIVE_INFINITY)).toThrow(TypeError);
+    expect(() => riskBucket(Number.NEGATIVE_INFINITY)).toThrow(TypeError);
   });
 });
 
@@ -218,6 +256,19 @@ describe('buildRouteLayers lines', () => {
     });
   });
 
+  it('dashes only the exact estimated lighting values, not any string that merely starts with "estimated"', () => {
+    const cases: Array<[string, boolean]> = [
+      ['estimated', false],
+      ['estimated_lit_v2', false],
+      ['estimated_lit', true],
+      ['estimated_unlit', true],
+    ];
+    cases.forEach(([litEstimate, expected]) => {
+      const segments = chain([{ litEstimate: litEstimate as LayerSegment['litEstimate'] }]);
+      expect(buildRouteLayers({ segments }, opts()).lines[0].dashed).toBe(expected);
+    });
+  });
+
   it('colours each line from its risk and reports the mean risk of its members', () => {
     // Both members fall in the same sixth (bucket 1), so they merge.
     const segments = chain([{ risk: 0.22 }, { risk: 0.28 }]);
@@ -269,6 +320,23 @@ describe('buildRouteLayers lines', () => {
     expect(out.lines).toHaveLength(1);
     expect(out.lines[0].coords).toHaveLength(3);
   });
+
+  it('skips a segment whose end is invalid even when its start is valid', () => {
+    const segments = chain([{ risk: 0.1 }]);
+    segments.push({
+      start: { lat: BASE_LAT + STEP, lng: BASE_LNG },
+      end: { lat: Number.NaN, lng: BASE_LNG },
+      risk: 0.1,
+    });
+    const out = buildRouteLayers({ segments }, opts());
+
+    expect(out.lines).toHaveLength(1);
+    expect(out.lines[0].coords).toHaveLength(2);
+  });
+
+  it('treats a non-array segments value as no segments', () => {
+    expect(buildRouteLayers({ segments: 'nope' as never }, opts()).lines).toEqual([]);
+  });
 });
 
 // ── Worst-stretch callout ───────────────────────────────────────────────────
@@ -282,19 +350,44 @@ describe('buildRouteLayers worst-stretch callout', () => {
     ...over,
   });
 
+  const textFor = (lengthM: number) =>
+    buildRouteLayers({ worstStretch: stretch({ lengthM }) as never }, opts()).callouts[0].text;
+
   it('places one callout at the midpoint with unlit wording for a lighting cause', () => {
     const out = buildRouteLayers({ worstStretch: stretch() as never }, opts());
 
     expect(out.callouts).toHaveLength(1);
-    expect(out.callouts[0].lat).toBeCloseTo(51.501);
-    expect(out.callouts[0].lng).toBeCloseTo(-0.1);
+    expect(out.callouts[0].lat).toBeCloseTo(51.501, 6);
+    expect(out.callouts[0].lng).toBeCloseTo(-0.1, 6);
     expect(out.callouts[0].text).toBe('Unlit stretch · 240 m');
     expect(out.callouts[0].kind).toBe('worst-stretch');
+  });
+
+  it('places the callout at the true midpoint of a stretch that is off-axis in both lat and lng', () => {
+    const out = buildRouteLayers(
+      {
+        worstStretch: {
+          start: { lat: 51.5, lng: -0.1 },
+          end: { lat: 51.502, lng: -0.104 },
+          lengthM: 240,
+          cause: 'lighting',
+        },
+      },
+      opts(),
+    );
+
+    expect(out.callouts[0].lat).toBeCloseTo(51.501, 6);
+    expect(out.callouts[0].lng).toBeCloseTo(-0.102, 6);
   });
 
   it('uses high-risk wording for any other cause', () => {
     const out = buildRouteLayers({ worstStretch: stretch({ cause: 'crime' }) as never }, opts());
     expect(out.callouts[0].text).toBe('High-risk stretch · 240 m');
+  });
+
+  it('rounds the callout length to the nearest metre', () => {
+    expect(textFor(240.4)).toBe('Unlit stretch · 240 m');
+    expect(textFor(240.6)).toBe('Unlit stretch · 241 m');
   });
 
   it('only shows the callout when the stretch is at least 50 m', () => {
@@ -304,9 +397,13 @@ describe('buildRouteLayers worst-stretch callout', () => {
 
   it('emits no callout when the stretch is missing, has bad numbers or bad coordinates', () => {
     expect(buildRouteLayers({}, opts()).callouts).toEqual([]);
+    expect(buildRouteLayers({ worstStretch: null }, opts()).callouts).toEqual([]);
     expect(buildRouteLayers({ worstStretch: stretch({ lengthM: Number.NaN }) as never }, opts()).callouts).toEqual([]);
     expect(
       buildRouteLayers({ worstStretch: stretch({ start: { lat: Number.NaN, lng: 0 } }) as never }, opts()).callouts,
+    ).toEqual([]);
+    expect(
+      buildRouteLayers({ worstStretch: stretch({ end: { lat: 51.5, lng: 181 } }) as never }, opts()).callouts,
     ).toEqual([]);
   });
 });
@@ -314,6 +411,9 @@ describe('buildRouteLayers worst-stretch callout', () => {
 // ── Crime clustering ────────────────────────────────────────────────────────
 
 describe('buildRouteLayers crime clusters', () => {
+  /** A crime `metres` east of lng 0 at latitude `lat`. */
+  const at = (metres: number, lat = BASE_LAT) => ({ lat, lng: lngForMetres(metres, lat) });
+
   it('never returns individual crimes as points, even when crime is highlighted', () => {
     const crimes = Array.from({ length: 5 }, (_, i) => ({ lat: 51.5 + i * 1e-5, lng: BASE_LNG, severity: 2 }));
     const out = buildRouteLayers({ crimes }, opts({ zoom: 20, highlightCategory: 'crime' }));
@@ -348,6 +448,15 @@ describe('buildRouteLayers crime clusters', () => {
     expect(out.crimeClusters.map((c) => c.count).sort()).toEqual([2, 3]);
   });
 
+  it('orders clusters by latitude, then longitude', () => {
+    // Same latitude, two cells: input is deliberately east-to-west so only a sort can fix the order.
+    const crimes = [at(500), at(0)];
+    const out = buildRouteLayers({ crimes }, opts());
+
+    expect(out.crimeClusters).toHaveLength(2);
+    expect(out.crimeClusters[0].lng).toBeLessThan(out.crimeClusters[1].lng);
+  });
+
   it('respects clusterCellMetres: a huge cell merges everything, a tiny one splits it', () => {
     const crimes = [
       { lat: 51.5, lng: BASE_LNG },
@@ -358,7 +467,68 @@ describe('buildRouteLayers crime clusters', () => {
     expect(buildRouteLayers({ crimes }, opts({ clusterCellMetres: 10 })).crimeClusters).toHaveLength(3);
   });
 
-  it('defaults severity to 1 when missing and conserves the total crime count', () => {
+  it('measures east-west spacing with cos(latitude in degrees), not radians', () => {
+    // 0.0022 deg of longitude at 51.5 N is about 152 m, more than one 120 m cell.
+    // A cos(radians) bug would shrink it to about 81 m and wrongly merge the pair.
+    const crimes = [
+      { lat: 51.5, lng: 0 },
+      { lat: 51.5, lng: 0.0022 },
+    ];
+    expect(buildRouteLayers({ crimes }, opts()).crimeClusters).toHaveLength(2);
+  });
+
+  describe('default clusterCellMetres (120 m)', () => {
+    it('clusters two crimes 100 m apart when no cell size is given', () => {
+      expect(buildRouteLayers({ crimes: [at(0), at(100)] }, opts()).crimeClusters).toHaveLength(1);
+    });
+
+    it('separates two crimes 130 m apart, which straddle the 120 m grid line', () => {
+      // A 140 m cell would keep these together, so this pins the default at 120 m.
+      expect(buildRouteLayers({ crimes: [at(0), at(130)] }, opts()).crimeClusters).toHaveLength(2);
+    });
+
+    it('separates two crimes 140 m apart when no cell size is given', () => {
+      expect(buildRouteLayers({ crimes: [at(0), at(140)] }, opts()).crimeClusters).toHaveLength(2);
+    });
+  });
+
+  describe('cell boundaries', () => {
+    it('splits crimes either side of a grid line (119 m and 121 m)', () => {
+      // Floor puts 119 m in cell 0 and 121 m in cell 1; rounding would put both in cell 1.
+      expect(buildRouteLayers({ crimes: [at(119), at(121)] }, opts()).crimeClusters).toHaveLength(2);
+    });
+
+    it('keeps crimes on the same side of a grid line together (1 m and 119 m)', () => {
+      // Floor puts both in cell 0; rounding would split them (0 and 1).
+      expect(buildRouteLayers({ crimes: [at(1), at(119)] }, opts()).crimeClusters).toHaveLength(1);
+    });
+  });
+
+  describe('clusterCellMetres validation', () => {
+    // Crimes at 0, 100 and 130 m east. With the 120 m default, {0, 100} share a cell and 130 m stands alone.
+    const crimes = [at(0), at(100), at(130)];
+    const defaults = buildRouteLayers({ crimes }, opts()).crimeClusters;
+
+    it('is the default two-cluster result under the 120 m default', () => {
+      expect(defaults).toHaveLength(2);
+    });
+
+    it('falls back to the default cell for zero, negative, NaN or infinite sizes', () => {
+      for (const size of [0, -120, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(buildRouteLayers({ crimes }, opts({ clusterCellMetres: size })).crimeClusters).toEqual(defaults);
+      }
+    });
+  });
+
+  it('accepts crimes at latitudes of exactly +90 and -90', () => {
+    const north = buildRouteLayers({ crimes: [{ lat: 90, lng: 0 }] }, opts());
+    const south = buildRouteLayers({ crimes: [{ lat: -90, lng: 0 }] }, opts());
+
+    expect(north.crimeClusters).toEqual([expect.objectContaining({ lat: 90, count: 1 })]);
+    expect(south.crimeClusters).toEqual([expect.objectContaining({ lat: -90, count: 1 })]);
+  });
+
+  it('defaults a missing crime severity to DEFAULT_CRIME_SEVERITY and conserves the total crime count', () => {
     const crimes = [
       { lat: 51.5, lng: BASE_LNG },
       { lat: 51.5, lng: BASE_LNG, severity: Number.NaN },
@@ -368,7 +538,11 @@ describe('buildRouteLayers crime clusters', () => {
 
     expect(out.crimeClusters.reduce((sum, c) => sum + c.count, 0)).toBe(3);
     expect(Math.max(...out.crimeClusters.map((c) => c.maxSeverity))).toBe(4);
-    expect(out.crimeClusters.find((c) => c.lat < 51.51)?.maxSeverity).toBe(1);
+    expect(out.crimeClusters.find((c) => c.lat < 51.51)?.maxSeverity).toBe(DEFAULT_CRIME_SEVERITY);
+  });
+
+  it('exposes DEFAULT_CRIME_SEVERITY as 0.4, matching the backend crime severity fallback', () => {
+    expect(DEFAULT_CRIME_SEVERITY).toBe(0.4);
   });
 
   it('shows crime clusters regardless of the highlight category', () => {
@@ -379,6 +553,12 @@ describe('buildRouteLayers crime clusters', () => {
 
   it('skips crimes with invalid coordinates', () => {
     const crimes = [{ lat: Number.NaN, lng: BASE_LNG }, { lat: 51.5, lng: 200 }, { lat: 51.5, lng: BASE_LNG }];
+    const out = buildRouteLayers({ crimes }, opts());
+    expect(out.crimeClusters.map((c) => c.count)).toEqual([1]);
+  });
+
+  it('skips null and non-object crime entries', () => {
+    const crimes = [null, 'bad', 42, { lat: 51.5, lng: BASE_LNG }] as never;
     const out = buildRouteLayers({ crimes }, opts());
     expect(out.crimeClusters.map((c) => c.count)).toEqual([1]);
   });
@@ -431,6 +611,19 @@ describe('buildRouteLayers point gating', () => {
     expect(b.lines).toEqual(a.lines);
     expect(b.callouts).toEqual(a.callouts);
   });
+
+  it('skips light, cctv and shop points with invalid coordinates', () => {
+    const bad = [{ lat: Number.NaN, lng: BASE_LNG }, { lat: 91, lng: BASE_LNG }, null] as never;
+    for (const highlightCategory of ['cctv', 'shop'] as const) {
+      const out = buildRouteLayers({ lights: bad, cctv: bad, places: bad }, opts({ zoom: 18, highlightCategory }));
+      expect(out.points).toEqual([]);
+    }
+  });
+
+  it('accepts points at latitudes of exactly +90 and -90', () => {
+    const points = buildRouteLayers({ lights: [{ lat: 90, lng: 0 }, { lat: -90, lng: 0 }] }, opts({ zoom: 18 })).points;
+    expect(points.map((p) => p.lat)).toEqual([90, -90]);
+  });
 });
 
 // ── Point cap ───────────────────────────────────────────────────────────────
@@ -472,6 +665,11 @@ describe('buildRouteLayers robustness', () => {
     expect(buildRouteLayers({ segments: [] }, opts())).toMatchObject(empty);
     expect(buildRouteLayers(null as never, opts())).toMatchObject(empty);
     expect(buildRouteLayers(undefined as never, opts())).toMatchObject(empty);
+  });
+
+  it('tolerates missing options: with no zoom, zoom-gated points stay hidden', () => {
+    const lights = [{ lat: 51.5, lng: BASE_LNG }];
+    expect(buildRouteLayers({ lights }, null as never).points).toEqual([]);
   });
 
   it('treats a NaN zoom as below every threshold', () => {

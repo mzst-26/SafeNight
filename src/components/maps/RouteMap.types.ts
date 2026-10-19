@@ -1,5 +1,6 @@
 import type { RoadLabel, RouteSegment, SafetyMarker } from '@/src/services/safetyMapData';
 import type { DirectionsRoute, LatLng } from '@/src/types/geo';
+import type { RouteLayerSpec } from './routeLayers';
 
 export type MapType = 'roadmap';
 
@@ -26,6 +27,8 @@ export type RouteMapProps = {
   safetyMarkers?: SafetyMarker[];
   routeSegments?: RouteSegment[];
   roadLabels?: RoadLabel[];
+  /** Renderer-agnostic layers for the selected route (v2 safety model). When set it replaces routeSegments/safetyMarkers drawing. */
+  routeLayers?: RouteLayerSpec | null;
   /** When set, the map smoothly pans to this location. Bump the key to re-trigger. */
   panTo?: { location: LatLng; key: number } | null;
   /** Increment to force fitting visible search-candidate markers into view. */

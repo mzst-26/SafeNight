@@ -8,7 +8,8 @@
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
-export interface LatLng {
+/** A WGS84 point. Named GeoPoint so it cannot be confused with src/types/geo.ts LatLng ({latitude, longitude}). */
+export interface GeoPoint {
   lat: number;
   lng: number;
 }
@@ -16,8 +17,8 @@ export interface LatLng {
 export type LitEstimate = 'lit' | 'unlit' | 'estimated_lit' | 'estimated_unlit';
 
 export interface LayerSegment {
-  start: LatLng;
-  end: LatLng;
+  start: GeoPoint;
+  end: GeoPoint;
   /** 0..1, higher = riskier. Authoritative when finite. */
   risk?: number;
   /** Legacy 0..1 field, higher = safer. Used as 1 - safetyScore when risk is missing. */
@@ -30,13 +31,13 @@ export interface LayerSegment {
 }
 
 export interface WorstStretchInput {
-  start: LatLng;
-  end: LatLng;
+  start: GeoPoint;
+  end: GeoPoint;
   lengthM: number;
   cause: string | null;
 }
 
-export interface CrimeInput extends LatLng {
+export interface CrimeInput extends GeoPoint {
   severity?: number;
 }
 
@@ -44,9 +45,9 @@ export interface RouteLayerInput {
   segments?: LayerSegment[];
   worstStretch?: WorstStretchInput | null;
   crimes?: CrimeInput[];
-  lights?: LatLng[];
-  cctv?: LatLng[];
-  places?: LatLng[];
+  lights?: GeoPoint[];
+  cctv?: GeoPoint[];
+  places?: GeoPoint[];
 }
 
 export type HighlightCategory = 'crime' | 'light' | 'cctv' | 'shop';
@@ -56,7 +57,10 @@ export interface RouteLayerOptions {
   highlightCategory?: HighlightCategory | null;
   /** Lights are drawn as points from this zoom up (default 17). */
   showLightsAtZoom?: number;
-  /** Grid cell size for crime clustering in metres (default 120). */
+  /**
+   * Grid cell size for crime clustering in metres (default 120). Must be finite
+   * and > 0; zero, negative, NaN or infinite values fall back to the default.
+   */
   clusterCellMetres?: number;
 }
 
@@ -106,19 +110,28 @@ export interface RouteLayerSpec {
  * highest risk (espresso brown). Relative luminance strictly decreases with
  * risk, and the hue path runs teal -> ochre -> burnt orange -> brown, so it
  * stays readable for deuteranopia (see routeLayers.test.ts for the checks).
+ * Frozen: the palette is shared module state and must not be mutated.
  */
 export const RISK_STEPS = 6;
-export const RISK_RAMP: readonly string[] = [
+export const RISK_RAMP: readonly string[] = Object.freeze([
   '#B9E3D9',
   '#6FBFB2',
   '#C9A24B',
   '#B5621E',
   '#7E2E12',
   '#3D1206',
-];
+]);
 
 /** Neutral grey for a non-finite risk value. Deliberately off-ramp. */
 export const UNKNOWN_RISK_COLOR = '#8A8F98';
+
+/**
+ * Severity used for a crime that has no finite severity. Mirrors the backend
+ * fallback `CRIME.SEVERITY_FALLBACK` (0.4, backend/src/safety/scoring/config.js),
+ * which backend/src/safety/services/crimeSeverity.js applies to unknown
+ * categories. Keep the two values in sync.
+ */
+export const DEFAULT_CRIME_SEVERITY = 0.4;
 
 const DASHED_CERTAINTY_BELOW = 0.4;
 const WORST_STRETCH_MIN_M = 50;
@@ -126,13 +139,29 @@ const MAX_POINTS = 150;
 const DEFAULT_SHOW_LIGHTS_ZOOM = 17;
 const DEFAULT_CLUSTER_CELL_M = 120;
 const METRES_PER_DEG_LAT = 111320;
+const DEG_TO_RAD = Math.PI / 180;
+const MAX_LAT_DEG = 90;
+const MAX_LNG_DEG = 180;
 /** Segment ends closer than this (degrees, ~0.1 m) count as the same point. */
 const JOIN_EPSILON_DEG = 1e-6;
+/** The only lit-estimate values that render dashed, regardless of certainty. */
+const ESTIMATED_LIGHTING: ReadonlySet<LitEstimate | undefined> = new Set<LitEstimate | undefined>([
+  'estimated_lit',
+  'estimated_unlit',
+]);
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
+/**
+ * Maps a finite risk to its ramp index in 0..RISK_STEPS-1 (risk is clamped to 0..1).
+ * Throws a TypeError for non-finite input: a non-finite value has no bucket.
+ * Callers holding untrusted values should use riskToColor, which returns UNKNOWN_RISK_COLOR.
+ */
 export function riskBucket(risk: number): number {
+  if (!isFiniteNumber(risk)) {
+    throw new TypeError(`riskBucket requires a finite number, got ${String(risk)}`);
+  }
   return Math.min(RISK_STEPS - 1, Math.floor(clamp01(risk) * RISK_STEPS));
 }
 
@@ -143,13 +172,19 @@ export function riskToColor(risk: number): string {
 
 // ── Validation helpers ───────────────────────────────────────────────────────
 
-const isValidCoord = (p: unknown): p is LatLng => {
+/** True for a non-null object whose lat/lng are finite and within WGS84 bounds (poles and antimeridian inclusive). */
+const isValidCoord = <T extends Partial<GeoPoint>>(p: T | null | undefined): p is T & GeoPoint => {
   if (!p || typeof p !== 'object') return false;
-  const { lat, lng } = p as LatLng;
-  return isFiniteNumber(lat) && isFiniteNumber(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+  const { lat, lng } = p;
+  return (
+    isFiniteNumber(lat) &&
+    isFiniteNumber(lng) &&
+    Math.abs(lat) <= MAX_LAT_DEG &&
+    Math.abs(lng) <= MAX_LNG_DEG
+  );
 };
 
-const sameJoin = (a: LatLng, b: LatLng) =>
+const sameJoin = (a: GeoPoint, b: GeoPoint) =>
   Math.abs(a.lat - b.lat) < JOIN_EPSILON_DEG && Math.abs(a.lng - b.lng) < JOIN_EPSILON_DEG;
 
 /** Risk from `risk`, else 1 - `safetyScore`, else null (segment is skipped). */
@@ -160,7 +195,7 @@ function segmentRisk(seg: LayerSegment): number | null {
 }
 
 function isDashed(seg: LayerSegment): boolean {
-  if (typeof seg.litEstimate === 'string' && seg.litEstimate.startsWith('estimated')) return true;
+  if (ESTIMATED_LIGHTING.has(seg.litEstimate)) return true;
   return isFiniteNumber(seg.certainty) && seg.certainty < DASHED_CERTAINTY_BELOW;
 }
 
@@ -168,7 +203,7 @@ function isDashed(seg: LayerSegment): boolean {
 
 interface Run {
   coords: Array<[number, number]>;
-  end: LatLng;
+  end: GeoPoint;
   bucket: number;
   dashed: boolean;
   riskSum: number;
@@ -239,11 +274,12 @@ function buildCallouts(stretch: WorstStretchInput | null | undefined): Callout[]
 
 /** Grid-clusters crimes so individual incidents are never drawn. */
 function buildCrimeClusters(crimes: CrimeInput[] | undefined, cellM: number): CrimeCluster[] {
-  const valid = (crimes ?? []).filter(isValidCoord) as CrimeInput[];
+  const list: CrimeInput[] = crimes ?? [];
+  const valid = list.filter(isValidCoord);
   if (valid.length === 0) return [];
 
   const meanLat = valid.reduce((sum, c) => sum + c.lat, 0) / valid.length;
-  const metresPerDegLng = METRES_PER_DEG_LAT * Math.cos((meanLat * Math.PI) / 180);
+  const metresPerDegLng = METRES_PER_DEG_LAT * Math.cos(meanLat * DEG_TO_RAD);
 
   const cells = new Map<
     string,
@@ -253,7 +289,9 @@ function buildCrimeClusters(crimes: CrimeInput[] | undefined, cellM: number): Cr
     const x = crime.lng * metresPerDegLng;
     const y = crime.lat * METRES_PER_DEG_LAT;
     const key = `${Math.floor(x / cellM)}:${Math.floor(y / cellM)}`;
-    const severity = isFiniteNumber(crime.severity) ? Math.max(0, crime.severity) : 1;
+    const severity = isFiniteNumber(crime.severity)
+      ? Math.max(0, crime.severity)
+      : DEFAULT_CRIME_SEVERITY;
 
     const cell = cells.get(key);
     if (cell) {
@@ -294,7 +332,7 @@ function buildPoints(input: RouteLayerInput, options: RouteLayerOptions): PointL
   const lightsVisible = highlight === 'light' || (isFiniteNumber(options.zoom) && options.zoom >= showLightsAt);
 
   const candidates: PointLayer[] = [];
-  const add = (kind: PointLayer['kind'], list: LatLng[] | undefined) => {
+  const add = (kind: PointLayer['kind'], list: GeoPoint[] | undefined) => {
     (list ?? []).forEach((p) => {
       if (isValidCoord(p)) candidates.push({ kind, lat: p.lat, lng: p.lng });
     });
