@@ -11,18 +11,8 @@
  * - Minimum width preserves search inputs; cannot collapse below docked rail
  */
 import { Ionicons } from '@expo/vector-icons';
-import { Link } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Animated,
-  Dimensions,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, Dimensions, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { SiteFooterLinks } from '@/src/components/seo/SiteFooterLinks';
 
@@ -156,7 +146,9 @@ export function WebSidebar({
     }
 
     lastOpenWidthRef.current = widthRef.current;
-    const target = getWebSidebarCollapsedWidth(showContent);
+    // Collapse to the docked rail even when results are showing; the compact width is
+    // the minimum for an open panel, not the collapsed size.
+    const target = getWebSidebarCollapsedWidth(false);
     setIsCollapsed(true);
     animateToWidth(target, { forceDocked: true });
   }, [animateToWidth, isCollapsed, showContent, viewportWidth]);
@@ -223,34 +215,6 @@ export function WebSidebar({
             <SiteFooterLinks compact />
           </View>
         )}
-
-        {!isCollapsed && (
-          <View style={styles.policyFooter}>
-            <Link href="/privacy" asChild>
-              <Pressable accessibilityRole="link">
-                <Text style={styles.policyLink}>Privacy</Text>
-              </Pressable>
-            </Link>
-            <Text style={styles.policySep}>·</Text>
-            <Link href="/refund" asChild>
-              <Pressable accessibilityRole="link">
-                <Text style={styles.policyLink}>Refund</Text>
-              </Pressable>
-            </Link>
-            <Text style={styles.policySep}>·</Text>
-            <Link href="/terms" asChild>
-              <Pressable accessibilityRole="link">
-                <Text style={styles.policyLink}>Terms</Text>
-              </Pressable>
-            </Link>
-            <Text style={styles.policySep}>·</Text>
-            <Link href="/delete-account" asChild>
-              <Pressable accessibilityRole="link">
-                <Text style={[styles.policyLink, { color: '#B42318' }]}>Delete Account</Text>
-              </Pressable>
-            </Link>
-          </View>
-        )}
       </View>
 
       <Pressable
@@ -307,7 +271,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     // Keep results clear of the pinned site and legal links at the bottom
     // (site links row: up to 3 wrapped lines of ~18px plus 8px gap above it).
-    marginBottom: 112,
+    // Reserves room for the site footer (about 60px with its delete row) plus its inset.
+    marginBottom: 84,
   },
   resultsHeader: {
     flexDirection: 'row',
@@ -336,41 +301,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  policyFooter: {
-    // Pinned to the bottom of the panel in every state, outside the scrolling results.
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 8,
-    zIndex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    gap: 4,
-    flexWrap: 'wrap',
-  },
   siteLinksFooter: {
-    // Muted row sitting just above the legal links footer. policyFooter spans
-    // bottom 8 to ~42 (10px padding + ~14px text + 10px padding), so bottom 48
-    // clears it with a 6px gap.
+    // Single footer group pinned to the bottom of the panel.
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 48,
+    bottom: 10,
     zIndex: 2,
     paddingHorizontal: 12,
-  },
-  policyLink: {
-    fontSize: 11,
-    color: '#475467',
-    fontWeight: '500',
-    paddingHorizontal: 2,
-  },
-  policySep: {
-    fontSize: 11,
-    color: '#CBD5E1',
   },
   centerToggleButton: {
     position: 'absolute',

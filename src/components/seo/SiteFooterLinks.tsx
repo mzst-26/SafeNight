@@ -1,11 +1,23 @@
 /**
  * Crawlable site-wide links (real <a> anchors on web via expo-router Link).
  * Every info and legal page ends with this so each one is linked from the others.
+ *
+ * Quiet text links on one wrapping line: the page you are on is accent-coloured and
+ * marked aria-current, and destructive links (account deletion) sit after a thin rule.
+ *
+ * Tokens (kept local until the app has a theme): see the constants below.
  */
-import { Href, Link } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Href, Link, usePathname } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
 
-const LINKS: { label: string; href: string }[] = [
+const TOKENS = {
+  text: '#667085',
+  current: '#1570EF',
+  danger: '#B42318',
+  rule: 'rgba(16, 24, 40, 0.10)',
+} as const;
+
+const EXPLORE: { label: string; href: string }[] = [
   { label: 'Home', href: '/' },
   { label: 'How it works', href: '/how-it-works' },
   { label: 'FAQ', href: '/faq' },
@@ -16,74 +28,115 @@ const LINKS: { label: string; href: string }[] = [
   { label: 'Refunds', href: '/refund' },
 ];
 
+export interface FooterLink {
+  label: string;
+  href: string;
+  /** Destructive actions (e.g. account deletion) are shown in red after a rule */
+  tone?: 'danger';
+}
+
 interface SiteFooterLinksProps {
-  /** Smaller type and tighter spacing, for use inside the map sidebar */
+  /** Smaller type for use inside the map sidebar */
   compact?: boolean;
   /** Accessible name of the navigation landmark */
   label?: string;
   /** Removes the links from the tab order (for visually hidden copies that sighted keyboard users cannot see) */
   hiddenFromTab?: boolean;
+  /** Extra links, shown after a rule. Danger links are red. */
+  extraLinks?: FooterLink[];
 }
 
-export function SiteFooterLinks({ compact = false, label = 'Site', hiddenFromTab = false }: SiteFooterLinksProps) {
+export function SiteFooterLinks({
+  compact = false,
+  label = 'Site',
+  hiddenFromTab = false,
+  extraLinks = [],
+}: SiteFooterLinksProps) {
+  const pathname = usePathname();
+  const tabProps = hiddenFromTab ? { tabIndex: -1 } : {};
+  const dangerLinks = extraLinks.filter((link) => link.tone === 'danger');
+  const otherLinks = extraLinks.filter((link) => link.tone !== 'danger');
+
+  const renderLink = (link: FooterLink) => {
+    const current = pathname === link.href;
+    const danger = link.tone === 'danger';
+    return (
+      <Link
+        key={link.href}
+        href={link.href as Href}
+        // aria-current marks the page the user is on; spread keeps tabIndex out of the typed props
+        aria-current={current ? 'page' : undefined}
+        {...tabProps}
+        style={[
+          styles.link,
+          compact && styles.linkCompact,
+          current && styles.linkCurrent,
+          danger && styles.linkDanger,
+        ]}
+      >
+        {link.label}
+      </Link>
+    );
+  };
+
   return (
-    <View
-      role="navigation"
-      aria-label={label}
-      style={[styles.row, compact && styles.rowCompact]}
-    >
-      {LINKS.map((link, index) => (
-        <View key={link.href} style={styles.item}>
-          {index > 0 ? (
-            <Text aria-hidden={true} style={[styles.sep, compact && styles.sepCompact]}>
-              ·
-            </Text>
-          ) : null}
-          {/* tabIndex goes through a spread: the expo-router Link type does not declare it. */}
-          <Link
-            href={link.href as Href}
-            {...(hiddenFromTab ? { tabIndex: -1 } : {})}
-            style={[styles.link, compact && styles.linkCompact]}
-          >
-            {link.label}
-          </Link>
+    <View role="navigation" aria-label={label} style={[styles.root, compact && styles.rootCompact]}>
+      <View style={[styles.row, compact && styles.rowCompact]}>
+        {[...EXPLORE, ...otherLinks].map(renderLink)}
+      </View>
+      {dangerLinks.length > 0 ? (
+        <View style={[styles.dangerRow, compact && styles.dangerRowCompact]}>
+          {dangerLinks.map(renderLink)}
         </View>
-      ))}
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    gap: 6,
+  },
+  rootCompact: {
+    gap: 4,
+  },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    columnGap: 14,
+    rowGap: 6,
   },
   rowCompact: {
-    gap: 6,
-    justifyContent: 'flex-start',
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    columnGap: 10,
+    rowGap: 4,
   },
   link: {
     fontSize: 13,
-    color: '#475467',
-    fontWeight: '500',
-    paddingVertical: 2,
+    lineHeight: 18,
+    color: TOKENS.text,
+    fontWeight: '400',
   },
   linkCompact: {
     fontSize: 12,
+    lineHeight: 16,
   },
-  sep: {
-    fontSize: 13,
-    color: '#CBD5E1',
+  linkCurrent: {
+    color: TOKENS.current,
+    fontWeight: '600',
   },
-  sepCompact: {
-    fontSize: 12,
+  dangerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 14,
+    paddingTop: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: TOKENS.rule,
+  },
+  dangerRowCompact: {
+    paddingTop: 4,
+    columnGap: 10,
+  },
+  linkDanger: {
+    color: TOKENS.danger,
   },
 });
