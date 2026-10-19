@@ -142,10 +142,19 @@ router.post('/invite', checkFeatureLimit('emergency_contacts'), async (req, res,
       if (existing.status === 'blocked') {
         return res.status(403).json({ error: 'Unable to send request' });
       }
-      // If rejected, allow re-invite by updating
+      // If rejected, allow re-invite by updating. The row is re-pointed so the
+      // current caller is the requester (user_id) and the target is the one
+      // who must respond (contact_id). Without this, a user who rejected the
+      // target's earlier request could "re-invite" and then accept it
+      // themselves, gaining live-location access without the target's consent.
       const { data, error } = await supabase
         .from('emergency_contacts')
-        .update({ status: 'pending', updated_at: new Date().toISOString() })
+        .update({
+          user_id: req.user.id,
+          contact_id,
+          status: 'pending',
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', existing.id)
         .select()
         .single();
