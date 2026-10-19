@@ -1088,12 +1088,22 @@ export const RouteMap = ({
       }
     };
 
-    window.addEventListener("message", handler);
+    // Only accept messages from our own map iframe (ignore other windows/origins).
+    const onWindowMessage = (event: MessageEvent) => {
+      if (
+        !iframeRef.current?.contentWindow ||
+        event.source !== iframeRef.current.contentWindow
+      ) {
+        return;
+      }
+      handler(event);
+    };
+    window.addEventListener("message", onWindowMessage);
     const custom = (e: Event) =>
       handler({ data: (e as CustomEvent).detail } as MessageEvent);
     window.addEventListener("leaflet-msg", custom);
     return () => {
-      window.removeEventListener("message", handler);
+      window.removeEventListener("message", onWindowMessage);
       window.removeEventListener("leaflet-msg", custom);
     };
   }, [pushUpdate]);
