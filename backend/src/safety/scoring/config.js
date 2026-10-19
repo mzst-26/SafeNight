@@ -136,7 +136,25 @@ const LIGHTING = Object.freeze({
   NAMED_MAXSPEED_KMH: Object.freeze({ 'gb:urban': 48 }),
 });
 
+// Floor for the activity factor: a street with no open places, cameras or transit nearby is
+// quiet, not hostile, so activity safety never drops below this.
+const ACTIVITY_FLOOR = 0.3;
+
+// Roads at or above this speed (km/h, 50 mph) with no sidewalk are treated as walking hazards.
+// Set well above urban limits because 95% of ways carry no sidewalk tag at all.
+const HAZARD_SPEED_KMH = 80;
+
+// Longest route, as a multiple of the shortest, that may still be recommended.
+const MAX_LENGTH_RATIO = 1.5;
+
+// Radius (m) within which a mapped lamp counts as lighting an edge.
+const LAMP_RADIUS_M = 30;
+
 module.exports = Object.freeze({
+  ACTIVITY_FLOOR,
+  HAZARD_SPEED_KMH,
+  MAX_LENGTH_RATIO,
+  LAMP_RADIUS_M,
   EPS,
   BASE_WEIGHTS,
   PRIOR_SAFETY,
