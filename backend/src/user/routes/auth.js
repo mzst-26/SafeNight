@@ -186,7 +186,7 @@ setInterval(() => {
   for (const [key, ts] of passwordResetTracker) {
     if (now - ts > RESET_COOLDOWN_MS) passwordResetTracker.delete(key);
   }
-}, 30 * 60 * 1000);
+}, 30 * 60 * 1000).unref();
 
 /** Returns true if the email is currently locked out of password login. */
 function isPasswordLocked(email) {
@@ -240,34 +240,10 @@ function validateEmail(email) {
   return EMAIL_RE.test(email.trim().toLowerCase());
 }
 
-async function doesUserExistByEmail(email) {
-  const cleanEmail = email.trim().toLowerCase();
-
-  // Check auth.users via admin API — this is the authoritative source.
-  // profiles.email can be null for users who signed up before we started
-  // storing email there, so querying profiles alone gives false negatives.
-  try {
-    const { data, error } = await supabaseAuth.auth.admin.getUserByEmail(cleanEmail);
-    if (!error && data?.user) return true;
-  } catch (_) {
-    // Fall through to profiles check if admin API fails
-  }
-
-  // Fallback: check profiles table (catches edge cases)
-  const { data } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('email', cleanEmail)
-    .limit(1)
-    .maybeSingle();
-
-  return !!data;
-}
-
 // ─── POST /api/auth/options ─────────────────────────────────────────────────
-// Returns available auth methods for this email:
-// - Existing user: otp + password
-// - New user: otp only (signup via OTP)
+// Returns available auth methods. The response is the same for every email so
+// it cannot be used to discover which addresses have accounts. `exists` is kept
+// (always true) so older app builds still offer the password option.
 router.post('/options', authSensitiveLimit, async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -277,12 +253,11 @@ router.post('/options', authSensitiveLimit, async (req, res, next) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const exists = await doesUserExistByEmail(cleanEmail);
 
     return res.json({
       email: cleanEmail,
-      exists,
-      methods: exists ? ['otp', 'password'] : ['otp'],
+      exists: true,
+      methods: ['otp', 'password'],
       default_method: 'otp',
     });
   } catch (err) {
@@ -350,14 +325,8 @@ router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
       });
     }
 
-    const exists = await doesUserExistByEmail(cleanEmail);
-
-    if (!exists) {
-      return res.status(404).json({
-        error: 'No account found for this email. Use email code to sign up first.',
-      });
-    }
-
+    // No separate "does this account exist" check: unknown emails and wrong
+    // passwords both fail here and get the same response.
     const { data, error } = await supabaseAuth.auth.signInWithPassword({
       email: cleanEmail,
       password,
@@ -369,7 +338,7 @@ router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
       return res.status(401).json({
         error: locked
           ? 'Too many failed attempts. Please sign in with your email code instead.'
-          : `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`,
+          : `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining. New to SafeNight? Use the email code option to create your account.`,
         locked_out: locked,
       });
     }
@@ -401,8 +370,9 @@ router.post('/password-login', authSensitiveLimit, async (req, res, next) => {
 // ─── POST /api/auth/forgot-password ────────────────────────────────────────
 // Sends Supabase built-in password reset email to existing users.
 // Security: once-per-24-hours per email to prevent email bombing and token
-//           farming. Also clears the password-login lockout so the user can
-//           try password again after completing the reset flow.
+//           farming. The response is the same whether or not the account
+//           exists. The password-login lockout is lifted only when the reset
+//           is completed (update-password), not when the email is requested.
 router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -412,13 +382,6 @@ router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const exists = await doesUserExistByEmail(cleanEmail);
-
-    if (!exists) {
-      return res.status(404).json({
-        error: 'No account found for this email. Use email code to sign up first.',
-      });
-    }
 
     // ── Once-per-day throttle ─────────────────────────────────────────────
     const cooldownMs = resetCooldownRemaining(cleanEmail);
@@ -436,18 +399,20 @@ router.post('/forgot-password', authSensitiveLimit, async (req, res, next) => {
     const redirectTo =
       process.env.SUPABASE_PASSWORD_RESET_REDIRECT_TO ||
       'https://safenight.netlify.app/reset-password';
+    // Supabase does not send (and does not error) for unknown emails.
     const { error } = await supabaseAuth.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
 
     if (error) {
-      return res.status(400).json({ error: error.message || 'Failed to send reset email' });
+      console.error('[auth] forgot-password error:', error.message);
+      return res.status(400).json({ error: 'Failed to send reset email. Try again later.' });
     }
 
     // Record so subsequent requests within 24 h are blocked.
-    // Also lift any password-login lockout — the reset flow will set a new password.
     recordResetRequest(cleanEmail);
-    clearPasswordFailures(cleanEmail);
 
-    return res.json({ message: 'Password reset email sent — check your inbox' });
+    return res.json({
+      message: 'If an account exists for this email, a password reset link has been sent.',
+    });
   } catch (err) {
     next(err);
   }
@@ -481,6 +446,11 @@ router.post('/update-password', authSensitiveLimit, requireAuth, async (req, res
     if (error) {
       console.error('[auth] update-password error:', error.message);
       return res.status(400).json({ error: error.message || 'Failed to update password' });
+    }
+
+    // Password changed — lift any password-login lockout for this account.
+    if (typeof req.user.email === 'string') {
+      clearPasswordFailures(req.user.email.trim().toLowerCase());
     }
 
     console.log(`[auth] Password updated for user ${req.user.id}`);
@@ -543,7 +513,7 @@ router.post('/verify', authSensitiveLimit, async (req, res, next) => {
 
 // ─── POST /api/auth/refresh ─────────────────────────────────────────────────
 // Refresh an expired access token using a refresh token.
-router.post('/refresh', async (req, res, next) => {
+router.post('/refresh', authSensitiveLimit, async (req, res, next) => {
   try {
     const { refresh_token } = req.body;
 
@@ -783,6 +753,26 @@ router.delete('/account', requireAuth, async (req, res, next) => {
       }
     }
 
+    // 0a-2. If the user OWNS family packs, revoke them so members are reverted
+    //       to free instead of being left on a pack with no paying owner.
+    const { data: ownedPacks } = await supabase
+      .from('family_packs')
+      .select('id')
+      .eq('owner_id', userId)
+      .in('status', ['active', 'trialing', 'pending', 'cancelling', 'past_due']);
+
+    if (Array.isArray(ownedPacks) && ownedPacks.length > 0) {
+      const { revokeFamilyPack } = require('./family');
+      for (const pack of ownedPacks) {
+        try {
+          await revokeFamilyPack(pack.id);
+          console.log(`[auth] Revoked owned family pack ${pack.id} before account deletion`);
+        } catch (revokeErr) {
+          console.error(`[auth] Failed to revoke family pack ${pack.id}: ${revokeErr.message}`);
+        }
+      }
+    }
+
     // 0b. Cancel any active Stripe subscriptions before deleting data
     const { data: profile } = await supabase
       .from('profiles')
@@ -819,15 +809,17 @@ router.delete('/account', requireAuth, async (req, res, next) => {
       }
     }
 
-    // 1. Delete user's data from all tables (order matters for FK constraints)
+    // 1. Delete user's data from all tables (order matters for FK constraints).
+    //    These are the tables the service actually writes with a user_id column.
     const tables = [
       'usage_events',
-      'user_reports',
-      'user_reviews',
-      'contacts',
+      'safety_reports',
+      'reviews',
+      'live_sessions',
+      'route_shares',
+      'emergency_contacts',
       'subscriptions',
       'family_pack_members',
-      'profiles',
     ];
 
     for (const table of tables) {
@@ -842,7 +834,7 @@ router.delete('/account', requireAuth, async (req, res, next) => {
 
     // Also delete any contacts where user is the contact (not the owner)
     const { error: contactErr } = await supabase
-      .from('contacts')
+      .from('emergency_contacts')
       .delete()
       .eq('contact_id', userId);
     if (contactErr) {

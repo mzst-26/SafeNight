@@ -20,6 +20,59 @@ const router = express.Router();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const APP_DEEP_LINK_PROTOCOL = 'safenight:';
+const LOCAL_DEV_HOSTS = new Set(['localhost', '127.0.0.1']);
+
+function defaultReturnUrl() {
+  return process.env.FRONTEND_URL || 'http://localhost:8083';
+}
+
+function allowedReturnOrigins() {
+  const origins = new Set();
+  for (const raw of [process.env.FRONTEND_URL, ...(process.env.ALLOWED_ORIGINS || '').split(',')]) {
+    if (!raw || !raw.trim()) continue;
+    try {
+      origins.add(new URL(raw.trim()).origin);
+    } catch {
+      // ignore malformed config entries
+    }
+  }
+  return origins;
+}
+
+/**
+ * Return the client-supplied return URL only if it points at our own app
+ * (FRONTEND_URL / ALLOWED_ORIGINS origin, the app deep-link scheme, or
+ * localhost outside production). Anything else falls back to FRONTEND_URL,
+ * so Stripe never redirects a user to an attacker-chosen site.
+ */
+function resolveReturnUrl(candidate) {
+  const fallback = defaultReturnUrl();
+  if (typeof candidate !== 'string' || candidate.length === 0 || candidate.length > 2048) {
+    return fallback;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return fallback;
+  }
+
+  if (parsed.protocol === APP_DEEP_LINK_PROTOCOL) return candidate;
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return fallback;
+  if (parsed.username || parsed.password) return fallback;
+
+  if (allowedReturnOrigins().has(parsed.origin)) return candidate;
+
+  if (process.env.NODE_ENV !== 'production' && LOCAL_DEV_HOSTS.has(parsed.hostname)) {
+    return candidate;
+  }
+
+  return fallback;
+}
+
 /**
  * Get or create a Stripe Customer for the given user.
  * Stores stripe_customer_id in the profiles table for reuse.
@@ -70,6 +123,24 @@ async function getOrCreateCustomer(userId, email, name) {
       });
 
       for (const candidate of existingCustomers.data) {
+        // Never take over a Stripe customer that is still linked to another
+        // live profile — that would expose their billing portal, status and
+        // cancel/refund actions to this user.
+        const { data: linkedProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('stripe_customer_id', candidate.id)
+          .neq('id', userId)
+          .limit(1)
+          .maybeSingle();
+
+        if (linkedProfile) {
+          console.warn(
+            `[stripe] Stripe customer ${candidate.id} is linked to another profile — not reusing for user ${userId}.`,
+          );
+          continue;
+        }
+
         // Check if this customer has ANY subscription history (all statuses)
         const priorSubs = await stripe.subscriptions.list({
           customer: candidate.id,
@@ -91,7 +162,7 @@ async function getOrCreateCustomer(userId, email, name) {
         if (hasPriorSubs) {
           console.warn(
             `[stripe] ⚠️  Reused Stripe customer ${candidate.id} for user ${userId} ` +
-            `(email: ${email}) — prior subscription history detected. Marked refund_ineligible.`,
+            `— prior subscription history detected. Marked refund_ineligible.`,
           );
         } else {
           console.log(
@@ -203,7 +274,7 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
       // User already has an active subscription — redirect to portal instead
       const portalSession = await stripe.billingPortal.sessions.create({
         customer: customerId,
-        return_url: req.body.return_url || process.env.FRONTEND_URL || 'http://localhost:8083',
+        return_url: resolveReturnUrl(req.body.return_url),
       });
 
       return res.json({
@@ -238,7 +309,7 @@ router.post('/create-checkout', requireAuth, async (req, res, next) => {
     }
 
     // Determine success/cancel URLs
-    const returnUrl = req.body.return_url || process.env.FRONTEND_URL || 'http://localhost:8083';
+    const returnUrl = resolveReturnUrl(req.body.return_url);
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
@@ -338,7 +409,7 @@ router.post('/create-family-checkout', requireAuth, async (req, res, next) => {
     );
 
     const stripe = getStripe();
-    const returnUrl = req.body.return_url || process.env.FRONTEND_URL || 'http://localhost:8083';
+    const returnUrl = resolveReturnUrl(req.body.return_url);
 
     // ── Cancel existing Guarded subscription with proration ──────────────
     // If the user already pays for Guarded (pro), cancel it now so they get
@@ -447,7 +518,7 @@ router.post('/create-portal', requireAuth, async (req, res, next) => {
     }
 
     const stripe = getStripe();
-    const returnUrl = req.body.return_url || process.env.FRONTEND_URL || 'http://localhost:8083';
+    const returnUrl = resolveReturnUrl(req.body.return_url);
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: profile.stripe_customer_id,
@@ -508,8 +579,11 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
       });
     }
 
-    const periodStart = sub.current_period_start * 1000; // ms
-    const daysSincePeriodStart = (Date.now() - periodStart) / (1000 * 60 * 60 * 24);
+    // The cooling-off window runs from when the subscription (contract) started,
+    // not from the latest renewal — otherwise a long-running subscriber could
+    // cancel just after any renewal and have every past invoice refunded.
+    const contractStart = (sub.start_date || sub.current_period_start) * 1000; // ms
+    const daysSincePeriodStart = (Date.now() - contractStart) / (1000 * 60 * 60 * 24);
     const withinTimeWindow = daysSincePeriodStart <= COOLING_OFF_DAYS;
     const periodEnd = new Date(sub.current_period_end * 1000).toISOString();
 
@@ -532,7 +606,7 @@ router.post('/cancel', requireAuth, async (req, res, next) => {
 
     console.log(
       `[stripe] Cancel request: user=${req.user.id}, ` +
-      `${daysSincePeriodStart.toFixed(1)} days into period, ` +
+      `${daysSincePeriodStart.toFixed(1)} days since subscription start, ` +
       `withinTimeWindow=${withinTimeWindow}, hasPreviousPaidSub=${hasPreviousPaidSub}, ` +
       `hasUsedCoolingOff=${hasUsedCoolingOff}, isRefundIneligible=${isRefundIneligible}, ` +
       `eligibleForCoolingOff=${eligibleForCoolingOff}`
@@ -673,3 +747,4 @@ router.get('/status', requireAuth, async (req, res, next) => {
 module.exports = router;
 module.exports.getOrCreateCustomer = getOrCreateCustomer;
 module.exports.getUserIdFromCustomerId = getUserIdFromCustomerId;
+module.exports.resolveReturnUrl = resolveReturnUrl;

@@ -11,7 +11,14 @@
  *   invoice.payment_failed        — Payment failed → mark as past_due (don't downgrade yet)
  *   invoice.payment_succeeded     — Recurring payment succeeded → extend subscription
  *
- * All DB writes are idempotent — safe to replay events.
+ * Replay safety:
+ *   - Signature + timestamp tolerance (Stripe SDK default 300s) reject old replays.
+ *   - Event ids already processed by this instance are ignored.
+ *   - Entitlement changes re-read the subscription from Stripe (live state)
+ *     instead of trusting the event snapshot, so stale / out-of-order events
+ *     cannot re-grant access.
+ *   - Writes are scoped to the local row whose payment_ref is the Stripe
+ *     subscription id, so an event for one subscription cannot change another.
  */
 
 const { supabase } = require('../../user/lib/supabase');
@@ -20,6 +27,40 @@ const { getTierByPriceId } = require('../lib/plans');
 const { syncFamilyPackContacts } = require('../../shared/familyContacts');
 
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+
+// Stripe subscription statuses that grant paid access.
+const ENTITLED_STATUSES = new Set(['active', 'trialing']);
+
+// ─── Processed-event cache (per instance) ────────────────────────────────────
+// Stripe delivers at-least-once and may resend the same event. Skip event ids
+// this instance has already handled. Bounded by TTL and size.
+const PROCESSED_EVENT_TTL_MS = 24 * 60 * 60 * 1000;
+const PROCESSED_EVENT_MAX = 5000;
+const processedEvents = new Map(); // event.id -> timestamp
+
+function markEventIfNew(eventId) {
+  const now = Date.now();
+  for (const [id, ts] of processedEvents) {
+    if (now - ts > PROCESSED_EVENT_TTL_MS || processedEvents.size > PROCESSED_EVENT_MAX) {
+      processedEvents.delete(id);
+    } else {
+      break; // Map keeps insertion order — remaining entries are newer
+    }
+  }
+  if (processedEvents.has(eventId)) return false;
+  processedEvents.set(eventId, now);
+  return true;
+}
+
+function _resetProcessedEvents() {
+  processedEvents.clear();
+}
+
+/** Map a Stripe price tier to the app entitlement tier (family members get pro). */
+function entitlementTierFor(tier) {
+  if (tier === 'family') return 'pro';
+  return tier;
+}
 
 /**
  * Express handler for POST /api/stripe/webhook.
@@ -46,6 +87,11 @@ async function stripeWebhookHandler(req, res) {
   }
 
   console.log(`[webhook] ✅ Received: ${event.type} (${event.id})`);
+
+  if (!markEventIfNew(event.id)) {
+    console.log(`[webhook] Duplicate event ${event.id} ignored`);
+    return res.json({ received: true, duplicate: true });
+  }
 
   try {
     switch (event.type) {
@@ -76,6 +122,8 @@ async function stripeWebhookHandler(req, res) {
     // Log but still return 200 — Stripe retries on non-200, and we don't
     // want to process the same event repeatedly if our handler has a bug.
     console.error(`[webhook] Error handling ${event.type}:`, err.message);
+    // Allow a later redelivery of this event id to be processed.
+    processedEvents.delete(event.id);
   }
 
   // Always return 200 to acknowledge receipt
@@ -100,6 +148,46 @@ async function handleCheckoutCompleted(session) {
       tier,
     });
     return;
+  }
+
+  if (!['pro', 'family'].includes(tier)) {
+    console.warn(`[webhook] checkout.session.completed with unknown tier "${tier}" — ignored`);
+    return;
+  }
+
+  if (session.mode && session.mode !== 'subscription') return;
+  if (session.status && session.status !== 'complete') {
+    console.warn(`[webhook] checkout session ${session.id} not complete (${session.status}) — ignored`);
+    return;
+  }
+  if (session.payment_status && !['paid', 'no_payment_required'].includes(session.payment_status)) {
+    console.warn(`[webhook] checkout session ${session.id} payment_status=${session.payment_status} — ignored`);
+    return;
+  }
+
+  const paymentRef = subscriptionId || session.id;
+
+  // Replay guard: this Stripe subscription was already recorded (possibly
+  // cancelled since). Never create a second grant for it.
+  const { data: existingRecord } = await supabase
+    .from('subscriptions')
+    .select('id, status')
+    .eq('payment_ref', paymentRef)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingRecord) {
+    console.log(`[webhook] Checkout for ${paymentRef} already recorded — ignoring replay`);
+    return;
+  }
+
+  // Live-state guard: only grant if Stripe says the subscription is live now.
+  if (subscriptionId) {
+    const live = await getStripe().subscriptions.retrieve(subscriptionId);
+    if (!ENTITLED_STATUSES.has(live?.status)) {
+      console.warn(`[webhook] Checkout for ${subscriptionId} but Stripe status is ${live?.status} — not granting`);
+      return;
+    }
   }
 
   console.log(`[webhook] Checkout completed: user=${userId}, tier=${tier}, sub=${subscriptionId}`);
@@ -156,7 +244,7 @@ async function handleCheckoutCompleted(session) {
         status: 'active',
         started_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        payment_ref: subscriptionId || session.id,
+        payment_ref: paymentRef,
         is_family_pack: true,
         family_pack_id: packId,
       });
@@ -189,7 +277,7 @@ async function handleCheckoutCompleted(session) {
       status: 'active',
       started_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      payment_ref: subscriptionId || session.id,
+      payment_ref: paymentRef,
       is_family_pack: true,
       family_pack_id: packId,
     });
@@ -228,7 +316,7 @@ async function handleCheckoutCompleted(session) {
     status: 'active',
     started_at: new Date().toISOString(),
     expires_at: expiresAt.toISOString(),
-    payment_ref: subscriptionId || session.id,
+    payment_ref: paymentRef,
   });
 
   // Update denormalized tier on profile
@@ -268,21 +356,30 @@ async function handleSubscriptionUpdated(subscription) {
   await processSubscriptionUpdate(userId, subscription);
 }
 
-async function processSubscriptionUpdate(userId, subscription) {
+async function processSubscriptionUpdate(userId, eventSubscription) {
+  // Re-read the subscription from Stripe — events can arrive out of order or be
+  // replayed, so the event snapshot is not trusted for entitlement decisions.
+  const subscription = await getStripe().subscriptions.retrieve(eventSubscription.id);
   const priceId = subscription.items?.data?.[0]?.price?.id;
-  const tier = getTierByPriceId(priceId);
+  const tier = entitlementTierFor(getTierByPriceId(priceId));
   const status = subscription.status; // active, past_due, canceled, etc.
 
-  console.log(`[webhook] Subscription updated: user=${userId}, status=${status}, tier=${tier}`);
+  console.log(`[webhook] Subscription updated: user=${userId}, sub=${subscription.id}, status=${status}, tier=${tier}`);
 
-  if (status === 'active' && tier) {
-    // Update to new tier
-    await supabase
-      .from('profiles')
-      .update({ subscription: tier })
-      .eq('id', userId);
+  if (ENTITLED_STATUSES.has(status) && tier) {
+    // Only touch the local record created for THIS Stripe subscription.
+    const { data: rows } = await supabase
+      .from('subscriptions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('payment_ref', subscription.id)
+      .eq('status', 'active');
 
-    // Update subscription record
+    if (!rows || rows.length === 0) {
+      console.warn(`[webhook] No active local record for ${subscription.id} — not granting from subscription.updated`);
+      return;
+    }
+
     await supabase
       .from('subscriptions')
       .update({
@@ -291,12 +388,18 @@ async function processSubscriptionUpdate(userId, subscription) {
         expires_at: new Date(subscription.current_period_end * 1000).toISOString(),
       })
       .eq('user_id', userId)
+      .eq('payment_ref', subscription.id)
       .eq('status', 'active');
+
+    await supabase
+      .from('profiles')
+      .update({ subscription: tier })
+      .eq('id', userId);
   } else if (status === 'past_due') {
     console.warn(`[webhook] ⚠️ User ${userId} subscription is past_due`);
     // Don't downgrade yet — give them time to fix payment
   } else if (status === 'canceled' || status === 'unpaid') {
-    await revertToFree(userId, 'subscription_updated_' + status);
+    await revertSubscriptionToFree(userId, subscription.id, 'subscription_updated_' + status);
   }
 }
 
@@ -334,8 +437,8 @@ async function handleSubscriptionDeleted(subscription) {
     return;
   }
 
-  // Regular individual subscription
-  await revertToFree(userId, 'subscription_deleted');
+  // Regular individual subscription — only revert the record for THIS sub.
+  await revertSubscriptionToFree(userId, subscription.id, 'subscription_deleted');
 }
 
 /**
@@ -379,7 +482,9 @@ async function handlePaymentSucceeded(invoice) {
       .from('subscriptions')
       .update({ expires_at: expiresAt })
       .eq('user_id', userId)
-      .eq('status', 'active');
+      .eq('payment_ref', invoice.subscription)
+      .eq('status', 'active')
+      .lt('expires_at', expiresAt); // never shorten (replayed old invoice)
 
     console.log(`[webhook] ✅ Payment succeeded for user ${userId}, extended to ${expiresAt}`);
   }
@@ -403,20 +508,39 @@ async function getUserByCustomer(customerId) {
 }
 
 /**
- * Revert a user to the free tier.
- * Idempotent — safe to call multiple times.
+ * Revert the local record for one Stripe subscription, and drop the user to
+ * free only if no other paid entitlement (newer sub, gift, family) remains.
+ * Idempotent — a replayed event finds nothing to cancel and does nothing.
  */
-async function revertToFree(userId, reason) {
-  // Mark active paid subscriptions as cancelled
-  await supabase
+async function revertSubscriptionToFree(userId, stripeSubscriptionId, reason) {
+  const { data: cancelled } = await supabase
     .from('subscriptions')
     .update({
       status: 'cancelled',
       cancelled_at: new Date().toISOString(),
     })
     .eq('user_id', userId)
+    .eq('payment_ref', stripeSubscriptionId)
+    .eq('status', 'active')
+    .select('id');
+
+  if (!cancelled || cancelled.length === 0) {
+    console.log(`[webhook] No active local record for ${stripeSubscriptionId} — nothing to revert`);
+    return;
+  }
+
+  // Another paid entitlement still active? Leave the user on it.
+  const { data: remainingPaid } = await supabase
+    .from('subscriptions')
+    .select('id, tier')
+    .eq('user_id', userId)
     .eq('status', 'active')
     .neq('tier', 'free');
+
+  if (remainingPaid && remainingPaid.length > 0) {
+    console.log(`[webhook] User ${userId} still has another active paid record — tier unchanged`);
+    return;
+  }
 
   // Update profile to free
   await supabase
@@ -424,13 +548,24 @@ async function revertToFree(userId, reason) {
     .update({ subscription: 'free' })
     .eq('id', userId);
 
-  // Ensure a free subscription record exists
-  await supabase.from('subscriptions').insert({
-    user_id: userId,
-    tier: 'free',
-    status: 'active',
-    started_at: new Date().toISOString(),
-  });
+  // Ensure exactly one active free subscription record exists
+  const { data: freeRow } = await supabase
+    .from('subscriptions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .eq('tier', 'free')
+    .limit(1)
+    .maybeSingle();
+
+  if (!freeRow) {
+    await supabase.from('subscriptions').insert({
+      user_id: userId,
+      tier: 'free',
+      status: 'active',
+      started_at: new Date().toISOString(),
+    });
+  }
 
   // Log the event
   await supabase.from('usage_events').insert({
@@ -442,4 +577,4 @@ async function revertToFree(userId, reason) {
   console.log(`[webhook] ✅ User ${userId} reverted to free (${reason})`);
 }
 
-module.exports = { stripeWebhookHandler };
+module.exports = { stripeWebhookHandler, _resetProcessedEvents };

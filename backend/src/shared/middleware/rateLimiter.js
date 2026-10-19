@@ -11,6 +11,9 @@
 
 const rateLimit = require('express-rate-limit');
 
+// IP-wide ceiling for JWT-keyed limiters, as a multiple of the per-user max.
+const IP_BACKSTOP_MULTIPLIER = 5;
+
 /**
  * Decode a JWT payload without verification (just base64).
  * Returns the parsed payload or null on any failure.
@@ -36,6 +39,8 @@ function peekJwtUserId(req) {
  * @param {number}  [options.max=100]         - Max requests per window
  * @param {string}  [options.message]         - Error message
  * @param {boolean} [options.ipOnly=false]    - Force IP-only keying
+ * @param {number}  [options.ipBackstopMultiplier=5] - IP ceiling = max * this (JWT-keyed mode)
+ * @returns {Function|Function[]} middleware (array in JWT-keyed mode; Express accepts both)
  */
 function createRateLimiter(options = {}) {
   const {
@@ -43,24 +48,53 @@ function createRateLimiter(options = {}) {
     max = 100,
     message = 'Too many requests — please try again later.',
     ipOnly = false,
+    ipBackstopMultiplier = IP_BACKSTOP_MULTIPLIER,
   } = options;
 
-  return rateLimit({
+  const handler = (_req, res) => {
+    const retryAfter = Math.ceil(windowMs / 1000);
+    res.status(429).json({
+      error: message,
+      retry_after: retryAfter,
+    });
+  };
+
+  if (ipOnly) {
+    return rateLimit({
+      windowMs,
+      max,
+      standardHeaders: true,
+      legacyHeaders: false,
+      keyGenerator: (req) => req.ip,
+      handler,
+    });
+  }
+
+  // The JWT "sub" is NOT verified here, so a client can mint a fresh,
+  // unsigned token per request to get a fresh bucket. An IP-keyed backstop
+  // (a multiple of max, so shared NATs keep headroom) caps that bypass.
+  const ipBackstop = rateLimit({
+    windowMs,
+    max: Math.max(max, Math.ceil(max * ipBackstopMultiplier)),
+    standardHeaders: false,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
+    handler,
+  });
+
+  const perUser = rateLimit({
     windowMs,
     max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: ipOnly
-      ? (req) => req.ip
-      : (req) => peekJwtUserId(req) || req.ip,
-    handler: (_req, res) => {
-      const retryAfter = Math.ceil(windowMs / 1000);
-      res.status(429).json({
-        error: message,
-        retry_after: retryAfter,
-      });
+    keyGenerator: (req) => {
+      const sub = peekJwtUserId(req);
+      return sub ? `user:${sub}` : `ip:${req.ip}`;
     },
+    handler,
   });
+
+  return [ipBackstop, perUser];
 }
 
 module.exports = { createRateLimiter };

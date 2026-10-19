@@ -14,6 +14,7 @@
  */
 
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { supabase } = require('../lib/supabase');
 const { requireAuth } = require('../middleware/authMiddleware');
 const { syncFamilyPackContacts, removeFamilyPackContacts } = require('../../shared/familyContacts');
@@ -24,6 +25,42 @@ const PRICE_PER_USER = 3.00; // £3/user/month
 const MIN_MEMBERS = 3;
 const MAX_MEMBERS = 20; // reasonable upper limit
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL_LENGTH = 254;
+const MAX_NAME_LENGTH = 100;
+
+/** Normalised email, or null when the value is not a plausible email string. */
+function cleanEmailOrNull(value) {
+  if (typeof value !== 'string') return null;
+  const email = value.trim().toLowerCase();
+  if (!email || email.length > MAX_EMAIL_LENGTH || !EMAIL_RE.test(email)) return null;
+  return email;
+}
+
+/** Trimmed, length-capped display name, or null. */
+function cleanName(value) {
+  if (typeof value !== 'string') return null;
+  const name = value.trim().slice(0, MAX_NAME_LENGTH);
+  return name || null;
+}
+
+// Routes that send Supabase invite emails get a per-user hourly cap so a
+// pack owner cannot use them to send bulk email (each /create can invite 19).
+// Runs after requireAuth, so the key is the verified user id.
+const INVITE_WINDOW_MS = 60 * 60 * 1000;
+const INVITE_MAX_PER_WINDOW = 20;
+const inviteLimiter = rateLimit({
+  windowMs: INVITE_WINDOW_MS,
+  max: INVITE_MAX_PER_WINDOW,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `family-invite:${req.user?.id || req.ip}`,
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: 'Too many invitation requests — please try again later.',
+      retry_after: Math.ceil(INVITE_WINDOW_MS / 1000),
+    });
+  },
+});
 
 /**
  * Update the Stripe subscription quantity to match the current member count.
@@ -94,7 +131,7 @@ async function updateStripeQuantity(packId, newQuantity) {
 // Create a new family pack. The owner is automatically added as a member.
 // Body: { name?, members: [{ email, name? }, ...] }
 // At least 3 members required (including the owner).
-router.post('/create', requireAuth, async (req, res, next) => {
+router.post('/create', requireAuth, inviteLimiter, async (req, res, next) => {
   try {
     const { name, members } = req.body;
 
@@ -110,11 +147,19 @@ router.post('/create', requireAuth, async (req, res, next) => {
       });
     }
 
-    // Validate member emails
+    // Validate member emails (type, format, length, no duplicates)
+    const seenEmails = new Set();
+    const cleanMembers = [];
     for (const m of members) {
-      if (!m.email || !EMAIL_RE.test(m.email.trim().toLowerCase())) {
-        return res.status(400).json({ error: `Invalid email: ${m.email}` });
+      const email = cleanEmailOrNull(m?.email);
+      if (!email) {
+        return res.status(400).json({ error: 'Invalid member email' });
       }
+      if (seenEmails.has(email)) {
+        return res.status(400).json({ error: `Duplicate member email: ${email}` });
+      }
+      seenEmails.add(email);
+      cleanMembers.push({ email, name: cleanName(m?.name) });
     }
 
     // Get owner's profile
@@ -164,7 +209,7 @@ router.post('/create', requireAuth, async (req, res, next) => {
       .from('family_packs')
       .insert({
         owner_id: req.user.id,
-        name: name || `${ownerProfile.name || 'My'}'s Pack`,
+        name: cleanName(name) || `${ownerProfile.name || 'My'}'s Pack`.slice(0, MAX_NAME_LENGTH),
         max_members: totalMembers,
         price_per_user: PRICE_PER_USER,
         status: 'pending', // becomes 'active' after payment
@@ -189,10 +234,10 @@ router.post('/create', requireAuth, async (req, res, next) => {
     });
 
     // Add other members (pending until they activate/sign up)
-    const memberRows = members.map((m) => ({
+    const memberRows = cleanMembers.map((m) => ({
       pack_id: pack.id,
-      email: m.email.trim().toLowerCase(),
-      name: m.name || null,
+      email: m.email,
+      name: m.name,
       role: 'member',
       status: 'pending',
     }));
@@ -210,8 +255,8 @@ router.post('/create', requireAuth, async (req, res, next) => {
 
     // Send Supabase invite emails to all members and track results
     const emailResults = [];
-    for (const m of members) {
-      const email = m.email.trim().toLowerCase();
+    for (const m of cleanMembers) {
+      const { email } = m;
       try {
         const { data, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
           data: { invited_by: ownerProfile.name, family_pack_id: pack.id },
@@ -362,15 +407,15 @@ router.get('/my-pack', requireAuth, async (req, res, next) => {
 // ─── POST /api/family/add-member ─────────────────────────────────────────────
 // Add a new member to an existing pack. Only the pack owner can do this.
 // Body: { email, name? }
-router.post('/add-member', requireAuth, async (req, res, next) => {
+router.post('/add-member', requireAuth, inviteLimiter, async (req, res, next) => {
   try {
-    const { email, name } = req.body;
+    const { email } = req.body;
+    const name = cleanName(req.body?.name);
 
-    if (!email || !EMAIL_RE.test(email.trim().toLowerCase())) {
+    const cleanEmail = cleanEmailOrNull(email);
+    if (!cleanEmail) {
       return res.status(400).json({ error: 'Valid email is required' });
     }
-
-    const cleanEmail = email.trim().toLowerCase();
 
     // Find owner's pack
     const { data: pack } = await supabase
@@ -596,6 +641,9 @@ router.post('/remove-member', requireAuth, async (req, res, next) => {
     if (member_id) {
       query = query.eq('id', member_id);
     } else if (email) {
+      if (typeof email !== 'string') {
+        return res.status(400).json({ error: 'Email or member_id is required' });
+      }
       query = query.eq('email', email.trim().toLowerCase());
     } else {
       return res.status(400).json({ error: 'Email or member_id is required' });
@@ -781,7 +829,7 @@ router.post('/activate', requireAuth, async (req, res, next) => {
 // Update a pending member's email address and resend the invitation.
 // Only the pack owner can do this, and only for pending members.
 // Body: { member_id, new_email }
-router.post('/update-member-email', requireAuth, async (req, res, next) => {
+router.post('/update-member-email', requireAuth, inviteLimiter, async (req, res, next) => {
   try {
     const { member_id, new_email } = req.body;
 
@@ -789,8 +837,8 @@ router.post('/update-member-email', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'member_id and new_email are required' });
     }
 
-    const cleanEmail = new_email.trim().toLowerCase();
-    if (!EMAIL_RE.test(cleanEmail)) {
+    const cleanEmail = cleanEmailOrNull(new_email);
+    if (!cleanEmail) {
       return res.status(400).json({ error: 'Invalid email address' });
     }
 
@@ -884,7 +932,7 @@ router.post('/update-member-email', requireAuth, async (req, res, next) => {
 // ─── POST /api/family/resend-invite ──────────────────────────────────────────
 // Resend invitation email to a pending member. Only the pack owner can do this.
 // Body: { member_id }
-router.post('/resend-invite', requireAuth, async (req, res, next) => {
+router.post('/resend-invite', requireAuth, inviteLimiter, async (req, res, next) => {
   try {
     const { member_id } = req.body;
 
