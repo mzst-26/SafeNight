@@ -1,0 +1,8 @@
+[Unit]
+Description=Pull and redeploy SafeNight from GitHub main
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/safenight/deploy/oracle/update-stack.sh
