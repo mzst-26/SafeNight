@@ -4,6 +4,17 @@ import type { RouteLayerSpec } from './routeLayers';
 
 export type MapType = 'roadmap';
 
+/** Score pill shown on the map at the midpoint of a route so routes can be compared without leaving the map. */
+export interface RouteBadge {
+  routeId: string;
+  lat: number;
+  lng: number;
+  /** Short label, e.g. '62'. */
+  text: string;
+  /** True for the selected route (drawn emphasised, not tappable as a switch). */
+  selected: boolean;
+}
+
 /** A live friend's position to display on the map */
 export interface FriendMapMarker {
   userId: string;
@@ -29,6 +40,8 @@ export type RouteMapProps = {
   roadLabels?: RoadLabel[];
   /** Renderer-agnostic layers for the selected route (v2 safety model). When set it replaces routeSegments/safetyMarkers drawing. */
   routeLayers?: RouteLayerSpec | null;
+  /** One score pill per route, drawn on the map when routeLayers is set. Tapping a non-selected badge selects that route. */
+  routeBadges?: RouteBadge[];
   /** When set, the map smoothly pans to this location. Bump the key to re-trigger. */
   panTo?: { location: LatLng; key: number } | null;
   /** Increment to force fitting visible search-candidate markers into view. */
