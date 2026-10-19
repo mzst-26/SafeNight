@@ -323,6 +323,13 @@ describe('inferLighting: absence of lamps (mapping completeness)', () => {
     }).source).toBe('prior');
   });
 
+  test('the mapped-road floor is inclusive: 0.3 km triggers the absence rule, 0.29 km does not', () => {
+    const dense = { lampCount30m: 0, areaLampDensityPerKm: 5 };
+
+    expect(infer(residentialNoSidewalk, { ...dense, areaWayKm: 0.3 }).source).toBe('absence');
+    expect(infer(residentialNoSidewalk, { ...dense, areaWayKm: 0.29 }).source).toBe('prior');
+  });
+
   test('does not apply when a lamp is nearby', () => {
     expect(infer(residentialNoSidewalk, {
       lampCount30m: 1,

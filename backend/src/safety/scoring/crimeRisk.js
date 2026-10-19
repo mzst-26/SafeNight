@@ -34,9 +34,9 @@ function recencyWeight(monthsAgo, halfLifeMonths = CRIME.HALF_LIFE_MONTHS) {
 /**
  * Sum of severity * recency over crimes.
  *
- * Skipped, not counted and not thrown on: null or undefined entries, entries whose monthsAgo
- * is not finite, and entries whose monthsAgo is negative (a crime dated after the window is
- * bad data, so it contributes nothing).
+ * Null or undefined entries are skipped. A row whose monthsAgo is not finite, or is negative,
+ * still happened, so it is counted at full recency weight (as if monthsAgo were 0). Treating it
+ * as zero harm would understate the risk of a real crime just because its date is bad.
  *
  * @param {Array<{category: string, monthsAgo: number}>} crimes
  * @param {{halfLifeMonths?: number}} [options]
@@ -49,8 +49,8 @@ function weightedCrimeCount(crimes, { halfLifeMonths = CRIME.HALF_LIFE_MONTHS } 
   }
   return crimes.reduce((sum, crime) => {
     if (!crime) return sum;
-    const { monthsAgo } = crime;
-    if (!Number.isFinite(monthsAgo) || monthsAgo < 0) return sum;
+    const usableAge = Number.isFinite(crime.monthsAgo) && crime.monthsAgo >= 0;
+    const monthsAgo = usableAge ? crime.monthsAgo : 0;
     return sum + severityOf(crime.category) * recencyWeight(monthsAgo, halfLifeMonths);
   }, 0);
 }

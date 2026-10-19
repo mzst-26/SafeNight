@@ -6,7 +6,7 @@
  */
 
 // Floor on a factor's safety before taking its log: one factor at 0 bounds edge risk below 1.
-const EPS = 0.05;
+const MIN_FACTOR_SAFETY = 0.05;
 
 // Base weights per factor, before the darkness gate and level renormalisation. Sum to 1.
 const BASE_WEIGHTS = Object.freeze({
@@ -45,10 +45,11 @@ const RISK_POOR_THRESHOLD = 0.6;
 const CAUSE_MIN_RISK = 0.1;
 
 // Blend between mean edge risk and the cube-mean (M3) in route aggregation; higher favours worst stretches.
-const G = 0.4;
+const CUBE_MEAN_BLEND = 0.4;
 
-// Evidence strength: an estimate with n = N0 counts as half-certain. Used by edge risk and lighting alike.
-const N0 = 4;
+// Evidence strength: an estimate with n = EVIDENCE_PSEUDO_COUNT counts as half-certain.
+// Used by edge risk and lighting alike, through evidence.js.
+const EVIDENCE_PSEUDO_COUNT = 4;
 
 // Crime risk (empirical-Bayes shrinkage towards an area prior). Units are in crimes, km and months.
 const CRIME = Object.freeze({
@@ -85,9 +86,9 @@ const LIGHTING = Object.freeze({
     automatic: Object.freeze({ pLit: 0.5, n: 10 }),
   }),
 
-  // Street-lamp evidence within 30 m of the segment.
+  // Street-lamp evidence within LAMP_RADIUS_M of the segment.
   LAMP: Object.freeze({
-    // One lamp within 30 m is a strong sign the segment is lit; the one-lamp level, not the many-lamp level.
+    // One lamp within LAMP_RADIUS_M is a strong sign the segment is lit; the one-lamp level, not the many-lamp level.
     PLIT_ONE: 0.85,
     // Three or more lamps indicate a well-lit stretch.
     PLIT_MANY: 0.92,
@@ -137,8 +138,9 @@ const LIGHTING = Object.freeze({
 });
 
 // Floor for the activity factor: a street with no open places, cameras or transit nearby is
-// quiet, not hostile, so activity safety never drops below this.
-const ACTIVITY_FLOOR = 0.3;
+// quiet, not hostile, so activity safety never drops below this. Equal to PRIOR_SAFETY.activity so
+// that having activity data that shows nothing nearby is never worse than having no data at all.
+const ACTIVITY_FLOOR = 0.4;
 
 // Roads at or above this speed (km/h, 50 mph) with no sidewalk are treated as walking hazards.
 // Set well above urban limits because 95% of ways carry no sidewalk tag at all.
@@ -147,7 +149,9 @@ const HAZARD_SPEED_KMH = 80;
 // Longest route, as a multiple of the shortest, that may still be recommended.
 const MAX_LENGTH_RATIO = 1.5;
 
-// Radius (m) within which a mapped lamp counts as lighting an edge.
+// Radius (m) within which a mapped street lamp counts as lighting an edge. This is the radius
+// the caller (safetyGraph) uses when it counts lamps for lightingInference's lampCount30m input,
+// so the count and the constant must agree. lightingInference itself only sees the count.
 const LAMP_RADIUS_M = 30;
 
 module.exports = Object.freeze({
@@ -155,13 +159,13 @@ module.exports = Object.freeze({
   HAZARD_SPEED_KMH,
   MAX_LENGTH_RATIO,
   LAMP_RADIUS_M,
-  EPS,
+  MIN_FACTOR_SAFETY,
   BASE_WEIGHTS,
   PRIOR_SAFETY,
   RISK_POOR_THRESHOLD,
   CAUSE_MIN_RISK,
-  G,
-  N0,
+  CUBE_MEAN_BLEND,
+  EVIDENCE_PSEUDO_COUNT,
   CRIME,
   DARKNESS,
   LIGHTING,

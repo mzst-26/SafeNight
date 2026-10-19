@@ -2,8 +2,8 @@
  * crimeClient.js — UK Police API client with crime-type weighting.
  *
  * ACCURACY IMPROVEMENTS:
- *   • Categorises crimes by severity (violent > property > nuisance)
- *   • Returns severity weight with each crime for distance-weighted scoring
+ *   • Tags each crime with its category severity (violent > property > nuisance); the v2 model
+ *     (scoring/crimeRisk.js) weights crimes by severity and by the month they were recorded
  *   • 24-hour cache — crime data only updates monthly
  *   • Handles API limits gracefully
  *

@@ -6,14 +6,15 @@
  * of the evidence behind it. effectiveLit shrinks that estimate towards 0.5 when
  * the evidence is thin, so a guess never looks as certain as a surveyed tag.
  *
- * Every numeric tunable lives in config.js (LIGHTING, N0). The sets below are
- * OSM class taxonomy, not tunables.
+ * Every numeric tunable lives in config.js (LIGHTING, EVIDENCE_PSEUDO_COUNT). The sets below are
+ * OSM class taxonomy, not tunables. Evidence strength comes from evidence.js, shared with edgeRisk.
  *
  * All functions are pure and never mutate their inputs.
  */
 
-const { LIGHTING, N0 } = require('./config');
-const { assertNonNegative, assertInRange } = require('./validation');
+const { LIGHTING, EVIDENCE_PSEUDO_COUNT } = require('./config');
+const { assertNonNegative, assertNonNegativeInteger, assertInRange } = require('./validation');
+const { evidenceStrength } = require('./evidence');
 
 const MAXSPEED_PATTERN = /^(\d+(?:\.\d+)?)\s*(mph|km\/h|kmh)?$/;
 
@@ -118,7 +119,7 @@ function assertTags(tags) {
  *
  * @param {Object} input
  * @param {Object} input.tags - OSM tags of the way
- * @param {number} input.lampCount30m - street lamps within 30 m (integer >= 0)
+ * @param {number} input.lampCount30m - street lamps within LAMP_RADIUS_M of the segment, counted by the caller (integer >= 0)
  * @param {number} input.areaLampDensityPerKm - mapped lamps per km in the surrounding area
  * @param {number} input.areaWayKm - mapped road length in the surrounding area, km
  * @returns {{pLit: number, n: number, source: 'tag'|'lamp'|'absence'|'prior'}}
@@ -126,9 +127,7 @@ function assertTags(tags) {
  */
 function inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm }) {
   assertTags(tags);
-  if (!Number.isInteger(lampCount30m) || lampCount30m < 0) {
-    throw new TypeError('lampCount30m must be a non-negative integer');
-  }
+  assertNonNegativeInteger('lampCount30m', lampCount30m);
   assertNonNegative('areaLampDensityPerKm', areaLampDensityPerKm);
   assertNonNegative('areaWayKm', areaWayKm);
 
@@ -169,18 +168,17 @@ function inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm }) 
 function effectiveLit({ pLit, n }) {
   assertInRange('pLit', pLit, 0, 1);
   assertNonNegative('n', n);
-  return (pLit * n + LIGHTING.NEUTRAL_LIT * N0) / (n + N0);
+  return (pLit * n + LIGHTING.NEUTRAL_LIT * EVIDENCE_PSEUDO_COUNT) / (n + EVIDENCE_PSEUDO_COUNT);
 }
 
 /**
- * How much evidence backs an estimate, in [0, 1).
+ * How much evidence backs an estimate, in [0, 1). Same formula as edgeRisk's certainty.
  * @param {{n: number}} estimate
- * @returns {number} n / (n + n0)
+ * @returns {number} evidenceStrength(n)
  * @throws {TypeError} when n is negative or not finite
  */
 function lightingCertainty({ n }) {
-  assertNonNegative('n', n);
-  return n / (n + N0);
+  return evidenceStrength(n);
 }
 
 module.exports = {

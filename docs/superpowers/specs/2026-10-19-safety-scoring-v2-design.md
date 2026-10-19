@@ -169,15 +169,29 @@ Factors (5, no double counting): `lighting`, `crime`, `road` (class only), `acti
 `risk = 1 - prod_i( max(eps, s_i) ^ w~_i )`, `eps = 0.05`, `w~` = weights over available factors, renormalised to sum 1. Lighting weight is multiplied by darkness `d(t)` before renormalising (so sums stay 1). No separate veto in v1; revisit if backtest demands.
 
 ### 11.3 Lighting
-`inferLighting` returns `{pLit, n}`. Explicit `lit=yes` 0.95/n20, `lit=no` 0.05/n20, `limited` 0.5/n10. Else lamps within 30 m raise it; else prior from tags: `maxspeed` 30 mph or `living_street`/residential with `sidewalk` ≈ 0.80 (data: maxspeed=30 mph is 94.7% lit=yes among tagged ways, residential 96%; tagged ways are a biased sample, so shrink), `path/track/bridleway/footway` far from lamps ≈ 0.15, trunk/primary ≈ 0.9, otherwise 0.4. Mapping-completeness: if the area (~300 m) has lamp density above a floor, "no lamp nearby" lowers `pLit`; if none are mapped, prior only.
-`effectiveLit = (pLit*n + 0.5*n0)/(n + n0)`, `n0 = 4`. **Property (replaces the old one):** known-dark <= unknown <= known-lit, always. Lighting uncertainty = `1 - n/(n+n0)`.
+`inferLighting` returns `{pLit, n, source}`. Explicit tags win: `lit=yes` and `24/7` 0.95/n20, `lit=no` 0.05/n20, `limited` and `automatic` 0.5/n10. Otherwise lamps within `LAMP_RADIUS_M` (30 m, counted by the caller) raise it: one lamp gives at least 0.85, three or more at least 0.92, and n rises by 6.
+Otherwise the tag prior, checked in this order (config `LIGHTING.PRIOR`):
+- path classes (`path`, `track`, `bridleway`, `footway`, `cycleway`, `steps`): 0.15/n3. Checked before speed, so a footway with a speed tag stays a path.
+- `trunk`, `primary`, `secondary` (MAJOR): 0.85/n4.
+- an urban speed limit: `maxspeed` at most 50 km/h after mph conversion (30 mph is about 48 km/h), or `gb:urban` (48 km/h): 0.80/n4.
+- `residential` or `living_street` with a `sidewalk` tag: 0.80/n4; without one: 0.70/n3.
+- `tertiary`: 0.70/n3.
+- `service`: 0.40/n2.
+- anything else (`unclassified`, unknown class): 0.40/n2.
+
+Data context: maxspeed=30 mph is 94.7% lit=yes among tagged ways and residential 96%. Tagged ways are a biased sample, so these priors are shrunk with modest n rather than taken at the data rate.
+Mapping completeness: when the surrounding area has lamp density above 2 per km and at least 0.3 km of mapped road, "no lamp nearby" lowers `pLit` to 0.6 of the prior and n rises by 3 (`source: absence`). Where lamps are sparsely mapped, the prior alone applies.
+`effectiveLit = (pLit*n + 0.5*n0)/(n + n0)`, `n0 = 4` (config `EVIDENCE_PSEUDO_COUNT`). **Property (replaces the old one):** known-dark <= unknown <= known-lit, always. Lighting certainty = `n/(n+n0)`, shared with edge risk through `evidence.js`; uncertainty is `1 - n/(n+n0)`.
 Phase 2 (optional, only if backtest shows value): per-way pre-aggregated `buildingCount40m`, landuse class (~60 B/way, ~0.5 GB, second osmium pass; ~400-600 LOC plus re-ingest). Not required for v1.
 
 ### 11.4 Crime
-Aggregate cell (500 m) severity-weighted counts over 12 months, recency half-life chosen by held-out Poisson deviance from {1,2,4,8,inf} (default 4). `lambda = (count + k*mu) / (exposureKm + k)` empirical-Bayes toward area mean `mu`; `risk = 1 - exp(-lambda_scaled)`. Locations are anonymised, so no sub-cell kernels. `status: unavailable` returns the area prior with `n = 0` and flags dataQuality.
+Aggregate cell (500 m) severity-weighted counts over 12 months, recency half-life chosen by held-out Poisson deviance from {1,2,4,8,inf} (default 4). `lambda = (count + k*mu) / (exposureKm + k)` empirical-Bayes toward area mean `mu`; `risk = 1 - exp(-lambda_scaled)`. Locations are anonymised, so no sub-cell kernels. `status: unavailable` returns the area prior with `n = 0` and flags dataQuality. A crime row whose `monthsAgo` is unusable (non-finite or negative) still happened, so it is counted at full recency weight, never as zero harm. Null rows are skipped.
 
 ### 11.5 Aggregation
-`routeRisk = (1-g)*mean + g*M3`, `M3 = (sum(L_i r_i^3)/sum(L_i))^(1/3)`, `g = 0.4`, length-weighted; invariant to splitting a segment. `worstStretch` = longest merged run of edges with `r >= 0.6` (report only, not in the score). `certainty` = length-weighted mean of per-edge evidence strength.
+`routeRisk = (1-g)*mean + g*M3`, `M3 = (sum(L_i r_i^3)/sum(L_i))^(1/3)`, `g = CUBE_MEAN_BLEND = 0.4`, length-weighted; invariant to splitting a segment.
+The score is contiguity-blind by design. It depends only on the length-weighted mean and cube-mean over all edges, so the same poor edges give the same score whether they form one run or are spread along the route. The score is not meant to capture a single dark stretch.
+`worstStretch` = longest merged run of consecutive edges with `r >= 0.6` (`RISK_POOR_THRESHOLD`). It is reported alongside the score and drives the "avoids a N m dark stretch" clause in the reason, but it does not change the score. Where two runs tie in length, the first one along the route is reported.
+`certainty` = length-weighted mean of per-edge evidence strength.
 
 ### 11.6 Constants and acceptance
 All tunables live in one `scoring/config.js` with the rationale; a test asserts weights sum to 1 after renormalisation. **Acceptance criteria (measurable):**
@@ -190,7 +204,7 @@ All tunables live in one `scoring/config.js` with the rationale; a test asserts 
 
 ### 11.7 Module interfaces (pure functions, CommonJS, `backend/src/safety/scoring/`)
 - `darkness.js`: `sunElevationDeg({lat,lng,date})`; `darknessFactor({lat,lng,date})` smoothstep from 0 at elevation +6 deg to 1 at -6 deg; `darknessForHour({lat,lng,hour,now})`.
-- `config.js`: constants. `weights.js`: `getWeights({darkness, safetyLevel})` renormalised.
+- `config.js`: constants. `weights.js`: `getWeights({darkness, safetyLevel})` renormalised. `evidence.js`: `evidenceStrength(n)` = `n/(n+EVIDENCE_PSEUDO_COUNT)`, shared by `lightingInference` and `edgeRisk`.
 - `lightingInference.js`: `inferLighting({tags,lampCount30m,areaLampDensityPerKm,areaWayKm})` -> `{pLit,n,source}`; `effectiveLit({pLit,n})`; `lightingCertainty`.
 - `crimeRisk.js`: `crimeRisk({weightedCount,exposureKm,priorRate,priorStrength,status})` -> `{risk,lambda,n,status}`.
 - `edgeRisk.js`: `edgeRisk({factors,weights,eps})` -> `{risk,certainty,dominantCause}`.
@@ -203,3 +217,4 @@ All tunables live in one `scoring/config.js` with the rationale; a test asserts 
 - 2026-10-19 v0.1 initial draft.
 - 2026-10-19 v0.2 folded in R2/R3/R6 review (crime precompute, outage contract, security criteria, map comparison strip).
 - 2026-10-19 v0.3 R1 review: units fixed (H ranking), blend eps, unknown ordering, crime EB, acceptance criteria, module interfaces.
+- 2026-10-19 v0.3.1 P1a polish: 11.3 priors and urban-speed rule, 11.4 unusable crime dates counted at full weight, 11.5 contiguity-blind score with `worstStretch` reported, `evidence.js` added to 11.7. Spec now matches `scoring/config.js`.

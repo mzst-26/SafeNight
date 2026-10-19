@@ -14,6 +14,7 @@ const {
   isHazardEdge,
   useV2,
 } = require(path.resolve(__dirname, '../../../../src/safety/services/safetyGraph'));
+const { ACTIVITY_FLOOR } = require(path.resolve(__dirname, '../../../../src/safety/scoring/config'));
 
 const LAT = 51.5;
 const LNG = -0.1;
@@ -288,13 +289,30 @@ describe('safetyGraph v2 model', () => {
       expect(standardCctv.edges[4].risk).toBeCloseTo(standardNone.edges[4].risk, 12);
       expect(standardCctv.weights.activity).toBe(0);
     });
+
+    // A camera 444 m north of the unmapped street: inside the bbox, far outside the 80 m CCTV radius.
+    const farCamera = { elements: [{ type: 'node', id: 902, lat: LAT + 0.007, lon: LNG + 0.004 }] };
+
+    test('a single far-away camera gives activity the floor, not zero, so trafficScore is the road score blended with ACTIVITY_FLOOR', async () => {
+      const net = streetNetwork();
+      const far = await buildGraph(net.roadData, net.lightData, farCamera, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+      const edge = far.edges[4];
+      expect(edge.trafficScore).toBeCloseTo((edge.roadScore + ACTIVITY_FLOOR) / 2, 9);
+    });
+
+    test('a single far-away camera does not make an edge riskier than the same street with no activity data at all', async () => {
+      const net = streetNetwork();
+      const none = await buildStreets({ ...NIGHT });
+      const far = await buildGraph(net.roadData, net.lightData, farCamera, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+      expect(far.edges[4].risk).toBeLessThanOrEqual(none.edges[4].risk);
+    });
   });
 
-  describe('maxspeed hazards parse units', () => {
+  describe('maxspeed hazards (v2 threshold 80 km/h, 50 mph)', () => {
     const base = { hasSidewalk: false, isTunnel: false, isLit: false };
 
-    test('40 mph (about 64 km/h) with no sidewalk is a hazard', () => {
-      expect(isHazardEdge({ ...base, maxspeed: '40 mph' })).toBe(true);
+    test('40 mph (about 64 km/h) with no sidewalk is not a hazard', () => {
+      expect(isHazardEdge({ ...base, maxspeed: '40 mph' })).toBe(false);
     });
 
     test('30 mph (about 48 km/h) is not a hazard, and neither is a bare 30 with no unit', () => {
@@ -302,8 +320,45 @@ describe('safetyGraph v2 model', () => {
       expect(isHazardEdge({ ...base, maxspeed: '30' })).toBe(false);
     });
 
-    test('a metric limit of 50 km/h with no sidewalk is a hazard', () => {
+    test('50 mph (about 80 km/h) with no sidewalk is a hazard, and 49 mph (about 79 km/h) is not', () => {
+      expect(isHazardEdge({ ...base, maxspeed: '50 mph' })).toBe(true);
+      expect(isHazardEdge({ ...base, maxspeed: '49 mph' })).toBe(false);
+    });
+
+    test('a bare 80 is read as km/h and is a hazard, a bare 79 is not, and km/h spellings count as km/h', () => {
+      expect(isHazardEdge({ ...base, maxspeed: '80' })).toBe(true);
+      expect(isHazardEdge({ ...base, maxspeed: '79' })).toBe(false);
+      expect(isHazardEdge({ ...base, maxspeed: '80 km/h' })).toBe(true);
+      expect(isHazardEdge({ ...base, maxspeed: '80kmh' })).toBe(true);
+    });
+
+    test('a sidewalk on a fast road means it is not a hazard', () => {
+      expect(isHazardEdge({ ...base, hasSidewalk: true, maxspeed: '60 mph' })).toBe(false);
+    });
+
+    test('an unparseable maxspeed is not a hazard', () => {
+      expect(isHazardEdge({ ...base, maxspeed: 'signals' })).toBe(false);
+      expect(isHazardEdge({ ...base, maxspeed: '' })).toBe(false);
+    });
+
+    test('an unlit tunnel is still a hazard at any speed', () => {
+      expect(isHazardEdge({ ...base, isTunnel: true, maxspeed: '30 mph' })).toBe(true);
+    });
+  });
+
+  describe('maxspeed hazards with SAFETY_MODEL=v1 (characterization, unchanged)', () => {
+    const previous = process.env.SAFETY_MODEL;
+    beforeEach(() => { process.env.SAFETY_MODEL = 'v1'; });
+    afterEach(() => {
+      if (previous === undefined) delete process.env.SAFETY_MODEL;
+      else process.env.SAFETY_MODEL = previous;
+    });
+    const base = { hasSidewalk: false, isTunnel: false, isLit: false };
+
+    test('v1 reads the leading number, so a bare 50 and 50 mph are hazards', () => {
       expect(isHazardEdge({ ...base, maxspeed: '50' })).toBe(true);
+      expect(isHazardEdge({ ...base, maxspeed: '50 mph' })).toBe(true);
+      expect(isHazardEdge({ ...base, maxspeed: '40 mph' })).toBe(false);
     });
   });
 

@@ -44,4 +44,17 @@ function assertInRange(name, value, min, max) {
   return value;
 }
 
-module.exports = { assertFinite, assertNonNegative, assertInRange };
+/**
+ * @param {string} name
+ * @param {*} value
+ * @returns {number} The value, when it is an integer >= 0.
+ * @throws {TypeError}
+ */
+function assertNonNegativeInteger(name, value) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
+module.exports = { assertFinite, assertNonNegative, assertNonNegativeInteger, assertInRange };

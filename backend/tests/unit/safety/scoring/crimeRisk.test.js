@@ -85,14 +85,23 @@ describe('weightedCrimeCount', () => {
     expect(weightedCrimeCount(crimes, { halfLifeMonths: Infinity })).toBeCloseTo(2, 12);
   });
 
-  test('skips entries with non-finite monthsAgo', () => {
+  test('counts an entry with non-finite monthsAgo at full recency weight, never as zero harm', () => {
+    // Bad date on a real crime row: it still happened, so it counts as if it were current.
     const crimes = [
       { category: 'violent-crime', monthsAgo: 0 },
       { category: 'violent-crime', monthsAgo: NaN },
       { category: 'violent-crime', monthsAgo: Infinity },
       { category: 'violent-crime', monthsAgo: undefined },
     ];
-    expect(weightedCrimeCount(crimes)).toBe(1);
+    expect(weightedCrimeCount(crimes)).toBe(4);
+  });
+
+  test('a row with an unusable date weighs the same as a current row of its category', () => {
+    const current = weightedCrimeCount([{ category: 'burglary', monthsAgo: 0 }]);
+    const undated = weightedCrimeCount([{ category: 'burglary', monthsAgo: NaN }]);
+
+    expect(undated).toBe(current);
+    expect(undated).toBeGreaterThan(0);
   });
 
   test('skips null and undefined entries instead of throwing', () => {
@@ -100,12 +109,13 @@ describe('weightedCrimeCount', () => {
     expect(weightedCrimeCount(crimes)).toBe(1);
   });
 
-  test('skips negative monthsAgo (a crime dated in the future is bad data, not a weight)', () => {
+  test('counts a negative monthsAgo at full recency weight, the same as an unusable date', () => {
+    // A date after the window is bad data about when, not evidence the crime was harmless.
     const crimes = [
       { category: 'violent-crime', monthsAgo: 0 },
       { category: 'violent-crime', monthsAgo: -1 },
     ];
-    expect(weightedCrimeCount(crimes)).toBe(1);
+    expect(weightedCrimeCount(crimes)).toBe(2);
   });
 
   test('unknown categories contribute the fallback severity 0.4', () => {

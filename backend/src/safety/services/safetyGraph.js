@@ -40,7 +40,8 @@ const { getWeights: getFactorWeights } = require('../scoring/weights');
 const { edgeRisk } = require('../scoring/edgeRisk');
 const { crimeRisk, weightedCrimeCount } = require('../scoring/crimeRisk');
 const { aggregateRoute, rankRoutes } = require('../scoring/routeAggregate');
-const { PRIOR_SAFETY } = require('../scoring/config');
+const { PRIOR_SAFETY, ACTIVITY_FLOOR, HAZARD_SPEED_KMH, LAMP_RADIUS_M } = require('../scoring/config');
+const { severityOf } = require('./crimeSeverity');
 
 const ENABLE_PLACE_OPENING_HOURS_PARSE = process.env.SAFE_ROUTES_PARSE_PLACE_OPENING_HOURS === '1';
 const DEBUG_SAFE_ROUTES = process.env.SAFE_ROUTES_DEBUG === '1';
@@ -120,10 +121,7 @@ const V2 = Object.freeze({
   CCTV_RADIUS_M: 80,
   PLACE_RADIUS_M: 80,
   TRANSIT_RADIUS_M: 150,
-  LAMP_RADIUS_M: 30,
   LAMP_NEAR_PATH_M: 60,
-  // A candidate with a maxspeed at or above this (km/h) and no sidewalk is a hazard.
-  HAZARD_SPEED_KMH: 50,
 });
 
 // Path classes for the unlit-path isolation penalty.
@@ -133,7 +131,7 @@ const PATH_CLASS_HIGHWAYS = new Set(['path', 'track', 'bridleway', 'footway', 's
 // Weights shift based on time of day (late night = crime matters more)
 // Standard level has no CCTV or place data, so those weights are dropped and the
 // remaining weights are rescaled to sum to 1 (keeps scores on the same scale).
-function getWeights(hour, level = SAFETY_LEVEL_EXTRA) {
+function getV1Weights(hour, level = SAFETY_LEVEL_EXTRA) {
   const base = getBaseWeights(hour);
   if (level !== SAFETY_LEVEL_STANDARD) return base;
 
@@ -265,7 +263,7 @@ function buildCrimeCoverage(crimes, bbox, shouldCancel) {
     const cMin = Math.max(0, Math.floor((crime.lng - CRIME_RADIUS_DEG - bbox.west) / COVERAGE_CELL_DEG));
     const cMax = Math.min(cols - 1, Math.ceil((crime.lng + CRIME_RADIUS_DEG - bbox.west) / COVERAGE_CELL_DEG));
 
-    const severity = crime.severity || 0.4;
+    const severity = Number.isFinite(crime.severity) ? crime.severity : severityOf(crime.category);
 
     for (let r = rMin; r <= rMax; r++) {
       for (let c = cMin; c <= cMax; c++) {
@@ -317,7 +315,7 @@ async function buildGraphV1(roadData, lightData, cctvData, placeData, transitDat
     ? options.shouldCancel
     : null;
   const hour = options.hour != null ? options.hour : new Date().getHours();
-  const weights = getWeights(hour, options?.level);
+  const weights = getV1Weights(hour, options?.level);
 
   // 1. Index all OSM nodes by ID
   const osmNodes = new Map();
@@ -634,6 +632,30 @@ function hasOwnKey(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
+/** Calendar month index (year * 12 + zero-based month) of a 'YYYY-MM' string, or null if malformed. */
+function monthIndexOf(month) {
+  const match = typeof month === 'string' ? /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month) : null;
+  return match ? Number(match[1]) * 12 + (Number(match[2]) - 1) : null;
+}
+
+/**
+ * Adapter from crimeClient rows ({category, month: 'YYYY-MM'}) to the {category, monthsAgo}
+ * input of weightedCrimeCount. Recency is measured back from the NEWEST month present in the
+ * rows, not from today: the Police API publishes a couple of months late, so anchoring on the
+ * clock would discount every crime in the latest release. A missing or malformed month counts
+ * as the newest month (full weight), so bad rows never read as zero harm.
+ * @param {Array<{category: string, month?: string}>} crimes
+ * @returns {Array<{category: string, monthsAgo: number}>}
+ */
+function crimesToWeightedCounts(crimes) {
+  const indexes = crimes.map((crime) => monthIndexOf(crime.month));
+  const newest = Math.max(...indexes.filter((i) => i !== null), -Infinity);
+  return crimes.map((crime, i) => ({
+    category: crime.category,
+    monthsAgo: indexes[i] === null ? 0 : newest - indexes[i],
+  }));
+}
+
 /** Area cell (about 300 m) used for lamp density and road length. */
 function areaCellKey(lat, lng) {
   return `${Math.floor(lat / V2.AREA_CELL_DEG)},${Math.floor(lng / V2.AREA_CELL_DEG)}`;
@@ -666,7 +688,7 @@ function isPlaceOpenV2(tags, hour, now) {
       const cleaned = hoursRaw
         .split(';').map((s) => s.trim())
         .filter((s) => !/^\s*PH\b/.test(s))
-        .map((s) => s.replace(/,\s*PH\b/g, ''))
+        .map((s) => s.replace(/,\s*PH\b[^;]*/g, ''))
         .filter(Boolean).join('; ');
       if (cleaned) {
         const oh = new opening_hours_lib(cleaned, { address: { country_code: 'gb' } });
@@ -851,13 +873,15 @@ async function buildGraphV2(roadData, lightData, cctvData, placeData, transitDat
     }
     return cell;
   };
+  const inBbox = [];
   for (const crime of crimes || []) {
     tick();
     if (!crime || !Number.isFinite(crime.lat) || !Number.isFinite(crime.lng)) continue;
     if (crime.lat < bbox.south || crime.lat > bbox.north || crime.lng < bbox.west || crime.lng > bbox.east) continue;
-    // The client only returns the latest month, so every crime is treated as current.
-    crimeCellAt(cellKeyOf(crime.lat, crime.lng)).crimes.push({ category: crime.category, monthsAgo: 0 });
+    inBbox.push(crime);
   }
+  const weightedRows = crimesToWeightedCounts(inBbox);
+  inBbox.forEach((crime, i) => crimeCellAt(cellKeyOf(crime.lat, crime.lng)).crimes.push(weightedRows[i]));
   let totalWeighted = 0;
   for (const cell of crimeCells.values()) {
     cell.weightedCount = weightedCrimeCount(cell.crimes);
@@ -877,8 +901,8 @@ async function buildGraphV2(roadData, lightData, cctvData, placeData, transitDat
     const { idx: edgeIdx, from, to, nA, nB, dist, highway, tags, midLat, midLng } = p;
 
     // Lighting: lamps within 30 m (a lit-way node nearby counts as one lamp), then the estimate.
-    const litNearby = countNearby(litGrid, midLat, midLng, V2.LAMP_RADIUS_M) > 0 ? 1 : 0;
-    const lampCount30m = countNearby(lampGrid, midLat, midLng, V2.LAMP_RADIUS_M) + litNearby;
+    const litNearby = countNearby(litGrid, midLat, midLng, LAMP_RADIUS_M) > 0 ? 1 : 0;
+    const lampCount30m = countNearby(lampGrid, midLat, midLng, LAMP_RADIUS_M) + litNearby;
     const lampCount60m = countNearby(lampGrid, midLat, midLng, V2.LAMP_NEAR_PATH_M);
     const area = areaStats.get(areaCellKey(midLat, midLng));
     const areaWayKm = area.wayKm;
@@ -918,7 +942,8 @@ async function buildGraphV2(roadData, lightData, cctvData, placeData, transitDat
     let activitySafety = null;
     if (activityAvailable) {
       const activityLoad = 0.15 * placesOpen * nightDiscount + 0.4 * cctvCount + 0.1 * transitCount;
-      activitySafety = 1 - Math.exp(-activityLoad);
+      // Floor: data exists but nothing is nearby is a quiet street, never a hostile one (safety 0).
+      activitySafety = ACTIVITY_FLOOR + (1 - ACTIVITY_FLOOR) * (1 - Math.exp(-activityLoad));
       activity = { safety: activitySafety, n: V2.ACTIVITY_N };
     }
 
@@ -1044,7 +1069,7 @@ function isHazardEdge(edge, allowHazards = false) {
     // v2 parses the unit: '40 mph' is about 64 km/h, not 40.
     const raw = typeof edge.maxspeed === 'string' ? edge.maxspeed.trim().toLowerCase() : undefined;
     const speedKmh = parseMaxspeedKmh(raw);
-    isHighSpeedNoSidewalk = speedKmh !== null && speedKmh >= V2.HAZARD_SPEED_KMH && !edge.hasSidewalk;
+    isHighSpeedNoSidewalk = speedKmh !== null && speedKmh >= HAZARD_SPEED_KMH && !edge.hasSidewalk;
   } else {
     // v1 (kept for A/B): parseInt ignores units, so '40 mph' reads as 40.
     const speed = parseInt(edge.maxspeed, 10);
@@ -1378,7 +1403,7 @@ function routeSafetyBreakdown(edges, usedEdgeIdxs, weights, edgeConfidences = nu
     roadTypePct[type] = Math.round((dist / totalDist) * 100);
   }
 
-  const w = weights || getWeights(new Date().getHours());
+  const w = weights || getV1Weights(new Date().getHours());
 
   const meanSafety = totalDist > 0
     ? (weightedRoad + weightedLight + weightedCrime + weightedCctv + weightedPlace + weightedTraffic) / totalDist
@@ -1604,7 +1629,8 @@ module.exports = {
   findKSafestRoutes,
   routeToPolyline,
   routeSafetyBreakdown,
-  getWeights,
+  getV1Weights,
+  crimesToWeightedCounts,
   ROAD_TYPE_SCORES,
   WALKABLE_HIGHWAYS,
   isHazardEdge,

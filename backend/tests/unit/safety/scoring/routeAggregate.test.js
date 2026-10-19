@@ -6,7 +6,7 @@ const {
 } = require('../../../../src/safety/scoring/routeAggregate');
 const { createSeededRandom } = require('./seededRandom');
 
-const EPS = 1e-9;
+const TOLERANCE = 1e-9;
 const CAUSES = ['lighting', 'crime', 'road', 'activity', 'isolation'];
 const ORIGIN = { lat: 50.37, lng: -4.14 };
 const DESTINATION = { lat: 50.38, lng: -4.13 };
@@ -73,7 +73,7 @@ describe('aggregateRoute property tests', () => {
       const original = aggregateRoute(edges).routeRisk;
       const splitRisk = aggregateRoute(split).routeRisk;
 
-      expect(Math.abs(splitRisk - original)).toBeLessThan(EPS);
+      expect(Math.abs(splitRisk - original)).toBeLessThan(TOLERANCE);
     }
   });
 
@@ -87,7 +87,7 @@ describe('aggregateRoute property tests', () => {
         risk,
       }));
 
-      expect(Math.abs(aggregateRoute(edges).routeRisk - risk)).toBeLessThan(EPS);
+      expect(Math.abs(aggregateRoute(edges).routeRisk - risk)).toBeLessThan(TOLERANCE);
     }
   });
 
@@ -241,6 +241,162 @@ describe('aggregateRoute worstStretch', () => {
       lengthM: 300,
       cause: 'crime',
     });
+  });
+});
+
+describe('aggregateRoute option validation', () => {
+  test.each([
+    ['g below 0', -0.1],
+    ['g above 1', 1.1],
+    ['g NaN', NaN],
+    ['g infinite', Infinity],
+  ])('throws TypeError for %s', (_name, g) => {
+    expect(() => aggregateRoute([edge(100, 0.2)], { g })).toThrow(TypeError);
+  });
+
+  test('accepts g at exactly 0 and exactly 1', () => {
+    expect(() => aggregateRoute([edge(100, 0.2)], { g: 0 })).not.toThrow();
+    expect(() => aggregateRoute([edge(100, 0.2)], { g: 1 })).not.toThrow();
+  });
+
+  test.each([
+    ['zero', 0],
+    ['negative', -0.1],
+    ['above 1', 1.5],
+    ['NaN', NaN],
+    ['infinite', Infinity],
+  ])('throws TypeError for a poorThreshold that is %s', (_name, poorThreshold) => {
+    expect(() => aggregateRoute([edge(100, 0.2)], { poorThreshold })).toThrow(TypeError);
+  });
+
+  test('accepts a poorThreshold of exactly 1', () => {
+    expect(aggregateRoute([edge(100, 1)], { poorThreshold: 1 }).worstStretch).not.toBeNull();
+  });
+});
+
+describe('length cap', () => {
+  test('rejects an edge longer than 1e7 m and accepts exactly 1e7 m', () => {
+    expect(() => aggregateRoute([edge(1e7 + 1, 0.2)])).toThrow(TypeError);
+    expect(() => aggregateRoute([edge(1e7, 0.2)])).not.toThrow();
+  });
+
+  test('rankRoutes rejects a route longer than 1e7 m and accepts exactly 1e7 m', () => {
+    expect(() => rankRoutes([ranked('a', 1e7 + 1, 0.2)])).toThrow(TypeError);
+    expect(() => rankRoutes([ranked('a', 1e7, 0.2)])).not.toThrow();
+  });
+});
+
+describe('score rounding and ties', () => {
+  test('rounds an exact half up: routeRisk 0.125 gives 88 and 0.875 gives 13', () => {
+    // g = 0 makes routeRisk equal the mean, so the half-point is exact in floating point.
+    expect(aggregateRoute([edge(100, 0.125)], { g: 0 }).score).toBe(88);
+    expect(aggregateRoute([edge(100, 0.875)], { g: 0 }).score).toBe(13);
+  });
+
+  test('a length tie between two causes in one run picks the cause that appears first', () => {
+    const edges = [
+      edge(100, 0.9, { cause: 'crime' }),
+      edge(100, 0.9, { cause: 'lighting' }),
+    ];
+
+    expect(aggregateRoute(edges).worstStretch.cause).toBe('crime');
+  });
+
+  test('a length tie between two poor stretches picks the first stretch', () => {
+    const firstStart = { lat: 1, lng: 1 };
+    const firstEnd = { lat: 1.1, lng: 1.1 };
+    const secondStart = { lat: 2, lng: 2 };
+    const secondEnd = { lat: 2.1, lng: 2.1 };
+    const edges = [
+      edge(200, 0.9, { cause: 'crime', start: firstStart, end: firstEnd }),
+      edge(100, 0.1),
+      edge(200, 0.9, { cause: 'lighting', start: secondStart, end: secondEnd }),
+    ];
+
+    expect(aggregateRoute(edges).worstStretch).toEqual({
+      start: firstStart,
+      end: firstEnd,
+      lengthM: 200,
+      cause: 'crime',
+    });
+  });
+
+  test('property: routeRisk stays within [0, 1] for every blend g when every edge is fully risky', () => {
+    const rand = createSeededRandom(5);
+
+    for (let trial = 0; trial < 500; trial++) {
+      const g = rand();
+      const edges = [edge(100, 1), edge(50 + rand() * 100, 1)];
+
+      expect(aggregateRoute(edges, { g }).routeRisk).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('MAX_LENGTH_RATIO comes from config', () => {
+  test('rankRoutes applies the configured ratio, not a private copy of it', () => {
+    const configPath = '../../../../src/safety/scoring/config';
+    let rankWithConfig;
+    jest.isolateModules(() => {
+      jest.doMock(configPath, () => ({ ...jest.requireActual(configPath), MAX_LENGTH_RATIO: 2.5 }));
+      rankWithConfig = require('../../../../src/safety/scoring/routeAggregate').rankRoutes;
+    });
+    jest.dontMock(configPath);
+
+    // With a ratio of 2.5, a route at 2.4x the shortest is kept and one at 2.6x is excluded.
+    const ordered = rankWithConfig([
+      ranked('short', 2000, 0.5),
+      ranked('kept', 4800, 0.1),
+      ranked('dropped', 5200, 0.1),
+    ]);
+
+    expect(ordered.find((r) => r.id === 'kept').excluded).toBe(false);
+    expect(ordered.find((r) => r.id === 'dropped').excluded).toBe(true);
+  });
+});
+
+describe('exposure validation', () => {
+  test.each([
+    ['routeRisk below 0', -0.1, 1000],
+    ['routeRisk above 1', 1.1, 1000],
+    ['NaN routeRisk', NaN, 1000],
+    ['negative length', 0.5, -1],
+    ['NaN length', 0.5, NaN],
+  ])('throws TypeError for %s', (_name, routeRisk, lengthM) => {
+    expect(() => exposure(routeRisk, lengthM)).toThrow(TypeError);
+  });
+
+  test('accepts zero length and the boundary risks', () => {
+    expect(exposure(0, 0)).toBe(0);
+    expect(exposure(1, 1000)).toBe(1);
+  });
+});
+
+describe('rankRoutes input validation', () => {
+  test.each([
+    ['null', null],
+    ['a string', 'routes'],
+    ['an object', { length: 1 }],
+  ])('throws TypeError with the array message when routes is %s', (_name, routes) => {
+    expect(() => rankRoutes(routes)).toThrow(new TypeError('routes must be an array'));
+  });
+
+  test.each([
+    ['routeRisk below 0', -0.01],
+    ['routeRisk above 1', 1.01],
+  ])('throws TypeError for a route with %s', (_name, routeRisk) => {
+    expect(() => rankRoutes([ranked('a', 2000, routeRisk)])).toThrow(TypeError);
+  });
+
+  test('excludes a route at 1.6x the shortest and keeps one at exactly 1.5x', () => {
+    const ordered = rankRoutes([
+      ranked('short', 2000, 0.5),
+      ranked('edge', 3000, 0.1),
+      ranked('over', 3200, 0.1),
+    ]);
+
+    expect(ordered.find((r) => r.id === 'edge').excluded).toBe(false);
+    expect(ordered.find((r) => r.id === 'over').excluded).toBe(true);
   });
 });
 
@@ -492,6 +648,105 @@ describe('buildReason', () => {
 
     expect(buildReason(best, [alternative])).toBe(
       'Lowest overall exposure: 0.1 mi longer than Route 2, scores 15 higher than Route 2, avoids a 240 m dark stretch',
+    );
+  });
+
+  test('decides "Safest and shortest" on routeRisk, not on the rounded score', () => {
+    // Both round to a score of 80, but Route 2 has the lower routeRisk, so Route 1 is not the safest.
+    const best = candidate(1, 2000, 0.2001, 80);
+    const alternative = candidate(2, 2500, 0.2, 80);
+
+    expect(buildReason(best, [best, alternative])).toBe(
+      'Lowest overall exposure: 0.3 mi shorter than Route 2',
+    );
+  });
+
+  test('is "Safest and shortest" when routeRisk ties and the route is shortest', () => {
+    const best = candidate(1, 2000, 0.2, 80);
+    const alternative = candidate(2, 2500, 0.2, 80);
+
+    expect(buildReason(best, [best, alternative])).toBe('Safest and shortest');
+  });
+
+  test('is "Safest and shortest" when the lengths tie and the route is safer', () => {
+    const best = candidate(1, 2000, 0.2, 80);
+    const alternative = candidate(2, 2000, 0.3, 70);
+
+    expect(buildReason(best, [best, alternative])).toBe('Safest and shortest');
+  });
+
+  test('omits the "avoids" clause when the alternative stretch is the same length as the best stretch', () => {
+    const best = candidate(1, 2000, 0.25, 75, {
+      start: ORIGIN,
+      end: DESTINATION,
+      lengthM: 240,
+      cause: 'lighting',
+    });
+    const alternative = candidate(2, 1800, 0.4, 60, {
+      start: ORIGIN,
+      end: DESTINATION,
+      lengthM: 240,
+      cause: 'lighting',
+    });
+
+    expect(buildReason(best, [alternative])).toBe(
+      'Lowest overall exposure: 0.1 mi longer than Route 2, scores 15 higher than Route 2',
+    );
+  });
+
+  test('prints a gap of exactly one mile (1609.344 m) as 1.0 mi', () => {
+    const best = candidate(1, 2609.344, 0.1, 90);
+    const alternative = candidate(2, 1000, 0.5, 50);
+
+    expect(buildReason(best, [best, alternative])).toBe(
+      'Lowest overall exposure: 1.0 mi longer than Route 2, scores 40 higher than Route 2',
+    );
+  });
+
+  test('rounds the length gap to the nearest tenth of a mile: 0.96 mi prints 1.0 and 0.94 mi prints 0.9', () => {
+    const other = candidate(2, 1000, 0.5, 50);
+    const near = candidate(1, 1000 + 0.96 * 1609.344, 0.1, 90);
+    const less = candidate(1, 1000 + 0.94 * 1609.344, 0.1, 90);
+
+    expect(buildReason(near, [near, other])).toMatch(/^Lowest overall exposure: 1\.0 mi longer than Route 2,/);
+    expect(buildReason(less, [less, other])).toMatch(/^Lowest overall exposure: 0\.9 mi longer than Route 2,/);
+  });
+
+  test('leads with "Lowest overall exposure" when the best exposure ties the runner-up', () => {
+    // Both exposures are exactly 0.5, so the best route is still a lowest-exposure pick.
+    const best = candidate(1, 2000, 0.25, 75);
+    const alternative = candidate(2, 1000, 0.5, 50);
+
+    expect(buildReason(best, [best, alternative])).toBe(
+      'Lowest overall exposure: 0.6 mi longer than Route 2, scores 25 higher than Route 2',
+    );
+  });
+
+  test('when two alternatives avoid equally long stretches, the first listed sets the qualifier', () => {
+    const best = candidate(1, 2000, 0.25, 75);
+    const dark = candidate(2, 1800, 0.4, 60, {
+      start: ORIGIN,
+      end: DESTINATION,
+      lengthM: 300,
+      cause: 'lighting',
+    });
+    const highRisk = candidate(3, 2600, 0.3, 70, {
+      start: ORIGIN,
+      end: DESTINATION,
+      lengthM: 300,
+      cause: 'crime',
+    });
+
+    expect(buildReason(best, [dark, highRisk])).toMatch(/avoids a 300 m dark stretch$/);
+    expect(buildReason(best, [highRisk, dark])).toMatch(/avoids a 300 m high-risk stretch$/);
+  });
+
+  test('says "scores 1 higher" for a one-point gap', () => {
+    const best = candidate(1, 2000, 0.24, 76);
+    const alternative = candidate(2, 1500, 0.25, 75);
+
+    expect(buildReason(best, [best, alternative])).toBe(
+      'Route 1: 0.3 mi longer than Route 2, scores 1 higher than Route 2',
     );
   });
 

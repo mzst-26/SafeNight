@@ -1,11 +1,18 @@
-const { EPS, N0, CAUSE_MIN_RISK, PRIOR_SAFETY } = require('./config');
+const { BASE_WEIGHTS, PRIOR_SAFETY, MIN_FACTOR_SAFETY, CAUSE_MIN_RISK } = require('./config');
 const { assertNonNegative, assertInRange } = require('./validation');
+const { evidenceStrength } = require('./evidence');
 
-const FACTOR_NAMES = Object.keys(PRIOR_SAFETY);
+const FACTOR_NAMES = Object.keys(BASE_WEIGHTS);
 
-/** Evidence strength of an estimate backed by n observations, in [0, 1). */
-function evidenceStrength(n) {
-  return n / (n + N0);
+// A factor missing from either table would silently drop out of the blend or take no prior,
+// so the two key sets must match exactly. Checked once, at module load.
+{
+  const priorNames = Object.keys(PRIOR_SAFETY);
+  const sameKeys = priorNames.length === FACTOR_NAMES.length
+    && FACTOR_NAMES.every((name) => priorNames.includes(name));
+  if (!sameKeys) {
+    throw new Error('BASE_WEIGHTS and PRIOR_SAFETY must have the same factor keys');
+  }
 }
 
 /**
@@ -27,7 +34,9 @@ function resolveFactor(factors, name) {
 }
 
 /**
- * @throws {TypeError} when weights is malformed or has no positive total.
+ * Checks the weight vector. Only the peak weight must be positive: the caller rescales by it,
+ * so the total is never formed from raw values that could overflow to Infinity.
+ * @throws {TypeError} when weights is malformed or every weight is zero.
  */
 function assertWeights(weights) {
   if (weights === null || typeof weights !== 'object') {
@@ -36,8 +45,8 @@ function assertWeights(weights) {
   for (const name of FACTOR_NAMES) {
     assertNonNegative(`weights.${name}`, weights[name]);
   }
-  const total = FACTOR_NAMES.reduce((sum, name) => sum + weights[name], 0);
-  if (total <= 0) throw new TypeError('weights must have a positive total');
+  const peak = Math.max(...FACTOR_NAMES.map((name) => weights[name]));
+  if (peak <= 0) throw new TypeError('weights must have a positive total');
 }
 
 /** Name of the observed factor with the largest contribution. */
@@ -58,7 +67,7 @@ function strongestFactor(contributions) {
  * @returns {{risk: number, certainty: number, dominantCause: string|null}}
  * @throws {TypeError} on malformed factors, weights or eps.
  */
-function edgeRisk({ factors, weights, eps = EPS }) {
+function edgeRisk({ factors, weights, eps = MIN_FACTOR_SAFETY }) {
   if (factors === null || typeof factors !== 'object') {
     throw new TypeError('factors must be an object');
   }
@@ -66,14 +75,18 @@ function edgeRisk({ factors, weights, eps = EPS }) {
   assertInRange('eps', eps, 0, 1);
   if (eps === 0 || eps === 1) throw new TypeError('eps must be strictly between 0 and 1');
 
+  // Scale by the peak first: ratios are at most 1, so their sum is finite and at least 1.
+  const peak = Math.max(...FACTOR_NAMES.map((name) => weights[name]));
+  const scaled = Object.fromEntries(FACTOR_NAMES.map((name) => [name, weights[name] / peak]));
+  const total = FACTOR_NAMES.reduce((sum, name) => sum + scaled[name], 0);
+
   const resolved = Object.fromEntries(FACTOR_NAMES.map((name) => [name, resolveFactor(factors, name)]));
-  const total = FACTOR_NAMES.reduce((sum, name) => sum + weights[name], 0);
 
   let logSurvival = 0;
   let certainty = 0;
   const observedContributions = [];
   for (const name of FACTOR_NAMES) {
-    const share = weights[name] / total;
+    const share = scaled[name] / total;
     if (share === 0) continue; // zero-weight factors (lighting in daylight) have no influence
     const { safety, n, observed } = resolved[name];
     const value = -share * Math.log(Math.max(eps, safety));

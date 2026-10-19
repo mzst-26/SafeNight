@@ -1,5 +1,11 @@
 const { edgeRisk } = require('../../../../src/safety/scoring/edgeRisk');
-const { EPS, N0, CAUSE_MIN_RISK, PRIOR_SAFETY } = require('../../../../src/safety/scoring/config');
+const {
+  MIN_FACTOR_SAFETY,
+  EVIDENCE_PSEUDO_COUNT,
+  CAUSE_MIN_RISK,
+  PRIOR_SAFETY,
+  BASE_WEIGHTS,
+} = require('../../../../src/safety/scoring/config');
 const { createSeededRandom } = require('./seededRandom');
 
 const FACTORS = ['lighting', 'crime', 'road', 'activity', 'isolation'];
@@ -40,7 +46,7 @@ describe('edgeRisk', () => {
     const factors = { ...allFactors(1), crime: { safety: 0, n: 10 } };
     const result = edgeRisk({ factors, weights: WEIGHTS });
 
-    expect(result.risk).toBeCloseTo(1 - Math.pow(EPS, WEIGHTS.crime), 12);
+    expect(result.risk).toBeCloseTo(1 - Math.pow(MIN_FACTOR_SAFETY, WEIGHTS.crime), 12);
     expect(result.risk).toBeLessThan(1);
     expect(result.dominantCause).toBe('crime');
   });
@@ -112,6 +118,84 @@ describe('edgeRisk', () => {
     });
   });
 
+  test('a factor whose safety is undefined is unavailable, exactly like null', () => {
+    const undefinedSafety = { ...allFactors(0.8), lighting: { safety: undefined, n: 5 } };
+    const nullSafety = { ...allFactors(0.8), lighting: { safety: null, n: 0 } };
+
+    expect(edgeRisk({ factors: undefinedSafety, weights: WEIGHTS }))
+      .toEqual(edgeRisk({ factors: nullSafety, weights: WEIGHTS }));
+  });
+
+  describe('weight scale', () => {
+    test('scaling every weight by 2 leaves risk and certainty unchanged', () => {
+      const doubled = Object.fromEntries(Object.entries(WEIGHTS).map(([name, w]) => [name, 2 * w]));
+      const base = edgeRisk({ factors: allFactors(0.7), weights: WEIGHTS });
+      const scaled = edgeRisk({ factors: allFactors(0.7), weights: doubled });
+
+      expect(scaled.risk).toBeCloseTo(base.risk, 12);
+      expect(scaled.certainty).toBeCloseTo(base.certainty, 12);
+    });
+
+    test('weights whose sum overflows a float are scaled by their peak, not read as zero risk', () => {
+      // Five values of 1e308 sum to Infinity; the ratios are still all equal, so risk must match equal weights.
+      const equal = Object.fromEntries(FACTORS.map((name) => [name, 1]));
+      const huge = Object.fromEntries(FACTORS.map((name) => [name, 1e308]));
+      const expected = edgeRisk({ factors: allFactors(0.7), weights: equal });
+      const actual = edgeRisk({ factors: allFactors(0.7), weights: huge });
+
+      expect(actual.risk).toBeCloseTo(expected.risk, 12);
+      expect(actual.risk).toBeGreaterThan(0);
+      expect(actual.certainty).toBeCloseTo(expected.certainty, 12);
+    });
+  });
+
+  describe('factor keys come from BASE_WEIGHTS and must match PRIOR_SAFETY', () => {
+    // Loads edgeRisk.js against a config whose exports are overridden, and returns the load error if any.
+    function loadEdgeRiskWith(overrides) {
+      const configPath = '../../../../src/safety/scoring/config';
+      let loaded = null;
+      let thrown = null;
+      jest.isolateModules(() => {
+        jest.doMock(configPath, () => ({ ...jest.requireActual(configPath), ...overrides }));
+        try {
+          loaded = require('../../../../src/safety/scoring/edgeRisk');
+        } catch (error) {
+          thrown = error;
+        }
+      });
+      jest.dontMock(configPath);
+      return { loaded, thrown };
+    }
+
+    test('loads when BASE_WEIGHTS and PRIOR_SAFETY have the same keys', () => {
+      const { loaded, thrown } = loadEdgeRiskWith({});
+
+      expect(thrown).toBeNull();
+      expect(typeof loaded.edgeRisk).toBe('function');
+    });
+
+    test('throws a plain Error at load when PRIOR_SAFETY has a key BASE_WEIGHTS does not', () => {
+      const { thrown } = loadEdgeRiskWith({
+        PRIOR_SAFETY: { ...PRIOR_SAFETY, extra: 0.5 },
+      });
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.constructor).toBe(Error);
+      expect(thrown.message).toMatch(/factor keys/);
+    });
+
+    test('throws a plain Error at load when BASE_WEIGHTS lacks a key PRIOR_SAFETY has', () => {
+      const withoutIsolation = Object.fromEntries(
+        Object.entries(BASE_WEIGHTS).filter(([name]) => name !== 'isolation'),
+      );
+      const { thrown } = loadEdgeRiskWith({ BASE_WEIGHTS: withoutIsolation });
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.constructor).toBe(Error);
+      expect(thrown.message).toMatch(/factor keys/);
+    });
+  });
+
   describe('input validation', () => {
     test.each([
       ['NaN safety', { safety: NaN, n: 1 }],
@@ -164,9 +248,9 @@ describe('edgeRisk', () => {
     });
   });
 
-  test('certainty is the weight-averaged n / (n + N0) over all factors, unavailable ones counting zero', () => {
+  test('certainty is the weight-averaged n / (n + pseudo-count) over all factors, unavailable ones counting zero', () => {
     const factors = {
-      lighting: { safety: 0.5, n: N0 },
+      lighting: { safety: 0.5, n: EVIDENCE_PSEUDO_COUNT },
       crime: { safety: 0.5, n: 0 },
     };
     const result = edgeRisk({ factors, weights: WEIGHTS });

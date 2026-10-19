@@ -6,11 +6,14 @@
  * length spread thinly. Splitting an edge in two never changes the result.
  */
 
-const { G, RISK_POOR_THRESHOLD } = require('./config');
+const { CUBE_MEAN_BLEND, RISK_POOR_THRESHOLD, MAX_LENGTH_RATIO } = require('./config');
 const { assertFinite, assertNonNegative, assertInRange } = require('./validation');
 
-/** Routes longer than this multiple of the shortest route are excluded. */
-const MAX_LENGTH_RATIO = 1.5;
+/**
+ * Largest length (m) an edge or route may have. Longer values are rejected so the sums stay finite.
+ * This is an input bound, not a tunable, so it is not in config.
+ */
+const MAX_LENGTH_M = 1e7;
 const METRES_PER_MILE = 1609.344;
 const METRES_PER_KM = 1000;
 const LIGHTING_CAUSE = 'lighting';
@@ -56,7 +59,7 @@ const ONLY_ROUTE_REASON = 'Only route found';
  * @param {Edge} edge
  */
 function assertEdge(edge) {
-  assertNonNegative('edge.lengthM', edge.lengthM);
+  assertInRange('edge.lengthM', edge.lengthM, 0, MAX_LENGTH_M);
   assertInRange('edge.risk', edge.risk, 0, 1);
   assertInRange('edge.certainty', edge.certainty, 0, 1);
 }
@@ -166,7 +169,11 @@ function worstStretch(edges, threshold) {
  * @returns {RouteAggregate}
  * @throws {TypeError} When edges is empty or has no positive-length edge.
  */
-function aggregateRoute(edges, { g = G, poorThreshold = RISK_POOR_THRESHOLD } = {}) {
+function aggregateRoute(edges, { g = CUBE_MEAN_BLEND, poorThreshold = RISK_POOR_THRESHOLD } = {}) {
+  assertInRange('g', g, 0, 1);
+  assertInRange('poorThreshold', poorThreshold, 0, 1);
+  if (poorThreshold === 0) throw new TypeError('poorThreshold must be > 0');
+
   if (!Array.isArray(edges) || edges.length === 0) {
     throw new TypeError('aggregateRoute requires a non-empty array of edges');
   }
@@ -194,11 +201,14 @@ function aggregateRoute(edges, { g = G, poorThreshold = RISK_POOR_THRESHOLD } = 
 
 /**
  * Exposure ("harm per walk"): routeRisk times length in kilometres.
- * @param {number} routeRisk
- * @param {number} lengthM
+ * @param {number} routeRisk in [0, 1]
+ * @param {number} lengthM >= 0
  * @returns {number}
+ * @throws {TypeError} When routeRisk is outside [0, 1] or lengthM is negative or not finite.
  */
 function exposure(routeRisk, lengthM) {
+  assertInRange('routeRisk', routeRisk, 0, 1);
+  assertNonNegative('lengthM', lengthM);
   return routeRisk * (lengthM / METRES_PER_KM);
 }
 
@@ -221,19 +231,20 @@ function compareRoutes(a, b) {
  * @param {{lengthM: number, routeRisk: number}} route
  */
 function assertRankable(route) {
-  assertFinite('route.lengthM', route.lengthM);
+  assertInRange('route.lengthM', route.lengthM, 0, MAX_LENGTH_M);
   if (route.lengthM <= 0) throw new TypeError('route.lengthM must be > 0');
-  assertFinite('route.routeRisk', route.routeRisk);
+  assertInRange('route.routeRisk', route.routeRisk, 0, 1);
 }
 
 /**
- * Ranks candidate routes by exposure. Routes longer than 1.5x the shortest are
+ * Ranks candidate routes by exposure. Routes longer than MAX_LENGTH_RATIO (1.5) times the shortest are
  * kept at the end, marked excluded. The single shortest route is always kept.
  * @param {Array<{id: *, lengthM: number, routeRisk: number}>} routes
  * @returns {Array<object>} Routes with exposure and excluded attached; empty for no routes.
  * @throws {TypeError} When a route has a non-positive or non-finite lengthM, or a non-finite routeRisk.
  */
 function rankRoutes(routes) {
+  if (!Array.isArray(routes)) throw new TypeError('routes must be an array');
   if (routes.length === 0) return [];
   routes.forEach(assertRankable);
 
@@ -339,6 +350,14 @@ function assertCandidate(route) {
  * Builds a one-line, data-derived reason for the best route. Every claim is
  * computed from the inputs. The length and score clauses compare against one
  * route only: the runner-up, the best alternative by exposure.
+ *
+ * "Safest and shortest" is decided on the unrounded routeRisk, so two routes that
+ * round to the same displayed score are still compared on their real risk.
+ *
+ * `best` is normally the rank-1 route from rankRoutes. The formatter also calls this
+ * for later routes, and then the reason leads with "Route N" instead of "Lowest overall
+ * exposure", so no rank-1 assumption is enforced here.
+ *
  * @param {{id: *, lengthM: number, routeRisk: number, score: number, worstStretch?: Stretch|null}} best
  * @param {Array<object>} others Candidate routes; entries with best's id are ignored.
  * @returns {string}
@@ -352,7 +371,7 @@ function buildReason(best, others) {
 
   const runnerUp = [...alternatives].sort(compareRoutes)[0];
   const isSafestAndShortest = alternatives.every(
-    (route) => best.score >= route.score && best.lengthM <= route.lengthM,
+    (route) => best.routeRisk <= route.routeRisk && best.lengthM <= route.lengthM,
   );
 
   if (isSafestAndShortest) {
