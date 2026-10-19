@@ -187,4 +187,5 @@ module.exports = {
   inferLighting,
   effectiveLit,
   lightingCertainty,
+  parseMaxspeedKmh,
 };

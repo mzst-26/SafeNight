@@ -1,6 +1,10 @@
 /**
  * safetyGraph.js — Optimised safety-first walking graph + pathfinding.
  *
+ * MODEL: v2 (default) scores each edge from five factors (lighting, crime, road,
+ * activity, isolation) and ranks routes by exposure; see backend/src/safety/scoring/.
+ * SAFETY_MODEL=v1 selects the legacy weighted-sum path for A/B until final cleanup.
+ *
  * ═══════════════════════════════════════════════════════════════════════
  * SPEED OPTIMISATIONS (vs v1):
  *   1. A* with haversine heuristic — 3–10× faster than plain Dijkstra
@@ -30,10 +34,28 @@ const { haversine, fastDistance, buildSpatialGrid, findNearby, countNearby } = r
 const { scoreFromCache } = require('./lightsCacheClient');
 const { SAFETY_LEVEL_STANDARD, SAFETY_LEVEL_EXTRA } = require('./safetyLevels');
 const opening_hours_lib = require('opening_hours');
+const { inferLighting, effectiveLit, parseMaxspeedKmh } = require('../scoring/lightingInference');
+const { darknessForHour } = require('../scoring/darkness');
+const { getWeights: getFactorWeights } = require('../scoring/weights');
+const { edgeRisk } = require('../scoring/edgeRisk');
+const { crimeRisk, weightedCrimeCount } = require('../scoring/crimeRisk');
+const { aggregateRoute, rankRoutes } = require('../scoring/routeAggregate');
+const { PRIOR_SAFETY } = require('../scoring/config');
 
 const ENABLE_PLACE_OPENING_HOURS_PARSE = process.env.SAFE_ROUTES_PARSE_PLACE_OPENING_HOURS === '1';
 const DEBUG_SAFE_ROUTES = process.env.SAFE_ROUTES_DEBUG === '1';
 const debugLog = DEBUG_SAFE_ROUTES ? (...args) => console.log(...args) : () => {};
+
+// ── Model selection (A/B) ───────────────────────────────────────────────────
+// v2 is the default. SAFETY_MODEL=v1 keeps the legacy scoring path until the final cleanup.
+// Read on every call so tests can toggle it.
+function currentModel() {
+  return process.env.SAFETY_MODEL === 'v1' ? 'v1' : 'v2';
+}
+
+function useV2() {
+  return currentModel() === 'v2';
+}
 
 function createSearchCancelledError(message = 'Route search cancelled.') {
   const err = new Error(message);
@@ -67,6 +89,45 @@ const ROAD_TYPE_SCORES = {
 };
 
 const WALKABLE_HIGHWAYS = new Set(Object.keys(ROAD_TYPE_SCORES));
+
+// Surface penalty for unpaved surfaces (unpaved is scarier at night). Shared by v1 and v2.
+const SURFACE_PENALTIES = {
+  gravel: 0.04,
+  dirt: 0.06,
+  grass: 0.04,
+  mud: 0.12,
+  sand: 0.08,
+  earth: 0.06,
+};
+
+// ── v2 constants (spec section 11) ──────────────────────────────────────────
+// Tunables shared by the scoring modules live in scoring/config.js. These are the
+// graph-level ones: evidence strength per factor, grids and the isolation penalties.
+const V2 = Object.freeze({
+  // Evidence strength (n) for the factors that are not produced by inferLighting or crimeRisk.
+  ROAD_N: 10,        // road class is an OSM tag, so the class itself is well evidenced
+  ACTIVITY_N: 8,     // counts of places, CCTV and transit within fixed radii
+  ISOLATION_N: 6,    // dead ends come from topology; footpath lamp checks are local
+  CACHE_LIGHT_N: 6,  // a non-verified lights-cache record (status lit, limited or unlit)
+  // Isolation penalties (safety units).
+  DEAD_END_PENALTY: 0.3,
+  UNLIT_PATH_PENALTY: 0.25,
+  // Cells for area stats and crime aggregation.
+  AREA_CELL_DEG: 0.003,   // ~300 m, the area in which lamp density is judged
+  CRIME_CELL_M: 500,      // crime aggregation cell
+  CRIME_PRIOR_FLOOR: 0.1, // weighted crimes per km, lowest allowed area prior
+  // Activity radii (m).
+  CCTV_RADIUS_M: 80,
+  PLACE_RADIUS_M: 80,
+  TRANSIT_RADIUS_M: 150,
+  LAMP_RADIUS_M: 30,
+  LAMP_NEAR_PATH_M: 60,
+  // A candidate with a maxspeed at or above this (km/h) and no sidewalk is a hazard.
+  HAZARD_SPEED_KMH: 50,
+});
+
+// Path classes for the unlit-path isolation penalty.
+const PATH_CLASS_HIGHWAYS = new Set(['path', 'track', 'bridleway', 'footway', 'steps', 'cycleway']);
 
 // ── Time-adaptive weights ───────────────────────────────────────────────────
 // Weights shift based on time of day (late night = crime matters more)
@@ -251,7 +312,7 @@ function sampleCoverage(coverage, lat, lng) {
  * Uses coverage maps for lighting and crime (O(1) per edge) instead of
  * per-edge findNearby calls (which were thousands of spatial lookups).
  */
-async function buildGraph(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options = {}) {
+async function buildGraphV1(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options = {}) {
   const shouldCancel = options && typeof options.shouldCancel === 'function'
     ? options.shouldCancel
     : null;
@@ -459,14 +520,6 @@ async function buildGraph(roadData, lightData, cctvData, placeData, transitData,
 
       // Surface penalty — unpaved is scarier at night (graded)
       const surface = wayTags.surface;
-      const SURFACE_PENALTIES = {
-        gravel: 0.04,
-        dirt: 0.06,
-        grass: 0.04,
-        mud: 0.12,
-        sand: 0.08,
-        earth: 0.06,
-      };
       const surfacePenalty = SURFACE_PENALTIES[surface] || 0;
       const verifiedUnlitPenalty = isVerifiedUnlit
         ? Math.min(0.18, 0.08 + ((edgeLightCache.confidence || 0) * 0.12))
@@ -552,6 +605,413 @@ async function buildGraph(roadData, lightData, cctvData, placeData, transitData,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// V2 GRAPH BUILD (spec section 11): five factors combined into one edge risk
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Dispatches on the SAFETY_MODEL flag. v1 stays available for A/B until cleanup. */
+async function buildGraph(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options = {}) {
+  if (!useV2()) return buildGraphV1(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options);
+  return buildGraphV2(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options);
+}
+
+const LONDON_HOUR_FORMAT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/London',
+  hour: 'numeric',
+  hourCycle: 'h23',
+});
+
+/** London wall-clock hour (0-23) of an instant. */
+function londonHourOf(date) {
+  const part = LONDON_HOUR_FORMAT.formatToParts(date).find((p) => p.type === 'hour');
+  return Number(part.value) % 24;
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function hasOwnKey(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+/** Area cell (about 300 m) used for lamp density and road length. */
+function areaCellKey(lat, lng) {
+  return `${Math.floor(lat / V2.AREA_CELL_DEG)},${Math.floor(lng / V2.AREA_CELL_DEG)}`;
+}
+
+/** Returns a function mapping (lat, lng) to a ~500 m crime cell key, anchored at the bbox. */
+function crimeCellKeyFn(bbox) {
+  const midLatRad = ((bbox.north + bbox.south) / 2) * (Math.PI / 180);
+  const latDeg = V2.CRIME_CELL_M / 111320;
+  const lngDeg = V2.CRIME_CELL_M / (111320 * Math.cos(midLatRad));
+  return (lat, lng) => `${Math.floor((lat - bbox.south) / latDeg)},${Math.floor((lng - bbox.west) / lngDeg)}`;
+}
+
+/** Edge lit estimate label. Only tags and lamps count as 'lit', only tags and cache as 'unlit'. */
+function litEstimateOf(source, effective) {
+  if ((source === 'tag' || source === 'lamp') && effective >= 0.7) return 'lit';
+  if ((source === 'tag' || source === 'cache') && effective <= 0.2) return 'unlit';
+  return effective >= 0.5 ? 'estimated_lit' : 'estimated_unlit';
+}
+
+/**
+ * Open or closed at a London hour. Mirrors the v1 heuristic, but takes the hour and
+ * instant from the caller, so the result never depends on the server clock.
+ */
+function isPlaceOpenV2(tags, hour, now) {
+  const hoursRaw = tags?.opening_hours || '';
+  let isOpen = null;
+  if (ENABLE_PLACE_OPENING_HOURS_PARSE && hoursRaw) {
+    try {
+      const cleaned = hoursRaw
+        .split(';').map((s) => s.trim())
+        .filter((s) => !/^\s*PH\b/.test(s))
+        .map((s) => s.replace(/,\s*PH\b/g, ''))
+        .filter(Boolean).join('; ');
+      if (cleaned) {
+        const oh = new opening_hours_lib(cleaned, { address: { country_code: 'gb' } });
+        isOpen = oh.getState(now);
+      }
+    } catch { isOpen = null; }
+  }
+  if (isOpen === null) {
+    const type = (tags?.amenity || tags?.shop || '').toLowerCase();
+    const always = ['hospital', 'clinic', 'pharmacy', 'fuel', 'atm', 'police', 'fire_station', 'hotel', 'hostel', 'parking', 'toilets'];
+    const evening = ['pub', 'bar', 'nightclub', 'biergarten', 'casino', 'restaurant', 'fast_food', 'food_court', 'ice_cream', 'cafe'];
+    const extendedShops = ['convenience', 'supermarket', 'kiosk', 'mall'];
+    if (always.includes(type)) isOpen = true;
+    else if (evening.includes(type)) isOpen = hour >= 10 && hour < 24;
+    else if (extendedShops.includes(type)) isOpen = hour >= 6 && hour < 23;
+    else isOpen = hour >= 7 && hour < 20;
+  }
+  return Boolean(isOpen);
+}
+
+/**
+ * Build the walking graph with v2 edge risk.
+ *
+ * Phase 1 collects geometry for every walkable segment and accumulates per-area lamp
+ * counts and road length, and per-crime-cell exposure. Phase 2 scores each edge from
+ * the five factors (lighting, crime, road, activity, isolation) and combines them with
+ * edgeRisk. Crime outage (crimeStatus 'unavailable') leaves the crime factor unknown.
+ *
+ * @param {object} options
+ * @param {number} [options.hour] London local hour 0-24; defaults to the London hour of options.now.
+ * @param {Date} [options.now] Instant used for darkness and opening hours; defaults to the current time.
+ * @param {string} [options.level] Data level; 'standard' drops the activity factor.
+ * @param {'ok'|'unavailable'} [options.crimeStatus='ok'] Any value other than 'ok' is treated as unavailable.
+ */
+async function buildGraphV2(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options = {}) {
+  const shouldCancel = options && typeof options.shouldCancel === 'function' ? options.shouldCancel : null;
+  const now = options.now instanceof Date ? options.now : new Date();
+  const hour = options.hour != null ? options.hour : londonHourOf(now);
+  const darkness = darknessForHour({
+    lat: (bbox.north + bbox.south) / 2,
+    lng: (bbox.east + bbox.west) / 2,
+    hour,
+    now,
+  });
+  const weights = getFactorWeights({ darkness, safetyLevel: options.level });
+  // Anything other than 'ok' is treated as an outage, so missing crime data never reads as safe.
+  const crimeStatus = options.crimeStatus === undefined || options.crimeStatus === 'ok' ? 'ok' : 'unavailable';
+
+  let steps = 0;
+  const tick = () => {
+    steps += 1;
+    if ((steps & 2047) === 0) throwIfCancelled(shouldCancel);
+  };
+
+  // 1. Nodes
+  const osmNodes = new Map();
+  for (const el of roadData.elements) {
+    tick();
+    if (el.type === 'node') osmNodes.set(el.id, { lat: el.lat, lng: el.lon, id: el.id });
+  }
+
+  // 2. Lamps, lit-way nodes, CCTV, places, transit
+  const lightNodes = [];
+  const litWayNodePositions = [];
+  for (const el of lightData?.elements || []) {
+    tick();
+    if (el.type === 'node' && el.tags?.highway === 'street_lamp') lightNodes.push({ lat: el.lat, lng: el.lon });
+    if (el.type === 'way' && el.tags?.lit === 'yes' && el.nodes) {
+      for (const nid of el.nodes) {
+        const n = osmNodes.get(nid);
+        if (n) litWayNodePositions.push({ lat: n.lat, lng: n.lng });
+      }
+    }
+  }
+
+  const cctvNodes = [];
+  for (const el of cctvData?.elements || []) {
+    tick();
+    if (el.type === 'node' && el.lat && el.lon) cctvNodes.push({ lat: el.lat, lng: el.lon });
+  }
+
+  const placeElements = placeData?.elements || [];
+  const placeNodes = [];
+  for (const el of placeElements) {
+    tick();
+    const lat = el.lat || el.center?.lat;
+    const lng = el.lon || el.center?.lon;
+    if (lat && lng && isPlaceOpenV2(el.tags, hour, now)) placeNodes.push({ lat, lng });
+  }
+
+  const transitNodes = [];
+  for (const el of transitData?.elements || []) {
+    tick();
+    if (el.type === 'node' && el.lat && el.lon) transitNodes.push({ lat: el.lat, lng: el.lon });
+  }
+
+  // Activity is unknown only when the area has no place, transit or CCTV data at all.
+  const rawActivityCount = placeElements.length
+    + (transitData?.elements?.length || 0)
+    + (cctvData?.elements?.length || 0);
+  const activityAvailable = rawActivityCount > 0;
+
+  const lampGrid = buildSpatialGrid(lightNodes);
+  const litGrid = buildSpatialGrid(litWayNodePositions);
+  const cctvGrid = buildSpatialGrid(cctvNodes);
+  const placeGrid = buildSpatialGrid(placeNodes);
+  const transitGrid = buildSpatialGrid(transitNodes);
+
+  const nodeArray = [];
+  for (const [id, node] of osmNodes) {
+    tick();
+    nodeArray.push({ lat: node.lat, lng: node.lng, id });
+  }
+  const nodeGrid = buildSpatialGrid(nodeArray, 'lat', 'lng', 0.001); // ~110m cells
+
+  // 3. Degree over ALL highway ways, so a footway meeting a motorway is not a dead end.
+  const nodeDegree = new Map();
+  for (const el of roadData.elements) {
+    tick();
+    if (el.type !== 'way' || !el.nodes || !el.tags?.highway) continue;
+    for (let i = 0; i < el.nodes.length - 1; i++) {
+      const a = el.nodes[i];
+      const b = el.nodes[i + 1];
+      if (!osmNodes.has(a) || !osmNodes.has(b)) continue;
+      nodeDegree.set(a, (nodeDegree.get(a) || 0) + 1);
+      nodeDegree.set(b, (nodeDegree.get(b) || 0) + 1);
+    }
+  }
+
+  // 4. Phase 1: walkable segments, geometry only, with area and crime-cell aggregates.
+  const pending = [];
+  for (const el of roadData.elements) {
+    tick();
+    if (el.type !== 'way' || !el.nodes || !el.tags?.highway) continue;
+    const highway = el.tags.highway;
+    if (!WALKABLE_HIGHWAYS.has(highway)) continue;
+    for (let i = 0; i < el.nodes.length - 1; i++) {
+      const nA = osmNodes.get(el.nodes[i]);
+      const nB = osmNodes.get(el.nodes[i + 1]);
+      if (!nA || !nB) continue;
+      const dist = fastDistance(nA.lat, nA.lng, nB.lat, nB.lng);
+      if (dist < 0.5) continue;
+      pending.push({
+        idx: pending.length,
+        from: el.nodes[i],
+        to: el.nodes[i + 1],
+        nA,
+        nB,
+        dist,
+        highway,
+        tags: el.tags,
+        midLat: (nA.lat + nB.lat) / 2,
+        midLng: (nA.lng + nB.lng) / 2,
+      });
+    }
+  }
+
+  const areaStats = new Map();
+  const areaAt = (key) => {
+    let stats = areaStats.get(key);
+    if (!stats) {
+      stats = { lamps: 0, wayKm: 0 };
+      areaStats.set(key, stats);
+    }
+    return stats;
+  };
+  for (const lamp of lightNodes) areaAt(areaCellKey(lamp.lat, lamp.lng)).lamps += 1;
+  let totalWayKm = 0;
+  for (const p of pending) {
+    const km = p.dist / 1000;
+    totalWayKm += km;
+    areaAt(areaCellKey(p.midLat, p.midLng)).wayKm += km;
+  }
+
+  const cellKeyOf = crimeCellKeyFn(bbox);
+  const crimeCells = new Map();
+  const crimeCellAt = (key) => {
+    let cell = crimeCells.get(key);
+    if (!cell) {
+      cell = { crimes: [], weightedCount: 0, exposureKm: 0 };
+      crimeCells.set(key, cell);
+    }
+    return cell;
+  };
+  for (const crime of crimes || []) {
+    tick();
+    if (!crime || !Number.isFinite(crime.lat) || !Number.isFinite(crime.lng)) continue;
+    if (crime.lat < bbox.south || crime.lat > bbox.north || crime.lng < bbox.west || crime.lng > bbox.east) continue;
+    // The client only returns the latest month, so every crime is treated as current.
+    crimeCellAt(cellKeyOf(crime.lat, crime.lng)).crimes.push({ category: crime.category, monthsAgo: 0 });
+  }
+  let totalWeighted = 0;
+  for (const cell of crimeCells.values()) {
+    cell.weightedCount = weightedCrimeCount(cell.crimes);
+    totalWeighted += cell.weightedCount;
+  }
+  for (const p of pending) crimeCellAt(cellKeyOf(p.midLat, p.midLng)).exposureKm += p.dist / 1000;
+  const priorRate = Math.max(
+    V2.CRIME_PRIOR_FLOOR,
+    totalWayKm > 0 ? totalWeighted / totalWayKm : 0,
+  );
+
+  // 5. Phase 2: score every edge from the five factors.
+  const edges = [];
+  const adjacency = new Map();
+  for (const p of pending) {
+    tick();
+    const { idx: edgeIdx, from, to, nA, nB, dist, highway, tags, midLat, midLng } = p;
+
+    // Lighting: lamps within 30 m (a lit-way node nearby counts as one lamp), then the estimate.
+    const litNearby = countNearby(litGrid, midLat, midLng, V2.LAMP_RADIUS_M) > 0 ? 1 : 0;
+    const lampCount30m = countNearby(lampGrid, midLat, midLng, V2.LAMP_RADIUS_M) + litNearby;
+    const lampCount60m = countNearby(lampGrid, midLat, midLng, V2.LAMP_NEAR_PATH_M);
+    const area = areaStats.get(areaCellKey(midLat, midLng));
+    const areaWayKm = area.wayKm;
+    const areaLampDensityPerKm = areaWayKm > 0 ? area.lamps / areaWayKm : 0;
+
+    const cache = options.lightsCacheByEdgeIdx?.get(edgeIdx) || null;
+    const cacheConfidence = cache?.confidence || 0;
+    const cacheVerified = (status) => cache?.lit_status === status && cacheConfidence >= 0.8;
+    const inferred = inferLighting({ tags, lampCount30m, areaLampDensityPerKm, areaWayKm });
+    let lighting;
+    if (cacheVerified('unlit')) {
+      lighting = { pLit: 0.05, n: 20, source: 'cache' };
+    } else if (inferred.source === 'tag') {
+      lighting = inferred; // explicit lit tag is ground truth
+    } else if (cacheVerified('lit')) {
+      lighting = { pLit: 0.95, n: 20, source: 'cache' };
+    } else {
+      const cached = cache ? scoreFromCache(cache) : null;
+      lighting = cached ? { pLit: cached.score, n: V2.CACHE_LIGHT_N, source: 'cache' } : inferred;
+    }
+    const lightingSafety = effectiveLit(lighting);
+    const litEstimate = litEstimateOf(lighting.source, lightingSafety);
+
+    // Road class only, minus the surface penalty.
+    const surface = tags.surface;
+    const surfacePenalty = hasOwnKey(SURFACE_PENALTIES, surface) ? SURFACE_PENALTIES[surface] : 0;
+    const roadSafety = clamp01((ROAD_TYPE_SCORES[highway] || 0.3) - surfacePenalty);
+
+    // Activity: open places (night-discounted), CCTV within 80 m, transit within 150 m.
+    const cctvCount = countNearby(cctvGrid, midLat, midLng, V2.CCTV_RADIUS_M);
+    const transitCount = countNearby(transitGrid, midLat, midLng, V2.TRANSIT_RADIUS_M);
+    const placesOpen = countNearby(placeGrid, midLat, midLng, V2.PLACE_RADIUS_M);
+    const nightDiscount = (hour >= 22 || hour < 6) ? 0.4 : (hour >= 18 ? 0.7 : 1.0);
+    const cctvScore = Math.min(1.0, cctvCount * 0.4);
+    const placeScore = Math.min(1.0, placesOpen * 0.15 * nightDiscount);
+    let activity = { safety: null, n: 0 };
+    let activitySafety = null;
+    if (activityAvailable) {
+      const activityLoad = 0.15 * placesOpen * nightDiscount + 0.4 * cctvCount + 0.1 * transitCount;
+      activitySafety = 1 - Math.exp(-activityLoad);
+      activity = { safety: activitySafety, n: V2.ACTIVITY_N };
+    }
+
+    // Isolation: dead end at true degree, or a footpath with no lamp within 60 m.
+    const deadEnd = (nodeDegree.get(from) || 0) <= 1 || (nodeDegree.get(to) || 0) <= 1;
+    const unlitPath = PATH_CLASS_HIGHWAYS.has(highway) && lampCount60m === 0 && tags.lit !== 'yes';
+    const isolationSafety = clamp01(
+      1 - (deadEnd ? V2.DEAD_END_PENALTY : 0) - (unlitPath ? V2.UNLIT_PATH_PENALTY : 0),
+    );
+
+    // Crime: empirical-Bayes cell risk. An outage leaves the factor unknown, never safe.
+    let crimeFactor = { safety: null, n: 0 };
+    if (crimeStatus === 'ok') {
+      const cell = crimeCells.get(cellKeyOf(midLat, midLng));
+      const crime = crimeRisk({
+        weightedCount: cell.weightedCount,
+        exposureKm: cell.exposureKm,
+        priorRate,
+        status: 'ok',
+      });
+      crimeFactor = { safety: 1 - crime.risk, n: crime.n };
+    }
+
+    const { risk, certainty, dominantCause } = edgeRisk({
+      factors: {
+        lighting: { safety: lightingSafety, n: lighting.n },
+        crime: crimeFactor,
+        road: { safety: roadSafety, n: V2.ROAD_N },
+        activity,
+        isolation: { safety: isolationSafety, n: V2.ISOLATION_N },
+      },
+      weights,
+    });
+
+    const hasSidewalk = !!(tags.sidewalk && tags.sidewalk !== 'no');
+    const litTag = tags.lit || null;
+    edges.push({
+      idx: edgeIdx,
+      from,
+      to,
+      distance: dist,
+      highway,
+      safetyScore: 1 - risk,
+      roadScore: roadSafety,
+      lightScore: lightingSafety,
+      crimeScore: crimeFactor.safety ?? PRIOR_SAFETY.crime,
+      cctvScore,
+      placeScore,
+      trafficScore: activitySafety === null ? roadSafety : (roadSafety + activitySafety) / 2,
+      penalty: 0,
+      hasSidewalk,
+      surfaceType: surface || 'paved',
+      roadName: tags.name || '',
+      nearbyCctvCount: cctvCount,
+      nearbyTransitCount: transitCount,
+      surfacePenalty,
+      maxspeed: tags.maxspeed || '',
+      isTunnel: tags.tunnel === 'yes',
+      isLit: litTag === 'yes',
+      litTag,
+      isDeadEnd: deadEnd,
+      risk,
+      certainty,
+      cause: dominantCause,
+      litEstimate,
+      pLit: lighting.pLit,
+      lengthM: dist,
+      start: { lat: nA.lat, lng: nA.lng },
+      end: { lat: nB.lat, lng: nB.lng },
+    });
+
+    if (!adjacency.has(from)) adjacency.set(from, []);
+    if (!adjacency.has(to)) adjacency.set(to, []);
+    adjacency.get(from).push({ edgeIdx, neighborId: to });
+    adjacency.get(to).push({ edgeIdx, neighborId: from });
+  }
+
+  return {
+    osmNodes,
+    edges,
+    adjacency,
+    nodeGrid,
+    weights,
+    cctvNodes,
+    transitNodes,
+    nodeDegree,
+    edgeConfidences: [],
+    darkness,
+    model: 'v2',
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // NEAREST NODE (spatial grid — O(1) instead of O(n))
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -579,8 +1039,17 @@ function findNearestNode(nodeGrid, adjacency, lat, lng, maxDist = 500) {
 function isHazardEdge(edge, allowHazards = false) {
   if (allowHazards) return false;
   // Hard constraints: obvious hazards we should avoid by default
-  const speed = parseInt(edge.maxspeed, 10);
-  const isHighSpeedNoSidewalk = Number.isFinite(speed) && speed >= 50 && !edge.hasSidewalk;
+  let isHighSpeedNoSidewalk;
+  if (useV2()) {
+    // v2 parses the unit: '40 mph' is about 64 km/h, not 40.
+    const raw = typeof edge.maxspeed === 'string' ? edge.maxspeed.trim().toLowerCase() : undefined;
+    const speedKmh = parseMaxspeedKmh(raw);
+    isHighSpeedNoSidewalk = speedKmh !== null && speedKmh >= V2.HAZARD_SPEED_KMH && !edge.hasSidewalk;
+  } else {
+    // v1 (kept for A/B): parseInt ignores units, so '40 mph' reads as 40.
+    const speed = parseInt(edge.maxspeed, 10);
+    isHighSpeedNoSidewalk = Number.isFinite(speed) && speed >= 50 && !edge.hasSidewalk;
+  }
   const isUnlitTunnel = edge.isTunnel && !edge.isLit;
   return isHighSpeedNoSidewalk || isUnlitTunnel;
 }
@@ -610,6 +1079,7 @@ function aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM, optio
   const realDist = new Map();
   const prev = new Map();
   const closed = new Set();
+  const v2 = useV2();
 
   gScore.set(startId, 0);
   realDist.set(startId, 0);
@@ -638,9 +1108,10 @@ function aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM, optio
       const edge = edges[edgeIdx];
       if (isHazardEdge(edge, options.allowHazards)) continue;
 
-      const confidencePenalty = (options.edgeConfidences && options.edgeConfidences[edgeIdx])
-        ? Math.min(0.1, (1 - options.edgeConfidences[edgeIdx].score) * 0.1)
-        : 0;
+      // v2: uncertainty is already inside edge risk (through the priors), so no confidence penalty.
+      const confidencePenalty = v2 || !(options.edgeConfidences && options.edgeConfidences[edgeIdx])
+        ? 0
+        : Math.min(0.1, (1 - options.edgeConfidences[edgeIdx].score) * 0.1);
       const effectiveSafety = Math.max(0.05, edge.safetyScore - edge.penalty - confidencePenalty);
       const edgeCost = edge.distance / effectiveSafety;
       const tentativeG = currentG + edgeCost;
@@ -728,8 +1199,64 @@ function findKSafestRoutes(osmNodes, edges, adjacency, startId, endId, maxDistM,
   }
 
   for (const e of edges) e.penalty = 0;
+  if (useV2()) return rankRoutesByExposure(routes, edges);
   routes.sort((a, b) => b.avgSafety - a.avgSafety);
   return routes;
+}
+
+/** Converts an edge to the shape routeAggregate expects. */
+function toAggregateEdge(edge) {
+  return {
+    lengthM: edge.distance,
+    risk: edge.risk,
+    certainty: edge.certainty,
+    cause: edge.cause,
+    start: edge.start,
+    end: edge.end,
+  };
+}
+
+/**
+ * v2 ranking: every candidate gets its route risk from aggregateRoute, then routes are
+ * ordered by exposure with rankRoutes. The displayed score and the order come from this
+ * one function. Routes over 1.5x the shortest stay in the list, marked excluded, at the end.
+ * A route with no edges (start equals end) has no risk and goes first.
+ */
+function rankRoutesByExposure(routes, edges) {
+  const measured = [];
+  const degenerate = [];
+
+  routes.forEach((route, id) => {
+    if (route.edges.length === 0) {
+      Object.assign(route, {
+        routeRisk: 0, mean: 0, m3: 0, score: 100, certainty: 0, worstStretch: null,
+        avgSafety: 1, lengthM: 0, exposure: 0, excluded: false,
+      });
+      degenerate.push(route);
+      return;
+    }
+    const agg = aggregateRoute(route.edges.map((eIdx) => toAggregateEdge(edges[eIdx])));
+    const lengthM = route.totalDist;
+    Object.assign(route, {
+      routeRisk: agg.routeRisk,
+      mean: agg.mean,
+      m3: agg.m3,
+      score: agg.score,
+      certainty: agg.certainty,
+      worstStretch: agg.worstStretch,
+      avgSafety: 1 - agg.routeRisk,
+      lengthM,
+    });
+    measured.push({ id, lengthM, routeRisk: agg.routeRisk });
+  });
+
+  const ordered = rankRoutes(measured).map((entry) => {
+    const route = routes[entry.id];
+    route.exposure = entry.exposure;
+    route.excluded = entry.excluded;
+    return route;
+  });
+  return [...degenerate, ...ordered];
 }
 
 function countEdgeOverlap(edgesA, edgesB) {
@@ -752,9 +1279,64 @@ function routeToPolyline(osmNodes, path) {
 }
 
 /**
+ * v2 breakdown. The score is 1 - routeRisk (aggregateRoute), the same value the ranking uses.
+ * Per-factor values are length-weighted from the edge fields; riskVector describes risk
+ * (mean, p95 and max edge risk), and its uncertainty is 1 - certainty.
+ * An empty route (no distance) returns zeros.
+ */
+function routeSafetyBreakdownV2(edges, usedEdgeIdxs) {
+  const segments = usedEdgeIdxs.map((eIdx) => edges[eIdx]);
+  const totalDist = segments.reduce((sum, e) => sum + e.distance, 0);
+  if (totalDist === 0) {
+    return {
+      roadType: 0, lighting: 0, crime: 0, cctv: 0, openPlaces: 0,
+      traffic: 0, overall: 0, roadTypes: {}, mainRoadRatio: 0,
+      riskVector: { mean: 0, p95: 0, max: 0, uncertainty: 0 },
+      routeRisk: 0, mean: 0, m3: 0, certainty: 0, worstStretch: null,
+    };
+  }
+
+  const agg = aggregateRoute(segments.map(toAggregateEdge));
+  const weightedMean = (field) => segments.reduce((sum, e) => sum + (e[field] || 0) * e.distance, 0) / totalDist;
+
+  const roadTypes = {};
+  for (const e of segments) roadTypes[e.highway] = (roadTypes[e.highway] || 0) + e.distance;
+  const roadTypePct = {};
+  for (const [type, dist] of Object.entries(roadTypes)) {
+    roadTypePct[type] = Math.round((dist / totalDist) * 100);
+  }
+  const mainRoadDist = (roadTypes.primary || 0) + (roadTypes.secondary || 0)
+    + (roadTypes.tertiary || 0) + (roadTypes.trunk || 0);
+
+  // Nearest-rank p95 over edge risks (unweighted, as before).
+  const risks = segments.filter((e) => e.distance > 0).map((e) => e.risk).sort((a, b) => a - b);
+  const p95 = risks[Math.ceil(0.95 * risks.length) - 1];
+  const max = risks[risks.length - 1];
+
+  return {
+    roadType: weightedMean('roadScore'),
+    lighting: weightedMean('lightScore'),
+    crime: weightedMean('crimeScore'),
+    cctv: weightedMean('cctvScore'),
+    openPlaces: weightedMean('placeScore'),
+    traffic: weightedMean('trafficScore'),
+    overall: 1 - agg.routeRisk,
+    roadTypes: roadTypePct,
+    mainRoadRatio: mainRoadDist / totalDist,
+    riskVector: { mean: agg.mean, p95, max, uncertainty: 1 - agg.certainty },
+    routeRisk: agg.routeRisk,
+    mean: agg.mean,
+    m3: agg.m3,
+    certainty: agg.certainty,
+    worstStretch: agg.worstStretch,
+  };
+}
+
+/**
  * Compute detailed per-segment safety breakdown for a route.
  */
 function routeSafetyBreakdown(edges, usedEdgeIdxs, weights, edgeConfidences = null) {
+  if (useV2()) return routeSafetyBreakdownV2(edges, usedEdgeIdxs);
   let totalDist = 0;
   let weightedRoad = 0, weightedLight = 0, weightedCrime = 0;
   let weightedCctv = 0, weightedPlace = 0, weightedTraffic = 0;
@@ -1026,4 +1608,6 @@ module.exports = {
   ROAD_TYPE_SCORES,
   WALKABLE_HIGHWAYS,
   isHazardEdge,
+  useV2,
+  currentModel,
 };

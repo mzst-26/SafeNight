@@ -6,15 +6,144 @@ const {
 } = require("./safeRoutesUtils");
 const { collectRoutePOIs } = require("./safeRoutesPoiCollector");
 const { encodePolyline } = require("../services/geo");
+const safetyGraphModule = require("../services/safetyGraph");
 const {
   routeToPolyline,
   routeSafetyBreakdown,
-} = require("../services/safetyGraph");
+} = safetyGraphModule;
 const {
   buildRouteLightGapSpans,
 } = require("../services/lightConfidenceEngine");
+const { severityOf } = require("../services/crimeSeverity");
+const { rankRoutes, buildReason } = require("../scoring/routeAggregate");
+const { RISK_POOR_THRESHOLD } = require("../scoring/config");
 
 const WALKING_SPEED_MPS = 1.35;
+
+// ── v2 scoring output ───────────────────────────────────────────────────────
+// v1 output is unchanged. When the v2 model is on, the score, segment colour, reason and
+// crime markers follow the definitions below.
+
+/** True when the v2 scoring model is enabled. Missing flag support counts as off. */
+function isScoringV2Enabled() {
+  return typeof safetyGraphModule.useV2 === "function" && safetyGraphModule.useV2() === true;
+}
+
+// Six-step risk ramp, index 0 = lowest risk. Must match RISK_RAMP in
+// src/components/maps/routeLayers.ts (the frontend test pins the same values).
+const RISK_RAMP = ["#B9E3D9", "#6FBFB2", "#C9A24B", "#B5621E", "#7E2E12", "#3D1206"];
+const UNKNOWN_RISK_COLOR = "#8A8F98";
+
+const CRIME_CLUSTER_CELL_M = 120;
+const CRIME_CLUSTER_CAP = 60;
+const METRES_PER_DEG_LAT = 111320;
+const LIGHTING_VERIFIED_FRACTION = 0.7;
+const LIGHTING_MIXED_FRACTION = 0.3;
+const CAUTION_TEXT = "Includes unverified or high-risk segments";
+const CRIME_STATUS_UNAVAILABLE = "unavailable";
+
+const round2 = (value) => Math.round(value * 100) / 100;
+const round6 = (value) => Math.round(value * 1e6) / 1e6;
+
+/** Colour for a risk in [0, 1] from the six-step ramp; grey for a non-finite value. */
+function riskToRampColor(risk) {
+  if (!Number.isFinite(risk)) return UNKNOWN_RISK_COLOR;
+  const clamped = Math.min(1, Math.max(0, risk));
+  return RISK_RAMP[Math.min(RISK_RAMP.length - 1, Math.floor(clamped * RISK_RAMP.length))];
+}
+
+/** Lighting data quality from the share of route length with a surveyed (lit/unlit) tag. */
+function lightingQualityFor(verifiedFraction) {
+  if (!Number.isFinite(verifiedFraction)) return "estimated";
+  if (verifiedFraction >= LIGHTING_VERIFIED_FRACTION) return "verified";
+  if (verifiedFraction >= LIGHTING_MIXED_FRACTION) return "mixed";
+  return "estimated";
+}
+
+function edgeLengthM(edge) {
+  return Number.isFinite(edge.lengthM) ? edge.lengthM : edge.distance || 0;
+}
+
+/**
+ * Groups crimes into ~120 m cells. Each cluster is { lat, lng, count, maxSeverity, kind }, where
+ * lat/lng is the centroid. Ordered by count, then severity, then position, and capped.
+ * Points without finite, in-range coordinates are ignored.
+ */
+function clusterCrimes(crimes, { cap = CRIME_CLUSTER_CAP, cellM = CRIME_CLUSTER_CELL_M } = {}) {
+  const valid = (Array.isArray(crimes) ? crimes : []).filter(
+    (c) =>
+      c &&
+      Number.isFinite(c.lat) && Number.isFinite(c.lng) &&
+      Math.abs(c.lat) <= 90 && Math.abs(c.lng) <= 180,
+  );
+  if (valid.length === 0) return [];
+
+  const meanLat = valid.reduce((sum, c) => sum + c.lat, 0) / valid.length;
+  const metresPerDegLng = METRES_PER_DEG_LAT * Math.max(1e-6, Math.cos((meanLat * Math.PI) / 180));
+  const cellLat = cellM / METRES_PER_DEG_LAT;
+  const cellLng = cellM / metresPerDegLng;
+
+  const cells = new Map();
+  for (const crime of valid) {
+    const key = `${Math.floor(crime.lat / cellLat)}:${Math.floor(crime.lng / cellLng)}`;
+    let cell = cells.get(key);
+    if (!cell) {
+      cell = { count: 0, sumLat: 0, sumLng: 0, maxSeverity: 0 };
+      cells.set(key, cell);
+    }
+    cell.count += 1;
+    cell.sumLat += crime.lat;
+    cell.sumLng += crime.lng;
+    cell.maxSeverity = Math.max(cell.maxSeverity, severityOf(crime.category));
+  }
+
+  return [...cells.values()]
+    .map((cell) => ({
+      lat: round6(cell.sumLat / cell.count),
+      lng: round6(cell.sumLng / cell.count),
+      count: cell.count,
+      maxSeverity: round2(cell.maxSeverity),
+      kind: "crime",
+    }))
+    .sort((a, b) => b.count - a.count || b.maxSeverity - a.maxSeverity || a.lat - b.lat || a.lng - b.lng)
+    .slice(0, cap);
+}
+
+/** Stretch in the API shape: rounded length, endpoints and cause. */
+function formatWorstStretch(stretch) {
+  if (!stretch) return null;
+  return {
+    start: stretch.start,
+    end: stretch.end,
+    lengthM: Math.round(stretch.lengthM),
+    cause: stretch.cause ?? null,
+  };
+}
+
+/**
+ * Ranks the candidate routes by exposure (v2) and gives each its display id, 1-based, matching the
+ * "Route N" summary label. Returns prepared entries in display order plus buildReason candidates.
+ */
+function rankForDisplay(prepared) {
+  const ranked = rankRoutes(
+    prepared.map((entry) => ({
+      id: entry.index,
+      lengthM: Math.max(1, entry.route.totalDist),
+      routeRisk: entry.breakdown.routeRisk,
+    })),
+  );
+  const ordered = ranked.map((r) => prepared[r.id]);
+  const candidates = ordered.map((entry, position) => ({
+    id: position + 1,
+    lengthM: Math.max(1, entry.route.totalDist),
+    routeRisk: entry.breakdown.routeRisk,
+    score: Math.round(100 * (1 - entry.breakdown.routeRisk)),
+    worstStretch: entry.breakdown.worstStretch
+      ? { lengthM: entry.breakdown.worstStretch.lengthM, cause: entry.breakdown.worstStretch.cause ?? null }
+      : null,
+  }));
+  return { ordered, candidates };
+}
 const DEFAULT_RESPONSE_POLICY = {
   verbosity: "full",
   poiCaps: {
@@ -350,6 +479,7 @@ function buildCompactRoutePayload({
   uncertaintyBoxes,
   lightUncertaintySpans,
   generalUncertaintyBoxes,
+  safetyV2 = {},
 }) {
   return {
     routeIndex: idx,
@@ -370,6 +500,7 @@ function buildCompactRoutePayload({
         openPlaces: Math.round(breakdown.openPlaces * 100),
         traffic: Math.round(breakdown.traffic * 100),
       },
+      ...safetyV2,
     },
     routeStats: {
       deadEnds: routeStats.deadEnds,
@@ -378,6 +509,7 @@ function buildCompactRoutePayload({
       transitStopsNearby: routeStats.transitStopsNearby,
       cctvCamerasNearby: routeStats.cctvCamerasNearby,
       estimatedDurationSec: durationSec,
+      ...(routeStats.crimeCount !== undefined ? { crimeCount: routeStats.crimeCount } : {}),
     },
     routePOIs: limitedRoutePOIs,
     queryFootprints,
@@ -473,6 +605,7 @@ function buildRouteResponses({
   edgeConfidences = null,
   straightLineDist = 0,
   verificationFootprints = [],
+  crimeStatus = CRIME_STATUS_UNAVAILABLE,
 }) {
   const normalizedResponsePolicy = normalizeResponsePolicy(responsePolicy);
   const lightNodes = collectLightNodes(allData?.lights?.elements);
@@ -482,18 +615,36 @@ function buildRouteResponses({
     normalizedResponsePolicy.openPlacesOnly,
   );
 
-  const routes = rawRoutes.map((route, idx) => {
+  // v2 ranks by exposure before anything is formatted, so index 0 is the recommended route.
+  const v2 = isScoringV2Enabled();
+  const prepared = rawRoutes.map((route, index) => ({
+    index,
+    route,
+    breakdown: routeSafetyBreakdown(edges, route.edges, weights, edgeConfidences),
+  }));
+  const { ordered, candidates } = v2
+    ? rankForDisplay(prepared)
+    : { ordered: prepared, candidates: null };
+
+  const routes = ordered.map(({ route, breakdown }, idx) => {
     const polyline = routeToPolyline(osmNodes, route.path);
-    const breakdown = routeSafetyBreakdown(edges, route.edges, weights, edgeConfidences);
-    const score100 = Math.round(breakdown.overall * 100);
-    const lightingPct = Math.round((breakdown.lighting || 0) * 100);
-    const baseLabel = safetyLabel(score100);
-    const { label, color } = applyLightingOverride(
-      baseLabel.label,
-      baseLabel.color,
-      score100,
-      lightingPct,
-    );
+    let score100;
+    let label;
+    let color;
+    if (v2) {
+      score100 = Math.round(100 * (1 - breakdown.routeRisk));
+      ({ label, color } = safetyLabel(score100));
+    } else {
+      score100 = Math.round(breakdown.overall * 100);
+      const lightingPct = Math.round((breakdown.lighting || 0) * 100);
+      const baseLabel = safetyLabel(score100);
+      ({ label, color } = applyLightingOverride(
+        baseLabel.label,
+        baseLabel.color,
+        score100,
+        lightingPct,
+      ));
+    }
     const durationSec = Math.round(route.totalDist / WALKING_SPEED_MPS);
     const detourRatio = straightLineDist > 0 ? route.totalDist / straightLineDist : 0;
 
@@ -506,6 +657,8 @@ function buildRouteResponses({
     const roadNameChanges = [];
     let lastRoadName = "";
     let cumulativeDist = 0;
+    let verifiedLengthM = 0;
+    let totalLengthM = 0;
 
     for (let i = 0; i < route.edges.length; i++) {
       const edge = edges[route.edges[i]];
@@ -530,11 +683,19 @@ function buildRouteResponses({
       }
       cumulativeDist += edge.distance;
 
-      const edgeColor = edge.lightScore <= 0.2
-        ? "#C62828"
-        : edge.lightScore <= 0.35
-          ? "#F9A825"
-          : segmentColor(edge.safetyScore);
+      const lengthM = edgeLengthM(edge);
+      totalLengthM += lengthM;
+      if (edge.litEstimate === "lit" || edge.litEstimate === "unlit") {
+        verifiedLengthM += lengthM;
+      }
+
+      const edgeColor = v2
+        ? riskToRampColor(edge.risk)
+        : edge.lightScore <= 0.2
+          ? "#C62828"
+          : edge.lightScore <= 0.35
+            ? "#F9A825"
+            : segmentColor(edge.safetyScore);
 
       segments.push({
         start: { lat: nodeA.lat, lng: nodeA.lng },
@@ -552,8 +713,28 @@ function buildRouteResponses({
         placeScore: edge.placeScore,
         trafficScore: edge.trafficScore,
         distance: Math.round(edge.distance),
+        ...(v2
+          ? {
+              risk: edge.risk,
+              litEstimate: edge.litEstimate ?? null,
+              certainty: edge.certainty ?? null,
+              cause: edge.cause ?? null,
+            }
+          : {}),
       });
     }
+
+    const lightingQuality = lightingQualityFor(
+      totalLengthM > 0 ? verifiedLengthM / totalLengthM : NaN,
+    );
+    // v2: a high-risk edge on the route. v1 keeps its original (inverted-name) rule.
+    const cautionFlag = v2
+      ? breakdown.riskVector && breakdown.riskVector.max >= RISK_POOR_THRESHOLD
+        ? CAUTION_TEXT
+        : null
+      : breakdown.riskVector && breakdown.riskVector.max < 0.2 && breakdown.riskVector.uncertainty > 0.15
+        ? CAUTION_TEXT
+        : null;
 
     const routePOIs = collectRoutePOIs(
       route.path,
@@ -573,24 +754,37 @@ function buildRouteResponses({
       oLat,
       oLng,
     );
-    const uncertaintyBoxes = buildUncertaintyBoxes(
-      route,
-      edges,
-      osmNodes,
-      edgeConfidences,
-    );
+    if (v2) {
+      // Crime markers are clustered server-side; the true total goes to routeStats.crimeCount.
+      limitedRoutePOIs.crimes = clusterCrimes(routePOIs.crimes, {
+        cap: Math.min(normalizedResponsePolicy.poiCaps.crimes, CRIME_CLUSTER_CAP),
+      });
+    }
+    // v2 draws uncertainty as dashed lines on the segments, so the boxes are not emitted.
+    const uncertaintyBoxes = v2
+      ? []
+      : buildUncertaintyBoxes(route, edges, osmNodes, edgeConfidences);
     const lightUncertaintySpans = buildLightUncertaintySpans(
       route,
       edges,
       osmNodes,
       edgeConfidences,
     );
-    const generalUncertaintyBoxes = buildGeneralUncertaintyBoxes(
-      route,
-      edges,
-      osmNodes,
-      edgeConfidences,
-    );
+    const generalUncertaintyBoxes = v2
+      ? []
+      : buildGeneralUncertaintyBoxes(route, edges, osmNodes, edgeConfidences);
+
+    const safetyV2 = v2
+      ? {
+          certainty: Number.isFinite(breakdown.certainty) ? round2(breakdown.certainty) : null,
+          reason: buildReason(candidates[idx], candidates),
+          worstStretch: formatWorstStretch(breakdown.worstStretch),
+          dataQuality: {
+            crime: crimeStatus,
+            lighting: lightingQuality,
+          },
+        }
+      : {};
 
     const routeStats = {
       deadEnds: deadEndCount,
@@ -605,6 +799,7 @@ function buildRouteResponses({
       transitStopsNearby: Math.min(transitStopCount, 50),
       cctvCamerasNearby: Math.min(cctvNearCount, 50),
       roadNameChanges,
+      ...(v2 ? { crimeCount: (routePOIs.crimes || []).length } : {}),
     };
 
     const fullRoutePayload = {
@@ -656,9 +851,8 @@ function buildRouteResponses({
               detourRatio: Math.round(detourRatio * 100) / 100,
             }
           : null,
-        caution: breakdown.riskVector && breakdown.riskVector.max < 0.2 && breakdown.riskVector.uncertainty > 0.15
-          ? 'Includes unverified or high-risk segments'
-          : null,
+        caution: cautionFlag,
+        ...safetyV2,
       },
       segments,
       routeStats,
@@ -684,6 +878,7 @@ function buildRouteResponses({
         lightUncertaintySpans,
         generalUncertaintyBoxes,
         uncertaintyBoxes,
+        safetyV2,
       });
     }
 
@@ -713,4 +908,8 @@ module.exports = {
   collectOpenPlaceNodes,
   buildRouteResponses,
   routeErrorResponse,
+  isScoringV2Enabled,
+  clusterCrimes,
+  lightingQualityFor,
+  riskToRampColor,
 };

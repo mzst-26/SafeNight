@@ -16,6 +16,7 @@ jest.mock('../../../src/safety/services/overpassClient', () => ({
 
 jest.mock('../../../src/safety/services/crimeClient', () => ({
   fetchCrimesInBbox: jest.fn(async () => []),
+  fetchCrimesWithStatus: jest.fn(async () => ({ crimes: [], status: 'ok' })),
 }));
 
 const sourceFusion = require('../../../src/safety/services/sourceFusionEngine');

@@ -6,6 +6,13 @@
  *   • Returns severity weight with each crime for distance-weighted scoring
  *   • 24-hour cache — crime data only updates monthly
  *   • Handles API limits gracefully
+ *
+ * OUTAGE CONTRACT (fetchCrimesWithStatus):
+ *   • { status: 'ok', crimes } for a usable 200 response (including a genuine empty list),
+ *     or for a stale cache entry that is still inside the allowed stale window.
+ *   • { status: 'unavailable', crimes: [] } for a non-OK HTTP status, a network error with no
+ *     usable stale cache, or an unparseable body. Failures are never cached, so an outage can
+ *     never be stored as a good zero.
  */
 
 const POLICE_API_BASE = 'https://data.police.uk/api';
@@ -13,6 +20,9 @@ const POLICE_API_BASE = 'https://data.police.uk/api';
 const { createSafetyCacheStore } = require('./cacheStore');
 // Severity table lives in crimeSeverity.js (shared with the v2 scoring model).
 const { CRIME_SEVERITY, severityOf } = require('./crimeSeverity');
+
+const CRIME_STATUS_OK = 'ok';
+const CRIME_STATUS_UNAVAILABLE = 'unavailable';
 
 // ── Crime data cache (24h — data updates monthly) ───────────────────────────
 const CRIME_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -74,11 +84,108 @@ function withTimeout(promise, timeoutMs) {
   ]).finally(() => clearTimeout(timeoutHandle));
 }
 
+function unavailable() {
+  return { status: CRIME_STATUS_UNAVAILABLE, crimes: [] };
+}
+
 /**
- * Fetch street-level crimes within a bounding box.
- * Returns array of { lat, lng, category, severity, month }.
+ * Converts one Police API row into a crime, or null when its coordinates are not usable.
+ * Coordinates arrive as strings; they must parse to finite numbers inside the valid range.
  */
-async function fetchCrimesInBbox(bbox, options = {}) {
+function toCrime(row) {
+  const lat = Number.parseFloat(row?.location?.latitude);
+  const lng = Number.parseFloat(row?.location?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+
+  const category = row.category || 'unknown';
+  return {
+    lat,
+    lng,
+    category,
+    severity: severityOf(category),
+    month: row.month || '',
+  };
+}
+
+/**
+ * Fetches the live Police response for a bbox and caches it when it is a genuine answer.
+ * Never throws for upstream failures: they come back as { status: 'unavailable' }.
+ * Only an abort of the caller's own signal is rethrown, so the caller can cancel.
+ */
+async function fetchAndCacheLiveData(key, bbox, liveSignal) {
+  liveFetchInProgress.add(key);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  const abortFromParent = () => controller.abort();
+  if (liveSignal) liveSignal.addEventListener('abort', abortFromParent, { once: true });
+
+  const { south, west, north, east } = bbox;
+  const poly = [
+    `${south},${west}`,
+    `${south},${east}`,
+    `${north},${east}`,
+    `${north},${west}`,
+  ].join(':');
+
+  try {
+    let resp;
+    try {
+      resp = await fetch(
+        `${POLICE_API_BASE}/crimes-street/all-crime?poly=${poly}`,
+        { signal: controller.signal },
+      );
+    } catch (err) {
+      if (err?.name === 'AbortError' && liveSignal?.aborted) throw err;
+      console.warn(
+        err?.name === 'AbortError'
+          ? '[crimeClient] Police API timed out'
+          : `[crimeClient] Police API error: ${String(err?.message || err).slice(0, 180)}`,
+      );
+      return unavailable();
+    }
+
+    if (!resp.ok) {
+      console.warn(`[crimeClient] Police API ${resp.status} — crime data unavailable`);
+      return unavailable();
+    }
+
+    let body;
+    try {
+      body = await resp.json();
+    } catch (err) {
+      console.warn(`[crimeClient] Police API body unparseable: ${String(err?.message || err).slice(0, 180)}`);
+      return unavailable();
+    }
+    if (!Array.isArray(body)) {
+      console.warn('[crimeClient] Police API body is not a list — crime data unavailable');
+      return unavailable();
+    }
+
+    const crimes = [];
+    for (const row of body) {
+      const crime = toCrime(row);
+      if (crime) crimes.push(crime);
+    }
+
+    // A genuine 200 (including an empty list) is a real answer and is cached as such.
+    await crimeCacheStore.set(key, crimes);
+    return { status: CRIME_STATUS_OK, crimes };
+  } finally {
+    clearTimeout(timer);
+    if (liveSignal) liveSignal.removeEventListener('abort', abortFromParent);
+    liveFetchInProgress.delete(key);
+  }
+}
+
+/**
+ * Fetch street-level crimes within a bounding box, with an explicit outage status.
+ *
+ * @param {{south:number, west:number, north:number, east:number}} bbox
+ * @param {{signal?: AbortSignal, onSourceMeta?: Function}} [options]
+ * @returns {Promise<{status: 'ok'|'unavailable', crimes: Array<{lat:number, lng:number, category:string, severity:number, month:string}>}>}
+ */
+async function fetchCrimesWithStatus(bbox, options = {}) {
   const { signal = null, onSourceMeta = null } = options;
   const key = crimeCacheKey(bbox);
   const cacheEntry = await crimeCacheStore.getWithMeta(key, {
@@ -94,64 +201,8 @@ async function fetchCrimesInBbox(bbox, options = {}) {
       cacheAgeMs: cacheEntry.ageMs,
       cacheLayer: cacheEntry.cacheLayer,
     });
-    return cacheEntry.data;
+    return { status: CRIME_STATUS_OK, crimes: cacheEntry.data };
   }
-
-  const { south, west, north, east } = bbox;
-  const poly = [
-    `${south},${west}`,
-    `${south},${east}`,
-    `${north},${east}`,
-    `${north},${west}`,
-  ].join(':');
-
-  const fetchAndCacheLiveData = async (liveSignal = signal) => {
-    liveFetchInProgress.add(key);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
-    const abortFromParent = () => controller.abort();
-    if (liveSignal) liveSignal.addEventListener('abort', abortFromParent, { once: true });
-
-    try {
-      const resp = await fetch(
-        `${POLICE_API_BASE}/crimes-street/all-crime?poly=${poly}`,
-        { signal: controller.signal },
-      );
-
-      if (resp.status === 503) {
-        console.warn('[crimeClient] Police API returned 503 — skipping');
-        return [];
-      }
-      if (!resp.ok) {
-        const text = await resp.text();
-        console.warn(`[crimeClient] Police API ${resp.status}: ${text.slice(0, 200)}`);
-        return [];
-      }
-
-      const crimes = await resp.json();
-      if (!Array.isArray(crimes)) return [];
-
-      const result = crimes
-        .filter((c) => c.location?.latitude && c.location?.longitude)
-        .map((c) => {
-          const category = c.category || 'unknown';
-          return {
-            lat: parseFloat(c.location.latitude),
-            lng: parseFloat(c.location.longitude),
-            category,
-            severity: severityOf(category),
-            month: c.month || '',
-          };
-        });
-
-      await crimeCacheStore.set(key, result);
-      return result;
-    } finally {
-      clearTimeout(timer);
-      if (liveSignal) liveSignal.removeEventListener('abort', abortFromParent);
-      liveFetchInProgress.delete(key);
-    }
-  };
 
   const scheduleBackgroundRefresh = () => {
     if (liveFetchInProgress.has(key)) return;
@@ -159,8 +210,10 @@ async function fetchCrimesInBbox(bbox, options = {}) {
 
     const refreshPromise = (async () => {
       try {
-        await fetchAndCacheLiveData(null);
-        console.log('[crimeClient] ♻️ Background refresh completed');
+        const live = await fetchAndCacheLiveData(key, bbox, null);
+        if (live.status === CRIME_STATUS_OK) {
+          console.log('[crimeClient] ♻️ Background refresh completed');
+        }
       } catch (err) {
         console.warn(`[crimeClient] ⚠️ Background refresh failed: ${String(err?.message || err).slice(0, 180)}`);
       } finally {
@@ -172,38 +225,20 @@ async function fetchCrimesInBbox(bbox, options = {}) {
   };
 
   if (!cacheEntry) {
-    try {
-      const live = await fetchAndCacheLiveData(signal);
-      emitSourceMeta(onSourceMeta, {
-        source: 'live',
-        stale: false,
-        cacheAgeMs: null,
-        cacheLayer: null,
-      });
-      return live;
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        if (signal?.aborted) {
-          throw err;
-        }
-        console.warn('[crimeClient] Police API timed out');
-      } else {
-        console.warn('[crimeClient] Police API error:', err.message);
-      }
-      emitSourceMeta(onSourceMeta, {
-        source: 'live_error',
-        stale: false,
-        cacheAgeMs: null,
-        cacheLayer: null,
-      });
-      return [];
-    }
+    const live = await fetchAndCacheLiveData(key, bbox, signal);
+    emitSourceMeta(onSourceMeta, {
+      source: live.status === CRIME_STATUS_OK ? 'live' : 'live_error',
+      stale: false,
+      cacheAgeMs: null,
+      cacheLayer: null,
+    });
+    return live;
   }
 
-  const livePromise = fetchAndCacheLiveData(signal);
+  const livePromise = fetchAndCacheLiveData(key, bbox, signal);
   const liveResult = await withTimeout(livePromise, CRIME_STALE_FETCH_GRACE_MS);
 
-  if (!liveResult.timedOut && !liveResult.error) {
+  if (!liveResult.timedOut && !liveResult.error && liveResult.value.status === CRIME_STATUS_OK) {
     emitSourceMeta(onSourceMeta, {
       source: 'live',
       stale: false,
@@ -221,35 +256,41 @@ async function fetchCrimesInBbox(bbox, options = {}) {
     console.warn(
       `[crimeClient] ⚠️ Live fetch failed, serving stale cache (age=${cacheEntry.ageMs}ms, layer=${cacheEntry.cacheLayer}): ${String(liveResult.error?.message || liveResult.error).slice(0, 180)}`,
     );
-    scheduleBackgroundRefresh();
-    emitSourceMeta(onSourceMeta, {
-      source: 'cache_stale',
-      stale: true,
-      cacheAgeMs: cacheEntry.ageMs,
-      cacheLayer: cacheEntry.cacheLayer,
-      staleFallbackReason: 'live_error',
-      backgroundRefreshTriggered: true,
-    });
-    return cacheEntry.data;
+  } else if (!liveResult.timedOut) {
+    console.warn(
+      `[crimeClient] ⚠️ Live crime fetch unavailable, serving stale cache (age=${cacheEntry.ageMs}ms, layer=${cacheEntry.cacheLayer})`,
+    );
   }
 
-  console.warn(
-    `[crimeClient] 🕒 Serving stale cache after ${CRIME_STALE_FETCH_GRACE_MS}ms live wait (age=${cacheEntry.ageMs}ms, layer=${cacheEntry.cacheLayer})`,
-  );
+  if (liveResult.timedOut) {
+    console.warn(
+      `[crimeClient] 🕒 Serving stale cache after ${CRIME_STALE_FETCH_GRACE_MS}ms live wait (age=${cacheEntry.ageMs}ms, layer=${cacheEntry.cacheLayer})`,
+    );
+  }
+
   scheduleBackgroundRefresh();
   emitSourceMeta(onSourceMeta, {
     source: 'cache_stale',
     stale: true,
     cacheAgeMs: cacheEntry.ageMs,
     cacheLayer: cacheEntry.cacheLayer,
-    staleFallbackReason: 'live_slow',
+    staleFallbackReason: liveResult.timedOut ? 'live_slow' : 'live_error',
     backgroundRefreshTriggered: true,
   });
   livePromise.catch((err) => {
     if (err.name === 'AbortError' && signal?.aborted) return;
     console.warn(`[crimeClient] ⚠️ Live request after stale fallback failed: ${String(err?.message || err).slice(0, 180)}`);
   });
-  return cacheEntry.data;
+  return { status: CRIME_STATUS_OK, crimes: cacheEntry.data };
+}
+
+/**
+ * Legacy API: crimes only. An outage yields [] exactly as before; callers that need to tell an
+ * outage from a real zero must use fetchCrimesWithStatus.
+ */
+async function fetchCrimesInBbox(bbox, options = {}) {
+  const { crimes } = await fetchCrimesWithStatus(bbox, options);
+  return crimes;
 }
 
 function __resetForTests() {
@@ -258,4 +299,11 @@ function __resetForTests() {
   liveFetchInProgress.clear();
 }
 
-module.exports = { fetchCrimesInBbox, CRIME_SEVERITY, __resetForTests };
+module.exports = {
+  fetchCrimesWithStatus,
+  fetchCrimesInBbox,
+  CRIME_STATUS_OK,
+  CRIME_STATUS_UNAVAILABLE,
+  CRIME_SEVERITY,
+  __resetForTests,
+};

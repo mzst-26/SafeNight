@@ -9,6 +9,23 @@ const POI_CAP_MAX = Math.max(
   1,
   Number(process.env.SAFE_ROUTES_POI_CAP_MAX || 5000),
 );
+const INVALID_MAX_DISTANCE = 'INVALID_MAX_DISTANCE';
+
+/** A query value that is present but carries nothing usable: "", "   " or a repeated key (array). */
+function isBlankOrRepeated(raw) {
+  return Array.isArray(raw) || (typeof raw === 'string' && raw.trim() === '');
+}
+
+/**
+ * Validates one coordinate query value. The shared validators coerce with Number(), which turns
+ * "" into 0 and would silently place a point on the equator; blank and repeated values are rejected first.
+ */
+function checkCoordinate(raw, validator, label) {
+  if (isBlankOrRepeated(raw)) {
+    return { valid: false, error: `Invalid ${label}: ${Array.isArray(raw) ? 'repeated' : 'empty'} value` };
+  }
+  return validator(raw);
+}
 
 const FULL_MODE_POI_CAPS = {
   cctv: 200,
@@ -46,14 +63,18 @@ function parsePoiCap(rawValue, fallback) {
     return fallback;
   }
 
+  // "all" / "uncapped" and Infinity mean "as many as the server allows", never an unbounded list.
   if (typeof rawValue === 'string') {
     const normalized = rawValue.trim().toLowerCase();
     if (normalized === 'all' || normalized === 'max' || normalized === 'uncapped') {
-      return Infinity;
+      return POI_CAP_MAX;
     }
   }
 
   const numeric = Number(rawValue);
+  if (numeric === Infinity) {
+    return POI_CAP_MAX;
+  }
   if (!Number.isFinite(numeric)) {
     return fallback;
   }
@@ -107,21 +128,22 @@ function parseResponsePolicy(query = {}) {
 }
 
 function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
-  const oLat = validateLatitude(req.query.origin_lat);
-  const oLng = validateLongitude(req.query.origin_lng);
+  const oLat = checkCoordinate(req.query.origin_lat, validateLatitude, 'latitude');
+  const oLng = checkCoordinate(req.query.origin_lng, validateLongitude, 'longitude');
   if (!oLat.valid) return { ok: false, error: oLat.error };
   if (!oLng.valid) return { ok: false, error: oLng.error };
 
-  const dLat = validateLatitude(req.query.dest_lat);
-  const dLng = validateLongitude(req.query.dest_lng);
+  const dLat = checkCoordinate(req.query.dest_lat, validateLatitude, 'latitude');
+  const dLng = checkCoordinate(req.query.dest_lng, validateLongitude, 'longitude');
   if (!dLat.valid) return { ok: false, error: dLat.error };
   if (!dLng.valid) return { ok: false, error: dLng.error };
 
+  // A waypoint is optional: an unusable one is ignored, as before, but an empty one must not become 0,0.
   let wpLat = null;
   let wpLng = null;
   if (req.query.waypoint_lat != null && req.query.waypoint_lng != null) {
-    const wpLatV = validateLatitude(req.query.waypoint_lat);
-    const wpLngV = validateLongitude(req.query.waypoint_lng);
+    const wpLatV = checkCoordinate(req.query.waypoint_lat, validateLatitude, 'latitude');
+    const wpLngV = checkCoordinate(req.query.waypoint_lng, validateLongitude, 'longitude');
     if (wpLatV.valid && wpLngV.valid) {
       wpLat = wpLatV.value;
       wpLng = wpLngV.value;
@@ -136,12 +158,23 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
   );
   const straightLineKm = straightLineDist / 1000;
 
-  const maxDistanceKm = req.query.max_distance
-    ? Math.min(Number(req.query.max_distance), defaultMaxDistanceKm)
-    : defaultMaxDistanceKm;
+  // Absent (or empty) uses the default. A supplied value must be a finite positive number of km.
+  let maxDistanceKm = defaultMaxDistanceKm;
+  const rawMaxDistance = req.query.max_distance;
+  if (rawMaxDistance != null && rawMaxDistance !== '') {
+    const requestedKm = isBlankOrRepeated(rawMaxDistance) ? NaN : Number(rawMaxDistance);
+    if (!Number.isFinite(requestedKm) || requestedKm <= 0) {
+      return {
+        ok: false,
+        error: INVALID_MAX_DISTANCE,
+        message: 'max_distance must be a positive number of kilometres.',
+      };
+    }
+    maxDistanceKm = Math.min(requestedKm, defaultMaxDistanceKm);
+  }
 
   let departureHour = null;
-  if (req.query.departure_hour != null) {
+  if (req.query.departure_hour != null && !isBlankOrRepeated(req.query.departure_hour)) {
     const dh = Number(req.query.departure_hour);
     if (Number.isFinite(dh) && dh >= 0 && dh <= 23) {
       departureHour = Math.floor(dh);

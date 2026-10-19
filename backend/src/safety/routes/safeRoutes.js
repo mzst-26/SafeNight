@@ -33,7 +33,7 @@ const {
   SAFETY_LEVEL_STANDARD,
   SAFETY_LEVEL_EXTRA,
 } = require("../services/safetyLevels");
-const { fetchCrimesInBbox } = require("../services/crimeClient");
+const { fetchCrimesWithStatus } = require("../services/crimeClient");
 const {
   fetchRoadNetwork: fetchLocalOsmRoadNetwork,
   fetchSafetyData: fetchLocalOsmSafetyData,
@@ -61,7 +61,11 @@ const {
   buildOutOfRangeMessage,
   buildOutOfRangePayload,
 } = require("./safeRoutesRequestPolicy");
-const { buildRouteResponses, routeErrorResponse } = require("./safeRoutesResponseFormatter");
+const {
+  buildRouteResponses,
+  routeErrorResponse,
+  isScoringV2Enabled,
+} = require("./safeRoutesResponseFormatter");
 const { buildSafeRoutesMeta } = require("./safeRoutesMetaBuilder");
 const { findRouteCandidates } = require("./safeRoutesCandidateFinder");
 const {
@@ -165,7 +169,9 @@ router.get("/", async (req, res) => {
       haversine,
     );
     if (!parsedRequest.ok) {
-      return sendJson(400, { error: parsedRequest.error });
+      return sendJson(400, parsedRequest.message
+        ? { error: parsedRequest.error, message: parsedRequest.message }
+        : { error: parsedRequest.error });
     }
 
     // ── Optional safety level: "extra" (default) or "standard" (faster) ──
@@ -388,7 +394,11 @@ router.get("/stream", async (req, res) => {
       haversine,
     );
     if (!parsedRequest.ok) {
-      send("error", { message: parsedRequest.error, pct: 0 });
+      send("error", {
+        error: parsedRequest.message ? parsedRequest.error : undefined,
+        message: parsedRequest.message || parsedRequest.error,
+        pct: 0,
+      });
       return res.end();
     }
 
@@ -702,9 +712,9 @@ async function computeSafeRoutes(
       crime: null,
     };
     let allData;
-    let crimes;
+    let crimeResult;
     try {
-      [allData, crimes] = await Promise.all([
+      [allData, crimeResult] = await Promise.all([
         fetchLocalOsmSafetyData(bbox, {
           signal: upstreamAbortController.signal,
           routeKey: `${oLatV},${oLngV}->${dLatV},${dLngV}`,
@@ -712,7 +722,7 @@ async function computeSafeRoutes(
             dataSources.localOsm = meta;
           },
         }),
-        fetchCrimesInBbox(bbox, {
+        fetchCrimesWithStatus(bbox, {
           signal: upstreamAbortController.signal,
           onSourceMeta: (meta) => {
             dataSources.crime = meta;
@@ -729,7 +739,7 @@ async function computeSafeRoutes(
       }
       // Local OSM failed — fallback to Overpass
       console.warn(`[safe-routes] Local OSM safety data failed, falling back to Overpass: ${err.message}`);
-      [allData, crimes] = await Promise.all([
+      [allData, crimeResult] = await Promise.all([
         fetchAllSafetyData(bbox, {
           signal: upstreamAbortController.signal,
           level: safetyLevel,
@@ -737,7 +747,7 @@ async function computeSafeRoutes(
             dataSources.overpass = meta;
           },
         }),
-        fetchCrimesInBbox(bbox, {
+        fetchCrimesWithStatus(bbox, {
           signal: upstreamAbortController.signal,
           onSourceMeta: (meta) => {
             dataSources.crime = meta;
@@ -753,6 +763,9 @@ async function computeSafeRoutes(
       };
       recordSourceDecision('osm_fallback');
     }
+    // A crime outage is reported as unavailable, never as a zero count (see crimeClient).
+    const crimes = crimeResult.crimes;
+    const crimeStatus = crimeResult.status;
 
     // Standard level skips CCTV, places and transit. The local OSM path doesn't
     // take a level, so strip here too.
@@ -800,6 +813,9 @@ async function computeSafeRoutes(
           hour: departureHour,
           level: safetyLevel,
           lightsCacheByEdgeIdx: dataset.lightsCacheByEdgeIdx || null,
+          // v2 inputs: the clock for darkness, and whether the crime aggregate is usable.
+          now: new Date(),
+          crimeStatus,
         },
       );
       const graphTime = Date.now() - t1;
@@ -1124,6 +1140,7 @@ async function computeSafeRoutes(
       edgeConfidences,
       straightLineDist,
       verificationFootprints,
+      crimeStatus,
     });
 
     const routeSegmentDebug = rawRoutes.map((route, idx) => {
@@ -1174,6 +1191,8 @@ async function computeSafeRoutes(
         dataSources,
         lightVerificationStatus,
         verifiedLightsCount: verifiedLights.length,
+        // Only the v2 model reports crime and lighting quality in meta; v1 meta is unchanged.
+        crimeStatus: isScoringV2Enabled() ? crimeStatus : undefined,
       }),
     };
   } finally {
