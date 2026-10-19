@@ -72,7 +72,8 @@ function fetchWithTimeout(
 
 async function getAccessToken(): Promise<string | null> {
   const token = await AsyncStorage.getItem('safenight_access_token');
-  console.log(`[stripeApi][auth] Token ${token ? `found (${token.substring(0, 20)}...)` : 'NOT FOUND'}`);
+  // Never log token content (not even a prefix) — only whether one exists.
+  console.log(`[stripeApi][auth] Token ${token ? 'found' : 'NOT FOUND'}`);
   return token;
 }
 

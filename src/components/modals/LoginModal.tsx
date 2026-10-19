@@ -152,7 +152,9 @@ export default function LoginModal({
 
     setAvailableMethods(options.methods);
 
-    // New users: OTP only (signup via OTP)
+    // The server returns the same options for every email (no account
+    // enumeration), so new users also see the method step and sign up by
+    // choosing the email code. Kept for older servers that still report exists.
     if (!options.exists || !options.methods.includes('password')) {
       await sendOtpCode();
       return;
