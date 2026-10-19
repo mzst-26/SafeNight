@@ -76,6 +76,13 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 
 | # | From | Task | Finding | Status |
 |---|------|------|---------|--------|
+| F1 | R1r2 | routeAggregate | buildReason 'Safest and shortest' must compare routeRisk not rounded score; assert/document best==rank1 precondition | open (polish P1) |
+| F2 | R1r2 | routeAggregate/edgeRisk | validate g, poorThreshold, exposure() args, rankRoutes routeRisk range; guard huge-length overflow and weights overflow | open (P1) |
+| F3 | R1r2 | crimeRisk | bad monthsAgo rows are silently dropped (counts as zero harm): decide fallback (count at 0 months) | open (P1) |
+| F4 | R1r2 | spec | reconcile: score is split-invariant (worstStretch reported, not scored); config MAJOR pLit .85 vs spec .9 | open (P1) |
+| F5 | R4r2 | routeLayers.ts | riskBucket(NaN) returns NaN; crime severity default 1 vs backend 0.4; LatLng name clash with src/types/geo.ts; freeze ramp; exact union check for litEstimate; use DEG_TO_RAD | open (P1) |
+| F6 | R4r2 | backend | safetyGraph crime.severity||0.4 dup; unused CRIME_SEVERITY re-export in crimeClient; MAX_LENGTH_RATIO into config; shared evidenceStrength helper; lamp radius 30 m into config; FACTOR_NAMES derive from BASE_WEIGHTS; rename safetyGraph getWeights vs scoring getWeights; crime month->monthsAgo adapter; rename cryptic config names (G,N0,EPS) | open (P1, after I1/I2 land) |
+| F7 | R5r2 | tests | 21 surviving mutants (79.4% killed; need >=90%): cluster lon scale, MAX_LENGTH_RATIO 1.6x case, stretch tie, weight-scale invariance, callout midpoint precision, undefined factor, areaWayKm boundary 0.3, literal pins of EPS/CAUSE_MIN_RISK, reason-text mile rounding/ties, dominantCause/worstStretch ties, default cell 120 m, cell boundary | open (P1) |
 
 ## Change log
 
