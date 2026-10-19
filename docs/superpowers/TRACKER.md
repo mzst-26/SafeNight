@@ -73,10 +73,11 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 | FW | Leaflet web renderer (casing, dashed, badges, legend) | a08fd | doing |
 | FN | MapLibre native renderer parity (+ pin maplibre version/SRI) | a3845 | doing |
 | I1 | safetyGraph v2 (flag SAFETY_MODEL) | adb34 | done 22 tests, suite 739 green |
-| FC | Route cards: reason/certainty/dataQuality (route data only) | a9d24 | doing |
+| FC | Route cards: reason/certainty/dataQuality (route data only) | a9d24 | done |
+| FW/FN | web + native renderers | a08fd / a3845 | done; frontend 316 tests, committed 4a028e6 |
 | I2 | API layer: crimeClient status, request hardening, formatter v2 | a690f | done, committed 34e01a0; E2E A/B on :3012 works |
-| P1a | polish scoring modules F1-F3,F6,F7 + spec fixes | ada3c | doing |
-| P1b | polish safetyGraph/crimeClient F6,F8,F9,F10 | a5fd8 | doing |
+| P1a | polish scoring modules F1-F3,F6,F7 + spec fixes | ada3c | done (347 scoring tests, 100% cov, 34/35 mutants then 35/35) |
+| P1b | polish safetyGraph/crimeClient F6,F8,F9,F10 | a5fd8 | done; brain fixes: ACTIVITY_FLOOR=0.4, crime recency anchored on newest data month; suite 856 green |
 | CAL | calibration archetypes (labels: typical lit residential should be ~70 not 54) | | todo after P1a/b |
 
 ## A/B result (Frogmore -> Thurlestone, 22:00, local service)
