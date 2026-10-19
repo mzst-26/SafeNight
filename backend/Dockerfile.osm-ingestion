@@ -20,6 +20,8 @@ COPY scripts ./scripts
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/app/data
+# Run as the unprivileged node user (uid 1000)
+USER node
 EXPOSE 3006
 
 CMD ["node", "src/osm-ingestion/src/main.js"]

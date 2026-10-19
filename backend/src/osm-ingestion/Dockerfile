@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+RUN mkdir -p /app/data && chown node:node /app/data
+
 COPY package*.json ./
 RUN npm ci --only=production
 
@@ -17,6 +19,8 @@ COPY src/ ./src/
 ENV NODE_ENV=production
 ENV DATA_DIR=/app/data
 ENV PORT=3006
+
+USER node
 
 VOLUME ["/app/data"]
 

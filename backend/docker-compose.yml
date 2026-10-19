@@ -35,6 +35,10 @@ services:
     image: safenight/gateway:latest
     container_name: safenight-gateway
     user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - .env
     environment:
@@ -49,6 +53,10 @@ services:
     image: safenight/safety:latest
     container_name: safenight-safety
     user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - .env
     environment:
@@ -68,6 +76,10 @@ services:
     image: safenight/user:latest
     container_name: safenight-user
     user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - .env
     environment:
@@ -83,6 +95,10 @@ services:
     image: safenight/subscription:latest
     container_name: safenight-subscription
     user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - .env
     environment:
@@ -97,6 +113,10 @@ services:
     image: safenight/geocode:latest
     container_name: safenight-geocode
     user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - .env
     environment:
@@ -111,6 +131,10 @@ services:
     image: safenight/osm-ingestion:latest
     container_name: safenight-osm-ingestion
     user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - .env
     environment:
