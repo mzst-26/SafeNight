@@ -57,6 +57,13 @@ Spec: `specs/2026-10-19-safety-scoring-v2-design.md`. Branch: `feat/safety-scori
 
 Rule: merge only when each applicable gate has ≥2 independent approvals in the latest cycle.
 
+## Status snapshot
+
+- c83e3fa: scoring modules + fix pass A/B + routeLayers (M1) committed; 647 backend / 180 frontend tests green.
+- Round-2 review running: R1 a10a7, R5 a3ac9, R4 a07b2.
+- Integration running: I1 safetyGraph (adb34), I2 crimeClient/safeRoutes/formatter (a690f). Flag SAFETY_MODEL=v1 keeps old path until final cleanup.
+- TODO next: M2/M3 renderers (web/native), M4 legend/callout, M5 route card reason, M6 browser verification; S4b crime aggregation job; eval backtests; A/B compare script; final review gates; cleanup v1.
+
 ## Review log (round Phase-1a, commit 4515237)
 
 - R1 a188c: CHANGES: NaN/range validation, null-factor-as-good (decision: neutral prior n=0), rankRoutes shortest kept, tag normalisation, maxspeed list.
