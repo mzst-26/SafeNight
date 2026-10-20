@@ -33,7 +33,7 @@ export function RefundPolicyContent() {
 
       <Text style={styles.body}>
         This Refund & Payment Policy applies to all purchases made through the SafeNight application
-        ("Service"). By subscribing to a paid plan you agree to this policy alongside our Terms &
+        (&quot;Service&quot;). By subscribing to a paid plan you agree to this policy alongside our Terms &
         Conditions and Privacy Policy.
       </Text>
 

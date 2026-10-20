@@ -740,7 +740,7 @@ export function FamilyPackModal({ visible, onClose, onPackChanged }: Props) {
                 <>
                   <Text style={styles.sectionTitle}>Create Your Pack</Text>
                   <Text style={styles.setupDesc}>
-                    Add at least 2 people below. You'll be included automatically as the owner.
+                    Add at least 2 people below. You&apos;ll be included automatically as the owner.
                     Everyone gets full Guarded features.
                   </Text>
 

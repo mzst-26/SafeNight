@@ -32,8 +32,8 @@ export function TermsContent() {
       <Text style={styles.lastUpdated}>Last updated: {TERMS_LAST_UPDATED}</Text>
 
       <Text style={styles.body}>
-        These Terms & Conditions ("Terms") govern your use of the SafeNight application and website
-        ("Service") operated by SafeNight ("we", "us", "our"). By accessing or using the Service
+        These Terms & Conditions (&quot;Terms&quot;) govern your use of the SafeNight application and website
+        (&quot;Service&quot;) operated by SafeNight (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;). By accessing or using the Service
         you agree to be bound by these Terms. If you do not agree, please do not use the Service.
       </Text>
 
@@ -61,7 +61,7 @@ export function TermsContent() {
         • Use the Service for any unlawful purpose or in violation of any applicable law.{'\n'}
         • Reverse-engineer, decompile, or attempt to extract the source code of the Service.{'\n'}
         • Use automated tools (bots, scrapers) to access the Service without our written permission.{'\n'}
-        • Attempt to gain unauthorised access to our systems or other users' accounts.{'\n'}
+        • Attempt to gain unauthorised access to our systems or other users&apos; accounts.{'\n'}
         • Upload or transmit malicious code, viruses, or any other harmful content.{'\n'}
         • Harass, threaten, or abuse other users via any feature of the Service.{'\n'}
         • Share your account credentials with others.{'\n'}
@@ -146,7 +146,7 @@ export function TermsContent() {
       <Text style={styles.body}>
         We may suspend or terminate your access to the Service at any time if we believe you have
         violated these Terms, without prior notice or liability. You may terminate your account at
-        any time using the "Delete Account" option in the profile menu.{'\n\n'}
+        any time using the &quot;Delete Account&quot; option in the profile menu.{'\n\n'}
         Upon termination, all licences granted herein cease, and all provisions that by their
         nature should survive termination (including limitation of liability and dispute resolution)
         shall continue to apply.
