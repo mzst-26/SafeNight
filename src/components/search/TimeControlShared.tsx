@@ -242,7 +242,7 @@ export const styles = StyleSheet.create({
   chipActive: { borderColor: "#1570ef", backgroundColor: "#f0f9ff" },
   chipText: { fontSize: 14, fontWeight: "600", color: "#344054" },
   chipTextActive: { color: ACCENT },
-  noteText: { fontSize: 12, color: "#475467" },
+  noteText: { fontSize: 13, color: "#475467" },
   panel: {
     marginTop: 6,
     gap: 6,
