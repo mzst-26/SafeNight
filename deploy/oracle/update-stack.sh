@@ -4,8 +4,8 @@
 # Safety rules:
 #   - Only tags with a published GitHub Release are deployed. The release workflow publishes one
 #     only after the full CI suite is green, so pushes to main never reach the server.
-#   - Each build is tagged with its commit SHA (safenight/<service>:<sha>), so the previous
-#     stack's images stay on disk as rollback points.
+#   - Images are pulled from Docker Hub (<DOCKERHUB_USER>/safenight-<service>:<sha>), published by
+#     the backend publish workflow. Each SHA's images stay on disk as rollback points.
 #   - If any service is not running or not healthy after `up`, the previous SHA is restored
 #     automatically. Build failures leave the running stack untouched.
 set -euo pipefail
@@ -59,11 +59,11 @@ wait_healthy() {
   return 1
 }
 
-# 1. Build the new images. A failure here leaves the running stack untouched.
+# 1. Pull the images CI published for this commit. A failure here leaves the running stack untouched.
 git checkout --quiet --detach "$NEW_SHA"
 cd backend
-if ! TAG="$NEW_SHA" docker compose build --no-cache; then
-  echo "build failed for $LATEST; running stack left as is"
+if ! TAG="$NEW_SHA" docker compose pull; then
+  echo "pull failed for $LATEST (images not published for $NEW_SHA?); running stack left as is"
   exit 1
 fi
 

@@ -39,8 +39,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.gateway
-      network: host
-    image: safenight/gateway:${TAG:-latest}
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-gateway:${TAG:-latest}
     container_name: safenight-gateway
     user: "1000:1000"
     cap_drop:
@@ -59,8 +58,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.safety
-      network: host
-    image: safenight/safety:${TAG:-latest}
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-safety:${TAG:-latest}
     container_name: safenight-safety
     user: "1000:1000"
     cap_drop:
@@ -84,8 +82,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.user
-      network: host
-    image: safenight/user:${TAG:-latest}
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-user:${TAG:-latest}
     container_name: safenight-user
     user: "1000:1000"
     cap_drop:
@@ -105,8 +102,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.subscription
-      network: host
-    image: safenight/subscription:${TAG:-latest}
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-subscription:${TAG:-latest}
     container_name: safenight-subscription
     user: "1000:1000"
     cap_drop:
@@ -125,8 +121,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.geocode
-      network: host
-    image: safenight/geocode:${TAG:-latest}
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-geocode:${TAG:-latest}
     container_name: safenight-geocode
     user: "1000:1000"
     cap_drop:
@@ -145,8 +140,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.osm-ingestion
-      network: host
-    image: safenight/osm-ingestion:${TAG:-latest}
+    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-osm-ingestion:${TAG:-latest}
     container_name: safenight-osm-ingestion
     user: "1000:1000"
     cap_drop:
