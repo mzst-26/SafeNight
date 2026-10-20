@@ -2,6 +2,8 @@ const {
   buildRoadProximityIndex,
   isNearRoad,
   ROAD_HIGHWAYS,
+  BARRIER_HIGHWAYS,
+  classifyWayContext,
 } = require('../../../../src/safety/scoring/roadProximity');
 
 const LAT = 50.4;
@@ -16,11 +18,75 @@ const segment = (a, b) => {
 };
 
 describe('ROAD_HIGHWAYS', () => {
-  test('is every road class from trunk to service and no footway-like or path class', () => {
-    ['trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service']
+  test('is every road class from primary to service and no footway-like, path or motorway/trunk class', () => {
+    ['primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service']
       .forEach((h) => expect(ROAD_HIGHWAYS.has(h)).toBe(true));
     ['footway', 'cycleway', 'steps', 'pedestrian', 'path', 'track', 'bridleway']
       .forEach((h) => expect(ROAD_HIGHWAYS.has(h)).toBe(false));
+    // A footway beside or over a motorway/trunk is not a sidewalk: those roads are barriers, not street context.
+    ['motorway', 'motorway_link', 'trunk', 'trunk_link']
+      .forEach((h) => expect(ROAD_HIGHWAYS.has(h)).toBe(false));
+  });
+
+  test('BARRIER_HIGHWAYS is exactly motorway, trunk and their links', () => {
+    expect([...BARRIER_HIGHWAYS].sort()).toEqual(['motorway', 'motorway_link', 'trunk', 'trunk_link']);
+  });
+});
+
+describe('classifyWayContext (way level: alongside, crossing or isolated)', () => {
+  // A 400 m residential street along north = 0 and a 400 m dual carriageway along north = 100.
+  const street = buildRoadProximityIndex([segment([-200, 0], [200, 0])]);
+  const trunk = buildRoadProximityIndex([segment([-300, 100], [300, 100])]);
+  const empty = buildRoadProximityIndex([]);
+  const way = (...pts) => pts.slice(1).map((b, i) => ({ a: at(...pts[i]), b: at(...b) }));
+  const classify = (segs, roads = street, barriers = trunk) => classifyWayContext(segs, roads, barriers);
+
+  test('a footway running along a street 12 m away is alongside', () => {
+    expect(classify(way([-100, 12], [100, 12]))).toBe('alongside');
+  });
+
+  test('a way that is near the street at only one end (under 60% of its length) is isolated', () => {
+    // 240 m path leaving the street: only the first ~25 m (about 10%) is within 25 m of it.
+    expect(classify(way([0, 20], [0, 55], [0, 260]), street, empty)).toBe('isolated');
+  });
+
+  test('a long way at a right angle to the street is not alongside, though 62% of it is within 25 m', () => {
+    expect(classify(way([0, -40], [0, 40]), street, empty)).toBe('isolated');
+  });
+
+  test('a short link (under 40 m) ending at a street is still alongside', () => {
+    expect(classify(way([0, 2], [0, 30]), street, empty)).toBe('alongside');
+  });
+
+  test('a way geometrically crossing a trunk is crossing, even with a street within 25 m', () => {
+    const asBridge = way([-40, 90], [-40, 110]);
+    expect(classify(asBridge, buildRoadProximityIndex([segment([-200, 80], [200, 80])]), trunk)).toBe('crossing');
+  });
+
+  test('a footbridge over a trunk is crossing and not sidewalk-like even when its midpoint is near a road', () => {
+    // Trunk at north = 100 is also the only "road": the old midpoint test called this sidewalk-like.
+    expect(classify(way([0, 60], [0, 140]), empty, trunk)).toBe('crossing');
+  });
+
+  test('a path passing a trunk 10 m away in parallel is not crossing, and a trunk is not street context', () => {
+    expect(classify(way([-100, 110], [100, 110]), empty, trunk)).toBe('isolated');
+  });
+
+  test('a shallow geometric crossing of a trunk still counts as crossing', () => {
+    expect(classify(way([-100, 60], [100, 140]), empty, trunk)).toBe('crossing');
+  });
+
+  test('a path ending within 15 m of the trunk at a right angle (no intersection) is crossing', () => {
+    expect(classify(way([0, 40], [0, 90]), empty, trunk)).toBe('crossing');
+  });
+
+  test('an end 30 m from the trunk is not crossing', () => {
+    expect(classify(way([0, 20], [0, 70]), empty, trunk)).toBe('isolated');
+  });
+
+  test('empty way is isolated, and missing barrier index means no crossing', () => {
+    expect(classify([])).toBe('isolated');
+    expect(classifyWayContext(way([0, 60], [0, 140]), empty, null)).toBe('isolated');
   });
 });
 

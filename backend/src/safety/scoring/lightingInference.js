@@ -72,20 +72,22 @@ function parseMaxspeedKmh(value) {
  * @param {boolean|undefined} nearRoad
  * @returns {boolean}
  */
-function isIsolatedPath(highway, nearRoad) {
-  return PATH_HIGHWAYS.has(highway) || (SIDEWALK_LIKE_HIGHWAYS.has(highway) && nearRoad === false);
+function isIsolatedPath(highway, nearRoad, crossing = false) {
+  return PATH_HIGHWAYS.has(highway) || (SIDEWALK_LIKE_HIGHWAYS.has(highway) && (nearRoad === false || crossing));
 }
 
 /**
  * Prior from road class, speed and sidewalk tags (no lamp evidence).
  * Path and footway-like classes are checked before speed, so a footway with a speed tag keeps its footway prior.
  * @param {{highway, maxspeed, sidewalk}} tags - normalised tags
- * @param {boolean|undefined} nearRoad - a road lies within SIDEWALK_RADIUS_M (undefined: unknown)
+ * @param {boolean|undefined} nearRoad - runs along a street (way level; undefined: unknown)
+ * @param {boolean} [crossing] - crosses a motorway/trunk: a crossing structure, isolated and uncertain
  * @returns {{pLit: number, n: number}}
  */
-function tagPrior({ highway, maxspeed, sidewalk }, nearRoad) {
+function tagPrior({ highway, maxspeed, sidewalk }, nearRoad, crossing = false) {
   if (PATH_HIGHWAYS.has(highway)) return LIGHTING.PRIOR.PATH;
   if (SIDEWALK_LIKE_HIGHWAYS.has(highway)) {
+    if (crossing) return LIGHTING.PRIOR.CROSSING_STRUCTURE;
     if (nearRoad === true) return LIGHTING.PRIOR.SIDEWALK_NEAR_ROAD;
     return nearRoad === false ? LIGHTING.PRIOR.SIDEWALK_ISOLATED : LIGHTING.PRIOR.SIDEWALK_UNKNOWN;
   }
@@ -155,12 +157,14 @@ function assertOptionalBoolean(value, name) {
  * @param {number} input.areaWayKm - mapped road length in the surrounding area, km
  * @param {boolean} [input.nearRoad] - a road (trunk to service) lies within SIDEWALK_RADIUS_M of the way;
  *   used only for footway-like classes. Omit when unknown.
+ * @param {boolean} [input.crossing=false] - a footway-like way that crosses a motorway/trunk (footbridge, underpass,
+ *   ramp): takes the crossing-structure prior and counts as an isolated path. Explicit tags and lamps still win.
  * @param {boolean} [input.litNeighbour=false] - a vertex of a lit=yes way lies within LAMP_RADIUS_M. Not a lamp.
  * @returns {{pLit: number, n: number, source: 'tag'|'lamp'|'neighbour-lit'|'absence'|'prior'}}
  * @throws {TypeError} when any input is malformed
  */
 function inferLighting({
-  tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour = false,
+  tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour = false, crossing = false,
 }) {
   assertTags(tags);
   assertNonNegativeInteger('lampCount30m', lampCount30m);
@@ -168,13 +172,14 @@ function inferLighting({
   assertNonNegative('areaWayKm', areaWayKm);
   assertOptionalBoolean(nearRoad, 'nearRoad');
   assertOptionalBoolean(litNeighbour, 'litNeighbour');
+  assertOptionalBoolean(crossing, 'crossing');
 
   const normalised = normaliseTags(tags);
   if (hasOwn(LIGHTING.EXPLICIT, normalised.lit)) {
     return { ...LIGHTING.EXPLICIT[normalised.lit], source: 'tag' };
   }
 
-  const prior = tagPrior(normalised, nearRoad);
+  const prior = tagPrior(normalised, nearRoad, crossing);
 
   if (lampCount30m >= 1) {
     const pLit = Math.max(
@@ -192,7 +197,7 @@ function inferLighting({
     };
   }
 
-  const absenceIsInformative = isIsolatedPath(normalised.highway, nearRoad)
+  const absenceIsInformative = isIsolatedPath(normalised.highway, nearRoad, crossing)
     && areaLampDensityPerKm > LIGHTING.ABSENCE.MIN_LAMP_DENSITY_PER_KM
     && areaWayKm >= LIGHTING.ABSENCE.MIN_AREA_WAY_KM;
   if (absenceIsInformative) {

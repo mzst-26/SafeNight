@@ -72,11 +72,15 @@ describe('v2 calibration: single-street archetypes at night', () => {
     },
   );
 
-  test('I: street A in full daylight is within 8 points of A or higher, and never more than 3 below A', async () => {
+  // Bound widened from 3 to 5 points below A with the uncertainty load (UNCERTAINTY_RISK_LOAD): in daylight the
+  // lighting factor (the best evidenced one, lamps n 10) has zero weight, so edge certainty is lower and the load
+  // takes about 4 points more than at night. Daylight scoring a little under night for the same street is the
+  // intended price of knowing less, not a regression; it is still bounded.
+  test('I: street A in full daylight is within 8 points of A or higher, and never more than 5 below A', async () => {
     const a = await archetypeScore('A');
     const { score: day, graph } = await archetypeScore('A', { level: 'extra', crimeStatus: 'ok', ...DAY });
     expect(graph.darkness).toBeCloseTo(0, 6);
-    expect(day).toBeGreaterThanOrEqual(a.score - 3);
+    expect(day).toBeGreaterThanOrEqual(a.score - 5);
     expect(day >= a.score || Math.abs(day - a.score) <= 8).toBe(true);
   });
 
@@ -88,6 +92,14 @@ describe('v2 calibration: single-street archetypes at night', () => {
     expect(j).toBeLessThanOrEqual(72);
     expect(j).toBeGreaterThan(g.score);
     expect(j).toBeLessThan(a.score);
+  });
+
+  test('unmapped residential (C) scores at least 8 points below lit residential (A) and is still Safe', async () => {
+    const a = await archetypeScore('A');
+    const c = await archetypeScore('C');
+    expect(a.score - c.score).toBeGreaterThanOrEqual(8);
+    expect(c.score).toBeGreaterThanOrEqual(55);
+    expect(c.edge.certainty).toBeLessThan(a.edge.certainty);
   });
 
   test('archetype sanity: the scenes produce the lighting source each archetype is meant to test', async () => {

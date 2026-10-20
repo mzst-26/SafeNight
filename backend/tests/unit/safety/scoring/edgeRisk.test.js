@@ -5,6 +5,7 @@ const {
   CAUSE_MIN_RISK,
   PRIOR_SAFETY,
   BASE_WEIGHTS,
+  UNCERTAINTY_RISK_LOAD,
 } = require('../../../../src/safety/scoring/config');
 const { createSeededRandom } = require('./seededRandom');
 
@@ -12,9 +13,11 @@ const FACTORS = ['lighting', 'crime', 'road', 'activity', 'isolation'];
 const WEIGHTS = { lighting: 0.3, crime: 0.25, road: 0.15, activity: 0.18, isolation: 0.12 };
 const TOLERANCE = 1e-9;
 
-// Blend of the neutral priors with every factor unavailable:
+// Blend of the neutral priors with every factor unavailable (base risk, before the uncertainty load):
 // 1 - exp(-sum_i w_i * -ln(prior_i)) with the priors in config PRIOR_SAFETY.
-const ALL_PRIOR_RISK = 0.486165497;
+// The uncertainty load then applies in full (certainty 0): risk = base + load * (1 - base).
+const ALL_PRIOR_BASE_RISK = 0.486165497;
+const ALL_PRIOR_RISK = ALL_PRIOR_BASE_RISK + UNCERTAINTY_RISK_LOAD * (1 - ALL_PRIOR_BASE_RISK);
 
 function allFactors(safety, n = 10) {
   return Object.fromEntries(FACTORS.map((name) => [name, { safety, n }]));
@@ -36,17 +39,17 @@ function randomFactors(random) {
 
 describe('edgeRisk', () => {
   test('all factors perfectly safe gives risk 0', () => {
-    const result = edgeRisk({ factors: allFactors(1), weights: WEIGHTS });
+    const result = edgeRisk({ factors: allFactors(1, 1e12), weights: WEIGHTS });
 
-    expect(result.risk).toBeCloseTo(0, 12);
+    expect(result.risk).toBeCloseTo(0, 9);
     expect(result.dominantCause).toBeNull();
   });
 
   test('one factor at safety 0 with the rest at 1 gives risk 1 - eps^w, not 1', () => {
-    const factors = { ...allFactors(1), crime: { safety: 0, n: 10 } };
+    const factors = { ...allFactors(1, 1e12), crime: { safety: 0, n: 1e12 } };
     const result = edgeRisk({ factors, weights: WEIGHTS });
 
-    expect(result.risk).toBeCloseTo(1 - Math.pow(MIN_FACTOR_SAFETY, WEIGHTS.crime), 12);
+    expect(result.risk).toBeCloseTo(1 - Math.pow(MIN_FACTOR_SAFETY, WEIGHTS.crime), 9);
     expect(result.risk).toBeLessThan(1);
     expect(result.dominantCause).toBe('crime');
   });
@@ -289,7 +292,7 @@ describe('edgeRisk', () => {
   });
 
   test('dominantCause is null when risk is below CAUSE_MIN_RISK', () => {
-    const result = edgeRisk({ factors: allFactors(0.95), weights: WEIGHTS });
+    const result = edgeRisk({ factors: allFactors(0.95, 1e12), weights: WEIGHTS });
 
     expect(result.risk).toBeLessThan(CAUSE_MIN_RISK);
     expect(result.dominantCause).toBeNull();
@@ -372,5 +375,43 @@ describe('edgeRisk', () => {
       expect(edgeRisk({ factors: withNull, weights: WEIGHTS }).risk)
         .toBeCloseTo(edgeRisk({ factors: withPrior, weights: WEIGHTS }).risk, 12);
     }
+  });
+});
+
+describe('edgeRisk prudent uncertainty load (we price what we do not know)', () => {
+  const certain = (safety) => Object.fromEntries(FACTORS.map((name) => [name, { safety, n: 1e9 }]));
+
+  test('UNCERTAINTY_RISK_LOAD is a fraction in (0, 1)', () => {
+    expect(UNCERTAINTY_RISK_LOAD).toBeGreaterThan(0);
+    expect(UNCERTAINTY_RISK_LOAD).toBeLessThan(1);
+  });
+
+  test('same safeties, lower evidence: strictly higher risk', () => {
+    const strong = edgeRisk({ factors: allFactors(0.8, 40), weights: WEIGHTS });
+    const weak = edgeRisk({ factors: allFactors(0.8, 2), weights: WEIGHTS });
+    expect(weak.certainty).toBeLessThan(strong.certainty);
+    expect(weak.risk).toBeGreaterThan(strong.risk);
+  });
+
+  test('certainty 1 leaves the risk unchanged by the load', () => {
+    const result = edgeRisk({ factors: certain(0.8), weights: WEIGHTS });
+    const share = (name) => WEIGHTS[name] / Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
+    const base = 1 - FACTORS.reduce((p, name) => p * Math.pow(0.8, share(name)), 1);
+    expect(result.certainty).toBeCloseTo(1, 6);
+    expect(result.risk).toBeCloseTo(base, 6);
+  });
+
+  test('risk equals base + load * (1 - certainty) * (1 - base)', () => {
+    const n = 4; // certainty 0.5
+    const result = edgeRisk({ factors: allFactors(0.8, n), weights: WEIGHTS });
+    const total = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
+    const base = 1 - FACTORS.reduce((p, name) => p * Math.pow(0.8, WEIGHTS[name] / total), 1);
+    expect(result.risk).toBeCloseTo(base + UNCERTAINTY_RISK_LOAD * (1 - result.certainty) * (1 - base), 9);
+  });
+
+  test('risk stays in [0, 1] and is never above 1 even when everything is unknown and unsafe', () => {
+    const r = edgeRisk({ factors: allFactors(0, 0), weights: WEIGHTS });
+    expect(r.risk).toBeLessThanOrEqual(1);
+    expect(r.risk).toBeGreaterThan(0);
   });
 });

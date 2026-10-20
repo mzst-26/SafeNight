@@ -564,3 +564,29 @@ describe('inferLighting: purity and input validation', () => {
     expect(() => infer({ highway: 'residential' }, { [field]: value })).toThrow(TypeError);
   });
 });
+
+describe('crossing structure (footway-like way over a motorway/trunk)', () => {
+  test.each(['footway', 'cycleway', 'steps', 'pedestrian'])('a crossing %s takes the 0.30/n3 prior, not the sidewalk prior', (highway) => {
+    expect(infer({ highway }, { crossing: true, nearRoad: true })).toEqual({ pLit: 0.3, n: 3, source: 'prior' });
+  });
+
+  test('a crossing structure with no lamps in a densely mapped area takes the absence rule like any isolated path', () => {
+    const result = infer({ highway: 'footway' }, { crossing: true, areaLampDensityPerKm: 5, areaWayKm: 1 });
+    expect(result.source).toBe('absence');
+    expect(result.pLit).toBeCloseTo(0.3 * 0.6, 9);
+  });
+
+  test('an explicit lit tag and nearby lamps still win over the crossing prior', () => {
+    expect(infer({ highway: 'footway', lit: 'yes' }, { crossing: true }).pLit).toBe(0.95);
+    expect(infer({ highway: 'footway' }, { crossing: true, lampCount30m: 3 }).pLit).toBe(0.92);
+  });
+
+  test('crossing is ignored for road classes and path classes keep their own prior', () => {
+    expect(infer({ highway: 'residential' }, { crossing: true }).pLit).toBe(0.88);
+    expect(infer({ highway: 'path' }, { crossing: true }).pLit).toBe(0.12);
+  });
+
+  test('a non-boolean crossing throws TypeError', () => {
+    expect(() => infer({ highway: 'footway' }, { crossing: 'yes' })).toThrow(TypeError);
+  });
+});

@@ -45,6 +45,15 @@ const PRIOR_SAFETY = Object.freeze({
   isolation: 0.6,
 });
 
+// Prudent uncertainty load (edgeRisk): final risk = risk + UNCERTAINTY_RISK_LOAD * (1 - certainty) * (1 - risk).
+// We price what we do not know: an edge whose factors rest on priors instead of evidence (an unmapped residential
+// street with no lamp data, say) must read visibly riskier than the same estimate backed by a surveyed tag or lamps.
+// The (1 - risk) factor keeps the result inside [0, 1] and leaves a risk of 1 at 1; (1 - certainty) makes the load
+// vanish for fully evidenced edges. Started at 0.15, which gave an A-C (lit vs unmapped residential) gap of only
+// 7 points at night; 0.23 gives 8 (A 68, C 60) with C still Safe and every other archetype inside its range
+// (scripts/eval/calibration-table.js). Higher (0.30) pushes A below its 68 floor.
+const UNCERTAINTY_RISK_LOAD = 0.23;
+
 // A route edge counts as "poor" when its risk reaches this level (used for worstStretch reporting).
 const RISK_POOR_THRESHOLD = 0.6;
 
@@ -140,6 +149,25 @@ const LIGHTING = Object.freeze({
   // trunk to service; footway-like and path classes never count as the road.
   SIDEWALK_RADIUS_M: 25,
 
+  // Way-level sidewalk test (roadProximity.classifyWayContext). A footway is a sidewalk only when it runs ALONG a
+  // street for most of the OSM way, not when one sample point happens to be near a road: a path that merely ends at
+  // a street, or a footbridge over a trunk road with a lane under one end, is not lit by that road.
+  WAY_CONTEXT: Object.freeze({
+    // Share of the way's sample points (every 10 m) that must be within SIDEWALK_RADIUS_M of a qualifying street.
+    MIN_ALONGSIDE_FRACTION: 0.6,
+    // Angle (degrees, 0 to 90) above which a path meets its nearest street crosswise: crossing, not alongside.
+    // 60 leaves room for kerb-side paths that wobble or curve away, but excludes anything closer to square than to parallel.
+    MAX_PARALLEL_ANGLE_DEG: 60,
+    // Ways shorter than this are links to a street (a 25 m path joining a cul-de-sac to a road): they end at the
+    // street by nature, so the parallel test is skipped; the proximity fraction still applies.
+    SHORT_LINK_M: 40,
+    // A path within this distance of a motorway/trunk (and crossing it) is a crossing structure. Mapped bridges rarely
+    // share a node with the road underneath, so the test is geometric intersection OR (this close AND crossing bearing).
+    CROSSING_NEAR_M: 15,
+    // Bearing difference (degrees) above which a path near a barrier road counts as crossing rather than running beside it.
+    CROSSING_MIN_ANGLE_DEG: 60,
+  }),
+
   // Tag-based priors by road class and speed, used when there is no explicit lit tag. Road-class priors are the
   // Plymouth backtest lit rates shrunk towards 0.5 (about observed * 0.9 + 0.05) with small n, because the
   // labelled sample is the 42% of ways a mapper chose to tag and untagged streets are probably less lit.
@@ -155,6 +183,11 @@ const LIGHTING = Object.freeze({
     SIDEWALK_ISOLATED: Object.freeze({ pLit: 0.33, n: 3 }),
     // Footway-like way when the caller has no geometry: the observed pooled rate (footway .54, steps .55), weak.
     SIDEWALK_UNKNOWN: Object.freeze({ pLit: 0.5, n: 2 }),
+    // Footway-like way that crosses a motorway/trunk (footbridge, underpass, ramp): usually wooded or fenced and
+    // outside the lit street frontage, and the trunk's own lighting does not reach the structure. Dark and
+    // unobserved, so a low prior with n 3. Slightly under the isolated-path prior (0.33): the owner-reported
+    // Plymouth A38 footbridge was dark and wooded. An explicit lit tag still wins.
+    CROSSING_STRUCTURE: Object.freeze({ pLit: 0.3, n: 3 }),
     // Trunk, primary and secondary roads (observed .89 to .98); one shared value, so trunk (.89) sets it.
     MAJOR: Object.freeze({ pLit: 0.9, n: 4 }),
     // An urban speed limit (at most URBAN_SPEED_MAX_KMH) implies street lighting (30 mph ways are ~95% lit).
@@ -337,7 +370,31 @@ const SEARCH = Object.freeze({
   NEAREST_NODE_MAX_M: 500,
 });
 
+// Avoidance candidates (services/graph/candidates.js). The k normal candidates share most of their edges, because the
+// penalty step is small next to a long common route: a weak crossing in the middle of a trip stays in every one of
+// them even when a different crossing exists. So after the normal pass the best route's weak stretches are blocked in
+// turn and the route is searched again from the origin; the usual exposure ranking decides whether it wins.
+const AVOID = Object.freeze({
+  // Extra searches per request, one per weak stretch, longest first. Two bounds the cost to 2 more A* runs in a
+  // pass that already runs k + EXTRA_SEARCHES; a route with more weak stretches is a poor route either way.
+  MAX_STRETCHES: 2,
+  // A weak stretch is worth routing around from this length (m). Shorter spans (a 30 m underpass) cost the walker
+  // little exposure, and a detour long enough to avoid them rarely wins the ranking.
+  MIN_STRETCH_M: 60,
+  // The blocked edges' cost is multiplied by this, not removed: large enough that a 25x longer way round is still
+  // preferred (so a real alternative is found), finite so that a route still exists when there is no alternative.
+  PENALTY: 25,
+  // A result that still uses more than this share (by length) of the blocked stretch did not avoid it and is dropped.
+  MAX_STRETCH_REUSE: 0.5,
+  // An avoidance route is the same route as an existing candidate when each covers at least this share of the
+  // other's edges. Stricter than SEARCH.DUPLICATE_OVERLAP (0.85) on purpose: an avoidance route differs from the
+  // best route in one local detour, which on a route of many short edges can be under 15% of the edges, so the
+  // 0.85 rule would discard exactly the candidates this pass exists to find.
+  DUPLICATE_OVERLAP: 0.98,
+});
+
 module.exports = Object.freeze({
+  AVOID,
   ACTIVITY_FLOOR,
   HAZARD_SPEED_KMH,
   MAX_LENGTH_RATIO,
@@ -347,6 +404,7 @@ module.exports = Object.freeze({
   MIN_FACTOR_SAFETY,
   BASE_WEIGHTS,
   PRIOR_SAFETY,
+  UNCERTAINTY_RISK_LOAD,
   RISK_POOR_THRESHOLD,
   CAUSE_MIN_RISK,
   CUBE_MEAN_BLEND,

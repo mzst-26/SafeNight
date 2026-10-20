@@ -75,8 +75,18 @@ describe('buildGraph v2: footway beside a road is sidewalk-like', () => {
     expect(edgeNamed(graph, 'c').pLit).toBeCloseTo(0.33, 6);
   });
 
-  test('every road class from service to trunk makes a footway beside it sidewalk-like', async () => {
-    const classes = ['trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service'];
+  test('a footway beside a trunk road is NOT sidewalk-like: trunk and motorway are barriers, not street frontage', async () => {
+    const ways = [];
+    ['trunk', 'motorway', 'trunk_link'].forEach((highway, i) => {
+      ways.push({ name: `r${i}`, tags: { highway }, points: [[0, i * 200], [100, i * 200]] });
+      ways.push({ name: `f${i}`, tags: { highway: 'footway' }, points: [[0, i * 200 + 10], [100, i * 200 + 10]] });
+    });
+    const graph = await build(scene({ ways }));
+    [0, 1, 2].forEach((i) => expect(edgeNamed(graph, `f${i}`).pLit).toBeCloseTo(0.33, 6));
+  });
+
+  test('every road class from service to primary makes a footway beside it sidewalk-like', async () => {
+    const classes = ['primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service'];
     const ways = [];
     classes.forEach((highway, i) => {
       ways.push({ name: `r${i}`, tags: { highway }, points: [[0, i * 200], [100, i * 200]] });

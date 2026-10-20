@@ -80,4 +80,17 @@ describe('graph/osmIndex', () => {
     expect(segments[0].midLng).toBeCloseTo(-0.099, 12);
     expect(segments[2].highway).toBe('footway');
   });
+
+  test('collectWalkableSegments records the OSM way id of every segment', () => {
+    const nodes = osm.indexNodes(DATA);
+    const segments = osm.collectWalkableSegments(DATA, nodes);
+    expect(segments.map((x) => x.wayId)).toEqual([10, 10, 11]);
+  });
+
+  test('collectBarrierSegments returns motorway and trunk geometry even though they are not walkable', () => {
+    const data = { elements: [...DATA.elements, way(16, [1, 4], { highway: 'trunk_link' }), way(17, [1, 99], { highway: 'trunk' })] };
+    const barriers = osm.collectBarrierSegments(data, osm.indexNodes(data));
+    expect(barriers).toHaveLength(2); // motorway 12 (2-4) and trunk_link 16 (1-4); trunk 17 has an unknown node
+    expect(barriers[0]).toEqual({ aLat: 51.5, aLng: -0.098, bLat: 51.5, bLng: -0.096 });
+  });
 });

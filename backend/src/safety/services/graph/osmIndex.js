@@ -4,6 +4,7 @@
  */
 const { fastDistance, buildSpatialGrid } = require('../geo');
 const { ROAD_TYPE_SCORES, GRAPH } = require('../../scoring/config');
+const { BARRIER_HIGHWAYS } = require('../../scoring/roadProximity');
 
 /** Highway classes the router walks: exactly the classes that have a road score. */
 const WALKABLE_HIGHWAYS = new Set(Object.keys(ROAD_TYPE_SCORES));
@@ -105,6 +106,7 @@ function collectWalkableSegments(roadData, osmNodes, tick = () => {}) {
   forEachWalkableSegment(roadData, osmNodes, (el, i, nA, nB, dist) => {
     segments.push({
       idx: segments.length,
+      wayId: el.id,
       from: el.nodes[i],
       to: el.nodes[i + 1],
       nA,
@@ -119,8 +121,31 @@ function collectWalkableSegments(roadData, osmNodes, tick = () => {}) {
   return segments;
 }
 
+/**
+ * Segments of motorway and trunk ways (and their links), whether or not the router walks them: the barriers a
+ * footbridge or underpass may cross. Not edges; geometry only.
+ * @param {{elements: Array<object>}} roadData
+ * @param {Map<number, object>} osmNodes
+ * @param {() => void} [tick]
+ * @returns {Array<{aLat: number, aLng: number, bLat: number, bLng: number}>}
+ */
+function collectBarrierSegments(roadData, osmNodes, tick = () => {}) {
+  const barriers = [];
+  for (const el of roadData.elements) {
+    tick();
+    if (!isHighwayWay(el) || !BARRIER_HIGHWAYS.has(el.tags.highway)) continue;
+    for (let i = 0; i < el.nodes.length - 1; i++) {
+      const nA = osmNodes.get(el.nodes[i]);
+      const nB = osmNodes.get(el.nodes[i + 1]);
+      if (nA && nB) barriers.push({ aLat: nA.lat, aLng: nA.lng, bLat: nB.lat, bLng: nB.lng });
+    }
+  }
+  return barriers;
+}
+
 module.exports = {
   WALKABLE_HIGHWAYS,
+  collectBarrierSegments,
   indexNodes,
   buildNodeGrid,
   isHighwayWay,

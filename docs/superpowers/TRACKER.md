@@ -139,6 +139,8 @@ v1 removed, graph extracted to services/graph/* (17 files, golden-snapshot prove
 
 | # | From | Task | Finding | Status |
 |---|------|------|---------|--------|
+| F28 | Owner screenshots | data | Footbridge over A38 (ways 33606623/33606620/181986297) is tagged lit=yes in OSM, so explicit tag wins: it still scores Safe (65) although the owner reports it dark. Needs a decision: contradiction rule (lit=yes on an isolated crossing with no mapped lamp within 60 m => weaker evidence) or a user-report/override layer | open, owner decision |
+| F29 | Owner screenshots | model | Done in BE-G: way-level crossing/sidewalk classification, uncertainty load 0.23, avoidance candidates; real-route avoidance never fired (no edge reached risk 0.6) | done |
 | F21 | Gate2 R1 | MAJOR | same-node origin/dest (>10 m) returned 3 identical 0 m routes: 400 SAME_LOCATION after snap + empty-route duplicate + cap-base robustness | DONE (R1 round 3 approved) |
 | F22 | Gate2 R3 | APPROVED | minors: disk cache cap (pre-existing), NaN env queue cap (BE-F), '0x10' number parsing cosmetic, legend dash sample via innerHTML (constants only) | tracked |
 | F23 | Gate2 R4 | MAJOR (follow-up, pre-existing) | computeSafeRoutes in routes/safeRoutes.js is 679 lines/complexity ~88 (667 lines on main). Not refactored here: SSE/stream path has ~53% coverage, so a blind rewrite is riskier than leaving it. FOLLOW-UP: add characterization tests for computeSafeRoutes then split into stages (request resolution, data fetch, graph+candidates, light verification, response assembly). Also: routeAggregate.js 391 lines (move buildReason to scoring/reason.js), routeLayers.ts 551 lines, positional-arg sprawl (buildGraph 8, prepareContext 9, findKSafestRoutes 8) | tracked follow-up |

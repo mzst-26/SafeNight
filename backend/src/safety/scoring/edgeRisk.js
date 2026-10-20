@@ -1,4 +1,4 @@
-const { BASE_WEIGHTS, PRIOR_SAFETY, MIN_FACTOR_SAFETY, CAUSE_MIN_RISK } = require('./config');
+const { BASE_WEIGHTS, PRIOR_SAFETY, MIN_FACTOR_SAFETY, CAUSE_MIN_RISK, UNCERTAINTY_RISK_LOAD } = require('./config');
 const { assertNonNegative, assertInRange } = require('./validation');
 const { evidenceStrength } = require('./evidence');
 
@@ -60,6 +60,9 @@ function strongestFactor(contributions) {
  * Unavailable factors are not dropped: each takes its neutral prior (config PRIOR_SAFETY) with
  * n = 0. Missing data therefore lowers the score by the prior, never silently to "safe".
  *
+ * The result then carries a prudent uncertainty load: risk = base + UNCERTAINTY_RISK_LOAD * (1 - certainty) * (1 - base),
+ * so unknown costs more than verified at the same estimate and certainty 1 leaves the risk unchanged.
+ *
  * dominantCause is only ever an observed factor, so a prior is never reported as the cause.
  *
  * @param {{factors: Object<string, {safety: number|null, n: number}>,
@@ -95,7 +98,9 @@ function edgeRisk({ factors, weights, eps = MIN_FACTOR_SAFETY }) {
     if (observed) observedContributions.push({ name, value });
   }
 
-  const risk = 1 - Math.exp(-logSurvival);
+  const baseRisk = 1 - Math.exp(-logSurvival);
+  // We price what we do not know: less evidence adds a share of the remaining safety to the risk (config).
+  const risk = baseRisk + UNCERTAINTY_RISK_LOAD * (1 - certainty) * (1 - baseRisk);
   const dominantCause = risk < CAUSE_MIN_RISK || observedContributions.length === 0
     ? null
     : strongestFactor(observedContributions);

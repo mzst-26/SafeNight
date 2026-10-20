@@ -12,10 +12,10 @@ const {
 const { cancelCallbackOf, createTicker, clamp01, hasOwnKey } = require('./common');
 const { resolveBuildClock } = require('./clock');
 const {
-  indexNodes, buildNodeGrid, computeNodeDegree, collectWalkableSegments,
+  indexNodes, buildNodeGrid, computeNodeDegree, collectWalkableSegments, collectBarrierSegments,
 } = require('./osmIndex');
 const {
-  collectLightSources, buildAreaStats, createRoadIndexGetter, lightingAt,
+  collectLightSources, buildAreaStats, createRoadIndexGetter, createWayContextGetter, lightingAt,
 } = require('./lightingStage');
 const { collectActivitySources, activityAt } = require('./activityStage');
 const { buildCrimeModel, crimeFactorAt } = require('./crimeStage');
@@ -114,6 +114,8 @@ function prepareContext(roadData, lightData, cctvData, placeData, transitData, c
   const segments = collectWalkableSegments(roadData, osmNodes, tick);
   const { areaStats, totalWayKm } = buildAreaStats(lightSources.lamps, segments);
   const crimeModel = buildCrimeModel(crimes, bbox, segments, totalWayKm, tick);
+  const roadIndex = createRoadIndexGetter(segments);
+  const barrierSegments = collectBarrierSegments(roadData, osmNodes, tick);
   return {
     ...clock,
     osmNodes,
@@ -124,7 +126,8 @@ function prepareContext(roadData, lightData, cctvData, placeData, transitData, c
     activitySources,
     areaStats,
     crimeModel,
-    roadIndex: createRoadIndexGetter(segments),
+    roadIndex,
+    wayContext: createWayContextGetter(segments, barrierSegments, roadIndex),
   };
 }
 

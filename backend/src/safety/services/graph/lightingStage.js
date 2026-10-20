@@ -7,7 +7,9 @@ const { scoreFromCache } = require('../lightsCacheClient');
 const {
   inferLighting, effectiveLit, SIDEWALK_LIKE_HIGHWAYS,
 } = require('../../scoring/lightingInference');
-const { buildRoadProximityIndex, isNearRoad, ROAD_HIGHWAYS } = require('../../scoring/roadProximity');
+const {
+  buildRoadProximityIndex, isNearRoad, classifyWayContext, ROAD_HIGHWAYS,
+} = require('../../scoring/roadProximity');
 const { GRAPH, LAMP_RADIUS_M, LAMP_NEAR_PATH_M } = require('../../scoring/config');
 
 /**
@@ -65,7 +67,7 @@ function buildAreaStats(lamps, segments) {
 }
 
 /**
- * Lazy road-proximity index for footway-like ways: segments of trunk..service roads, sampled into a grid, built
+ * Lazy road-proximity index for footway-like ways: segments of primary..service roads (trunk and motorway are barriers), sampled into a grid, built
  * on first use, so each lookup is a few cells (no scan of every road per footway).
  * @param {Array<{highway: string, nA: object, nB: object}>} segments
  * @returns {() => object}
@@ -80,6 +82,39 @@ function createRoadIndexGetter(segments) {
       );
     }
     return index;
+  };
+}
+
+/**
+ * Way-level context of footway-like ways: 'alongside' a street, 'crossing' a motorway/trunk, or 'isolated'. Decided
+ * from ALL segments of the OSM way (segment.wayId), once per way and cached, so every edge of a way gets the same
+ * answer and a bridge over a trunk road is not a sidewalk because one sample sits near a road.
+ * @param {Array<{wayId?: number, idx: number, highway: string, nA: object, nB: object}>} segments
+ * @param {Array<{aLat: number, aLng: number, bLat: number, bLng: number}>} barrierSegments Motorway/trunk geometry.
+ * @param {() => object} roadIndex Lazy qualifying-street index (createRoadIndexGetter).
+ * @returns {(segment: object) => 'alongside'|'crossing'|'isolated'}
+ */
+function createWayContextGetter(segments, barrierSegments, roadIndex) {
+  let byWay = null;
+  let barrierIndex = null;
+  const cache = new Map();
+  const keyOf = (segment) => (segment.wayId === undefined ? `segment:${segment.idx}` : segment.wayId);
+  return (segment) => {
+    const key = keyOf(segment);
+    if (cache.has(key)) return cache.get(key);
+    if (!byWay) {
+      byWay = new Map();
+      for (const p of segments) {
+        if (!SIDEWALK_LIKE_HIGHWAYS.has(p.highway)) continue;
+        const k = keyOf(p);
+        if (!byWay.has(k)) byWay.set(k, []);
+        byWay.get(k).push({ a: p.nA, b: p.nB });
+      }
+    }
+    if (!barrierIndex) barrierIndex = buildRoadProximityIndex(barrierSegments);
+    const context = classifyWayContext(byWay.get(key) || [{ a: segment.nA, b: segment.nB }], roadIndex(), barrierIndex);
+    cache.set(key, context);
+    return context;
   };
 }
 
@@ -108,9 +143,15 @@ function litEstimateOf(source, effective) {
   return effective >= 0.5 ? 'estimated_lit' : 'estimated_unlit';
 }
 
+/** Way-level context when the context provides it, else the legacy midpoint test (unit tests build bare contexts). */
+function wayContextOf(segment, context) {
+  if (context.wayContext) return context.wayContext(segment);
+  return isNearRoad(context.roadIndex(), segment.midLat, segment.midLng) ? 'alongside' : 'isolated';
+}
+
 /**
  * Lighting for one segment: lamps within LAMP_RADIUS_M, a lit=yes way vertex within LAMP_RADIUS_M (a tag, not a
- * lamp: weaker evidence), for footway-like ways whether a road is within reach (sidewalk or isolated), then the
+ * lamp: weaker evidence), for footway-like ways whether the way runs along a street, crosses a trunk road or is isolated (way level), then the
  * estimate. Also returns nearRoad and the lamp count within LAMP_NEAR_PATH_M, which the isolation factor needs.
  * @param {object} segment From collectWalkableSegments.
  * @param {{lampGrid: object, litGrid: object}} sources
@@ -123,14 +164,16 @@ function lightingAt(segment, sources, context, cache) {
   const { midLat, midLng, highway, tags } = segment;
   const litNeighbour = countNearby(sources.litGrid, midLat, midLng, LAMP_RADIUS_M) > 0;
   const lampCount30m = countNearby(sources.lampGrid, midLat, midLng, LAMP_RADIUS_M);
-  const nearRoad = SIDEWALK_LIKE_HIGHWAYS.has(highway) ? isNearRoad(context.roadIndex(), midLat, midLng) : undefined;
+  const wayContext = SIDEWALK_LIKE_HIGHWAYS.has(highway) ? wayContextOf(segment, context) : undefined;
+  const nearRoad = wayContext === undefined ? undefined : wayContext === 'alongside';
+  const crossing = wayContext === 'crossing';
   const lampCountNearPath = countNearby(sources.lampGrid, midLat, midLng, LAMP_NEAR_PATH_M);
   const area = context.areaStats.get(areaCellKey(midLat, midLng));
   const areaWayKm = area.wayKm;
   const areaLampDensityPerKm = areaWayKm > 0 ? area.lamps / areaWayKm : 0;
 
   const inferred = inferLighting({
-    tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour,
+    tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour, crossing,
   });
   const lighting = applyLightsCache(inferred, cache);
   const lightingSafety = effectiveLit(lighting);
@@ -148,6 +191,7 @@ module.exports = {
   areaCellKey,
   buildAreaStats,
   createRoadIndexGetter,
+  createWayContextGetter,
   applyLightsCache,
   litEstimateOf,
   lightingAt,

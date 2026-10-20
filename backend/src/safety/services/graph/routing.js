@@ -4,7 +4,7 @@
  */
 const { fastDistance, findNearby } = require('../geo');
 const { parseMaxspeedKmh } = require('../../scoring/lightingInference');
-const { HAZARD_SPEED_KMH, SEARCH } = require('../../scoring/config');
+const { HAZARD_SPEED_KMH, SEARCH, AVOID } = require('../../scoring/config');
 const { debugLog, throwIfCancelled } = require('./common');
 const { MinHeap } = require('./minHeap');
 const { createSearchBudget, createRouteBudgetError } = require('./searchBudget');
@@ -98,7 +98,7 @@ function countExpansion(budget) {
  * risk (through the priors), so there is no separate confidence penalty.
  */
 function relaxNeighbors(current, search, graph, endNode, maxDistM, allowHazards) {
-  const { gScore, realDist, prev, closed, heap } = search;
+  const { gScore, realDist, prev, closed, heap, avoid } = search;
   const neighbors = graph.adjacency.get(current);
   if (!neighbors) return;
   const currentG = gScore.get(current) ?? Infinity;
@@ -109,7 +109,9 @@ function relaxNeighbors(current, search, graph, endNode, maxDistM, allowHazards)
     if (isHazardEdge(edge, allowHazards)) continue;
 
     const effectiveSafety = Math.max(SEARCH.MIN_EFFECTIVE_SAFETY, edge.safetyScore - edge.penalty);
-    const tentativeG = currentG + edge.distance / effectiveSafety;
+    // A blocked edge (avoidance pass) costs AVOID.PENALTY times more; the heuristic stays admissible (factor >= 1).
+    const blockFactor = avoid && avoid.has(edgeIdx) ? AVOID.PENALTY : 1;
+    const tentativeG = currentG + (edge.distance / effectiveSafety) * blockFactor;
     const newRealDist = (realDist.get(current) || 0) + edge.distance;
     if (newRealDist > maxDistM * SEARCH.MAX_DETOUR_FACTOR) continue;
 
@@ -137,7 +139,8 @@ function relaxNeighbors(current, search, graph, endNode, maxDistM, allowHazards)
  * @param {number} startId
  * @param {number} endId
  * @param {number} maxDistM Straight-line based cap; a path may be up to SEARCH.MAX_DETOUR_FACTOR times it.
- * @param {{budget?: object, maxExpansions?: number, shouldCancel?: Function, allowHazards?: boolean}} [options]
+ * @param {{budget?: object, maxExpansions?: number, shouldCancel?: Function, allowHazards?: boolean,
+ *   avoidEdges?: Set<number>}} [options] avoidEdges: edge indexes whose cost is multiplied by AVOID.PENALTY (kept, not removed).
  * @returns {{path: Array, edges: Array<number>, totalDist: number, avgSafety: number}|null} Null when no path.
  * @throws SEARCH_CANCELLED, or NO_ROUTE_FOUND when the expansion budget is exceeded.
  */
@@ -155,6 +158,7 @@ function aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM, optio
     prev: new Map(),
     closed: new Set(),
     heap: new MinHeap(),
+    avoid: options.avoidEdges && options.avoidEdges.size > 0 ? options.avoidEdges : null,
   };
   search.heap.push(startId, fastDistance(sNode.lat, sNode.lng, endNode.lat, endNode.lng));
   // Shared across candidate searches when called from findKSafestRoutes; a standalone call gets its own.

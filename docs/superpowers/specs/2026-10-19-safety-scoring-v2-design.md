@@ -213,7 +213,12 @@ All tunables live in one `scoring/config.js` with the rationale; a test asserts 
 - API (additive): `safety.certainty`, `safety.reason`, `safety.worstStretch {start,end,lengthM,cause}`, `safety.dataQuality {crime,lighting}`, segment `risk`, `litEstimate`, `certainty`.
 - Frontend `routeLayers(route, opts)` -> `{lines:[{coords,risk,dashed}],callouts:[{lat,lng,text}],crimeClusters:[{lat,lng,count}],lights:[...on demand]}`.
 
-## Revision log
+### 11.8 Owner-feedback additions (v0.4)
+- **Prudent uncertainty load:** `risk' = risk + UNCERTAINTY_RISK_LOAD * (1 - certainty) * (1 - risk)` (0.23): what we do not know is priced in, so estimated-lighting streets always score below verified ones with the same estimate.
+- **Crossing structures:** motorway/trunk classes are not sidewalk context. Sidewalk-vs-isolated is decided per OSM way (alongside a qualifying street for >= 60% of the length and roughly parallel), and a way that crosses a barrier road is a crossing structure (prior 0.30, isolated-path penalty applies unless tagged `lit=yes` or a lamp is within 60 m).
+- **Avoidance candidates:** after the k normal candidates, up to 2 extra searches block the best route's weak stretches (risk >= 0.6, >= 60 m) with cost x25; results go through the normal exposure ranking.
+- **Known limit:** an explicit `lit=yes` tag is ground truth, so a mis-tagged dark bridge still scores as lit (see TRACKER F28).
+
 
 - 2026-10-19 v0.1 initial draft.
 - 2026-10-19 v0.2 folded in R2/R3/R6 review (crime precompute, outage contract, security criteria, map comparison strip).
