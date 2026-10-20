@@ -75,13 +75,22 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Adopt committed changes (including external ones) into the draft.
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
-  useEffect(() => () => cancelCommit(), []);
+  // Don't let a pending commit or focus-return fire after unmount.
+  useEffect(
+    () => () => {
+      cancelCommit();
+      if (focusTimer.current) clearTimeout(focusTimer.current);
+      focusTimer.current = null;
+    },
+    [],
+  );
 
   const cancelCommit = () => {
     if (commitTimer.current) clearTimeout(commitTimer.current);
@@ -115,7 +124,11 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
   const closePanel = () => {
     setOpen(false);
     // The panel (and the focused control) disappears: put focus back on the chip.
-    setTimeout(focusChip, 0);
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => {
+      focusTimer.current = null;
+      focusChip();
+    }, 0);
   };
 
   // Web only: Escape closes the panel.

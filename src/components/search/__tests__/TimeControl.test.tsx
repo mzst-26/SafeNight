@@ -22,6 +22,8 @@ beforeEach(() => {
   originalOS = rn.Platform.OS;
 });
 afterEach(() => {
+  // Drop timers a test left pending (focus return, debounced commit) so none fire after teardown.
+  jest.clearAllTimers();
   rn.Platform.OS = originalOS;
   jest.restoreAllMocks();
   jest.useRealTimers();
