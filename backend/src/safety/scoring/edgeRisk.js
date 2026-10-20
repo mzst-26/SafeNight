@@ -67,16 +67,24 @@ function strongestFactor(contributions) {
  *
  * dominantCause is only ever an observed factor, so a prior is never reported as the cause.
  *
+ * Certainty is a weighted mean of the factors' evidence strengths. By default it uses `weights`, but `weights` may be
+ * scaled by time of day (lighting is 0 in daylight), which would make the same street look less well known by day and
+ * add more of the uncertainty load. Pass `certaintyWeights` (the unscaled weights) to describe how well we know the
+ * STREET instead; the risk blend still uses `weights`.
+ *
  * @param {{factors: Object<string, {safety: number|null, n: number}>,
- *          weights: Object<string, number>, eps?: number}} options
+ *          weights: Object<string, number>, eps?: number, certaintyWeights?: Object<string, number>}} options
  * @returns {{risk: number, certainty: number, dominantCause: string|null}}
  * @throws {TypeError} on malformed factors, weights or eps.
  */
-function edgeRisk({ factors, weights, eps = MIN_FACTOR_SAFETY }) {
+function edgeRisk({
+  factors, weights, eps = MIN_FACTOR_SAFETY, certaintyWeights = undefined,
+}) {
   if (factors === null || typeof factors !== 'object') {
     throw new TypeError('factors must be an object');
   }
   assertWeights(weights);
+  if (certaintyWeights !== undefined) assertWeights(certaintyWeights);
   assertInRange('eps', eps, 0, 1);
   if (eps === 0 || eps === 1) throw new TypeError('eps must be strictly between 0 and 1');
 
@@ -84,6 +92,14 @@ function edgeRisk({ factors, weights, eps = MIN_FACTOR_SAFETY }) {
   const peak = Math.max(...FACTOR_NAMES.map((name) => weights[name]));
   const scaled = Object.fromEntries(FACTOR_NAMES.map((name) => [name, weights[name] / peak]));
   const total = FACTOR_NAMES.reduce((sum, name) => sum + scaled[name], 0);
+  // Certainty shares: from certaintyWeights when given (scaled by their own peak), else the blend shares.
+  let certaintyShare = (name) => scaled[name] / total;
+  if (certaintyWeights) {
+    const cPeak = Math.max(...FACTOR_NAMES.map((name) => certaintyWeights[name]));
+    const cScaled = Object.fromEntries(FACTOR_NAMES.map((name) => [name, certaintyWeights[name] / cPeak]));
+    const cTotal = FACTOR_NAMES.reduce((sum, name) => sum + cScaled[name], 0);
+    certaintyShare = (name) => cScaled[name] / cTotal;
+  }
 
   const resolved = Object.fromEntries(FACTOR_NAMES.map((name) => [name, resolveFactor(factors, name)]));
 
@@ -92,11 +108,11 @@ function edgeRisk({ factors, weights, eps = MIN_FACTOR_SAFETY }) {
   const observedContributions = [];
   for (const name of FACTOR_NAMES) {
     const share = scaled[name] / total;
-    if (share === 0) continue; // zero-weight factors (lighting in daylight) have no influence
     const { safety, n, observed } = resolved[name];
+    certainty += certaintyShare(name) * evidenceStrength(n);
+    if (share === 0) continue; // zero-weight factors (lighting in daylight) have no influence on the blend
     const value = -share * Math.log(Math.max(eps, safety));
     logSurvival += value;
-    certainty += share * evidenceStrength(n);
     if (observed) observedContributions.push({ name, value });
   }
 

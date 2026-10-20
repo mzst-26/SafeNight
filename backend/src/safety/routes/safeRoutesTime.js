@@ -18,6 +18,7 @@ const MIN_MS = 60_000;
 const TIME_HORIZON_MS = 24 * 3_600_000;
 const LEAVE_AT_PAST_MS = 5 * MIN_MS;
 const ARRIVE_BY_MIN_LEAD_MS = 5 * MIN_MS;
+// Must match BUCKET_MS in src/utils/tripTime.ts (the client cache/search-id bucket). Change both together.
 const CACHE_BUCKET_MS = 15 * MIN_MS;
 /** arrive_by is re-scored once when the real duration differs from the assumed one by more than this. */
 const ARRIVE_BY_TOLERANCE_SEC = 120;
@@ -186,6 +187,34 @@ function buildMetaTime(trip) {
   };
 }
 
+const routeDurationSec = (route) =>
+  route?.legs?.[0]?.duration?.value ?? route?.duration?.value ?? route?.routeStats?.estimatedDurationSec ?? 0;
+
+/**
+ * Re-stamps a (possibly cached or coalesced) response with the REQUESTING trip's instants: meta.time and every
+ * route's safety.timeline. Scores and geometry are kept. Returns a copy; the input is never mutated, so the
+ * cached object stays as computed. A response without meta.time is returned as is.
+ * @param {object} response
+ * @param {{request: {leaveAt?: number, arriveBy?: number, departureHour?: number, nowMs: number},
+ *   oLat: number, oLng: number, dLat: number, dLng: number}} args
+ */
+function restampTime(response, { request, oLat, oLng, dLat, dLng }) {
+  if (!response?.meta?.time || !Array.isArray(response.routes)) return response;
+  // arrive_by: the leave time follows the recommended route's duration; other modes ignore the ETA.
+  const trip = resolveTripTime({ ...request, etaSec: routeDurationSec(response.routes[0]) });
+  return {
+    ...response,
+    meta: { ...response.meta, time: buildMetaTime(trip) },
+    routes: response.routes.map((route) => {
+      if (!route?.safety) return route;
+      const timeline = buildTimeline({
+        lat: oLat, lng: oLng, destLat: dLat, destLng: dLng, t0Ms: trip.t0Ms, durationSec: routeDurationSec(route),
+      });
+      return { ...route, safety: { ...route.safety, timeline } };
+    }),
+  };
+}
+
 /**
  * The time component of the route cache key: the mode plus the 15-minute bucket (floor) of the mid-walk
  * instant. Leave-now has no bucket (as before this change): the 5 minute cache TTL bounds its staleness, and a
@@ -219,5 +248,6 @@ module.exports = {
   timelineLabel,
   buildTimeline,
   buildMetaTime,
+  restampTime,
   cacheTimePart,
 };

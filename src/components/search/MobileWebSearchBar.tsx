@@ -64,6 +64,12 @@ function classifyPredictionCategory(prediction: PlacePrediction): string | null 
   return null;
 }
 
+/** Height of the animated container when expanded: never below the old 160 floor, never shorter than the card. */
+export function expandedContainerHeight(measuredCardHeight: number): number {
+  return Math.max(EXPANDED_MIN_HEIGHT, measuredCardHeight);
+}
+const EXPANDED_MIN_HEIGHT = 160;
+
 // ── Props ────────────────────────────────────────────────────────────────────
 
 export interface MobileWebSearchBarProps {
@@ -152,7 +158,7 @@ export function MobileWebSearchBar({
   const [expanded, setExpanded] = useState(false);
   const expandAnim = useRef(new Animated.Value(0)).current;
   // Real height of the expanded card, so the touchable wrapper always covers it.
-  const [expandedCardHeight, setExpandedCardHeight] = useState(160);
+  const [expandedCardHeight, setExpandedCardHeight] = useState(EXPANDED_MIN_HEIGHT);
   const originRef = useRef<TextInput>(null);
   const destRef = useRef<TextInput>(null);
   const prevHasResultsRef = useRef(hasResults);
@@ -577,7 +583,7 @@ export function MobileWebSearchBar({
   // Interpolated heights for expand/collapse
   const containerHeight = expandAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [56, Platform.OS === "android" ? Math.max(160, expandedCardHeight) : 160],
+    outputRange: [56, expandedContainerHeight(expandedCardHeight)],
   });
 
   const dualOpacity = expandAnim.interpolate({
@@ -644,11 +650,8 @@ export function MobileWebSearchBar({
           // The wrapper must be at least as tall as this card. On Android, touches
           // outside a parent's bounds never reach its children, so anything below
           // the wrapper (chips, saved list) fell through to the map.
-          onLayout={
-            Platform.OS === "android"
-              ? (e) => setExpandedCardHeight(Math.ceil(e.nativeEvent.layout.height))
-              : undefined
-          }
+          // Measured on every platform: the trip-time panel makes the card taller than the old fixed 160.
+          onLayout={(e) => setExpandedCardHeight(Math.ceil(e.nativeEvent.layout.height))}
         >
             {/* Back / collapse button */}
             <View style={styles.expandedHeader}>

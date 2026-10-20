@@ -88,12 +88,17 @@ describe('safetyGraph model', () => {
       expect(unmapped - lit).toBeGreaterThan(0.01);
     });
 
-    test('in full daylight the lamps on the lit street make almost no difference', async () => {
+    test('in full daylight the lamps on the lit street make much less difference than at night', async () => {
       const graph = await buildStreets({ ...DAY });
+      const night = await buildStreets({ ...NIGHT });
       expect(graph.darkness).toBeCloseTo(0, 6);
-      const lit = graph.edges[1].risk;
-      const unmapped = graph.edges[4].risk;
-      expect(Math.abs(lit - unmapped)).toBeLessThan(0.01);
+      const dayGap = graph.edges[4].risk - graph.edges[1].risk;
+      const nightGap = night.edges[4].risk - night.edges[1].risk;
+      // By day the lighting factor is the same for every street (daylight). What remains is only that a street with
+      // mapped lamps is better evidenced, so it carries a smaller uncertainty load.
+      expect(dayGap).toBeGreaterThanOrEqual(0);
+      expect(dayGap).toBeLessThan(0.5 * nightGap);
+      expect(dayGap).toBeLessThan(0.03);
     });
 
     test('a verified-unlit cache entry overrides the lamps on a lit street', async () => {

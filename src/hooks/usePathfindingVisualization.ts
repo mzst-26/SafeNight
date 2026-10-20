@@ -143,6 +143,8 @@ export function usePathfindingVisualization(
   searchSeq: number | null,
   timeParams?: TimeParams,
 ) {
+  const leaveAt = timeParams?.leave_at;
+  const arriveBy = timeParams?.arrive_by;
   const [state, setState] = useState<PathfindingVisualizationState>(EMPTY_STATE);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const activeRef = useRef(false);
@@ -184,7 +186,10 @@ export function usePathfindingVisualization(
 
     setState({ ...EMPTY_STATE, active: true });
 
-    const url = buildStreamUrl(BACKEND_BASE, origin, destination, timeParams);
+    const url = buildStreamUrl(BACKEND_BASE, origin, destination, {
+      leave_at: leaveAt,
+      arrive_by: arriveBy,
+    });
 
     console.log('[viz] Opening SSE stream:', url);
 
@@ -333,7 +338,7 @@ export function usePathfindingVisualization(
       disposed = true;
       stop();
     };
-  }, [isSearching, origin?.latitude, origin?.longitude, destination?.latitude, destination?.longitude, searchId, searchClientId, searchSeq, timeParams?.leave_at, timeParams?.arrive_by]);
+  }, [isSearching, origin?.latitude, origin?.longitude, destination?.latitude, destination?.longitude, searchId, searchClientId, searchSeq, leaveAt, arriveBy]);
 
   return { ...state, reset };
 }

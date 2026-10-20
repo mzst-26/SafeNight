@@ -89,12 +89,40 @@ describe.each([
 
 describe('TimeControl native stepper', () => {
   it('steps by 15 minutes', () => {
-    const { r, onChange } = render(TimeControl, { mode: 'leave_at', hhmm: '17:15' });
-    press(r, 'Leave at 17:15, change trip time'); // expand
+    const { r, onChange } = render(TimeControl, { mode: 'leave_at', hhmm: '17:30' });
+    press(r, 'Leave at 17:30, change trip time'); // expand
     press(r, 'Later by 15 minutes');
-    expect(onChange).toHaveBeenLastCalledWith({ mode: 'leave_at', hhmm: '17:30' });
+    expect(onChange).toHaveBeenLastCalledWith({ mode: 'leave_at', hhmm: '17:45' });
     press(r, 'Earlier by 15 minutes');
-    expect(onChange).toHaveBeenLastCalledWith({ mode: 'leave_at', hhmm: '17:00' });
+    expect(onChange).toHaveBeenLastCalledWith({ mode: 'leave_at', hhmm: '17:15' });
+  });
+});
+
+describe('TimeControl native stepper bounds and a11y', () => {
+  const expand = (r: ReactTestRenderer, label: string) => press(r, label);
+  const disabled = (r: ReactTestRenderer, label: string) =>
+    r.root.findAll((n) => n.props.accessibilityLabel === label && n.props.accessibilityState)[0].props.accessibilityState.disabled;
+
+  it('disables Earlier at the floor (now rounded up) and does not call onChange', () => {
+    const { r, onChange } = render(TimeControl, { mode: 'leave_at', hhmm: '17:15' });
+    expand(r, 'Leave at 17:15, change trip time');
+    expect(disabled(r, 'Earlier by 15 minutes')).toBe(true);
+    expect(disabled(r, 'Later by 15 minutes')).toBe(false);
+    press(r, 'Earlier by 15 minutes');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it('disables Later at now + 23h45m', () => {
+    const { r } = render(TimeControl, { mode: 'leave_at', hhmm: '16:45' });
+    expand(r, 'Leave at 16:45 · Tomorrow, change trip time');
+    expect(disabled(r, 'Later by 15 minutes')).toBe(true);
+    expect(disabled(r, 'Earlier by 15 minutes')).toBe(false);
+  });
+  it('exposes the time as an adjustable with a value', () => {
+    const { r } = render(TimeControl, { mode: 'arrive_by', hhmm: '18:00' });
+    expand(r, 'Arrive by 18:00, change trip time');
+    const adj = r.root.find((n) => n.props.accessibilityRole === 'adjustable');
+    expect(adj.props.accessibilityValue).toEqual({ text: '18:00' });
+    act(() => adj.props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }));
   });
 });
 
@@ -109,5 +137,53 @@ describe('TimeControl web time input', () => {
     expect(input.props['aria-label']).toBe('Arrive by time');
     act(() => input.props.onChange({ target: { value: '19:30' } }));
     expect(onChange).toHaveBeenCalledWith({ mode: 'arrive_by', hhmm: '19:30' });
+  });
+});
+
+describe.each([
+  ['native', TimeControl],
+  ['web', TimeControlWeb],
+])('TimeControl (%s) labels and mode switching', (_n, Comp) => {
+  it('labels the panel and the radiogroup', () => {
+    const { r } = render(Comp, NOW_STATE);
+    press(r, 'Leave now, change trip time');
+    expect(JSON.stringify(r.toJSON())).toContain('Trip time · London');
+    expect(r.root.find((n) => n.props.accessibilityRole === 'radiogroup').props.accessibilityLabel).toBe('Trip time');
+  });
+  it('keeps the chosen time when switching between Leave at and Arrive by', () => {
+    const { r, onChange } = render(Comp, { mode: 'leave_at', hhmm: '18:30' });
+    press(r, 'Leave at 18:30, change trip time');
+    press(r, 'Arrive by');
+    expect(onChange).toHaveBeenCalledWith({ mode: 'arrive_by', hhmm: '18:30' });
+  });
+  it('shows "(London time)" beside the chip only when the device zone differs', () => {
+    const spy = jest
+      .spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+      .mockReturnValue({ timeZone: 'America/New_York' } as Intl.ResolvedDateTimeFormatOptions);
+    const { r } = render(Comp, { mode: 'leave_at', hhmm: '18:30' });
+    expect(JSON.stringify(r.toJSON())).toContain('(London time)');
+    spy.mockReturnValue({ timeZone: 'Europe/London' } as Intl.ResolvedDateTimeFormatOptions);
+    const { r: r2 } = render(Comp, { mode: 'leave_at', hhmm: '18:30' });
+    expect(JSON.stringify(r2.toJSON())).not.toContain('(London time)');
+    spy.mockRestore();
+  });
+});
+
+describe('TimeControl focus return', () => {
+  it('moves accessibility focus back to the chip when Leave now closes the panel', () => {
+    jest.useFakeTimers();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const rn = require('react-native');
+    const setFocus = jest.spyOn(rn.AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => {});
+    jest.spyOn(rn, 'findNodeHandle').mockReturnValue(42);
+    const { r } = render(TimeControl, { mode: 'leave_at', hhmm: '18:30' });
+    press(r, 'Leave at 18:30, change trip time');
+    press(r, 'Leave now');
+    act(() => {
+      jest.runAllTimers();
+    });
+    expect(setFocus).toHaveBeenCalledWith(42);
+    jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 });

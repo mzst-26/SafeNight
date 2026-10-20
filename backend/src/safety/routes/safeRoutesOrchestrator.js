@@ -1,5 +1,5 @@
 const { STATUS_UNAVAILABLE } = require("../scoring/crimeRisk");
-const { cacheTimePart } = require("./safeRoutesTime");
+const { cacheTimePart, restampTime } = require("./safeRoutesTime");
 
 // Total size of cached route responses (estimated as their JSON length). Oldest entries go first.
 const MAX_ROUTE_CACHE_BYTES = 64 * 1024 * 1024;
@@ -147,11 +147,17 @@ function createSafeRoutesOrchestrator({
       safetyLevel,
       maxDistanceKm,
     );
+    // Cached and coalesced answers were computed for another requester in the same time bucket: copy them with
+    // this request's own instants (the cached object itself is never modified).
+    const restamp = (response) => restampTime(response, {
+      request: { leaveAt: leaveAtMs, arriveBy: arriveByMs, departureHour, nowMs },
+      oLat, oLng, dLat, dLng,
+    });
     const cached = routeCache.get(cacheKey);
 
     if (cached && Date.now() - cached.timestamp < cached.ttlMs) {
       console.log(`[safe-routes] 📋 Route cache hit for ${cacheKey}`);
-      return { result: cached.data, source: "cache" };
+      return { result: restamp(cached.data), source: "cache" };
     }
 
     if (inflight.has(cacheKey)) {
@@ -188,7 +194,7 @@ function createSafeRoutesOrchestrator({
         });
       }
 
-      return { result, source: "inflight" };
+      return { result: restamp(result), source: "inflight" };
     }
 
     const inflightEntry = {

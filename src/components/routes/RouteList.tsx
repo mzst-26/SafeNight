@@ -1,7 +1,7 @@
 /**
  * RouteList — Displays the list of route cards + start navigation button.
  */
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { RouteCard } from '@/src/components/routes/RouteCard';
 import type { SafeRoute } from '@/src/services/safeRoutes';
@@ -17,6 +17,8 @@ interface RouteListProps {
   detailsPanel?: React.ReactNode;
   /** Per-route comparison rows (buildRouteComparison). Drives the v2 delta lines. */
   routeComparison?: RouteComparison[];
+  /** 'Updating for 17:10' while shown routes lag behind the chosen time; cards are dimmed lightly. */
+  updatingLabel?: string | null;
 }
 
 export function RouteList({
@@ -26,13 +28,25 @@ export function RouteList({
   inSidebar,
   detailsPanel,
   routeComparison,
+  updatingLabel,
 }: RouteListProps) {
   const recommendedId = routes.find((r) => r.isSafest)?.id;
   const recommendedComparison =
     routeComparison?.find((c) => c.routeId === recommendedId) ?? null;
 
   return (
-    <View style={[styles.column, Platform.OS === 'web' && !inSidebar && styles.columnWeb]}>
+    <View
+      style={[
+        styles.column,
+        Platform.OS === 'web' && !inSidebar && styles.columnWeb,
+        updatingLabel ? styles.dimmed : null,
+      ]}
+    >
+      {updatingLabel ? (
+        <Text style={styles.updating} accessibilityLiveRegion="polite">
+          {updatingLabel}
+        </Text>
+      ) : null}
       {routes.slice(0, 5).map((route, index) => (
         <RouteCard
           key={route.id}
@@ -53,6 +67,8 @@ const styles = StyleSheet.create({
   column: {
     width: '100%',
   },
+  dimmed: { opacity: 0.55 },
+  updating: { fontSize: 13, fontWeight: '600', color: '#475467', paddingBottom: 6 },
   columnWeb: {
     flex: 1,
     maxWidth: '50%' as any,

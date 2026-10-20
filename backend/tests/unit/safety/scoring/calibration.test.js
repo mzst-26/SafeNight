@@ -80,16 +80,22 @@ describe('v2 calibration: single-street archetypes at night', () => {
     },
   );
 
-  // Bound widened from 3 to 5 points below A with the uncertainty load (UNCERTAINTY_RISK_LOAD): in daylight the
-  // lighting factor (the best evidenced one, lamps n 10) has zero weight, so edge certainty is lower and the load
-  // takes about 4 points more than at night. Daylight scoring a little under night for the same street is the
-  // intended price of knowing less, not a regression; it is still bounded.
-  test('I: street A in full daylight is within 8 points of A or higher, and never more than 5 below A', async () => {
+  // Darkness can only add hazard: by day a lit street scores at least what it scores at night, and not much more.
+  // (Earlier the lighting weight dropped to 0 by day, certainty fell with it and the uncertainty load made day up to
+  // 5 points WORSE than night. Certainty now uses the unscaled weights, and day risk is capped at the dark risk.)
+  test('I: street A in full daylight is never below A at night and within 8 points above it', async () => {
     const a = await archetypeScore('A');
-    const { score: day, graph } = await archetypeScore('A', { level: 'extra', crimeStatus: 'ok', ...DAY });
+    const { score: day, graph } = await archetypeScore('A', { ...OPTIONS, ...DAY });
     expect(graph.darkness).toBeCloseTo(0, 6);
-    expect(day).toBeGreaterThanOrEqual(a.score - 5);
-    expect(day >= a.score || Math.abs(day - a.score) <= 8).toBe(true);
+    expect(day).toBeGreaterThanOrEqual(a.score);
+    expect(day).toBeLessThanOrEqual(a.score + 8);
+  });
+
+  test.each(['A', 'B', 'C', 'D', 'K', 'T', 'M'])('daylight %s scores at least as high as at night (never lower)', async (letter) => {
+    const night = await archetypeScore(letter);
+    const day = await archetypeScore(letter, { ...OPTIONS, ...DAY });
+    expect(day.edge.risk).toBeLessThanOrEqual(night.edge.risk + 1e-12);
+    expect(day.score).toBeGreaterThanOrEqual(night.score);
   });
 
   test('J: crime data unavailable on street A sits between G (hotspot) and A (ok crime data)', async () => {
@@ -204,6 +210,13 @@ describe('v2 calibration: route level', () => {
     const drop = allA.score - mixed.score;
     expect(drop).toBeGreaterThanOrEqual(8);
     expect(drop).toBeLessThanOrEqual(25);
+  });
+
+  test.each(['allA', 'allC', 'mixedAE'])('route %s scores at least as high by day as at night', async (name) => {
+    const night = await routeScore(name);
+    const graph = await graphOf(ROUTES[name](), { ...OPTIONS, ...DAY });
+    const day = Math.round(100 * routeSafetyBreakdown(graph.edges, routeEdgeIdxs(graph)).overall);
+    expect(day).toBeGreaterThanOrEqual(night.score);
   });
 
   test('an all-A route is Safe or better', async () => {

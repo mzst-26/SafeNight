@@ -19,7 +19,10 @@ import {
 import { AppError } from '@/src/types/errors';
 import type { LatLng } from '@/src/types/geo';
 import { LimitError } from '@/src/types/limitError';
-import { timeBucketKey, type TimeParams } from '@/src/utils/tripTime';
+import { NOW_STATE, tripTimeBucket, type TripTimeState } from '@/src/utils/tripTime';
+
+/** Wait this long after the last time change before searching again (stepper taps, typing). */
+const TIME_SEARCH_DEBOUNCE_MS = 500;
 
 /** Round to 4 decimal places (~11 m) to avoid jitter re-fetches */
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -46,6 +49,8 @@ export interface UseSafeRoutesState {
   outOfRangeMessage: string;
   /** Metadata about the computation (timing, data quality, etc.) */
   meta: SafeRoutesResponse['meta'] | null;
+  /** True while the shown routes are for a different time than the control now shows. */
+  timeUpdating: boolean;
   /** Re-fetch routes */
   refresh: () => Promise<void>;
 }
@@ -58,7 +63,7 @@ export function useSafeRoutes(
   subscriptionTier: string = 'free',
   maxDistanceKmOverride?: number,
   waypoint?: LatLng | null,
-  timeParams?: TimeParams,
+  tripTime?: TripTimeState,
 ): UseSafeRoutesState {
   const [status, setStatus] = useState<SafeRoutesStatus>('idle');
   const [routes, setRoutes] = useState<SafeRoute[]>([]);
@@ -68,13 +73,27 @@ export function useSafeRoutes(
   const [outOfRangeMessage, setOutOfRangeMessage] = useState('');
   const [meta, setMeta] = useState<SafeRoutesResponse['meta'] | null>(null);
   const cancelRef = useRef(0);
-  // Time lives in a ref so choosing a time never triggers a search by itself; the effect below
-  // re-runs the search only when one is already in flight or shown.
-  const timeRef = useRef<TimeParams | undefined>(timeParams);
-  timeRef.current = timeParams;
-  const timeKey = `${timeParams?.leave_at ?? ''}|${timeParams?.arrive_by ?? ''}`;
+  const [shownBucket, setShownBucket] = useState<string | null>(null);
+
+  // The chosen time is read through a ref at send time, so choosing a time never triggers a search
+  // by itself. Refs are synced in effects (declared first so later effects see fresh values).
+  const tripRef = useRef<TripTimeState | undefined>(tripTime);
   const statusRef = useRef<SafeRoutesStatus>('idle');
-  statusRef.current = status;
+  const lastBucketRef = useRef<string | null>(null);
+  useEffect(() => {
+    tripRef.current = tripTime;
+  }, [tripTime]);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  // 15-minute bucket of the time the control currently shows (resolved when it changes).
+  const timeMode = tripTime?.mode ?? 'now';
+  const timeHhmm = tripTime?.hhmm ?? null;
+  const bucket = useMemo(
+    () => tripTimeBucket({ mode: timeMode, hhmm: timeHhmm }, new Date()),
+    [timeMode, timeHhmm],
+  );
 
   // Stabilise coordinate references so the effect doesn't re-fire on every render
   const oLat = origin ? round4(origin.latitude) : null;
@@ -109,6 +128,8 @@ export function useSafeRoutes(
     }
 
     const batchId = ++cancelRef.current;
+    const sentBucket = tripTimeBucket(tripRef.current ?? NOW_STATE, new Date());
+    lastBucketRef.current = sentBucket;
     setStatus('loading');
     setRoutes([]);           // clear old routes so the sheet resets
     setSelectedIndex(0);
@@ -124,13 +145,14 @@ export function useSafeRoutes(
           `${stableDest.latitude.toFixed(4)},${stableDest.longitude.toFixed(4)}`,
       );
 
-      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint, timeRef.current);
+      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint, tripRef.current);
 
       if (cancelRef.current !== batchId) return; // stale
 
       setRoutes(result.routes);
       setSelectedIndex(0); // safest route is first
       setMeta(result.meta);
+      setShownBucket(sentBucket);
       setStatus('ready');
 
       console.log(
@@ -177,17 +199,22 @@ export function useSafeRoutes(
     };
   }, [refresh]);
 
-  // Re-run for a changed time (a different 15-minute bucket) only when routes are shown or loading.
-  const lastBucketRef = useRef(timeBucketKey(timeParams));
+  // Re-run for a changed time (new 15-minute bucket) only when routes are shown or loading,
+  // after the user stops changing it, so rapid stepper taps cost one search, not one each.
   useEffect(() => {
-    const bucket = timeBucketKey(timeRef.current);
-    if (bucket === lastBucketRef.current) return;
-    lastBucketRef.current = bucket;
-    if (statusRef.current === 'ready' || statusRef.current === 'loading') {
-      refresh().catch(() => setStatus('error'));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeKey]);
+    if (bucket === lastBucketRef.current) return undefined;
+    const timer = setTimeout(() => {
+      if (bucket === lastBucketRef.current) return;
+      if (statusRef.current === 'ready' || statusRef.current === 'loading') {
+        refresh().catch(() => setStatus('error'));
+      } else {
+        lastBucketRef.current = bucket;
+      }
+    }, TIME_SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [bucket, refresh]);
+
+  const timeUpdating = status === 'ready' && shownBucket !== null && shownBucket !== bucket;
 
   const selectRoute = useCallback(
     (index: number) => {
@@ -208,6 +235,7 @@ export function useSafeRoutes(
     outOfRange,
     outOfRangeMessage,
     meta,
+    timeUpdating,
     refresh,
   };
 }

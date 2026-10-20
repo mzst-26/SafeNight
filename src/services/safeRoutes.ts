@@ -27,8 +27,10 @@ import { decodePolyline } from "@/src/utils/polyline";
 import {
   appendTimeQuery,
   timeBucketKey,
+  toTimeParams,
   type RouteTimeline,
   type TimeParams,
+  type TripTimeState,
 } from "@/src/utils/tripTime";
 
 /** Walking speed shared with the backend (m/s). */
@@ -761,9 +763,11 @@ export async function fetchSafeRoutes(
   subscriptionTier: string = "free",
   maxDistanceKmOverride?: number,
   waypoint?: LatLng | null,
-  timeParams?: TimeParams,
+  /** The user's choice (mode + HH:MM). Resolved to ISO here, at send time, so it never goes stale. */
+  tripTime?: TripTimeState,
 ): Promise<SafeRoutesResponse> {
   await subscriptionApi.ensureFeatureAllowed("route_search");
+  const timeParams: TimeParams = tripTime ? toTimeParams(tripTime, new Date()) : {};
 
   const key = cacheKey(origin, destination, waypoint, timeParams);
   const cached = cache.get(key);
@@ -850,6 +854,17 @@ export async function fetchSafeRoutes(
           "DESTINATION_OUT_OF_RANGE",
           raw.message ||
             "Destination is too far away. Maximum walking distance is 6 miles.",
+          undefined,
+          details,
+        );
+      }
+      if (raw.error === "INVALID_TIME") {
+        throw new AppError("INVALID_TIME", "Please choose a valid time.", undefined, details);
+      }
+      if (raw.error === "TIME_OUT_OF_RANGE") {
+        throw new AppError(
+          "TIME_OUT_OF_RANGE",
+          "That time is more than 24 hours away. Choose a time today or tomorrow.",
           undefined,
           details,
         );

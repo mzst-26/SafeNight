@@ -6,7 +6,7 @@
  *      + 0.10*(1 - ramp(open places within 100 m; 0..10))        (maximum 0.8)
  *   R' = 0.8 * ramp(R; FREE..0.8)  (suburban streets carry a small R0 that is not remoteness)
  *   H  = R' * (1 - P) * darkness;  H_eff = H * (1 - 0.35 * lightingEffective)
- *   edge safety is multiplied by (1 - 0.6 * H_eff)
+ *   edge safety is multiplied by (1 - HAZARD_STRENGTH * H_eff), HAZARD_STRENGTH = 0.4 (config.js)
  *
  * Pure functions; constants in config.js (REMOTENESS). Spec section 12.
  */

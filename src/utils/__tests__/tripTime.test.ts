@@ -1,4 +1,8 @@
 import {
+  canStepTripTime,
+  stepTripTime,
+  timeZoneNote,
+  tripTimeBounds,
   NOW_STATE,
   appendTimeQuery,
   defaultTimeState,
@@ -146,8 +150,8 @@ describe('labels', () => {
   const tl = {
     leaveAtIso: '2026-10-21T17:10:00+01:00',
     arriveAtIso: '2026-10-21T17:50:00+01:00',
-    darknessAtStart: false,
-    darknessAtArrival: true,
+    darknessAtStart: 0,
+    darknessAtArrival: 0.8,
     label: 'dark_by_arrival' as const,
   };
   it('maps label codes', () => {
@@ -176,5 +180,96 @@ describe('describeTripTime', () => {
     expect(describeTripTime({ mode: 'leave_at', hhmm: '17:15' }, BST_NOON)).toBe('Leave at 17:15');
     expect(describeTripTime({ mode: 'arrive_by', hhmm: '18:00' }, BST_NOON)).toBe('Arrive by 18:00');
     expect(describeTripTime({ mode: 'leave_at', hhmm: '08:30' }, BST_NOON)).toBe('Leave at 08:30 · Tomorrow');
+  });
+});
+
+// ── UX gate follow-up ────────────────────────────────────────────────────────
+
+describe('stepper bounds', () => {
+  const now = new Date('2026-10-21T16:07:00Z'); // 17:07 London
+
+  it('bounds: leave_at floor is now rounded up; arrive_by floor is now+15 rounded up; ceiling is now+23h45m floored', () => {
+    const l = tripTimeBounds('leave_at', now);
+    const a = tripTimeBounds('arrive_by', now);
+    expect(londonIso(l.min)).toBe('2026-10-21T17:15:00+01:00');
+    expect(londonIso(a.min)).toBe('2026-10-21T17:30:00+01:00');
+    expect(londonIso(l.max)).toBe('2026-10-22T16:45:00+01:00');
+  });
+  it('Earlier clamps at the floor and is disabled there', () => {
+    const s = { mode: 'leave_at' as const, hhmm: '17:30' };
+    expect(canStepTripTime(s, -15, now)).toBe(true);
+    const at = stepTripTime(s, -15, now);
+    expect(at.hhmm).toBe('17:15');
+    expect(canStepTripTime(at, -15, now)).toBe(false);
+    expect(stepTripTime(at, -15, now)).toEqual(at);
+  });
+  it('Earlier never wraps to tomorrow', () => {
+    const s = { mode: 'leave_at' as const, hhmm: '17:15' };
+    expect(stepTripTime(s, -15, now).hhmm).toBe('17:15');
+  });
+  it('Later stops at now+23h45m and is disabled there', () => {
+    let s = { mode: 'leave_at' as const, hhmm: '16:30' }; // tomorrow 16:30
+    expect(canStepTripTime(s, 15, now)).toBe(true);
+    s = stepTripTime(s, 15, now) as typeof s;
+    expect(s.hhmm).toBe('16:45');
+    expect(canStepTripTime(s, 15, now)).toBe(false);
+    expect(stepTripTime(s, 15, now)).toEqual(s);
+  });
+  it('arrive_by floor is respected', () => {
+    const s = { mode: 'arrive_by' as const, hhmm: '17:45' };
+    expect(stepTripTime(stepTripTime(s, -15, now), -15, now).hhmm).toBe('17:30');
+  });
+  it('a rolled Tomorrow time can never exceed the backend horizon', () => {
+    // fall-back day: wall-clock tomorrow can be 25h away
+    const n = new Date('2026-10-24T11:50:00Z'); // 12:50 BST on the 24th
+    const p = toTimeParams({ mode: 'leave_at', hhmm: '12:30' }, n); // tomorrow 12:30 GMT = 23h40m? ensure < 24h
+    const ms = Date.parse(p.leave_at as string) - n.getTime();
+    expect(ms).toBeLessThanOrEqual(24 * 3600 * 1000);
+    const q = toTimeParams({ mode: 'leave_at', hhmm: '12:49' }, n);
+    expect(Date.parse(q.leave_at as string) - n.getTime()).toBeLessThanOrEqual(24 * 3600 * 1000);
+  });
+});
+
+describe('Intl failure falls back to the device zone', () => {
+  const Real = Intl.DateTimeFormat;
+  afterEach(() => {
+    (Intl as any).DateTimeFormat = Real;
+  });
+  it('does not throw and reports device time', () => {
+    (Intl as any).DateTimeFormat = function () {
+      throw new RangeError('Invalid time zone specified: Europe/London');
+    };
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const t = require('@/src/utils/tripTime');
+      const now = new Date('2026-10-21T16:07:00Z');
+      expect(() => t.toTimeParams({ mode: 'leave_at', hhmm: '18:00' }, now)).not.toThrow();
+      expect(t.londonIso(now)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+      expect(t.usingDeviceTime()).toBe(true);
+      expect(t.timeZoneNote()).toBe('(device time)');
+      expect(t.formatTimelineSummary({ leaveAtIso: '2026-10-21T17:10:00+01:00', arriveAtIso: '2026-10-21T17:50:00+01:00', label: 'daylight' })).toMatch(/^Leaves \d\d:\d\d/);
+    });
+  });
+});
+
+describe('timeZoneNote', () => {
+  it('is a string or null in a working environment', () => {
+    const n = timeZoneNote();
+    expect(n === null || n === '(London time)').toBe(true);
+  });
+});
+
+describe('spring-forward gap', () => {
+  it('resolves a non-existent wall time (01:30 on 2026-03-29) to the next valid instant, 02:00 BST', () => {
+    const now = new Date('2026-03-28T22:00:00Z'); // 22:00 London (GMT), the evening before
+    expect(toTimeParams({ mode: 'leave_at', hhmm: '01:30' }, now)).toEqual({
+      leave_at: '2026-03-29T02:00:00+01:00',
+    });
+    expect(describeTripTime({ mode: 'leave_at', hhmm: '01:30' }, now)).toBe('Leave at 02:00 · Tomorrow');
+  });
+  it('leaves valid times either side of the gap alone', () => {
+    const now = new Date('2026-03-28T22:00:00Z');
+    expect(toTimeParams({ mode: 'leave_at', hhmm: '00:59' }, now).leave_at).toBe('2026-03-29T00:59:00+00:00');
+    expect(toTimeParams({ mode: 'leave_at', hhmm: '02:00' }, now).leave_at).toBe('2026-03-29T02:00:00+01:00');
   });
 });

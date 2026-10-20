@@ -11,6 +11,7 @@ const {
 } = require('../../scoring/config');
 const { cancelCallbackOf, createTicker, clamp01, hasOwnKey } = require('./common');
 const { resolveBuildClock } = require('./clock');
+const { getWeights } = require('../../scoring/weights');
 const {
   indexNodes, buildNodeGrid, computeNodeDegree, collectWalkableSegments, collectBarrierSegments,
 } = require('./osmIndex');
@@ -60,15 +61,22 @@ function scoreSegment(segment, ctx, cache) {
     presence: act.presence, cctvCount: act.cctvCount, openVenues: act.placesOpen,
   });
 
+  // Daylight is the best lighting there is: the lighting safety blends towards 1 as the sun comes up (darkness 0 gives
+  // 1, darkness 1 gives the estimate), and the lighting factor keeps its full weight. The older scheme (lighting weight
+  // scaled to 0 by day, the rest renormalised) made a lit street blend WORSE by day than at night, because its good
+  // lighting score no longer pulled the mean up, and made lamps matter by day through certainty. Now darkness can only
+  // add hazard, and by day every street has the same lighting (so lamps make no difference). Certainty describes how
+  // well we know the street, not the time, and uses the same full weights.
+  const lightingSafety = ctx.darkness * light.lightingSafety + (1 - ctx.darkness);
   const combined = edgeRisk({
     factors: {
-      lighting: { safety: light.lightingSafety, n: light.lighting.n },
+      lighting: { safety: lightingSafety, n: light.lighting.n },
       crime: crimeFactor,
       road: { safety: roadSafety, n: GRAPH.ROAD_N },
       activity: act.activity,
       isolation: { safety: isolationSafetyOf(deadEnd, unlitPath), n: GRAPH.ISOLATION_N },
     },
-    weights: ctx.weights,
+    weights: ctx.blendWeights,
   });
   // Night remoteness hazard (spec section 12): multiplies the combined safety. The isolation factor alone carries
   // weight 0.12, too little to make a lit but empty park path read Moderate.
@@ -89,6 +97,9 @@ function scoreSegment(segment, ctx, cache) {
     safetyScore: 1 - risk,
     roadScore: roadSafety,
     lightScore: light.lightingSafety,
+    // During a crime-data outage the factor is unknown (null) and takes the flat neutral prior PRIOR_SAFETY.crime
+    // (0.6, n = 0), NOT the area prior rate. Deliberate and fail-safe: with the data down we claim nothing about this
+    // area, so every street gets the same cautious value instead of a locally flattering or alarming one.
     crimeScore: crimeFactor.safety ?? PRIOR_SAFETY.crime,
     cctvScore: act.cctvScore,
     placeScore: act.placeScore,
@@ -139,6 +150,7 @@ function prepareContext(roadData, lightData, cctvData, placeData, transitData, c
   const barrierSegments = collectBarrierSegments(roadData, osmNodes, tick);
   return {
     ...clock,
+    blendWeights: getWeights({ darkness: 1, safetyLevel: options.level }),
     osmNodes,
     nodeGrid,
     nodeDegree,
@@ -203,6 +215,7 @@ async function buildGraph(roadData, lightData, cctvData, placeData, transitData,
     edges,
     adjacency,
     nodeGrid: ctx.nodeGrid,
+    // The darkness-scaled weights of the clock (reported only: the blend uses ctx.blendWeights, see scoreSegment).
     weights: ctx.weights,
     cctvNodes: ctx.activitySources.cctvNodes,
     transitNodes: ctx.activitySources.transitNodes,

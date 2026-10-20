@@ -10,8 +10,14 @@ const { PRESENCE } = require('./config');
 
 const TYPES = new Set(['centre', 'residential', 'park']);
 
+/** Clamps to [0, 1]; a non-finite value (NaN, +-Infinity from bad data) counts as 0, so NaN never propagates. */
 function clamp01(v) {
-  return Math.max(0, Math.min(1, v));
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+}
+
+/** A count or level that is not a finite non-negative number counts as 0 (Infinity too: bad data, not a crowd). */
+function finiteOrZero(v) {
+  return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
 /**
@@ -20,8 +26,7 @@ function clamp01(v) {
  * @returns {number}
  */
 function venueFactor(venues) {
-  const n = Number.isFinite(venues) && venues > 0 ? venues : 0;
-  return clamp01(Math.log10(1 + n) / Math.log10(1 + PRESENCE.VENUE_SATURATION));
+  return clamp01(Math.log10(1 + finiteOrZero(venues)) / Math.log10(1 + PRESENCE.VENUE_SATURATION));
 }
 
 /** Linear interpolation over [hour, value] anchors, wrapping at 24. */
@@ -67,8 +72,8 @@ function hourFactor(type, hour, darkness = 0) {
  * @returns {'centre'|'residential'|'park'}
  */
 function deriveType({ remoteness = 0, venues = 0, openPlaces80m = 0 } = {}) {
-  if (remoteness >= PRESENCE.PARK_MIN_REMOTENESS) return 'park';
-  if (venues >= PRESENCE.CENTRE_MIN_VENUES || openPlaces80m >= PRESENCE.CENTRE_MIN_OPEN_PLACES) return 'centre';
+  if (finiteOrZero(remoteness) >= PRESENCE.PARK_MIN_REMOTENESS) return 'park';
+  if (finiteOrZero(venues) >= PRESENCE.CENTRE_MIN_VENUES || finiteOrZero(openPlaces80m) >= PRESENCE.CENTRE_MIN_OPEN_PLACES) return 'centre';
   return 'residential';
 }
 
@@ -87,6 +92,9 @@ function isLateHour(hour) {
  * @param {number} input.hour London hour.
  * @param {number} [input.lateVenuesNearby=0] Venues open now within 80 m (counted only in the late window).
  * @param {number} [input.darkness=0] Park curve only.
+ *
+ * Non-finite optional inputs (venueDensity, lateVenuesNearby, darkness) count as 0 rather than propagating NaN; an
+ * unusable hour, class or type throws.
  * @returns {number} Presence in [0, 1].
  * @throws {TypeError} On an unknown class or type, or a non-finite hour.
  */
@@ -99,7 +107,7 @@ function presenceAt({
   const base = PRESENCE.CLASS_BASE[settlementClass];
   const h = hourFactor(type, hour, darkness);
   const late = isLateHour(hour)
-    ? PRESENCE.LATE_MAX * Math.min(1, Math.max(0, lateVenuesNearby) / PRESENCE.LATE_VENUES_FULL)
+    ? PRESENCE.LATE_MAX * Math.min(1, finiteOrZero(lateVenuesNearby) / PRESENCE.LATE_VENUES_FULL)
     : 0;
   return clamp01(base * (PRESENCE.VENUE_FLOOR + PRESENCE.VENUE_SPAN * venueFactor(venueDensity)) * h + late);
 }

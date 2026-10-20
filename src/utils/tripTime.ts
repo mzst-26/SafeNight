@@ -23,17 +23,20 @@ export type TimelineLabel = 'daylight' | 'dusk' | 'dark_by_arrival' | 'dark_from
 export interface RouteTimeline {
   leaveAtIso: string;
   arriveAtIso: string;
-  darknessAtStart?: boolean;
-  darknessAtArrival?: boolean;
+  /** 0..1 darkness fraction at the start / arrival (the backend emits numbers); `label` is the summary. */
+  darknessAtStart?: number;
+  darknessAtArrival?: number;
   label: TimelineLabel;
 }
 
-export const TIME_ZONE = 'Europe/London';
+const TIME_ZONE = 'Europe/London';
 export const NOW_STATE: TripTimeState = { mode: 'now', hhmm: null };
-export const BUCKET_MS = 15 * 60 * 1000;
+// Must match CACHE_BUCKET_MS in backend/src/safety/routes/safeRoutesTime.js. Change both together.
+const BUCKET_MS = 15 * 60 * 1000;
 
 const MINUTE_MS = 60 * 1000;
 const DAY_MIN = 24 * 60;
+const ceilTo15 = (ms: number) => Math.ceil(ms / BUCKET_MS) * BUCKET_MS;
 
 // ── London zone arithmetic ───────────────────────────────────────────────────
 
@@ -47,23 +50,59 @@ interface Parts {
 }
 
 let formatter: Intl.DateTimeFormat | null = null;
+let deviceFallback = false;
+
+/** True when Intl could not provide Europe/London and the device zone is used instead. */
+export function usingDeviceTime(): boolean {
+  return deviceFallback;
+}
+
+function devicePartsOf(date: Date): Parts {
+  return {
+    y: date.getFullYear(),
+    mo: date.getMonth() + 1,
+    d: date.getDate(),
+    h: date.getHours(),
+    mi: date.getMinutes(),
+    s: date.getSeconds(),
+  };
+}
 
 function londonParts(date: Date): Parts {
-  formatter ??= new Intl.DateTimeFormat('en-GB', {
-    timeZone: TIME_ZONE,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-  const out: Record<string, number> = {};
-  for (const p of formatter.formatToParts(date)) {
-    if (p.type !== 'literal') out[p.type] = Number(p.value);
+  if (!deviceFallback) {
+    try {
+      formatter ??= new Intl.DateTimeFormat('en-GB', {
+        timeZone: TIME_ZONE,
+        hourCycle: 'h23',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+      const out: Record<string, number> = {};
+      for (const p of formatter.formatToParts(date)) {
+        if (p.type !== 'literal') out[p.type] = Number(p.value);
+      }
+      return { y: out.year, mo: out.month, d: out.day, h: out.hour % 24, mi: out.minute, s: out.second };
+    } catch {
+      // Some runtimes ship without full Intl/time-zone data. Never throw during render.
+      deviceFallback = true;
+    }
   }
-  return { y: out.year, mo: out.month, d: out.day, h: out.hour % 24, mi: out.minute, s: out.second };
+  return devicePartsOf(date);
+}
+
+/** Note shown beside the time chip: which clock the chosen time is on. Null when it is the device clock too. */
+export function timeZoneNote(): string | null {
+  if (deviceFallback) return '(device time)';
+  try {
+    const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return device === TIME_ZONE ? null : '(London time)';
+  } catch {
+    return '(device time)';
+  }
 }
 
 /** Offset of London from UTC at `date`, in minutes (0 or 60). */
@@ -98,7 +137,16 @@ function londonWallToInstant(y: number, mo: number, d: number, h: number, mi: nu
   const naive = Date.UTC(y, mo - 1, d, h, mi, 0);
   let guess = naive - londonOffsetMin(new Date(naive)) * MINUTE_MS;
   guess = naive - londonOffsetMin(new Date(guess)) * MINUTE_MS;
-  return new Date(guess);
+  const wall = (ms: number) => {
+    const p = londonParts(new Date(ms));
+    return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, 0);
+  };
+  if (wall(guess) === naive) return new Date(guess);
+  // The wall time does not exist (spring-forward gap, e.g. 01:30 on 2026-03-29): use the first
+  // valid instant after the gap (02:00 BST).
+  let probe = naive - 3 * 60 * MINUTE_MS;
+  while (wall(probe) < naive) probe += MINUTE_MS;
+  return new Date(probe);
 }
 
 function parseHhmm(hhmm: string): { h: number; mi: number } | null {
@@ -133,7 +181,42 @@ export function resolveTripTime(state: TripTimeState, now: Date): ResolvedTripTi
     instant = londonWallToInstant(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), t.h, t.mi);
     isTomorrow = true;
   }
+  // Never exceed the backend horizon (+24h): e.g. "tomorrow" can be 25h away across a clock change.
+  const max = tripTimeBounds(state.mode, now).max;
+  if (instant.getTime() > now.getTime() + 23 * 60 * MINUTE_MS + 55 * MINUTE_MS) instant = max;
   return { mode: state.mode, instant, isTomorrow };
+}
+
+// ── Stepper bounds ───────────────────────────────────────────────────────────
+
+/** Earliest and latest instants the stepper may produce. */
+export function tripTimeBounds(
+  mode: 'leave_at' | 'arrive_by',
+  now: Date,
+): { min: Date; max: Date } {
+  const floorMs = now.getTime() + (mode === 'arrive_by' ? 15 * MINUTE_MS : 0);
+  return {
+    min: new Date(ceilTo15(floorMs)),
+    max: new Date(Math.floor((now.getTime() + (24 * 60 - 15) * MINUTE_MS) / BUCKET_MS) * BUCKET_MS),
+  };
+}
+
+/** Can the stepper move by `deltaMin` without hitting a bound or leaving the 24h horizon? */
+export function canStepTripTime(state: TripTimeState, deltaMin: number, now: Date): boolean {
+  const resolved = resolveTripTime(state, now);
+  if (!resolved) return false;
+  const { min, max } = tripTimeBounds(resolved.mode, now);
+  return deltaMin < 0 ? resolved.instant > min : resolved.instant < max;
+}
+
+/** Move the chosen time by `deltaMin`, clamped to [floor, now+23h45m]. Never wraps a day. */
+export function stepTripTime(state: TripTimeState, deltaMin: number, now: Date): TripTimeState {
+  if (!canStepTripTime(state, deltaMin, now)) return state;
+  const resolved = resolveTripTime(state, now) as ResolvedTripTime;
+  const { min, max } = tripTimeBounds(resolved.mode, now);
+  const target = resolved.instant.getTime() + deltaMin * MINUTE_MS;
+  const clamped = Math.min(max.getTime(), Math.max(min.getTime(), target));
+  return { mode: state.mode, hhmm: londonHhmm(new Date(clamped)) };
 }
 
 export function toTimeParams(state: TripTimeState, now: Date): TimeParams {
@@ -143,7 +226,6 @@ export function toTimeParams(state: TripTimeState, now: Date): TimeParams {
   return resolved.mode === 'leave_at' ? { leave_at: iso } : { arrive_by: iso };
 }
 
-const ceilTo15 = (ms: number) => Math.ceil(ms / BUCKET_MS) * BUCKET_MS;
 
 export function defaultTimeState(mode: TripTimeMode, now: Date): TripTimeState {
   if (mode === 'now') return NOW_STATE;
@@ -162,10 +244,15 @@ export function describeTripTime(state: TripTimeState, now: Date): string {
   const resolved = resolveTripTime(state, now);
   if (!resolved || !state.hhmm) return 'Leave now';
   const verb = resolved.mode === 'leave_at' ? 'Leave at' : 'Arrive by';
-  return `${verb} ${state.hhmm}${resolved.isTomorrow ? ' · Tomorrow' : ''}`;
+  return `${verb} ${londonHhmm(resolved.instant)}${resolved.isTomorrow ? ' · Tomorrow' : ''}`;
 }
 
 // ── Cache / URL helpers ──────────────────────────────────────────────────────
+
+/** 15-minute bucket key for a chosen time as of `now` ('now' when leaving now). */
+export function tripTimeBucket(state: TripTimeState, now: Date): string {
+  return timeBucketKey(toTimeParams(state, now));
+}
 
 /** Cache-key fragment: mode + 15-minute bucket ('now' when no time is chosen). */
 export function timeBucketKey(params: TimeParams | undefined): string {

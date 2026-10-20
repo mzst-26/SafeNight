@@ -293,6 +293,9 @@ const REMOTENESS = Object.freeze({
   // instead of the 11 x 11 the shared 55 m grids need. A speed choice only; results are exact.
   GRID_CELL_DEG: 0.001,
   LIT_RELIEF: 0.35,
+  // Strength 0.4 (spec section 12 first proposed 0.6): at 0.6 the lit interior park path (calibration archetype P)
+  // scored 36 at 23:00, below the Moderate band (the target is 40-58); 0.5 gave 39 and 0.4 gives 42 to 49. The path's
+  // base score is already low (footway road class, empty-night activity floor), so a smaller multiplier is enough.
   HAZARD_STRENGTH: 0.4,
   // Remoteness below FREE counts as none: R0 is never 0 in sparsely mapped suburbs (a street with no cafe within
   // 100 m already scores 0.1 on the places term, and a 100 m grid has only ~8 segment midpoints within 100 m), and

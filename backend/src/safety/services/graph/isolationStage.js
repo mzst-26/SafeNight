@@ -91,7 +91,7 @@ function createRemotenessLookup(segments, openPlaces) {
  * safety, not inside the isolation factor: that factor's 0.12 weight would cap the effect at a few points, but a lit
  * park path far from any street at 23:00 should read Moderate (spec section 12).
  * @param {{remoteness: number, presence: number, darkness: number, lightingEffective: number}} input
- * @returns {number} In [1 - 0.6 * 0.8, 1].
+ * @returns {number} In [1 - HAZARD_STRENGTH * 0.8, 1] (0.68 at the default 0.4).
  */
 function remotenessMultiplier(input) {
   return safetyMultiplier(hazardOf(input));

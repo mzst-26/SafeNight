@@ -65,3 +65,56 @@ describe('route cache key uses a 15-minute bucket of the mid instant', () => {
     });
   });
 });
+
+describe('cache hits and coalesced responses are re-stamped for the requester', () => {
+  const full = () => ({
+    status: 'OK',
+    routes: [{ legs: [{ duration: { value: 600 } }], safety: { score: 70, timeline: { leaveAtIso: 'stale' } } }],
+    meta: { time: { mode: 'leave_at', leaveAtIso: 'stale', arriveByIso: null, timezone: 'Europe/London' } },
+  });
+  const makeIt = (computeSafeRoutes) => createSafeRoutesOrchestrator({
+    computeSafeRoutes, estimateRequestLoadUnits: () => 1, enqueueComputeJob: ({ run }) => run(),
+    waitWithCancellation: async (p) => p, formatWaitMmSs: () => '',
+  });
+  beforeEach(() => { jest.spyOn(Date, 'now').mockReturnValue(iso('2026-10-20T16:00:00Z')); });
+
+  test('second leave_at request in the same bucket gets its own instants from the cache', async () => {
+    const compute = jest.fn(async () => full());
+    const o = makeIt(compute);
+    const first = await o.resolveSafeRoutesRequest(params({ leaveAtMs: iso('2026-10-20T17:10:00Z') }));
+    const second = await o.resolveSafeRoutesRequest(params({ leaveAtMs: iso('2026-10-20T17:12:00Z') }));
+    expect(compute).toHaveBeenCalledTimes(1);
+    expect(second.source).toBe('cache');
+    expect(second.result.meta.time.leaveAtIso).toBe('2026-10-20T17:12:00.000Z');
+    expect(second.result.routes[0].safety.timeline.leaveAtIso).toBe('2026-10-20T17:12:00.000Z');
+    expect(first.result.meta.time.leaveAtIso).toBe('stale');
+    // A third request still sees the untouched cached original being re-stamped, not the second one's stamp.
+    const third = await o.resolveSafeRoutesRequest(params({ leaveAtMs: iso('2026-10-20T17:13:00Z') }));
+    expect(third.result.meta.time.leaveAtIso).toBe('2026-10-20T17:13:00.000Z');
+  });
+
+  test('leave-now hit stamps the current instant', async () => {
+    const compute = jest.fn(async () => { const r = full(); r.meta.time.mode = 'now'; return r; });
+    const o = makeIt(compute);
+    await o.resolveSafeRoutesRequest(params());
+    Date.now.mockReturnValue(iso('2026-10-20T16:04:00Z'));
+    const second = await o.resolveSafeRoutesRequest(params());
+    expect(second.source).toBe('cache');
+    expect(second.result.meta.time.leaveAtIso).toBe('2026-10-20T16:04:00.000Z');
+  });
+
+  test('coalesced in-flight request is re-stamped from its own instants', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const compute = jest.fn(async () => { await gate; return full(); });
+    const o = makeIt(compute);
+    const p1 = o.resolveSafeRoutesRequest(params({ leaveAtMs: iso('2026-10-20T17:10:00Z') }));
+    const p2 = o.resolveSafeRoutesRequest(params({ leaveAtMs: iso('2026-10-20T17:12:00Z') }));
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    expect(b.source).toBe('inflight');
+    expect(compute).toHaveBeenCalledTimes(1);
+    expect(b.result.meta.time.leaveAtIso).toBe('2026-10-20T17:12:00.000Z');
+    expect(a.result.meta.time.leaveAtIso).toBe('stale');
+  });
+});

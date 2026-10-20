@@ -326,3 +326,48 @@ describe('cache time part (15-minute bucket of the mid instant)', () => {
       .not.toBe(cacheTimePart({ arriveByMs: ms, straightLineDist: 0, nowMs: NOW }));
   });
 });
+
+describe('restampTime', () => {
+  const { restampTime } = require('../../../../src/safety/routes/safeRoutesTime');
+  const at = (hhmm) => Date.parse(`2026-10-20T${hhmm}:00+01:00`);
+  const where = { oLat: 51.5074, oLng: -0.1278, dLat: 51.5074, dLng: -0.1278 };
+  const fullRoute = (durationSec) => ({ legs: [{ duration: { value: durationSec } }], safety: { score: 70, timeline: { stale: true } } });
+  const compactRoute = (durationSec) => ({ duration: { value: durationSec }, safety: { score: 70, timeline: { stale: true } } });
+  const cached = (route) => ({ status: 'OK', routes: [route], meta: { routeCount: 1, time: { mode: 'leave_at', leaveAtIso: 'stale', arriveByIso: null, timezone: 'Europe/London' } } });
+
+  test.each([['full', fullRoute], ['compact', compactRoute]])('%s: re-stamps meta.time and timeline from the requesting instant', (_n, mk) => {
+    const res = restampTime(cached(mk(75 * 60)), { request: { leaveAt: at('17:12'), nowMs: at('17:00') }, ...where });
+    expect(res.meta.time.leaveAtIso).toBe(new Date(at('17:12')).toISOString());
+    expect(res.routes[0].safety.timeline).toMatchObject({
+      leaveAtIso: new Date(at('17:12')).toISOString(),
+      arriveAtIso: new Date(at('17:12') + 75 * 60_000).toISOString(),
+      label: 'dark_by_arrival',
+    });
+    expect(res.routes[0].safety.score).toBe(70);
+  });
+  test('does not mutate the cached response', () => {
+    const c = cached(fullRoute(600));
+    const snapshot = JSON.stringify(c);
+    const res = restampTime(c, { request: { leaveAt: at('17:12'), nowMs: at('17:00') }, ...where });
+    expect(JSON.stringify(c)).toBe(snapshot);
+    expect(res).not.toBe(c);
+    expect(res.routes[0]).not.toBe(c.routes[0]);
+  });
+  test('leave now stamps the requesting now', () => {
+    const c = cached(fullRoute(600));
+    c.meta.time.mode = 'now';
+    const res = restampTime(c, { request: { nowMs: at('17:03') }, ...where });
+    expect(res.meta.time.leaveAtIso).toBe(new Date(at('17:03')).toISOString());
+  });
+  test('arrive_by derives leave time from the requested arrival and best route duration', () => {
+    const c = cached(fullRoute(1200));
+    c.meta.time.mode = 'arrive_by';
+    const res = restampTime(c, { request: { arriveBy: at('19:00'), nowMs: at('17:00') }, ...where });
+    expect(res.meta.time.arriveByIso).toBe(new Date(at('19:00')).toISOString());
+    expect(res.meta.time.leaveAtIso).toBe(new Date(at('19:00') - 1_200_000).toISOString());
+  });
+  test('responses without time data pass through untouched', () => {
+    const c = { routes: [1] };
+    expect(restampTime(c, { request: { nowMs: 0 }, ...where })).toBe(c);
+  });
+});

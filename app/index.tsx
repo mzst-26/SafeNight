@@ -49,6 +49,7 @@ import {
 } from "@/src/components/safety/SafetyPanel";
 import { SafetyProfileChart } from "@/src/components/safety/SafetyProfileChart";
 import { MobileWebSearchBar } from "@/src/components/search/MobileWebSearchBar";
+import { TripTimeErrorAction } from "@/src/components/search/TripTimeErrorAction";
 import { SearchBar } from "@/src/components/search/SearchBar";
 import {
     DraggableSheet,
@@ -473,7 +474,7 @@ export default function HomeScreen() {
       setIsSearchAroundLoading(false);
       setShowSearchAroundButton(false);
     }
-  }, [mapCenterForSearch, isSearchAroundLoading, h.destSearch, h.location, h.effectiveOrigin, searchAnchor, subscriptionTier]);
+  }, [mapCenterForSearch, isSearchAroundLoading, h.destSearch, h.location, h.effectiveOrigin, h.safeRoutes.length, searchAnchor, subscriptionTier]);
 
   // Navigation alerts (crime / CCTV / street)
   const navAlert = useNavAlerts({
@@ -2184,6 +2185,7 @@ export default function HomeScreen() {
                   <Text style={styles.warningText}>
                     {h.directionsError.message}
                   </Text>
+                  <TripTimeErrorAction code={h.directionsError.code} onReset={h.resetTripTime} />
                   {h.directionsError.details?.detail ? (
                     <Text style={styles.warningDetail}>
                       {String(h.directionsError.details.detail)}
@@ -2210,6 +2212,7 @@ export default function HomeScreen() {
             <View style={styles.routeSafetyRow}>
               <RouteList
                 routes={h.safeRoutes}
+                updatingLabel={h.timeUpdatingLabel}
                 selectedRouteId={h.selectedRouteId}
                 onSelectRoute={h.setSelectedRouteId}
                 routeComparison={h.routeComparison}
@@ -2452,6 +2455,7 @@ export default function HomeScreen() {
                     <Text style={styles.warningText}>
                       {h.directionsError.message}
                     </Text>
+                    <TripTimeErrorAction code={h.directionsError.code} onReset={h.resetTripTime} />
                     {h.directionsError.details?.detail ? (
                       <Text style={styles.warningDetail}>
                         {String(h.directionsError.details.detail)}
@@ -2476,6 +2480,7 @@ export default function HomeScreen() {
 
               <RouteList
                 routes={h.safeRoutes}
+                updatingLabel={h.timeUpdatingLabel}
                 selectedRouteId={h.selectedRouteId}
                 onSelectRoute={h.setSelectedRouteId}
                 routeComparison={h.routeComparison}
@@ -3026,6 +3031,7 @@ export default function HomeScreen() {
                   <Text style={styles.warningText}>
                     {h.directionsError.message}
                   </Text>
+                  <TripTimeErrorAction code={h.directionsError.code} onReset={h.resetTripTime} />
                   {h.directionsError.details?.detail ? (
                     <Text style={styles.warningDetail}>
                       {String(h.directionsError.details.detail)}
@@ -3051,6 +3057,7 @@ export default function HomeScreen() {
             {/* Route cards — safety details hidden behind per-card toggle */}
             <RouteList
               routes={h.safeRoutes}
+              updatingLabel={h.timeUpdatingLabel}
               selectedRouteId={h.selectedRouteId}
               onSelectRoute={h.setSelectedRouteId}
               routeComparison={h.routeComparison}

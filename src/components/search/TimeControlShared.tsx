@@ -3,14 +3,22 @@
  * styles. Platform files (TimeControl.tsx, TimeControl.web.tsx) supply the time field.
  */
 import { Ionicons } from "@expo/vector-icons";
-import { type ReactNode, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { type ReactNode, useRef, useState } from "react";
+import {
+  AccessibilityInfo,
+  findNodeHandle,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import {
   defaultTimeState,
   describeTripTime,
   NOW_STATE,
   resolveTripTime,
+  timeZoneNote,
   type TripTimeMode,
   type TripTimeState,
 } from "@/src/utils/tripTime";
@@ -22,6 +30,8 @@ export interface TimeControlProps {
   now?: () => Date;
 }
 
+const ACCENT = "#1849A9";
+
 const MODES: { mode: TripTimeMode; label: string }[] = [
   { mode: "now", label: "Leave now" },
   { mode: "leave_at", label: "Leave at" },
@@ -30,7 +40,13 @@ const MODES: { mode: TripTimeMode; label: string }[] = [
 
 interface ShellProps extends TimeControlProps {
   /** Renders the time field for a non-"now" mode. */
-  renderField: (args: { value: TripTimeState; isTomorrow: boolean }) => ReactNode;
+  renderField: (args: {
+    value: TripTimeState;
+    /** Chosen time, narrowed to a string (the field only renders when a time is set). */
+    hhmm: string;
+    isTomorrow: boolean;
+    now: () => Date;
+  }) => ReactNode;
 }
 
 export function TimeControlShell({ value, onChange, now, renderField }: ShellProps) {
@@ -40,15 +56,39 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
   const summary = describeTripTime(value, current);
   const resolved = resolveTripTime(value, current);
 
+  const chipRef = useRef<View>(null);
+
+  const focusChip = () => {
+    const node = chipRef.current as unknown as { focus?: () => void } | null;
+    // Web (DOM) elements expose focus(); native uses the accessibility focus API.
+    if (typeof node?.focus === "function") node.focus();
+    const handle = findNodeHandle(chipRef.current);
+    if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+  };
+
   const pickMode = (mode: TripTimeMode) => {
     if (mode === value.mode) return;
-    onChange(mode === "now" ? NOW_STATE : defaultTimeState(mode, clock()));
-    if (mode === "now") setOpen(false);
+    if (mode === "now") {
+      onChange(NOW_STATE);
+      setOpen(false);
+      // The panel (and the focused segment) disappears: put focus back on the chip.
+      setTimeout(focusChip, 0);
+      return;
+    }
+    // Switching Leave at <-> Arrive by keeps the time the user already chose.
+    onChange(
+      value.mode !== "now" && value.hhmm
+        ? { mode, hhmm: value.hhmm }
+        : defaultTimeState(mode, clock()),
+    );
   };
+  const note = value.mode !== "now" ? timeZoneNote() : null;
 
   return (
     <View style={styles.wrap}>
+      <View style={styles.chipRow}>
       <Pressable
+        ref={chipRef}
         onPress={() => setOpen((v) => !v)}
         style={[styles.chip, value.mode !== "now" && styles.chipActive]}
         accessibilityRole="button"
@@ -65,10 +105,13 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
         </Text>
         <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color="#667085" />
       </Pressable>
+      {note !== null && <Text style={styles.fieldLabel}>{note}</Text>}
+      </View>
 
       {open && (
         <View style={styles.panel}>
-          <View style={styles.segments} accessibilityRole="radiogroup">
+          <Text style={styles.fieldLabel}>Trip time · London</Text>
+          <View style={styles.segments} accessibilityRole="radiogroup" accessibilityLabel="Trip time">
             {MODES.map(({ mode, label }) => {
               const selected = value.mode === mode;
               return (
@@ -88,7 +131,12 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
             })}
           </View>
           {value.mode !== "now" && value.hhmm
-            ? renderField({ value, isTomorrow: resolved?.isTomorrow ?? false })
+            ? renderField({
+                value,
+                hhmm: value.hhmm,
+                isTomorrow: resolved?.isTomorrow ?? false,
+                now: clock,
+              })
             : null}
         </View>
       )}
@@ -96,10 +144,9 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
   );
 }
 
-const ACCENT = "#1849A9";
-
 export const styles = StyleSheet.create({
   wrap: { paddingHorizontal: 12, paddingVertical: 4 },
+  chipRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   chip: {
     flexDirection: "row",
     alignItems: "center",
@@ -145,6 +192,7 @@ export const styles = StyleSheet.create({
     borderColor: "#d0d5dd",
     backgroundColor: "#ffffff",
   },
+  stepBtnDisabled: { opacity: 0.4 },
   timeText: { fontSize: 18, fontWeight: "700", color: "#101828", minWidth: 64, textAlign: "center" },
   dayText: { fontSize: 13, fontWeight: "600", color: ACCENT },
   fieldLabel: { fontSize: 13, color: "#475467" },

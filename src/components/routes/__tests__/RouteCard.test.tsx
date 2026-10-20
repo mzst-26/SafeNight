@@ -383,8 +383,8 @@ describe('RouteCard timeline text', () => {
   const timeline = {
     leaveAtIso: '2026-10-21T17:10:00+01:00',
     arriveAtIso: '2026-10-21T17:50:00+01:00',
-    darknessAtStart: false,
-    darknessAtArrival: true,
+    darknessAtStart: 0,
+    darknessAtArrival: 0.8,
     label: 'dark_by_arrival' as const,
   };
 

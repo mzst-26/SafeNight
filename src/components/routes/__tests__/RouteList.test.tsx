@@ -90,3 +90,25 @@ describe('RouteList', () => {
     expect(texts).toContain('0.6 mi shorter · 5 pts lower');
   });
 });
+
+describe('RouteList updatingLabel', () => {
+  const routes = [makeRoute('a', true, {}, 1000, 600)];
+  const render = (updatingLabel?: string | null) => {
+    let r!: ReactTestRenderer;
+    act(() => {
+      r = create(<RouteList routes={routes} selectedRouteId="a" onSelectRoute={() => {}} updatingLabel={updatingLabel} />);
+    });
+    return r;
+  };
+
+  it('shows the label and dims the cards while results lag the chosen time', () => {
+    const r = render('Updating for 17:10');
+    expect(textNodes(r)).toContain('Updating for 17:10');
+    expect(JSON.stringify(r.toJSON())).toContain('"opacity":0.55');
+  });
+  it('renders unchanged without a label', () => {
+    const r = render(null);
+    expect(textNodes(r).some((t) => t.startsWith('Updating'))).toBe(false);
+    expect(JSON.stringify(r.toJSON())).not.toContain('"opacity":0.55');
+  });
+});

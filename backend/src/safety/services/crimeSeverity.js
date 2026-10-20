@@ -66,7 +66,10 @@ const PEDESTRIAN_RELEVANCE = Object.freeze({
 });
 
 // Offences against the person or carried on the person: never discounted for footfall, because a crowd does not
-// make them less relevant to someone walking there.
+// make them less relevant to someone walking there. Theft from the person (pickpocketing, snatching) and possession
+// of weapons are in this pool on purpose even though neither is strictly "violent crime": both happen to people in
+// the street and they are the kinds of crime a busy place breeds rather than dilutes (crowds are where pockets are
+// picked), so dividing them by presence would hide exactly the risk a pedestrian faces in a busy centre.
 const VIOLENT_CATEGORIES = Object.freeze(new Set([
   'violent-crime', 'robbery', 'sexual-offences', 'theft-from-the-person', 'possession-of-weapons',
 ]));

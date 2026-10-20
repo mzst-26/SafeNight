@@ -12,14 +12,14 @@ export function TimeControl(props: TimeControlProps) {
   return (
     <TimeControlShell
       {...props}
-      renderField={({ value, isTomorrow }) => {
+      renderField={({ value, hhmm, isTomorrow }) => {
         const label = value.mode === "leave_at" ? "Leave at time" : "Arrive by time";
         return (
           <View style={styles.fieldRow}>
             <input
               type="time"
               step={900}
-              value={value.hhmm ?? ""}
+              value={hhmm}
               aria-label={label}
               onChange={(e: { target: { value: string } }) => {
                 const next = e.target.value;

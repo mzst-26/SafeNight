@@ -94,3 +94,26 @@ describe('presenceAt', () => {
     expect(() => presenceAt({ ...base, type: 'moon' })).toThrow(TypeError);
   });
 });
+
+describe('non-finite inputs never produce NaN', () => {
+  const base = { settlementClass: 'city', venueDensity: 2, type: 'residential', hour: 23, lateVenuesNearby: 0 };
+
+  test('NaN, Infinity or missing optional inputs count as 0', () => {
+    const plain = presenceAt(base);
+    expect(presenceAt({ ...base, lateVenuesNearby: NaN })).toBe(plain);
+    expect(presenceAt({ ...base, lateVenuesNearby: undefined })).toBe(plain);
+    expect(presenceAt({ ...base, lateVenuesNearby: -3 })).toBe(plain);
+    expect(presenceAt({ ...base, darkness: NaN })).toBe(plain);
+    expect(presenceAt({ ...base, venueDensity: NaN })).toBe(presenceAt({ ...base, venueDensity: 0 }));
+    expect(Number.isFinite(presenceAt({ ...base, venueDensity: Infinity }))).toBe(true);
+    expect(Number.isFinite(presenceAt({ ...base, lateVenuesNearby: Infinity }))).toBe(true);
+  });
+
+  test('a park with NaN darkness takes the daylight curve, not NaN', () => {
+    expect(hourFactor('park', 12, NaN)).toBeCloseTo(0.5, 12);
+  });
+
+  test('deriveType treats non-finite inputs as 0', () => {
+    expect(deriveType({ remoteness: NaN, venues: NaN, openPlaces80m: NaN })).toBe('residential');
+  });
+});

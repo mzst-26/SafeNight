@@ -439,3 +439,40 @@ describe('edgeRisk per-factor prior override (hour-dependent activity prior)', (
     expect(() => edgeRisk({ factors: { ...full, activity: { safety: null, n: 0, prior: 2 } }, weights: WEIGHTS })).toThrow(TypeError);
   });
 });
+
+describe('edgeRisk certaintyWeights (certainty describes the street, not the time of day)', () => {
+  const factors = {
+    lighting: { safety: 0.9, n: 20 }, crime: { safety: 0.9, n: 3 }, road: { safety: 0.5, n: 10 },
+    activity: { safety: 0.5, n: 8 }, isolation: { safety: 0.9, n: 6 },
+  };
+  const daylight = { ...WEIGHTS, lighting: 0 };
+
+  test('without certaintyWeights nothing changes', () => {
+    const a = edgeRisk({ factors, weights: daylight });
+    const b = edgeRisk({ factors, weights: daylight, certaintyWeights: undefined });
+    expect(b).toEqual(a);
+  });
+
+  test('certainty can use the unscaled weights while risk uses the daylight weights', () => {
+    const plain = edgeRisk({ factors, weights: daylight });
+    const street = edgeRisk({ factors, weights: daylight, certaintyWeights: WEIGHTS });
+    const night = edgeRisk({ factors, weights: WEIGHTS });
+    expect(street.certainty).toBeCloseTo(night.certainty, 12);
+    expect(street.certainty).toBeGreaterThan(plain.certainty);
+    expect(street.risk).toBeLessThan(plain.risk);
+  });
+
+  test('the blend itself is unchanged: base risk uses weights only', () => {
+    const cw = edgeRisk({ factors, weights: daylight, certaintyWeights: WEIGHTS });
+    const full = { ...factors };
+    // Same weights, certainty forced equal by identical certaintyWeights: risk matches the plain call at that certainty.
+    const plain = edgeRisk({ factors: full, weights: daylight });
+    const baseOf = (r, c) => (r - UNCERTAINTY_RISK_LOAD * (1 - c)) / (1 - UNCERTAINTY_RISK_LOAD * (1 - c));
+    expect(baseOf(cw.risk, cw.certainty)).toBeCloseTo(baseOf(plain.risk, plain.certainty), 9);
+  });
+
+  test('rejects malformed certaintyWeights', () => {
+    expect(() => edgeRisk({ factors, weights: daylight, certaintyWeights: { ...WEIGHTS, road: -1 } })).toThrow(TypeError);
+    expect(() => edgeRisk({ factors, weights: daylight, certaintyWeights: 'x' })).toThrow(TypeError);
+  });
+});
