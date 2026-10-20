@@ -19,13 +19,22 @@ let waysIndex = null;
 let nodesIndex = null;
 let lastLoadedAt = 0;
 
-async function closeLoadedIndexes() {
-  await Promise.all([
-    waysIndex?.close?.().catch(() => {}),
-    nodesIndex?.close?.().catch(() => {}),
-  ]);
+// Closes the file handles held by the loaded indexes and clears module state.
+// Safe to call repeatedly: state is cleared before closing, so each handle is closed at most once.
+async function closeIndexes() {
+  const handles = [waysIndex, nodesIndex];
   waysIndex = null;
   nodesIndex = null;
+  lastLoadedAt = 0;
+  await Promise.all(
+    handles.map(async (handle) => {
+      try {
+        await handle?.close?.();
+      } catch {
+        // ignore close failures; the handle is being discarded either way
+      }
+    }),
+  );
 }
 
 async function reloadIfNeeded() {
@@ -35,7 +44,7 @@ async function reloadIfNeeded() {
 
     if (mtime > lastLoadedAt) {
       console.log('[dataStore] Reloading published dataset...');
-      await closeLoadedIndexes();
+      await closeIndexes();
       const [w, n] = await Promise.all([
         loadIndex(PUBLISH_WAYS_IDX, PUBLISH_WAYS, PUBLISH_WAYS_OFFSETS),
         loadIndex(PUBLISH_NODES_IDX, PUBLISH_NODES, PUBLISH_NODES_OFFSETS),
@@ -95,4 +104,5 @@ module.exports = {
   reloadIfNeeded,
   queryBboxData,
   getStats,
+  closeIndexes,
 };

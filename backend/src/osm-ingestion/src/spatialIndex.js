@@ -123,37 +123,53 @@ async function buildIndex(dataPath, indexPath, offsetsPath = getOffsetsPath(inde
 }
 
 async function loadIndex(indexPath, dataPath, offsetsPath = getOffsetsPath(indexPath)) {
-  const [indexBuffer, dataStat, offsetsStat, offsetsHandle, dataHandle] = await Promise.all([
-    fs.promises.readFile(indexPath),
-    fs.promises.stat(dataPath),
-    fs.promises.stat(offsetsPath),
-    fs.promises.open(offsetsPath, 'r'),
-    fs.promises.open(dataPath, 'r'),
-  ]);
+  let offsetsHandle = null;
+  let dataHandle = null;
+  let handedOff = false;
 
-  const arrayBuffer = indexBuffer.buffer.slice(
-    indexBuffer.byteOffset,
-    indexBuffer.byteOffset + indexBuffer.byteLength
-  );
-  const index = Flatbush.from(arrayBuffer);
+  try {
+    offsetsHandle = await fs.promises.open(offsetsPath, 'r');
+    dataHandle = await fs.promises.open(dataPath, 'r');
 
-  const offsetCount = Math.floor(offsetsStat.size / 8);
+    const [indexBuffer, dataStat, offsetsStat] = await Promise.all([
+      fs.promises.readFile(indexPath),
+      fs.promises.stat(dataPath),
+      fs.promises.stat(offsetsPath),
+    ]);
 
-  return {
-    index,
-    dataPath,
-    dataSize: dataStat.size,
-    offsetsPath,
-    offsetCount,
-    offsetsHandle,
-    dataHandle,
-    async close() {
+    const arrayBuffer = indexBuffer.buffer.slice(
+      indexBuffer.byteOffset,
+      indexBuffer.byteOffset + indexBuffer.byteLength
+    );
+    const index = Flatbush.from(arrayBuffer);
+
+    const offsetCount = Math.floor(offsetsStat.size / 8);
+
+    handedOff = true;
+    return {
+      index,
+      dataPath,
+      dataSize: dataStat.size,
+      offsetsPath,
+      offsetCount,
+      offsetsHandle,
+      dataHandle,
+      async close() {
+        await Promise.all([
+          offsetsHandle?.close().catch(() => {}),
+          dataHandle?.close().catch(() => {}),
+        ]);
+      },
+    };
+  } finally {
+    // On any failure the handles were never returned to the caller, so close them here.
+    if (!handedOff) {
       await Promise.all([
         offsetsHandle?.close().catch(() => {}),
         dataHandle?.close().catch(() => {}),
       ]);
-    },
-  };
+    }
+  }
 }
 
 function queryBbox(indexData, south, west, north, east) {

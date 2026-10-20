@@ -2,6 +2,7 @@
  * server.js — Express API for querying hosted OSM safety data.
  */
 
+const crypto = require('crypto');
 const express = require('express');
 const helmet = require('helmet');
 const { queryBboxData, getStats } = require('./dataStore');
@@ -12,12 +13,28 @@ const app = express();
 app.use(helmet());
 app.use(express.json({ limit: '10kb' }));
 
+/**
+ * Constant-time comparison of a provided admin key against the configured one.
+ * Returns false for non-string input or a length mismatch.
+ */
+function safeKeyEquals(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string') {
+    return false;
+  }
+  const a = Buffer.from(provided, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
+
 function requireAdmin(req, res, next) {
   const key = req.headers['x-admin-key'];
   if (!ADMIN_API_KEY) {
     return res.status(503).json({ error: 'Admin not configured' });
   }
-  if (key !== ADMIN_API_KEY) {
+  if (!safeKeyEquals(key, ADMIN_API_KEY)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();
@@ -87,4 +104,4 @@ function startServer() {
   });
 }
 
-module.exports = { app, startServer };
+module.exports = { app, startServer, safeKeyEquals };

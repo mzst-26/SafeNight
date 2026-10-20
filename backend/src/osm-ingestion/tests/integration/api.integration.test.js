@@ -47,7 +47,9 @@ describe('API integration', () => {
     );
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    // Release index file handles before deleting the directory they point into.
+    await require('../../src/dataStore').closeIndexes();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
