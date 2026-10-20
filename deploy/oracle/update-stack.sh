@@ -36,6 +36,9 @@ fi
 
 NEW_SHA=$(git rev-parse "$LATEST^{commit}")
 PREV_SHA=$(sed -n 1p "$STATE" 2>/dev/null || true)
+# Images are tagged with the 7-character short SHA by the publish workflow (type=sha,format=short)
+NEW_TAG=$(git rev-parse --short=7 "$NEW_SHA")
+PREV_TAG=$(if [ -n "$PREV_SHA" ]; then git rev-parse --short=7 "$PREV_SHA"; fi)
 echo "deploying $LATEST ($(git rev-parse --short=12 "$NEW_SHA")), previous: ${PREV_SHA:-none}"
 
 # Waits until every service is running and, where it has a healthcheck, healthy.
@@ -62,13 +65,13 @@ wait_healthy() {
 # 1. Pull the images CI published for this commit. A failure here leaves the running stack untouched.
 git checkout --quiet --detach "$NEW_SHA"
 cd backend
-if ! TAG="$NEW_SHA" docker compose pull; then
+if ! TAG="$NEW_TAG" docker compose pull; then
   echo "pull failed for $LATEST (images not published for $NEW_SHA?); running stack left as is"
   exit 1
 fi
 
 # 2. Switch over and verify.
-TAG="$NEW_SHA" docker compose up -d --remove-orphans
+TAG="$NEW_TAG" docker compose up -d --remove-orphans
 if wait_healthy; then
   printf '%s\n%s\n' "$NEW_SHA" "$LATEST" > "$STATE"
   echo "deployed $LATEST"
@@ -84,7 +87,7 @@ fi
 cd "$REPO"
 git checkout --quiet --detach "$PREV_SHA"
 cd backend
-TAG="$PREV_SHA" docker compose up -d --remove-orphans --no-build
+TAG="$PREV_TAG" docker compose up -d --remove-orphans --no-build
 if wait_healthy; then
   echo "rolled back to $(git -C "$REPO" describe --tags --exact-match "$PREV_SHA" 2>/dev/null || echo "$PREV_SHA")"
 else
