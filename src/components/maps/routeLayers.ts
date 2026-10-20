@@ -28,6 +28,8 @@ export interface LayerSegment {
   litEstimate?: LitEstimate;
   /** Accepted for pass-through compatibility; not used for colour (risk is authoritative). */
   lightScore?: number;
+  /** Road name for the label drawn along the line. Empty or absent means no label. */
+  roadName?: string;
 }
 
 export interface WorstStretchInput {
@@ -89,6 +91,8 @@ export interface RouteLayerOptions {
 
 export interface LineLayer {
   coords: Array<[number, number]>;
+  /** Road name for the label along this line, when the run is one named road. */
+  roadName?: string;
   /** Mean risk of the merged segments. */
   risk: number;
   color: string;
@@ -249,6 +253,7 @@ interface Run {
   end: GeoPoint;
   bucket: number;
   dashed: boolean;
+  roadName: string;
   riskSum: number;
   count: number;
 }
@@ -269,6 +274,7 @@ function buildLines(segments: LayerSegment[]): LineLayer[] {
       current !== null &&
       current.bucket === bucket &&
       current.dashed === dashed &&
+      current.roadName === (seg.roadName ?? '') &&
       sameJoin(current.end, seg.start);
 
     if (current && continues) {
@@ -285,6 +291,7 @@ function buildLines(segments: LayerSegment[]): LineLayer[] {
         end: seg.end,
         bucket,
         dashed,
+        roadName: seg.roadName ?? '',
         riskSum: risk,
         count: 1,
       };
@@ -297,6 +304,7 @@ function buildLines(segments: LayerSegment[]): LineLayer[] {
     risk: run.riskSum / run.count,
     color: RISK_RAMP[run.bucket],
     dashed: run.dashed,
+    roadName: run.roadName || undefined,
   }));
 }
 

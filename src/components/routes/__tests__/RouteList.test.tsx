@@ -54,7 +54,7 @@ function textNodes(renderer: ReactTestRenderer): string[] {
 }
 
 describe('RouteList', () => {
-  it('passes the comparison to each card, so non-recommended cards show a delta vs the recommended route', () => {
+  it('does not show a delta line on non-recommended cards', () => {
     // Route 1 is recommended (score 67, 2.0 mi). Route 2 is the fastest (score 62, 1.4 mi).
     const routes = [
       makeRoute('r1', true, { score: 67, certainty: 0.8, reason: 'Recommended reason' }, 3218, 2340),
@@ -87,7 +87,7 @@ describe('RouteList', () => {
     const texts = textNodes(renderer);
     expect(texts).toContain('Recommended reason');
     // r2 is 965 m (0.6 mi) shorter than r1 and 5 pts lower.
-    expect(texts).toContain('0.6 mi shorter · 5 pts lower');
+    expect(texts).not.toContain('0.6 mi shorter · 5 pts lower');
   });
 });
 

@@ -156,7 +156,6 @@ describe('RouteCard', () => {
     const texts = textNodes(renderer);
     expect(texts).toContain('Top Safety Score');
     expect(texts.join(' ')).not.toMatch(/safer|lower|Estimated|reason/);
-    expect(findByA11yLabel(renderer, 'Lighting partly estimated')).toHaveLength(0);
   });
 
   it('shows the safety reason on the recommended v2 card', () => {
@@ -168,7 +167,7 @@ describe('RouteCard', () => {
     expect(textNodes(renderer)).toContain('+5 safer than fastest · avoids a 240 m unlit path');
   });
 
-  it('shows the delta line on a non-recommended v2 card', () => {
+  it('hides the delta line on a non-recommended v2 card', () => {
     const route = makeRoute({ id: 'r2', safety: { score: 62, certainty: 0.8, reason: 'x' } });
     const renderer = renderCard({
       route,
@@ -180,7 +179,7 @@ describe('RouteCard', () => {
       }),
       recommendedComparison: makeComparison({ routeId: 'r1', deltaDistanceVsFastest: 0, deltaScoreVsFastest: 0 }),
     });
-    expect(textNodes(renderer)).toContain('+0.6 mi · 5 pts safer');
+    expect(textNodes(renderer)).not.toContain('+0.6 mi · 5 pts safer');
   });
 
   it('shows no delta line on a v1 non-recommended card', () => {
@@ -197,32 +196,18 @@ describe('RouteCard', () => {
   it('shows an Estimated chip when certainty is below 0.4, the same threshold the map dashes at', () => {
     const route = makeRoute({ safety: { certainty: 0.3, reason: 'x' } });
     const renderer = renderCard({ route });
-    expect(textNodes(renderer)).toContain('Estimated');
-    expect(findByA11yLabel(renderer, 'Lighting partly estimated').length).toBeGreaterThan(0);
+    expect(textNodes(renderer)).toContain('Lighting: Estimated');
   });
 
   it('hides the Estimated chip at certainty 0.45, which the map still draws solid', () => {
     const route = makeRoute({ safety: { certainty: 0.45, reason: 'x' } });
     const renderer = renderCard({ route });
-    expect(textNodes(renderer)).not.toContain('Estimated');
+    expect(textNodes(renderer)).not.toContain('Lighting: Estimated');
   });
 
   it('shows the Estimated chip at certainty exactly 0.39 and hides it at exactly 0.4', () => {
-    expect(textNodes(renderCard({ route: makeRoute({ safety: { certainty: 0.39, reason: 'x' } }) }))).toContain('Estimated');
-    expect(textNodes(renderCard({ route: makeRoute({ safety: { certainty: 0.4, reason: 'x' } }) }))).not.toContain('Estimated');
-  });
-
-  it('renders the recommended badge with #047857 text on #DCFCE7 at 12px or larger', () => {
-    const renderer = renderCard({ route: makeRoute({ isSafest: true, safety: { reason: 'x', certainty: 0.8 } }) });
-    const badge = renderer.root.findAll(
-      (n) => n.type === Text && n.props.children === '★ Recommended',
-    )[0];
-    const style = StyleSheet.flatten(badge.props.style);
-    expect(style.color).toBe('#047857');
-    expect(style.fontSize).toBeGreaterThanOrEqual(12);
-    const pill = badge.parent;
-    expect(pill).not.toBeNull();
-    expect(StyleSheet.flatten(pill!.props.style).backgroundColor.toUpperCase()).toBe('#DCFCE7');
+    expect(textNodes(renderCard({ route: makeRoute({ safety: { certainty: 0.39, reason: 'x' } }) }))).toContain('Lighting: Estimated');
+    expect(textNodes(renderCard({ route: makeRoute({ safety: { certainty: 0.4, reason: 'x' } }) }))).not.toContain('Lighting: Estimated');
   });
 
   it('keeps every route card text at 12px or larger', () => {
@@ -242,7 +227,7 @@ describe('RouteCard', () => {
       safety: { certainty: 0.9, reason: 'x', dataQuality: { lighting: 'estimated' } },
     });
     const renderer = renderCard({ route });
-    expect(textNodes(renderer)).toContain('Estimated');
+    expect(textNodes(renderer)).toContain('Lighting: Estimated');
   });
 
   it('hides the Estimated chip when certainty is high and lighting is not estimated', () => {
@@ -250,7 +235,7 @@ describe('RouteCard', () => {
       safety: { certainty: 0.8, reason: 'x', dataQuality: { lighting: 'verified' } },
     });
     const renderer = renderCard({ route });
-    expect(textNodes(renderer)).not.toContain('Estimated');
+    expect(textNodes(renderer)).not.toContain('Lighting: Estimated');
   });
 });
 
@@ -297,23 +282,23 @@ describe('RouteCard confidence text', () => {
     const renderer = renderCard({
       route: makeRoute({ safety: { certainty: 0.8, reason: 'x', dataQuality: { lighting: 'verified' } } }),
     });
-    expect(textNodes(renderer)).toContain('Verified');
+    expect(textNodes(renderer)).toContain("Lighting: Verified");
   });
 
   it('shows Mostly mapped in place of the Estimated chip for mid certainty', () => {
     const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.5, reason: 'x' } }) });
-    expect(textNodes(renderer)).toContain('Mostly mapped');
-    expect(textNodes(renderer)).not.toContain('Estimated');
+    expect(textNodes(renderer)).toContain("Lighting: Mostly mapped");
+    expect(textNodes(renderer)).not.toContain('Lighting: Estimated');
   });
 
-  it('keeps the Estimated accessibility label on the estimated tier', () => {
-    const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.2, reason: 'x' } }) });
-    expect(findByA11yLabel(renderer, 'Lighting partly estimated').length).toBeGreaterThan(0);
+  it("shows the estimated lighting caveat as text on the estimated tier", () => {
+    const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.2, reason: "x" } }) });
+    expect(textNodes(renderer)).toContain("Lighting: Estimated");
   });
 
-  it('sets the tier text at 12px', () => {
-    const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.5, reason: 'x' } }) });
-    const tier = renderer.root.findAll((n) => n.type === Text && n.props.children === 'Mostly mapped')[0];
+  it("sets the tier text at 12px", () => {
+    const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.5, reason: "x" } }) });
+    const tier = renderer.root.findAll((n) => n.type === Text && n.props.children === "Lighting: Mostly mapped")[0];
     expect(StyleSheet.flatten(tier.props.style).fontSize).toBe(12);
   });
 });
@@ -379,7 +364,7 @@ describe('RouteCard text contrast (WCAG AA, 4.5:1 against the real background)',
   });
 });
 
-describe('RouteCard timeline text', () => {
+describe('RouteCard recommended badge and timeline', () => {
   const timeline = {
     leaveAtIso: '2026-10-21T17:10:00+01:00',
     arriveAtIso: '2026-10-21T17:50:00+01:00',
@@ -388,13 +373,33 @@ describe('RouteCard timeline text', () => {
     label: 'dark_by_arrival' as const,
   };
 
-  it('shows the timeline summary when safety.timeline exists', () => {
-    const r = renderCard({ route: makeRoute({ safety: { timeline } }) });
-    expect(textNodes(r)).toContain('Leaves 17:10 · Arrives 17:50 · Dark by arrival');
+  it('shows the Recommended badge on the recommended route', () => {
+    const renderer = renderCard({ route: makeRoute({ isSafest: true, safety: { reason: 'x', certainty: 0.8 } }) });
+    expect(textNodes(renderer)).toContain('Recommended');
   });
 
-  it('renders nothing extra for a v1 route', () => {
-    const r = renderCard({ route: makeRoute() });
-    expect(textNodes(r).some((t) => t.startsWith('Leaves '))).toBe(false);
+  it('shows no Recommended badge on other routes', () => {
+    const renderer = renderCard({ route: makeRoute({ id: 'r2', safety: { certainty: 0.8 } }), index: 1 });
+    expect(textNodes(renderer)).not.toContain('Recommended');
+  });
+
+  it('shows the full timeline on the recommended card', () => {
+    const renderer = renderCard({ route: makeRoute({ isSafest: true, safety: { timeline } }) });
+    expect(textNodes(renderer)).toContain('Leaves 17:10 · Arrives 17:50 · Dark by arrival');
+  });
+
+  it('shows only the arrival on other cards, since the departure is the same for every route', () => {
+    const renderer = renderCard({ route: makeRoute({ id: 'r2', safety: { timeline } }), index: 1 });
+    expect(textNodes(renderer)).toContain('Arrives 17:50 · Dark by arrival');
+    expect(textNodes(renderer).join(' ')).not.toContain('Leaves');
+  });
+
+  it('hides the badge, the timeline and the score while hideSafety is set', () => {
+    const renderer = renderCard({
+      route: makeRoute({ isSafest: true, safety: { timeline, reason: 'x', certainty: 0.2 } }),
+      hideSafety: true,
+    });
+    const texts = textNodes(renderer).join(' ');
+    expect(texts).not.toMatch(/Recommended|Leaves|Lighting|Top Safety Score/);
   });
 });

@@ -31,6 +31,10 @@ import {
 export interface TimeControlProps {
   value: TripTimeState;
   onChange: (next: TripTimeState) => void;
+  /** Header use: the panel floats over the content below the chip instead of pushing it down. */
+  compact?: boolean;
+  /** Desktop sidebar: the three mode buttons show directly, with no chip. Leave at shows its time. */
+  inline?: boolean;
   /** Clock override for tests. */
   now?: () => Date;
 }
@@ -60,7 +64,7 @@ interface ShellProps extends TimeControlProps {
   }) => ReactNode;
 }
 
-export function TimeControlShell({ value, onChange, now, renderField }: ShellProps) {
+export function TimeControlShell({ value, onChange, now, renderField, compact = false, inline = false }: ShellProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<TripTimeState>(value);
   const clock = now ?? (() => new Date());
@@ -162,7 +166,8 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
   const note = value.mode !== "now" ? timeZoneNote() : null;
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, compact && styles.wrapCompact]}>
+      {!inline && (
       <View style={styles.chipRow}>
         <Pressable
           ref={chipRef}
@@ -185,9 +190,18 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
         </Pressable>
         {note !== null && <Text style={styles.noteText}>{note}</Text>}
       </View>
+      )}
+      {inline && note !== null && <Text style={styles.noteText}>{note}</Text>}
 
-      {open && (
-        <View style={styles.panel} {...webKeyProps}>
+      {(inline || open) && (
+        <View
+          style={[
+            styles.panel,
+            compact && styles.panelCompact,
+            inline && styles.panelSlim,
+          ]}
+          {...webKeyProps}
+        >
           <View
             style={styles.segments}
             accessibilityRole="radiogroup"
@@ -206,7 +220,7 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
                   accessibilityState={{ selected }}
                 >
                   <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                    {label}
+                    {inline && mode === "leave_at" && draft.mode === "leave_at" && draft.hhmm ? draft.hhmm : label}
                   </Text>
                 </Pressable>
               );
@@ -231,6 +245,22 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
 
 export const styles = StyleSheet.create({
   wrap: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+  wrapCompact: { paddingHorizontal: 0, paddingVertical: 0, position: "relative", zIndex: 1000 },
+  panelCompact: {
+    position: "absolute",
+    top: "100%",
+    right: 0,
+    width: 300,
+    marginTop: spacing.xs,
+    zIndex: 1000,
+  } as any,
+  // Desktop sidebar: the options sit in the card, slim and without extra padding.
+  panelSlim: {
+    marginTop: 0,
+    padding: 4,
+    borderRadius: 10,
+    gap: 4,
+  },
   // Centred on the row so the trip-time control sits on the panel's axis.
   chipRow: {
     flexDirection: "row",

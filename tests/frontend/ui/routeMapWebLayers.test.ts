@@ -720,7 +720,7 @@ describe('RouteMap.web Leaflet route layers', () => {
       const head = legend.querySelector('.rl-legend-head');
       const body = legend.querySelector('.rl-legend-body');
       expect(head.getAttribute('aria-controls')).toBe(body.id);
-      expect(head.getAttribute('aria-expanded')).toBe('true');
+      expect(head.getAttribute('aria-expanded')).toBe('false');
     });
 
     it('reads the ramp colours from legend.ramp in the spec, not from a constant', () => {
@@ -792,19 +792,22 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(h.getLegend().querySelector('.rl-legend-body').innerHTML).not.toContain('Crime data unavailable');
     });
 
-    it('is collapsed by default when the iframe is narrower than 400px', () => {
-      const h = loadRouteMap({ innerWidth: 390 });
-      h.updateMap(basePayload({ routeLayers: builtSpec }));
-
-      const legend = h.getLegend();
-      expect(legend.querySelector('.rl-legend-body').style.display).toBe('none');
+    it('is collapsed by default at every width', () => {
+      for (const innerWidth of [390, 400, 420]) {
+        const h = loadRouteMap({ innerWidth });
+        h.updateMap(basePayload({ routeLayers: builtSpec }));
+        expect(h.getLegend().className).toContain('rl-legend-collapsed');
+      }
     });
 
-    it('is expanded by default at 400px and wider', () => {
+    it('opens from the header button, and the header reports the state', () => {
       const h = loadRouteMap({ innerWidth: 400 });
       h.updateMap(basePayload({ routeLayers: builtSpec }));
-
-      expect(h.getLegend().querySelector('.rl-legend-body').style.display).toBe('');
+      const head = h.getLegend().querySelector('.rl-legend-head');
+      expect(head.getAttribute('aria-expanded')).toBe('false');
+      head.listeners.click[0]({ stopPropagation: () => undefined });
+      expect(h.getLegend().className).not.toContain('rl-legend-collapsed');
+      expect(head.getAttribute('aria-expanded')).toBe('true');
     });
 
     it('is hidden when no route is selected', () => {
@@ -819,23 +822,22 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(h.getLegend().style.display).toBe('none');
     });
 
-    it('starts expanded and remembers collapse across updates', () => {
+    it('expands on tap and remembers the state across updates', () => {
       const h = loadRouteMap();
       h.updateMap(basePayload({ routeLayers: builtSpec }));
 
       const legend = h.getLegend();
-      const body = legend.querySelector('.rl-legend-body');
       const head = legend.querySelector('.rl-legend-head');
-      expect(body.style.display).toBe('');
+      expect(legend.className).toContain('rl-legend-collapsed');
 
       head.listeners.click[0]({ stopPropagation: () => undefined });
-      expect(body.style.display).toBe('none');
+      expect(legend.className).not.toContain('rl-legend-collapsed');
 
       h.updateMap(basePayload({ routeLayers: builtSpec }));
-      expect(legend.querySelector('.rl-legend-body').style.display).toBe('none');
+      expect(h.getLegend().className).not.toContain('rl-legend-collapsed');
 
       head.listeners.click[0]({ stopPropagation: () => undefined });
-      expect(legend.querySelector('.rl-legend-body').style.display).toBe('');
+      expect(h.getLegend().className).toContain('rl-legend-collapsed');
     });
 
     it('uses CSS sizes of at least 12px for legend text and 13px for callouts', () => {
@@ -851,10 +853,10 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(size('.rl-pill')).toBeGreaterThanOrEqual(13);
     });
 
-    it('styles the callout as a white 600-weight pill placed 10px above its anchor', () => {
+    it('styles the callout as a glass 600-weight pill placed 10px above its anchor', () => {
       const html = buildLeafletHtml(false);
       const rule = html.match(/\.rl-callout\s*\{([^}]*)\}/)?.[1] ?? '';
-      expect(rule).toMatch(/background:#ffffff/);
+      expect(rule).toMatch(/background:rgba\(255,255,255,\.7\)/);
       expect(rule).toMatch(/font:600 13px/);
       expect(rule).toMatch(/border-radius:999px/);
       const placement = html.match(/\.rl-callout-icon \.rl-callout\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -1294,24 +1296,27 @@ describe('RouteMap.web legend placement and notes', () => {
   const legendWith = (notes: string[]) =>
     ({ ...EMPTY_SPEC.legend, ramp: builtSpec.legend.ramp, notes }) as unknown as RouteLayerSpec['legend'];
 
-  it('shows the crime-unavailable note while the legend is collapsed (narrow default)', () => {
+  it('shows a caveat dot on the collapsed legend and opens the note with it', () => {
     const h = loadRouteMap({ innerWidth: 390 });
     h.updateMap(basePayload({ routeLayers: makeSpec({ legend: legendWith(['Crime data unavailable']) }) }));
 
     const legend = h.getLegend();
-    expect(legend.querySelector('.rl-legend-body').style.display).toBe('none');
+    expect(legend.className).toContain('rl-legend-has-notes');
+    legend.querySelector('.rl-legend-head').listeners.click[0]({ stopPropagation: () => undefined });
     const holder = legend.querySelector('.rl-legend-notes');
     expect(holder.style.display).not.toBe('none');
     expect(holder.querySelector('.rl-legend-note').textContent).toBe('Crime data unavailable');
   });
 
-  it('keeps the notes visible after the user collapses an expanded legend', () => {
+  it('keeps the caveat dot after the user collapses the legend', () => {
     const h = loadRouteMap({ innerWidth: 420 });
     h.updateMap(basePayload({ routeLayers: makeSpec({ legend: legendWith(['Crime data unavailable']) }) }));
     const legend = h.getLegend();
-    legend.querySelector('.rl-legend-head').listeners.click[0]({ stopPropagation: () => undefined });
-    expect(legend.querySelector('.rl-legend-body').style.display).toBe('none');
-    expect(legend.querySelector('.rl-legend-notes').style.display).not.toBe('none');
+    const head = legend.querySelector('.rl-legend-head');
+    head.listeners.click[0]({ stopPropagation: () => undefined });
+    head.listeners.click[0]({ stopPropagation: () => undefined });
+    expect(legend.className).toContain('rl-legend-collapsed');
+    expect(legend.className).toContain('rl-legend-has-notes');
   });
 
   it('lifts the legend so its bottom margin clears the attribution box by at least 4px', () => {

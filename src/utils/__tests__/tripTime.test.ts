@@ -7,6 +7,7 @@ import {
   appendTimeQuery,
   defaultTimeState,
   describeTripTime,
+  formatArrivalSummary,
   formatTimelineSummary,
   londonIso,
   resolveTripTime,
@@ -171,6 +172,23 @@ describe('labels', () => {
   it('is null for missing or malformed timelines', () => {
     expect(formatTimelineSummary(undefined)).toBeNull();
     expect(formatTimelineSummary({ ...tl, leaveAtIso: 'nope' })).toBeNull();
+  });
+});
+
+describe('formatArrivalSummary', () => {
+  const tl = {
+    leaveAtIso: '2026-10-21T17:10:00+01:00',
+    arriveAtIso: '2026-10-21T17:50:00+01:00',
+    darknessAtStart: 0,
+    darknessAtArrival: 0.8,
+    label: 'dark_by_arrival' as const,
+  };
+  it('gives only the arrival and the label, without the departure', () => {
+    expect(formatArrivalSummary(tl)).toBe('Arrives 17:50 · Dark by arrival');
+  });
+  it('is null for missing or malformed timelines', () => {
+    expect(formatArrivalSummary(undefined)).toBeNull();
+    expect(formatArrivalSummary({ ...tl, arriveAtIso: 'nope' })).toBeNull();
   });
 });
 

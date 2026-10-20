@@ -678,6 +678,9 @@ export function MobileWebSearchBar({
                 <Ionicons name="arrow-back" size={22} color="#374151" />
               </Pressable>
               <Text style={styles.expandedTitle}>Plan your route</Text>
+              {tripTime && onTripTimeChange && (
+                <TimeControl compact value={tripTime} onChange={onTripTimeChange} />
+              )}
               <Pressable
                 onPress={() => {
                   onSwap();
@@ -934,10 +937,6 @@ export function MobileWebSearchBar({
                 )}
               </Pressable>
             </View>
-
-            {tripTime && onTripTimeChange && (
-              <TimeControl value={tripTime} onChange={onTripTimeChange} />
-            )}
 
             {/* ── Saved places (inside card, below inputs, only when no predictions) ── */}
             {activePredictions.length === 0 &&

@@ -296,6 +296,17 @@ export function formatTimelineSummary(timeline: RouteTimeline | null | undefined
   return parts.join(' · ');
 }
 
+/** Arrival and label only, for cards where the departure is the same for every route. */
+export function formatArrivalSummary(timeline: RouteTimeline | null | undefined): string | null {
+  if (!timeline) return null;
+  const arrive = Date.parse(timeline.arriveAtIso);
+  if (!Number.isFinite(arrive)) return null;
+  const parts = [`Arrives ${londonHhmm(new Date(arrive))}`];
+  const text = timelineLabelText(timeline.label);
+  if (text) parts.push(text);
+  return parts.join(' · ');
+}
+
 /** Every 15-minute HH:MM a user may pick for `mode` (same bounds as the native stepper). */
 export function tripTimeSlots(mode: 'leave_at' | 'arrive_by', now: Date): string[] {
   const { min, max } = tripTimeBounds(mode, now);

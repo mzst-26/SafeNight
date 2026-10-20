@@ -596,7 +596,7 @@ describe('RouteMap.native crime badges and callout', () => {
     expect(callout.ll).toEqual([-0.1, 51.5015]);
   });
 
-  it('uses the shared overlay CSS: crime 32px (36px large) at 13px bold, callout a 13px 600-weight white pill', () => {
+  it('uses the shared overlay CSS: crime 32px (36px large) at 13px bold, callout a 13px 600-weight glass pill', () => {
     const css = buildMapHtml();
     const rule = (sel: string) => css.match(new RegExp(`(?:^|[\\s}])${sel.replace(/\./g, '\\.')}\\{[^}]*\\}`))?.[0] ?? '';
     const crime = rule('.rl-crime');
@@ -604,7 +604,7 @@ describe('RouteMap.native crime badges and callout', () => {
     expect(crime).toContain('font:700 13px');
     expect(rule('.rl-crime-lg')).toContain('width:36px');
     const callout = rule('.rl-callout');
-    expect(callout).toContain('background:#ffffff');
+    expect(callout).toContain("background:rgba(255,255,255,.7)");
     expect(callout).toContain('font:600 13px');
     expect(callout).toContain('border-radius:999px');
   });
@@ -695,26 +695,28 @@ describe('RouteMap.native legend', () => {
     expect(legendRoot(h).style.display).toBe('none');
   });
 
-  it('starts collapsed when the viewport is narrower than 400px and expanded otherwise', () => {
-    const narrow = loadNativeMap({ innerWidth: 390 });
-    narrow.updateMap(baseData({ routeLayers: layerPayload() }));
-    expect(legendRoot(narrow).className).toContain('rl-legend-collapsed');
-    expect(body(narrow)!.style.display).toBe('none');
-
-    const wide = loadNativeMap({ innerWidth: 420 });
-    wide.updateMap(baseData({ routeLayers: layerPayload() }));
-    expect(legendRoot(wide).className).not.toContain('rl-legend-collapsed');
+  it('starts collapsed at every width and expands from the header button', () => {
+    for (const innerWidth of [390, 420]) {
+      const h = loadNativeMap({ innerWidth });
+      h.updateMap(baseData({ routeLayers: layerPayload() }));
+      expect(legendRoot(h).className).toContain('rl-legend-collapsed');
+      expect(legendRoot(h).querySelector('.rl-legend-head')!.getAttribute('aria-expanded')).toBe('false');
+    }
   });
 
-  it('toggles collapsed from the header button and remembers it across updates', () => {
+  it('toggles from the header button and keeps the state across updates', () => {
     const h = loadNativeMap({ innerWidth: 420 });
     h.updateMap(baseData({ routeLayers: layerPayload() }));
     const toggle = legendRoot(h).querySelector('.rl-legend-head')!;
-    toggle.listeners.click[0]({ preventDefault: () => undefined, stopPropagation: () => undefined });
+    const press = () => toggle.listeners.click[0]({ preventDefault: () => undefined, stopPropagation: () => undefined });
+    press();
+    expect(legendRoot(h).className).not.toContain('rl-legend-collapsed');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    h.updateMap(baseData({ routeLayers: layerPayload() }));
+    expect(legendRoot(h).className).not.toContain('rl-legend-collapsed');
+    press();
     expect(legendRoot(h).className).toContain('rl-legend-collapsed');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    h.updateMap(baseData({ routeLayers: layerPayload() }));
-    expect(legendRoot(h).className).toContain('rl-legend-collapsed');
   });
 
   it('draws the dashed swatch with the same pattern as the map (line-width multiples converted to px)', () => {
@@ -868,21 +870,24 @@ describe('RouteMap.native legend notes', () => {
   const legendRoot = (h: NativeHarness) => h.elements['rlLegend'];
   const withNotes = (notes: string[]) => ({ ...spec, legend: { ...spec.legend, notes } }) as RouteLayerSpec;
 
-  it('keeps the crime-unavailable note visible while the legend is collapsed (narrow default)', () => {
+  it('shows a caveat dot on the collapsed button and opens the note with the legend', () => {
     const h = loadNativeMap({ innerWidth: 390 });
     h.updateMap(baseData({ routeLayers: layerPayload(withNotes(['Crime data unavailable'])) }));
-    expect(legendRoot(h).querySelector('.rl-legend-body')!.style.display).toBe('none');
+    expect(legendRoot(h).className).toContain('rl-legend-has-notes');
+    legendRoot(h).querySelector('.rl-legend-head')!.listeners.click[0]({});
     const holder = legendRoot(h).querySelector('.rl-legend-notes')!;
     expect(holder.style.display).not.toBe('none');
     expect(holder.querySelector('.rl-legend-note')!.textContent).toBe('Crime data unavailable');
   });
 
-  it('keeps the notes visible after the user collapses the legend', () => {
+  it('keeps the caveat dot after the user collapses the legend', () => {
     const h = loadNativeMap({ innerWidth: 420 });
     h.updateMap(baseData({ routeLayers: layerPayload(withNotes(['Crime data unavailable'])) }));
-    legendRoot(h).querySelector('.rl-legend-head')!.listeners.click[0]({});
-    expect(legendRoot(h).querySelector('.rl-legend-body')!.style.display).toBe('none');
-    expect(legendRoot(h).querySelector('.rl-legend-notes')!.style.display).not.toBe('none');
+    const head = legendRoot(h).querySelector('.rl-legend-head')!;
+    head.listeners.click[0]({});
+    head.listeners.click[0]({});
+    expect(legendRoot(h).className).toContain('rl-legend-collapsed');
+    expect(legendRoot(h).className).toContain('rl-legend-has-notes');
   });
 
   it('gives the legend header a full-width 44px tap target', () => {
@@ -1133,5 +1138,18 @@ describe('RouteMap.native fallback route line', () => {
     h.updateMap(baseData({ routes, routeLayers: null }));
     expect(h.sourceData('rl-solid').features).toHaveLength(0);
     expect(h.sourceData('rl-casing').features).toHaveLength(0);
+  });
+});
+
+describe('RouteMap.native street names on route lines', () => {
+  it('draws the road name along the solid route lines, small and without a background box', () => {
+    const html = buildMapHtml();
+    const layer = html.match(/map\.addLayer\(\{ id:'rl-road-names'[\s\S]*?\}\);/)?.[0] ?? '';
+    expect(layer).toContain("source:'rl-solid'");
+    expect(layer).toContain("'symbol-placement':'line'");
+    expect(layer).toContain("'text-field':['get','name']");
+    expect(layer).toContain("'text-size':11");
+    expect(layer).not.toMatch(/text-halo-width':[3-9]/);
+    expect(layer).not.toMatch(/background/i);
   });
 });

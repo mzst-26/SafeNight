@@ -15,8 +15,10 @@ import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+    Alert,
     Animated,
     AppState,
+    BackHandler,
     Platform,
     Pressable,
     StyleSheet,
@@ -26,6 +28,7 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { decideBackAction } from "@/src/utils/backAction";
 
 import { PageHead } from "@/src/components/seo/PageHead";
 import { HomeIntro } from "@/src/components/seo/HomeIntro";
@@ -63,6 +66,8 @@ import { AndroidDownloadBanner } from "@/src/components/ui/AndroidDownloadBanner
 import { BuddyButton } from "@/src/components/ui/BuddyButton";
 import { JailLoadingAnimation } from "@/src/components/ui/JailLoadingAnimation";
 import { MapControlRail } from "@/src/components/ui/MapControlRail";
+import { sheetMaxHeight } from "@/src/components/sheets/sheetLimits";
+import { legendBottomPx as legendBottomPxFor } from "@/src/components/maps/legendPlacement";
 import { MapGlassButton } from "@/src/components/ui/MapGlassButton";
 import { MapToast, type ToastConfig } from "@/src/components/ui/MapToast";
 import { ProfileMenu } from "@/src/components/ui/ProfileMenu";
@@ -211,7 +216,6 @@ export default function HomeScreen() {
   const [searchDistanceFilterMiles, setSearchDistanceFilterMiles] = useState<number>(3);
   const [sheetPlacesFitToken, setSheetPlacesFitToken] = useState(0);
   const [androidFitCandidateBoundsToken, setAndroidFitCandidateBoundsToken] = useState(0);
-  const [showMapExtraDetail, setShowMapExtraDetail] = useState(true);
   const [activePlaceCategoryKey, setActivePlaceCategoryKey] = useState<string | null>(null);
   const [selectedSheetCandidateId, setSelectedSheetCandidateId] = useState<string | null>(null);
   const [hasExplicitCandidateSelection, setHasExplicitCandidateSelection] = useState(false);
@@ -1478,11 +1482,16 @@ export default function HomeScreen() {
     sheetPlaces,
   ]);
 
+  // Read the list through a ref, so this effect runs only when the selection changes. Depending
+  // on the list made it run on every re-render, and its sheet-height write re-rendered again.
+  const visibleSheetPlacesRef = useRef(visibleSheetPlaces);
+  visibleSheetPlacesRef.current = visibleSheetPlaces;
+
   // Scroll sheet to center selected candidate when selection changes
   useEffect(() => {
     const id = selectedSheetCandidateId;
     if (!id || !sheetScrollRef?.current) return;
-    const idx = visibleSheetPlaces.findIndex((p) => p.placeId === id);
+    const idx = visibleSheetPlacesRef.current.findIndex((p) => p.placeId === id);
     if (idx === -1) return;
     const approxItemHeight = 72; // approximate item height
     const centerOffset = Math.max(0, idx * approxItemHeight - 120);
@@ -1496,7 +1505,7 @@ export default function HomeScreen() {
       h.sheetHeightRef.current = SHEET_DEFAULT;
       h.sheetHeight.setValue(SHEET_DEFAULT);
     }
-  }, [selectedSheetCandidateId, visibleSheetPlaces, h.sheetHeight, h.sheetHeightRef]);
+  }, [selectedSheetCandidateId, h.sheetHeight, h.sheetHeightRef]);
 
   const sheetCategoryBubbles = useMemo(() => {
     if (!distanceFilteredSheetPlaces.length) return [];
@@ -1737,6 +1746,58 @@ export default function HomeScreen() {
     return 64;
   }, [showDestinationCandidateSheet, isWeb, isPhoneWeb, isSearchBarExpanded, insets.top]);
 
+  // Stopping or finishing navigation also clears the destination and routes, so the route
+  // options do not come back after arrival.
+  const navWithReset = useMemo(
+    () => ({
+      ...h.nav,
+      stop: () => {
+        h.nav.stop();
+        h.clearRouteResults();
+      },
+    }),
+    [h.nav, h.clearRouteResults],
+  );
+
+  // Android back button: ask before stopping navigation; with route options showing, reset the
+  // search to the rest mode; in the rest mode leave the default behaviour.
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const onBack = () => {
+      const action = decideBackAction({
+        isNavActive: h.isNavActive,
+        hasRouteOptions: hasRouteRequestState,
+      });
+      if (action === "confirm-stop-navigation") {
+        Alert.alert("Stop navigation?", "Are you sure you want to stop navigation?", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Stop", style: "destructive", onPress: () => h.nav.stop() },
+        ]);
+        return true;
+      }
+      if (action === "reset-search") {
+        h.clearRouteResults();
+        return true;
+      }
+      return false;
+    };
+    const subscription = BackHandler.addEventListener("hardwareBackPress", onBack);
+    return () => subscription.remove();
+  }, [h.isNavActive, hasRouteRequestState, h.nav, h.clearRouteResults]);
+
+  // Route safety legend: sits just above the bottom sheet, or above the navigation bar while navigating.
+  const legendBottomPx = useMemo(
+    () =>
+      legendBottomPxFor({
+        isWeb,
+        navActive: h.isNavActive,
+        sheetVisible,
+        windowHeight,
+        sheetTopY: nativeSheetTopY,
+      }),
+    [isWeb, h.isNavActive, sheetVisible, windowHeight, nativeSheetTopY],
+  );
+
   const mapFitBottomPadding = useMemo(() => {
     if (!showDestinationCandidateSheet) return 40;
     if (!isWeb) {
@@ -1943,7 +2004,7 @@ export default function HomeScreen() {
         destination={h.effectiveDestination}
         routes={isWebGuest ? [] : h.routes}
         selectedRouteId={isWebGuest ? null : h.selectedRouteId}
-        showExtraDetail={!isWebGuest && showMapExtraDetail}
+        showExtraDetail={false}
         safetyMarkers={
           isWebGuest
             ? []
@@ -1975,6 +2036,7 @@ export default function HomeScreen() {
         androidCandidateRefitMaxZoom={Platform.OS === "android" ? androidCandidateRefitMaxZoom : 16}
         fitTopPadding={mapFitTopPadding}
         fitBottomPadding={mapFitBottomPadding}
+        legendBottomPx={legendBottomPx}
         fitSidePadding={mapFitSidePadding}
         candidateFitTopPadding={candidateMapFitTopPadding}
         candidateFitBottomPadding={candidateMapFitBottomPadding}
@@ -2212,6 +2274,7 @@ export default function HomeScreen() {
             <View style={styles.routeSafetyRow}>
               <RouteList
                 routes={h.safeRoutes}
+                hideSafety={h.isNavActive}
                 updatingLabel={h.timeUpdatingLabel}
                 selectedRouteId={h.selectedRouteId}
                 onSelectRoute={h.setSelectedRouteId}
@@ -2480,6 +2543,7 @@ export default function HomeScreen() {
 
               <RouteList
                 routes={h.safeRoutes}
+                hideSafety={h.isNavActive}
                 updatingLabel={h.timeUpdatingLabel}
                 selectedRouteId={h.selectedRouteId}
                 onSelectRoute={h.setSelectedRouteId}
@@ -2697,134 +2761,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {
-          <MapControlRail
-            layoutInput={{
-              viewportHeight: windowHeight,
-              topInset: insets.top,
-              bottomInset: insets.bottom,
-              searchBoundaryBottom: searchBottomYForRail,
-              sheetBoundaryTop: currentSheetTopY,
-            }}
-            profileControl={() => {
-              if (h.isNavActive || !auth.isLoggedIn) return null;
-              return (
-                <ProfileMenu
-                  name={auth.user?.name ?? auth.user?.username ?? null}
-                  email={auth.user?.email ?? null}
-                  subscriptionTier={subscriptionTier}
-                  isGift={auth.user?.isGift}
-                  subscriptionEndsAt={auth.user?.subscriptionEndsAt}
-                  onLogout={auth.logout}
-                  onManageSubscription={() => setShowSubscriptionModal(true)}
-                  onChangePassword={auth.changePassword}
-                />
-              );
-            }}
-            safetyCircleControl={() => {
-              if (h.isNavActive || !auth.isLoggedIn) return null;
-              return (
-                <BuddyButton
-                  username={auth.user?.username ?? null}
-                  userId={auth.user?.id ?? null}
-                  hasLiveContacts={liveContacts.length > 0}
-                  onContactsChanged={handleContactsChanged}
-                />
-              );
-            }}
-            liveLocationControl={() => {
-              if (h.isNavActive || !auth.isLoggedIn) return null;
-              return (
-                <MapGlassButton
-                  toggle
-                  active={showFriendsOnMap}
-                  onPress={handleFriendToggle}
-                  icon={showFriendsOnMap ? "people" : "people-outline"}
-                  iconColor="#344054"
-                  activeColor="#7C3AED"
-                  label={
-                    showFriendsOnMap
-                      ? "Hide friends on map"
-                      : "Show friends on map"
-                  }
-                />
-              );
-            }}
-            currentLocationControl={() => {
-              return (
-                <MapGlassButton
-                  toggle
-                  active={isAtCurrentLocation}
-                  onPress={handleMoveToCurrentLocation}
-                  disabled={isFindingCurrentLocation}
-                  icon={isAtCurrentLocation ? "navigate" : "locate-outline"}
-                  iconColor="#344054"
-                  activeColor="#1570EF"
-                  label={
-                    isAtCurrentLocation
-                      ? "You are at current location"
-                      : isFindingCurrentLocation
-                        ? "Finding current location"
-                        : "Move to current location"
-                  }
-                />
-              );
-            }}
-            reportControl={() => {
-              if (!auth.isLoggedIn) return null;
-              return (
-                <MapGlassButton
-                  onPress={() => setShowReportModal(true)}
-                  icon="flag-outline"
-                  iconColor="#EF4444"
-                  label="Report a hazard"
-                />
-              );
-            }}
-          />
-        }
-
-        {!h.isNavActive && hasRoutesWithLabels && (
-          <View
-            pointerEvents="box-none"
-            style={[
-              styles.extraDetailToggleWrap,
-              {
-                top: insets.top + webBannerOffset + (isWeb && !isPhoneWeb ? 92 : 96),
-                left: isWeb && !isPhoneWeb ? webSidebarOverlayOffset + 12 : 12,
-              },
-            ]}
-          >
-            <Pressable
-              onPress={() => setShowMapExtraDetail((prev) => !prev)}
-              style={[
-                styles.extraDetailToggle,
-                showMapExtraDetail
-                  ? styles.extraDetailToggleActive
-                  : styles.extraDetailToggleInactive,
-              ]}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: showMapExtraDetail }}
-              accessibilityLabel="Toggle extra map detail"
-            >
-              <Ionicons
-                name={showMapExtraDetail ? "eye" : "eye-off"}
-                size={14}
-                color={showMapExtraDetail ? "#0f5132" : "#475467"}
-              />
-              <Text
-                style={[
-                  styles.extraDetailToggleText,
-                  showMapExtraDetail
-                    ? styles.extraDetailToggleTextActive
-                    : styles.extraDetailToggleTextInactive,
-                ]}
-              >
-                Extra detail
-              </Text>
-            </Pressable>
-          </View>
-        )}
 
         {/* ── Category highlight banner — shows when user tapped a stat card ── */}
         {h.highlightCategory && (
@@ -2897,40 +2833,11 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* ── AI floating button (logged in only) ── */}
-        {h.safetyResult &&
-          !h.isNavActive &&
-          h.routes.length > 0 &&
-          auth.isLoggedIn &&
-          !isWeb && (
-            <Animated.View
-              pointerEvents="box-none"
-              style={[
-                styles.aiWrap,
-                {
-                  bottom: Animated.add(h.sheetHeight, 12),
-                },
-              ]}
-            >
-              <Pressable
-                style={styles.aiButton}
-                onPress={() => {
-                  h.setShowAIModal(true);
-                  if (h.ai.status === "idle") h.ai.ask();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Why we recommend this route"
-              >
-                <Ionicons name="sparkles" size={16} color="#ffffff" />
-                <Text style={styles.aiText}>Why we recommend this route</Text>
-              </Pressable>
-            </Animated.View>
-          )}
-
         {/* ── Bottom sheet (mobile only — web uses sidebar) ── */}
         {!isWeb && (
           <DraggableSheet
             visible={sheetVisible}
+            maxHeight={sheetMaxHeight(windowHeight, searchBottomYForRail)}
             bottomInset={insets.bottom}
             sheetHeight={h.sheetHeight}
             sheetHeightRef={h.sheetHeightRef}
@@ -2938,17 +2845,6 @@ export default function HomeScreen() {
             stickyHeaderIndices={Platform.OS === 'android' ? undefined : [0]}
           >
             {renderDestinationCandidatesSection("sheet-candidate-native")}
-
-            {/* Header — hide distance/duration when there's only an error */}
-            {hasRouteRequestState && (
-              <View style={styles.sheetHeader}>
-                {!hasError && h.selectedRoute && (
-                  <Text style={styles.sheetMeta}>
-                    {distanceLabel} · {durationLabel}
-                  </Text>
-                )}
-              </View>
-            )}
 
             {/* Loading state */}
             {h.directionsStatus === "loading" && (
@@ -3057,6 +2953,7 @@ export default function HomeScreen() {
             {/* Route cards — safety details hidden behind per-card toggle */}
             <RouteList
               routes={h.safeRoutes}
+              hideSafety={h.isNavActive}
               updatingLabel={h.timeUpdatingLabel}
               selectedRouteId={h.selectedRouteId}
               onSelectRoute={h.setSelectedRouteId}
@@ -3146,6 +3043,126 @@ export default function HomeScreen() {
           </DraggableSheet>
         )}
 
+        {/* ── AI floating button (logged in only) ── */}
+        {h.safetyResult &&
+          !h.isNavActive &&
+          h.routes.length > 0 &&
+          auth.isLoggedIn &&
+          !isWeb && (
+            <Animated.View
+              pointerEvents="box-none"
+              style={[
+                styles.aiWrap,
+                !h.isNavActive && styles.floatingAbove,
+                {
+                  bottom: Animated.add(h.sheetHeight, 12),
+                },
+              ]}
+            >
+              <Pressable
+                style={styles.aiButton}
+                onPress={() => {
+                  h.setShowAIModal(true);
+                  if (h.ai.status === "idle") h.ai.ask();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Why we recommend this route"
+              >
+                <Ionicons name="sparkles" size={16} color="#ffffff" />
+                <Text style={styles.aiText}>Why we recommend this route</Text>
+              </Pressable>
+            </Animated.View>
+          )}
+
+        {
+          <MapControlRail
+            style={h.isNavActive ? undefined : styles.floatingAbove}
+            menuCollapsible={!h.isNavActive}
+            layoutInput={{
+              viewportHeight: windowHeight,
+              topInset: insets.top,
+              bottomInset: insets.bottom,
+              searchBoundaryBottom: searchBottomYForRail,
+              sheetBoundaryTop: currentSheetTopY,
+            }}
+            profileControl={() => {
+              if (h.isNavActive || !auth.isLoggedIn) return null;
+              return (
+                <ProfileMenu
+                  name={auth.user?.name ?? auth.user?.username ?? null}
+                  email={auth.user?.email ?? null}
+                  subscriptionTier={subscriptionTier}
+                  isGift={auth.user?.isGift}
+                  subscriptionEndsAt={auth.user?.subscriptionEndsAt}
+                  onLogout={auth.logout}
+                  onManageSubscription={() => setShowSubscriptionModal(true)}
+                  onChangePassword={auth.changePassword}
+                />
+              );
+            }}
+            safetyCircleControl={() => {
+              if (h.isNavActive || !auth.isLoggedIn) return null;
+              return (
+                <BuddyButton
+                  username={auth.user?.username ?? null}
+                  userId={auth.user?.id ?? null}
+                  hasLiveContacts={liveContacts.length > 0}
+                  onContactsChanged={handleContactsChanged}
+                />
+              );
+            }}
+            liveLocationControl={() => {
+              if (h.isNavActive || !auth.isLoggedIn) return null;
+              return (
+                <MapGlassButton
+                  toggle
+                  active={showFriendsOnMap}
+                  onPress={handleFriendToggle}
+                  icon={showFriendsOnMap ? "people" : "people-outline"}
+                  iconColor="#344054"
+                  activeColor="#7C3AED"
+                  label={
+                    showFriendsOnMap
+                      ? "Hide friends on map"
+                      : "Show friends on map"
+                  }
+                />
+              );
+            }}
+            currentLocationControl={() => {
+              return (
+                <MapGlassButton
+                  toggle
+                  active={isAtCurrentLocation}
+                  onPress={handleMoveToCurrentLocation}
+                  disabled={isFindingCurrentLocation}
+                  icon={isAtCurrentLocation ? "navigate" : "locate-outline"}
+                  iconColor="#344054"
+                  activeColor="#1570EF"
+                  label={
+                    isAtCurrentLocation
+                      ? "You are at current location"
+                      : isFindingCurrentLocation
+                        ? "Finding current location"
+                        : "Move to current location"
+                  }
+                />
+              );
+            }}
+            reportControl={() => {
+              if (!auth.isLoggedIn) return null;
+              return (
+                <MapGlassButton
+                  onPress={() => setShowReportModal(true)}
+                  icon="flag-outline"
+                  iconColor="#EF4444"
+                  label="Report a hazard"
+                />
+              );
+            }}
+          />
+        }
+
         {/* ── Modals / Overlays ── */}
         <AIExplanationModal
           visible={h.showAIModal}
@@ -3165,14 +3182,14 @@ export default function HomeScreen() {
 
         {Platform.OS !== "web" && (
             <NavigationOverlay
-              nav={h.nav}
+              nav={navWithReset}
               topInset={insets.top}
               bottomInset={insets.bottom}
               showRecenter={h.isNavActive && !isNavFollowing}
               onRecenter={handleRecenterNavigation}
               liveSharingNotice={liveSharingNotice}
               navAlert={navAlert}
-              showReportButton={auth.isLoggedIn && h.isNavActive}
+              showReportButton={false}
               onPressReport={() => setShowReportModal(true)}
             />
         )}
@@ -3410,6 +3427,10 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "600",
     fontSize: 13,
+  },
+  floatingAbove: {
+    zIndex: 500,
+    elevation: 50,
   },
   aiWrap: {
     position: "absolute",

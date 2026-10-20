@@ -100,7 +100,7 @@ function lineFeature(line: LineLayer): NativeFeature<LineGeometry> | null {
   if (!line.coords.every(([lat, lng]) => isFiniteLngLat(lat, lng))) return null;
   return {
     type: "Feature",
-    properties: { color: line.color, risk: line.risk },
+    properties: { color: line.color, risk: line.risk, name: line.roadName ?? "" },
     geometry: {
       type: "LineString",
       // The builder emits [lat, lng]; GeoJSON needs [lng, lat].
@@ -883,6 +883,15 @@ export const buildMapHtml = (
       map.addLayer({ id:'route-remaining-line', type:'line', source:'route-remaining',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#4285F4','line-opacity':0.85,'line-width':6} });
+      // Street names along the solid route lines: small, no background box. The font is the
+      // basemap's own label font, so the glyphs exist in the style.
+      var rlNameFont = ['Noto Sans Regular'];
+      var rlBasemapLabel = (map.getStyle().layers || []).find(function(l){ return l.type==='symbol' && l.layout && l.layout['text-font']; });
+      if(rlBasemapLabel) rlNameFont = rlBasemapLabel.layout['text-font'];
+      map.addLayer({ id:'rl-road-names', type:'symbol', source:'rl-solid', minzoom:14,
+        layout:{'symbol-placement':'line','text-field':['get','name'],'text-font':rlNameFont,
+          'text-size':11,'text-letter-spacing':0.04,'text-max-angle':30,'text-keep-upright':true,'symbol-spacing':320,'text-pitch-alignment':'viewport'},
+        paint:{'text-color':'#1D2939','text-opacity':0.92,'text-halo-color':'rgba(255,255,255,0.85)','text-halo-width':1.2,'text-halo-blur':0.4} });
       map.addLayer({ id:'safety-circles-halo', type:'circle', source:'safety-markers',
         paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,['case',['==',['get','isSelected'],1],16,['==',['get','kind'],'via'],15,['==',['get','kind'],'search_candidate'],13,10],
           11,['case',['==',['get','isSelected'],1],15,['==',['get','kind'],'via'],14,['==',['get','kind'],'search_candidate'],12,9],
@@ -1797,6 +1806,7 @@ export const RouteMap = ({
   androidCandidateRefitMaxZoom,
   fitTopPadding = 40,
   fitBottomPadding = 40,
+  legendBottomPx = 38,
   fitSidePadding = 40,
   candidateFitTopPadding,
   candidateFitBottomPadding,
@@ -2109,6 +2119,15 @@ export const RouteMap = ({
     );
     pushUpdate();
   }, [fitCandidateBoundsToken, androidFitCandidateBoundsToken, pushUpdate]);
+
+  // ── Lift the route safety legend above the sheet or navigation bar (CSS bottom in the WebView).
+  useEffect(() => {
+    if (!readyRef.current || !webViewRef.current) return;
+    const px = Math.max(0, Math.round(legendBottomPx));
+    webViewRef.current.injectJavaScript(
+      `try{var rlL=document.getElementById('rlLegend');if(rlL)rlL.style.bottom='${px}px';}catch(e){}true;`,
+    );
+  }, [legendBottomPx]);
 
   // ── Immediate PiP mode injection — bypasses the full pushUpdate cycle.
   // Fixes the 1+ second zoom delay: camera snaps to pip zoom as soon as

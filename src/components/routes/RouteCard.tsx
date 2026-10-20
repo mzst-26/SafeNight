@@ -1,43 +1,31 @@
 /**
- * RouteCard — A single route in the route list.
- * Safety details are hidden behind a collapsible toggle (Google-Maps style).
+ * RouteCard — One compact row per route: name, duration · distance, and one safety chip.
+ * Safety details sit behind a collapsible toggle (Google-Maps style). With `hideSafety`
+ * (during navigation) the safety chip, the score and the details toggle are not rendered.
  */
-import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { riskToColor } from "@/src/components/maps/routeLayers";
-import type { RouteComparison } from "@/src/utils/routeComparison";
 import { isV2SafeRoute, type RouteSafety, type SafeRoute } from "@/src/services/safeRoutes";
+import { colors, radius, spacing, type } from "@/src/theme";
 import { formatDistance, formatDuration } from "@/src/utils/format";
-import { formatTimelineSummary } from "@/src/utils/tripTime";
+import type { RouteComparison } from "@/src/utils/routeComparison";
+import { formatArrivalSummary, formatTimelineSummary } from "@/src/utils/tripTime";
+
+/** Recommended-route accent. Not in the shared tokens yet, so it stays local. */
+const BEST_ACCENT = "#22c55e";
+const BEST_BACKGROUND = "#f0fdf4";
+const BEST_LABEL_COLOR = "#15803D";
 
 const METRES_PER_MILE = 1609.344;
-
-/** Text shades (WCAG AA, 4.5:1 or better on the card backgrounds). Colour lives on the dot and tint only. */
-const SCORE_TEXT_COLOR = "#101828";
-const SECONDARY_TEXT_COLOR = "#475467";
-const BEST_LABEL_COLOR = "#15803D";
-const ACCENT_TEXT_COLOR = "#1849A9";
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 export type ConfidenceTier = "verified" | "mostly" | "estimated";
 
-const TIER_TEXT: Record<ConfidenceTier, string> = {
-  verified: "Verified",
-  mostly: "Mostly mapped",
-  estimated: "Estimated",
-};
-
-const TIER_ACCESSIBILITY_LABEL: Record<ConfidenceTier, string> = {
-  verified: "Lighting verified",
-  mostly: "Lighting partly mapped",
-  estimated: "Lighting partly estimated",
-};
-
 /**
- * How much of the route's lighting is measured, for the small text tier on a v2 card.
+ * How much of the route's lighting is measured.
  * Estimated: lighting estimated, or certainty below 0.4 (the map's dashed cut-off).
  * Verified: lighting verified and certainty at least 0.6. Mostly mapped: mixed lighting, or
  * certainty from 0.4 up to 0.6. Null when the data says nothing either way.
@@ -97,11 +85,19 @@ interface RouteCardProps {
   onSelect: () => void;
   /** Full safety breakdown rendered inside the collapsible section */
   detailsPanel?: React.ReactNode;
-  /** This route's row from routeComparison (v2 delta line). */
+  /** This route's row from routeComparison. Kept for callers; the compact card does not show deltas. */
   comparison?: RouteComparison | null;
-  /** The recommended route's row from routeComparison, the base for the delta line. */
+  /** The recommended route's row from routeComparison. Kept for callers; the compact card does not show deltas. */
   recommendedComparison?: RouteComparison | null;
+  /** Hide every safety element (score, chip, label, details). Used during navigation. Default false. */
+  hideSafety?: boolean;
 }
+
+const TIER_TEXT: Record<ConfidenceTier, string> = {
+  verified: "Verified",
+  mostly: "Mostly mapped",
+  estimated: "Estimated",
+};
 
 export function RouteCard({
   route,
@@ -111,27 +107,39 @@ export function RouteCard({
   detailsPanel,
   comparison,
   recommendedComparison,
+  hideSafety = false,
 }: RouteCardProps) {
-  const isBest = route.isSafest;
   const safety = route.safety;
+  const isBest = route.isSafest && !hideSafety;
   const label = isBest ? "Top Safety Score" : `Route ${index + 1}`;
   const [expanded, setExpanded] = useState(false);
 
   const isV2 = isV2SafeRoute(route);
-  const timelineText = formatTimelineSummary(safety.timeline);
-  const reason = isBest && typeof safety.reason === "string" && safety.reason.trim() !== "" ? safety.reason : null;
-  const deltaLine =
-    isV2 && !isBest && comparison && recommendedComparison
-      ? formatRouteDelta(comparison, recommendedComparison)
-      : null;
-  const tier = isV2 ? confidenceTier(safety) : null;
   // One encoding for v2: the dot and tint use the same risk ramp as the map. v1 keeps the backend band colour.
   const dotColor = isV2 ? riskToColor(1 - safety.score / 100) : safety.color;
+  const showDetails = !hideSafety && detailsPanel != null;
 
-  // Collapse whenever the card is deselected
+  // Safety facts shown under the row, outside navigation only. Never hidden silently: the lighting
+  // caveat and the reason are what tell the user how much to trust the score.
+  const tier = isV2 && !hideSafety ? confidenceTier(safety) : null;
+  const reason =
+    isBest && typeof safety.reason === "string" && safety.reason.trim() !== "" ? safety.reason : null;
+  const detailLines = [
+    tier !== null ? `Lighting: ${TIER_TEXT[tier]}` : null,
+    reason,
+  ].filter((line): line is string => line !== null);
+  // Trip timing is not a safety figure, but it is hidden with the rest during navigation.
+  // The departure is the same for every route, so only the recommended card shows it.
+  const timelineText = hideSafety
+    ? null
+    : isBest
+      ? formatTimelineSummary(safety.timeline)
+      : formatArrivalSummary(safety.timeline);
+
+  // Collapse whenever the card is deselected, or when safety is hidden
   useEffect(() => {
-    if (!isSelected) setExpanded(false);
-  }, [isSelected]);
+    if (!isSelected || hideSafety) setExpanded(false);
+  }, [isSelected, hideSafety]);
 
   return (
     <Pressable
@@ -143,75 +151,52 @@ export function RouteCard({
         isBest && styles.cardBest,
       ]}
     >
-      {/* ── Header: route name + score badge ─────────────────── */}
-      <View style={styles.header}>
-        <View style={styles.labelRow}>
-          <Text
-            style={[
-              styles.label,
-              isSelected && styles.labelSelected,
-              isBest && styles.labelBest,
-            ]}
-          >
-            {label}
-          </Text>
-          {isBest && (
-            <View style={styles.bestBadge}>
-              <Text style={styles.bestBadgeText}>★ Recommended</Text>
-            </View>
-          )}
-          {tier !== null && (
-            <View
-              style={styles.tierChip}
-              accessible
-              accessibilityLabel={TIER_ACCESSIBILITY_LABEL[tier]}
-            >
-              <Text style={styles.tierChipText}>{TIER_TEXT[tier]}</Text>
-            </View>
-          )}
-        </View>
-        <View
-          style={[styles.scoreChip, { backgroundColor: dotColor + "20" }]}
+      {/* ── One row: name · duration · distance · safety chip ── */}
+      <View style={styles.row}>
+        <Text
+          style={[
+            styles.name,
+            isSelected && styles.nameSelected,
+            isBest && styles.nameBest,
+          ]}
+          numberOfLines={1}
         >
-          <View
-            style={[styles.scoreChipDot, { backgroundColor: dotColor }]}
-          />
-          <Text style={styles.scoreChipText}>
-            {safety.score}
-          </Text>
+          {label}
+        </Text>
+        {isBest && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>Recommended</Text>
+          </View>
+        )}
+        <Text style={styles.metrics} numberOfLines={1}>
+          {formatDuration(route.durationSeconds)} · {formatDistance(route.distanceMeters)}
+        </Text>
+        {!hideSafety && (
+          <View style={[styles.chip, { backgroundColor: dotColor + "20" }]}>
+            <View style={[styles.dot, { backgroundColor: dotColor }]} />
+            <Text style={styles.chipText} numberOfLines={1}>
+              {isFiniteNumber(safety.score) ? `${Math.round(safety.score)} · ` : ""}
+              {safety.label}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {(detailLines.length > 0 || timelineText !== null) && (
+        <View style={styles.detailLines}>
+          {detailLines.map((line) => (
+            <Text key={line} style={styles.detailLine}>
+              {line}
+            </Text>
+          ))}
+          {timelineText !== null && (
+            <Text style={styles.timelineLine}>{timelineText}</Text>
+          )}
         </View>
-      </View>
-
-      {/* ── Reason line (recommended v2 route only) ──────────── */}
-      {reason !== null && (
-        <Text style={styles.reason} numberOfLines={2}>
-          {reason}
-        </Text>
       )}
-
-      {/* ── Summary line ─────────────────────────────────────── */}
-      <View style={styles.summaryRow}>
-        <Ionicons name="walk-outline" size={14} color={SECONDARY_TEXT_COLOR} />
-        <Text style={styles.details}>
-          {formatDistance(route.distanceMeters)} ·{" "}
-          {formatDuration(route.durationSeconds)}
-          {"  "}
-          <Text style={styles.safetyInline}>
-            {safety.label}
-          </Text>
-        </Text>
-      </View>
-
-      {/* ── Timeline (time-aware backend only) ───────────────── */}
-      {timelineText !== null && (
-        <Text style={styles.timelineLine}>{timelineText}</Text>
-      )}
-
-      {/* ── Delta vs recommended route (other v2 routes only) ── */}
-      {deltaLine !== null && <Text style={styles.deltaLine}>{deltaLine}</Text>}
 
       {/* ── Safety Details toggle (only when selected + data available) ── */}
-      {isSelected && detailsPanel != null && (
+      {isSelected && showDetails && (
         <Pressable
           style={styles.detailsToggle}
           onPress={() => setExpanded((v) => !v)}
@@ -229,7 +214,7 @@ export function RouteCard({
       )}
 
       {/* ── Collapsible body ─────────────────────────────────── */}
-      {isSelected && expanded && detailsPanel != null && (
+      {isSelected && expanded && showDetails && (
         <View style={styles.detailsWrap}>{detailsPanel}</View>
       )}
     </Pressable>
@@ -238,140 +223,116 @@ export function RouteCard({
 
 const styles = StyleSheet.create({
   card: {
-    marginBottom: 12,
-    padding: 16,
-    borderRadius: 12,
+    marginBottom: spacing.md,
+    minHeight: 56,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    justifyContent: "center",
+    borderRadius: radius.md,
+    borderCurve: "continuous",
     borderWidth: 2,
-    borderColor: "#eaecf0",
-    backgroundColor: "#ffffff",
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.surface,
   },
   cardSelected: {
-    borderColor: "#1570ef",
-    backgroundColor: "#f0f9ff",
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
   cardBest: {
-    borderColor: "#22c55e",
-    backgroundColor: "#f0fdf4",
+    borderColor: BEST_ACCENT,
+    backgroundColor: BEST_BACKGROUND,
   },
-  header: {
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
+    gap: spacing.sm,
   },
-  labelRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 8,
+  name: {
+    ...type.headline,
+    fontSize: 15,
+    color: colors.text,
+    flexShrink: 1,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#101828",
+  nameSelected: {
+    color: colors.primaryStrong,
   },
-  labelSelected: {
-    color: ACCENT_TEXT_COLOR,
-  },
-  labelBest: {
+  nameBest: {
     color: BEST_LABEL_COLOR,
   },
-  bestBadge: {
-    backgroundColor: "#DCFCE7",
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+  metrics: {
+    ...type.body,
+    color: colors.textSecondary,
+    marginLeft: "auto",
+    flexShrink: 0,
   },
-  bestBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#047857",
-  },
-  tierChip: {
-    backgroundColor: "#f2f4f7",
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  tierChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: SECONDARY_TEXT_COLOR,
-  },
-  reason: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: SECONDARY_TEXT_COLOR,
-    marginBottom: 6,
-  },
-  timelineLine: {
-    fontSize: 13,
-    color: SECONDARY_TEXT_COLOR,
-    marginTop: 2,
-  },
-  deltaLine: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: SECONDARY_TEXT_COLOR,
-    marginTop: 2,
-  },
-  scoreChip: {
+  chip: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    gap: 5,
+    flexShrink: 0,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    gap: spacing.xs,
   },
-  scoreChipDot: {
+  dot: {
     width: 6,
     height: 6,
     borderRadius: 3,
   },
-  scoreChipText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: SCORE_TEXT_COLOR,
-  },
-  summaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 2,
-  },
-  details: {
-    fontSize: 14,
-    color: "#667085",
-  },
-  safetyInline: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: SECONDARY_TEXT_COLOR,
+  chipText: {
+    ...type.caption,
+    color: colors.text,
   },
   detailsToggle: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "#dde3ef",
   },
   detailsToggleText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: ACCENT_TEXT_COLOR,
+    ...type.label,
+    color: colors.primaryStrong,
   },
   chevron: {
     fontSize: 18,
     fontWeight: "600",
-    color: ACCENT_TEXT_COLOR,
+    color: colors.primaryStrong,
     transform: [{ rotate: "90deg" }],
   },
   chevronOpen: {
     transform: [{ rotate: "-90deg" }],
   },
   detailsWrap: {
-    marginTop: 12,
+    marginTop: spacing.md,
+  },
+  detailLines: {
+    marginTop: spacing.xs,
+    gap: 2,
+  },
+  detailLine: {
+    ...type.caption,
+    color: colors.textSecondary,
+  },
+  timelineLine: {
+    ...type.caption,
+    color: colors.primaryStrong,
+    marginTop: spacing.xs,
+  },
+  badge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    backgroundColor: BEST_BACKGROUND,
+    borderWidth: 1,
+    borderColor: BEST_ACCENT,
+    flexShrink: 0,
+  },
+  badgeText: {
+    ...type.caption,
+    fontWeight: "700",
+    color: BEST_LABEL_COLOR,
   },
 });

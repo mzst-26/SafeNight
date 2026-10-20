@@ -636,7 +636,7 @@ export function SearchBar({
           </View>
 
           {tripTime && onTripTimeChange && (
-            <TimeControl value={tripTime} onChange={onTripTimeChange} />
+            <TimeControl inline value={tripTime} onChange={onTripTimeChange} />
           )}
         </View>
 

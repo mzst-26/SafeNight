@@ -54,6 +54,8 @@ export type RouteMapProps = {
   fitTopPadding?: number;
   /** Extra bottom padding (px) used when fitting bounds so points are not hidden behind sheets. */
   fitBottomPadding?: number;
+  /** Distance (px) from the bottom of the map to the route safety legend. Lift it above sheets and bars. */
+  legendBottomPx?: number;
   /** Extra left/right padding (px) used when fitting bounds so points are not clipped by UI rails. */
   fitSidePadding?: number;
   /** Extra top padding used only when candidate search/filter autofocus triggers a refit. */

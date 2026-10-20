@@ -1,5 +1,11 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MAP_GLASS_BUTTON_SIZE, MapGlassButton } from '@/src/components/ui/MapGlassButton';
+import { nativeDockItems } from '@/src/components/ui/nativeDockMenu';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  Animated,
+  Pressable,
+  PanResponder,
   Platform,
   StyleSheet,
   useWindowDimensions,
@@ -8,6 +14,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { colors, radius } from '@/src/theme';
 import {
   computeClusterPlacement,
   type MapControlLayoutInput,
@@ -19,6 +26,8 @@ const PRIORITY_KEYS = ['profile', 'safety', 'live', 'report', 'currentLocation']
 
 export interface MapControlRailProps {
   layoutInput: MapControlLayoutInput;
+  /** Native: collapse the dock to current location and a menu button. Off during navigation. */
+  menuCollapsible?: boolean;
   profileControl: ControlNodeRenderer;
   safetyCircleControl: ControlNodeRenderer;
   liveLocationControl?: ControlNodeRenderer;
@@ -201,6 +210,187 @@ function savePosition(p: SavedDock) {
   } catch {
     // Keep working for this session even if storage is unavailable.
   }
+}
+
+const NATIVE_DOCK_KEY = 'safenight.mapDock.position.native.v2';
+const NATIVE_DOCK_GAP = 12;
+
+/**
+ * Native (Android and iOS) map dock: the same single glass container and the same drag
+ * rules as the web dock. Drag it anywhere on the map. It resists past an edge, carries on
+ * briefly after a fast flick, turns horizontal near the top or bottom edge, and remembers
+ * where it was left. Taps still reach the buttons; only a real drag takes the gesture.
+ * It starts above the bottom sheet, so the buttons sit higher than before.
+ */
+function NativeDraggableDock({
+  items,
+  controlsHeight,
+}: {
+  items: ReactNode[];
+  controlsHeight: number;
+}) {
+  const { width: vw, height: vh } = useWindowDimensions();
+  const len = controlsHeight + DOCK_CHROME;
+  const [saved, setSaved] = useState<SavedDock | null>(null);
+  // Default: right side of the screen, vertically centred.
+  const defaultPos: DockPos = {
+    x: vw - 12 - DOCK_THICKNESS,
+    y: Math.round((vh - len) / 2),
+  };
+  const resting = fitDock(saved ?? defaultPos, vw, vh, len, saved?.o ?? 'vertical');
+  // Set only while a gesture is running or the dock is settling after a release.
+  const [live, setLive] = useState<{ pos: DockPos; o: DockOrientation } | null>(null);
+  const shown = live ?? resting;
+  const anim = useRef(new Animated.ValueXY(resting.pos)).current;
+  const liveRef = useRef({ vw, vh, len, resting });
+  liveRef.current = { vw, vh, len, resting };
+  const gestureRef = useRef<{ origin: DockPos; pos: DockPos; o: DockOrientation } | null>(null);
+
+  // Load the remembered position once.
+  useEffect(() => {
+    AsyncStorage.getItem(NATIVE_DOCK_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const p = JSON.parse(raw);
+        if (typeof p?.x === 'number' && typeof p?.y === 'number') setSaved(p);
+      })
+      .catch(() => {
+        // Storage can be unavailable; the default position still works.
+      });
+  }, []);
+
+  // Follow the resting place (new viewport size, loaded position) while no gesture runs.
+  useEffect(() => {
+    if (!gestureRef.current) anim.setValue(resting.pos);
+  }, [anim, resting.pos.x, resting.pos.y]);
+
+  const panResponder = useMemo(() => {
+    const endDrag = (g: { vx: number; vy: number }) => {
+        const session = gestureRef.current;
+        if (!session) return;
+        const { vw: w, vh: h, len: l } = liveRef.current;
+        // A fast flick carries the dock on briefly, as on web.
+        const speed = Math.hypot(g.vx, g.vy);
+        let target: DockPos = { x: session.pos.x, y: session.pos.y };
+        if (speed > FLICK_SPEED_PX_MS) {
+          const scale = Math.min(speed, MAX_FLICK_SPEED_PX_MS) / speed;
+          target = {
+            x: target.x + g.vx * scale * FLICK_PROJECTION_MS,
+            y: target.y + g.vy * scale * FLICK_PROJECTION_MS,
+          };
+        }
+        const final = fitDock(target, w, h, l, session.o);
+        const next: SavedDock = { x: final.pos.x, y: final.pos.y, o: final.o };
+        setSaved(next);
+        AsyncStorage.setItem(NATIVE_DOCK_KEY, JSON.stringify(next)).catch(() => {});
+        Animated.spring(anim, { toValue: final.pos, useNativeDriver: false, bounciness: 6, speed: 16 }).start(() => {
+          gestureRef.current = null;
+          setLive(null);
+        });
+        setLive({ pos: final.pos, o: final.o });
+    
+    };
+
+    return PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_, g) => Math.hypot(g.dx, g.dy) > DRAG_TAP_SLOP_PX,
+        onMoveShouldSetPanResponder: (_, g) => Math.hypot(g.dx, g.dy) > DRAG_TAP_SLOP_PX,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          const r = liveRef.current.resting;
+          const session = { origin: { x: r.pos.x, y: r.pos.y }, pos: r.pos, o: r.o };
+          gestureRef.current = session;
+          setLive({ pos: session.pos, o: session.o });
+        },
+        onPanResponderMove: (_, g) => {
+          const session = gestureRef.current;
+          if (!session) return;
+          const { vw: w, vh: h, len: l } = liveRef.current;
+          const raw = { x: session.origin.x + g.dx, y: session.origin.y + g.dy };
+          const o = decideOrientation(raw, w, h, l, session.o);
+          const size = sizeOf(o, l);
+          const pos = {
+            x: resistRange(raw.x, DOCK_EDGE, w - size.w - DOCK_EDGE),
+            y: resistRange(raw.y, DOCK_EDGE, h - size.h - DOCK_EDGE),
+          };
+          anim.setValue(pos);
+          const changed = o !== session.o;
+          session.pos = pos;
+          session.o = o;
+          if (changed) setLive({ pos, o });
+        },
+        onPanResponderRelease: (_, g) => endDrag(g),
+        onPanResponderTerminate: (_, g) => endDrag(g),
+      });
+  }, [anim]);
+
+  const gap = shown.o === 'vertical' ? { marginTop: NATIVE_DOCK_GAP } : { marginLeft: NATIVE_DOCK_GAP };
+  return (
+    <Animated.View
+      {...panResponder.panHandlers}
+      style={[
+        styles.nativeDock,
+        orientationStyle(shown.o),
+        { width: shown.o === 'vertical' ? DOCK_THICKNESS : len, height: shown.o === 'vertical' ? len : DOCK_THICKNESS },
+        { left: anim.x, top: anim.y },
+        live ? styles.nativeDockLifted : null,
+      ]}
+    >
+      <View style={[styles.dockHandle, handleStyle(shown.o)]} />
+      {items.map((item, index) => (
+        <View key={`dock-item-${index}`} style={[styles.controlItem, index > 0 ? gap : null]}>
+          {item}
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
+
+/**
+ * Native map dock controls. Collapsed (before navigation) it shows current location and a menu
+ * button. Tapping the menu expands it; tapping the screen outside the container collapses it.
+ */
+export function NativeDockMenu({
+  collapsible,
+  current,
+  hidden,
+  all,
+}: {
+  collapsible: boolean;
+  current: ReactNode | null;
+  hidden: ReactNode[];
+  all: ReactNode[];
+}) {
+  const [open, setOpen] = useState(false);
+  // Navigation hides the menu. Close it then, so a stale open menu cannot leave its backdrop over the screen.
+  useEffect(() => {
+    if (!collapsible) setOpen(false);
+  }, [collapsible]);
+  const menu = (
+    <MapGlassButton
+      key="dock-menu"
+      icon="menu"
+      label={open ? 'Close map menu' : 'Open map menu'}
+      toggle
+      active={open}
+      onPress={() => setOpen((v) => !v)}
+    />
+  );
+  const items = nativeDockItems<ReactNode>({ collapsible, expanded: open, current, menu, hidden, all });
+  const count = items.length;
+  const controlsHeight = count > 0 ? count * MAP_GLASS_BUTTON_SIZE + (count - 1) * NATIVE_DOCK_GAP : 0;
+  return (
+    <>
+      {collapsible && open ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close map menu"
+          onPress={() => setOpen(false)}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+      <NativeDraggableDock items={items} controlsHeight={controlsHeight} />
+    </>
+  );
 }
 
 /**
@@ -567,6 +757,7 @@ function DraggableDock({
 
 function MapControlRailComponent({
   layoutInput,
+  menuCollapsible,
   profileControl,
   safetyCircleControl,
   liveLocationControl,
@@ -672,6 +863,25 @@ function MapControlRailComponent({
     style,
   ];
 
+  // Native: the same single dock as web, above the bottom sheet, draggable.
+  if (Platform.OS !== 'web') {
+    return (
+      <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, style]} testID={testID}>
+        <NativeDockMenu
+          collapsible={!!menuCollapsible}
+          current={resolveControlNode(currentLocationControl, false)}
+          hidden={[
+            resolveControlNode(profileControl, false),
+            resolveControlNode(safetyCircleControl, false),
+            resolveControlNode(liveLocationControl, false),
+            resolveControlNode(reportControl, false),
+          ].filter((node): node is ReactNode => node != null)}
+          all={webDockControls}
+        />
+      </View>
+    );
+  }
+
   // Render split layout when requested
   if (layoutInput.splitMode) {
     return (
@@ -753,6 +963,20 @@ function MapControlRailComponent({
 export const MapControlRail = memo(MapControlRailComponent);
 
 const styles = StyleSheet.create({
+  nativeDock: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    borderCurve: 'continuous',
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    boxShadow: colors.glassShadow,
+  } as any,
+  nativeDockLifted: {
+    boxShadow: '0 10px 28px rgba(15, 23, 42, 0.18)',
+  } as any,
   root: {
     position: 'absolute',
     top: 0,

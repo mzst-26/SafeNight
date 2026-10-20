@@ -19,6 +19,8 @@ interface RouteListProps {
   routeComparison?: RouteComparison[];
   /** 'Updating for 17:10' while shown routes lag behind the chosen time; cards are dimmed lightly. */
   updatingLabel?: string | null;
+  /** Hide the safety score, chips and details on every card (during navigation). Default false. */
+  hideSafety?: boolean;
 }
 
 export function RouteList({
@@ -29,6 +31,7 @@ export function RouteList({
   detailsPanel,
   routeComparison,
   updatingLabel,
+  hideSafety = false,
 }: RouteListProps) {
   const recommendedId = routes.find((r) => r.isSafest)?.id;
   const recommendedComparison =
@@ -54,9 +57,10 @@ export function RouteList({
           index={index}
           isSelected={route.id === selectedRouteId}
           onSelect={() => onSelectRoute(route.id)}
-          detailsPanel={route.id === selectedRouteId ? detailsPanel : undefined}
+          detailsPanel={route.id === selectedRouteId && !hideSafety ? detailsPanel : undefined}
           comparison={routeComparison?.find((c) => c.routeId === route.id) ?? null}
           recommendedComparison={recommendedComparison}
+          hideSafety={hideSafety}
         />
       ))}
     </View>

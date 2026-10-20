@@ -1,5 +1,10 @@
 /**
  * NavigationOverlay — Turn-by-turn UI during active navigation.
+ *
+ * Layout: one full-screen overlay with two groups stacked at the edges.
+ *  - Top group: instruction card + report flag (same row), then the alert banner.
+ *  - Bottom group: recenter pill (right edge, above the bar), then the bottom bar with Stop.
+ * Both groups share a 16px side gutter, so every card lines up on the same left/right edges.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -7,6 +12,7 @@ import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'r
 
 import type { NavigationInfo } from '@/src/hooks/useNavigation';
 import type { NavAlert } from '@/src/hooks/useNavAlerts';
+import { colors, radius, spacing, type } from '@/src/theme';
 import { formatDuration, formatNavDistance, maneuverIcon, stripHtml } from '@/src/utils/format';
 
 let _useIsInPip: () => { isInPipMode: boolean } = () => ({ isInPipMode: false });
@@ -78,9 +84,10 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
 
   useEffect(() => {
     if (!isActive) return;
+    // One second, so the remaining distance and ETA in the bottom bar stay live.
     const timer = setInterval(() => {
       setClockTickMs(Date.now());
-    }, 30_000);
+    }, 1_000);
     return () => clearInterval(timer);
   }, [isActive]);
 
@@ -177,114 +184,132 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
   return (
     <>
       {isActive && (
-        <View style={[styles.overlay, { pointerEvents: 'box-none' }]}>
-          {/* Top row: instruction card + report button */}
-          <View style={[styles.topRow, { marginTop: topInset + 8 }]}>
-            <View style={styles.instructionCard}>
-              <View style={styles.iconRow}>
-                <Ionicons
-                  name={maneuverIcon(nav.currentStep?.maneuver) as any}
-                  size={28}
-                  color="#1570EF"
-                />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  {nav.distanceToNextTurn > 30 ? (
-                    <Text style={styles.distance}>
-                      In {formatNavDistance(nav.distanceToNextTurn)}
+        <View
+          style={[
+            styles.overlay,
+            { paddingTop: topInset + spacing.sm, paddingBottom: bottomInset + spacing.sm },
+          ]}
+          pointerEvents="box-none"
+        >
+          {/* ── Top group: instruction card + report flag, then alert banner ── */}
+          <View style={styles.topGroup} pointerEvents="box-none">
+            <View style={styles.topRow} pointerEvents="box-none">
+              <View style={styles.instructionCard}>
+                <View style={styles.iconRow}>
+                  <Ionicons
+                    name={maneuverIcon(nav.currentStep?.maneuver) as any}
+                    size={28}
+                    color={colors.primary}
+                  />
+                  <View style={{ flex: 1, marginLeft: spacing.md }}>
+                    {nav.distanceToNextTurn > 30 ? (
+                      <Text style={styles.distance}>
+                        In {formatNavDistance(nav.distanceToNextTurn)}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.instruction} numberOfLines={2}>
+                      {stripHtml(nav.currentStep?.instruction ?? 'Continue on route')}
                     </Text>
-                  ) : null}
-                  <Text style={styles.instruction} numberOfLines={2}>
-                    {stripHtml(nav.currentStep?.instruction ?? 'Continue on route')}
-                  </Text>
+                  </View>
                 </View>
               </View>
+
+              {showReportButton && onPressReport ? (
+                <Pressable
+                  onPress={onPressReport}
+                  style={styles.reportButton}
+                  hitSlop={spacing.sm}
+                  accessibilityRole="button"
+                  accessibilityLabel="Report a hazard"
+                >
+                  <Ionicons name="flag-outline" size={20} color="#EF4444" />
+                </Pressable>
+              ) : null}
             </View>
 
-            {showReportButton && onPressReport ? (
-              <Pressable
-                onPress={onPressReport}
-                style={styles.reportButton}
-                accessibilityRole="button"
-                accessibilityLabel="Report a hazard"
+            {navAlert ? (
+              <Animated.View
+                style={[
+                  styles.alertBanner,
+                  {
+                    opacity: alertAnim,
+                    transform: [{ translateY: alertAnim.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }],
+                    backgroundColor: alertStyles[navAlert.kind].bg,
+                    borderColor: alertStyles[navAlert.kind].border,
+                  },
+                ]}
               >
-                <Ionicons name="flag-outline" size={20} color="#EF4444" />
-              </Pressable>
+                <Ionicons
+                  name={alertStyles[navAlert.kind].icon as any}
+                  size={16}
+                  color={alertStyles[navAlert.kind].iconColor}
+                />
+                <Text style={[styles.alertBannerText, { color: alertStyles[navAlert.kind].text }]} numberOfLines={2}>
+                  {navAlert.text}
+                </Text>
+              </Animated.View>
             ) : null}
           </View>
 
-          {/* Nav alert banner */}
-          {navAlert ? (
-            <Animated.View
-              style={[
-                styles.alertBanner,
-                {
-                  opacity: alertAnim,
-                  transform: [{ translateY: alertAnim.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }],
-                  backgroundColor: alertStyles[navAlert.kind].bg,
-                  borderColor: alertStyles[navAlert.kind].border,
-                },
-              ]}
-            >
-              <Ionicons
-                name={alertStyles[navAlert.kind].icon as any}
-                size={16}
-                color={alertStyles[navAlert.kind].iconColor}
-              />
-              <Text style={[styles.alertBannerText, { color: alertStyles[navAlert.kind].text }]} numberOfLines={2}>
-                {navAlert.text}
-              </Text>
-            </Animated.View>
-          ) : null}
+          {/* ── Bottom group: recenter pill (right edge), then bottom bar ── */}
+          <View style={styles.bottomGroup} pointerEvents="box-none">
+            {showRecenter && onRecenter ? (
+              <Pressable
+                style={styles.recenterButton}
+                onPress={onRecenter}
+                accessibilityRole="button"
+                accessibilityLabel="Recenter map"
+              >
+                <Ionicons name="locate" size={16} color={colors.surface} />
+                <Text style={styles.recenterText}>Recenter</Text>
+              </Pressable>
+            ) : null}
 
-          {/* Bottom bar */}
-          <View style={[styles.bottomStack, { marginBottom: bottomInset + 8 }]}>
             <View style={styles.bottomBar}>
               <View style={styles.metaBlock}>
-                {nav.state === 'off-route' && (
+                {nav.state === 'off-route' ? (
                   <Text style={styles.offRoute}>Off route — rerouting…</Text>
+                ) : (
+                  <Text style={styles.etaText} numberOfLines={1}>
+                    {formatNavDistance(nav.remainingDistance)}
+                    {'  ·  ETA '}
+                    {new Date(clockTickMs + nav.remainingDuration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
                 )}
               </View>
-              <View style={styles.actionsRow}>
-                {showRecenter && onRecenter ? (
-                  <Pressable style={styles.recenterButton} onPress={onRecenter}>
-                    <Ionicons name="locate" size={16} color="#ffffff" />
-                    <Text style={styles.recenterText}>Recenter</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable onPress={nav.stop}>
-                  <Animated.View style={[styles.stopButton, { width: stopButtonWidth }]}>
-                    <Ionicons name="stop-circle" size={20} color="#ffffff" />
-                    <Animated.View
+              <Pressable onPress={nav.stop} accessibilityRole="button" accessibilityLabel="Stop navigation">
+                <Animated.View style={[styles.stopButton, { width: stopButtonWidth }]}>
+                  <Ionicons name="stop-circle" size={20} color="#ffffff" />
+                  <Animated.View
+                    style={[
+                      styles.stopTextWrap,
+                      {
+                        width: stopTextContainerWidth,
+                        marginLeft: stopTextContainerMarginLeft,
+                      },
+                    ]}
+                  >
+                    <Animated.Text
                       style={[
-                        styles.stopTextWrap,
+                        styles.stopText,
                         {
-                          width: stopTextContainerWidth,
-                          marginLeft: stopTextContainerMarginLeft,
+                          opacity: stopTextOpacity,
+                          transform: [{ translateX: stopTextTranslateX }],
                         },
                       ]}
                     >
-                      <Animated.Text
-                        style={[
-                          styles.stopText,
-                          {
-                            opacity: stopTextOpacity,
-                            transform: [{ translateX: stopTextTranslateX }],
-                          },
-                        ]}
-                      >
-                        Stop
-                      </Animated.Text>
-                    </Animated.View>
+                      Stop
+                    </Animated.Text>
                   </Animated.View>
-                </Pressable>
-              </View>
+                </Animated.View>
+              </Pressable>
             </View>
           </View>
         </View>
       )}
 
       {nav.state === 'arrived' && (
-        <View style={[styles.arrivedBanner, { bottom: bottomInset + 16 }]}>
+        <View style={[styles.arrivedBanner, { bottom: bottomInset + spacing.lg }]}>
           <Ionicons name="checkmark-circle" size={28} color="#22c55e" />
           <Text style={styles.arrivedText}>You have arrived!</Text>
           <Pressable style={styles.dismissButton} onPress={nav.stop}>
@@ -295,6 +320,8 @@ export function NavigationOverlay({ nav, topInset, bottomInset, liveSharingNotic
     </>
   );
 }
+
+const cardShadow = Platform.OS === 'web' ? { boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' } : {};
 
 const styles = StyleSheet.create({
   // ── PiP overlay ─────────────────────────────────────────────────
@@ -364,28 +391,34 @@ const styles = StyleSheet.create({
   },
 
   // ── Normal overlay ──────────────────────────────────────────────
+  // Full-screen and transparent to touches (box-none); only the cards take taps.
+  // Side gutter is spacing.lg (16) for every child, so edges line up.
   overlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    paddingHorizontal: spacing.lg,
     justifyContent: 'space-between',
     zIndex: 15,
     elevation: 15,
   },
+  topGroup: {
+    gap: spacing.sm,
+  },
   topRow: {
-    marginHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
+    gap: spacing.sm,
   },
   instructionCard: {
     flex: 1,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: '#ffffff',
-    ...(Platform.OS === 'web' ? { boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' } : {}),
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    backgroundColor: colors.surface,
+    ...cardShadow,
     elevation: 10,
   },
   iconRow: {
@@ -393,25 +426,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   distance: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#101828',
+    ...type.display,
+    color: colors.text,
   },
   instruction: {
     fontSize: 15,
-    color: '#475467',
-    marginTop: 2,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
     lineHeight: 20,
   },
   alertBanner: {
-    marginHorizontal: 16,
-    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
     paddingVertical: 10,
-    borderRadius: 14,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
     borderWidth: 1.5,
     ...(Platform.OS === 'web' ? { boxShadow: '0 2px 10px rgba(0,0,0,0.10)' } : {}),
     elevation: 5,
@@ -422,56 +453,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 18,
   },
-  bottomStack: {
-    margin: 16,
+  bottomGroup: {
+    gap: spacing.sm,
   },
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 18,
-    backgroundColor: '#ffffff',
-    ...(Platform.OS === 'web' ? { boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' } : {}),
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    backgroundColor: colors.surface,
+    ...cardShadow,
     elevation: 10,
   },
   metaBlock: {
     flex: 1,
     minWidth: 0,
-    marginRight: 12,
   },
   offRoute: {
-    fontSize: 13,
-    fontWeight: '600',
+    ...type.label,
     color: '#ef4444',
   },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
+  etaText: {
+    ...type.label,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
+  // Recenter: compact blue pill, right-aligned above the bottom bar (same 16px gutter).
   recenterButton: {
+    alignSelf: 'flex-end',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    height: 40,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: '#1570EF',
+    gap: spacing.xs,
+    height: 44,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+    ...(Platform.OS === 'web' ? { boxShadow: '0 2px 8px rgba(0,0,0,0.15)' } : {}),
+    elevation: 8,
   },
   recenterText: {
-    color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 12,
+    ...type.label,
+    color: colors.surface,
   },
   stopButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 40,
-    borderRadius: 12,
+    height: 44,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
     backgroundColor: '#ef4444',
     overflow: 'hidden',
   },
@@ -484,17 +518,20 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'flex-start',
   },
+  // Report flag: sits in the top row beside the card, raised above it so it is never covered.
   reportButton: {
     width: 44,
     height: 44,
-    borderRadius: 16,
-    backgroundColor: '#fff',
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    backgroundColor: colors.surface,
     borderWidth: 2,
     borderColor: '#EF4444',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 20,
     ...(Platform.OS === 'web' ? { boxShadow: '0 2px 8px rgba(0,0,0,0.12)' } : {}),
-    elevation: 5,
+    elevation: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -502,16 +539,16 @@ const styles = StyleSheet.create({
   },
   arrivedBanner: {
     position: 'absolute',
-    bottom: 40,
-    left: 16,
-    right: 16,
+    left: spacing.lg,
+    right: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 16,
-    borderRadius: 18,
-    backgroundColor: '#ffffff',
-    ...(Platform.OS === 'web' ? { boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' } : {}),
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    backgroundColor: colors.surface,
+    ...cardShadow,
     elevation: 10,
     zIndex: 15,
   },
@@ -519,12 +556,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '700',
-    color: '#101828',
+    color: colors.text,
   },
   dismissButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
     backgroundColor: '#22c55e',
   },
   dismissText: {

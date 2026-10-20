@@ -695,6 +695,7 @@ export function buildRouteLayerInput(route: SafeRoute): RouteLayerInput | null {
     safetyScore: seg.safetyScore,
     certainty: isFiniteNumber(seg.certainty) ? seg.certainty : undefined,
     litEstimate: seg.litEstimate ?? undefined,
+    roadName: seg.roadName || undefined,
   }));
 
   const pois = route.routePOIs;

@@ -200,18 +200,17 @@ export function SavedPlaces({
           <Pressable
             key={place.id}
             style={({ pressed }) => [
-              styles.pill,
-              styles.pillSaved,
+              styles.circle,
+              styles.circleSaved,
               pressed && styles.pillPressed,
             ]}
             onPress={() => handleTapSaved(place)}
             onLongPress={() => handleLongPressSaved(place)}
             delayLongPress={500}
+            accessibilityRole="button"
+            accessibilityLabel={place.label}
           >
-            <Ionicons name={place.icon as any} size={13} color="#1570ef" />
-            <Text style={styles.pillLabel} numberOfLines={1}>
-              {place.label}
-            </Text>
+            <Ionicons name={place.icon as any} size={18} color={colors.primary} />
           </Pressable>
         ))}
 
@@ -220,23 +219,22 @@ export function SavedPlaces({
           <Pressable
             key={preset.label}
             style={({ pressed }) => [
-              styles.pill,
+              styles.circle,
               styles.pillEmpty,
               pressed && styles.pillPressed,
             ]}
             onPress={() => handleTapPreset(preset)}
+            accessibilityRole="button"
+            accessibilityLabel={preset.label}
           >
-            <Ionicons name={preset.icon as any} size={12} color="#98a2b3" />
-            <Text style={styles.pillLabelEmpty} numberOfLines={1}>
-              {preset.label}
-            </Text>
+            <Ionicons name={preset.icon as any} size={18} color={colors.textSecondary} />
           </Pressable>
         ))}
 
         {/* Add custom label pill */}
         <Pressable
           style={({ pressed }) => [
-            styles.pill,
+            styles.circle,
             styles.pillAdd,
             pressed && styles.pillPressed,
           ]}
@@ -426,8 +424,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.32)',
   },
   listIconPill: {
-    width: 32,
-    height: 32,
+    width: 40,
+    height: 40,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -436,6 +434,20 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.95)',
     boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
   } as any,
+
+  // ── Round glass button (icon only), the same style as the map and list buttons ──
+  circle: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  circleSaved: {
+    backgroundColor: 'rgba(21, 112, 239, 0.12)',
+    borderColor: colors.primaryBorder,
+  },
 
   // ── Pill base ──
   // Every chip shares one height so the row reads as a single line.

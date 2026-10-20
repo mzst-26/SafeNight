@@ -39,6 +39,8 @@ const SHEET_MAX = Dimensions.get('window').height * SHEET_MAX_RATIO;
 export { SHEET_DEFAULT, SHEET_MAX, SHEET_MIN };
 
 interface DraggableSheetProps {
+  /** Tallest the sheet may grow (px). Defaults to 75% of the screen. */
+  maxHeight?: number;
   children: React.ReactNode;
   /** Safe-area bottom inset */
   bottomInset: number;
@@ -56,6 +58,7 @@ interface DraggableSheetProps {
 
 export function DraggableSheet({
   children,
+  maxHeight,
   bottomInset,
   visible,
   sheetHeight,
@@ -64,6 +67,9 @@ export function DraggableSheet({
   stickyHeaderIndices,
 }: DraggableSheetProps) {
   const scrollOffsetRef = useRef(0);
+  const maxHeightRef = useRef(maxHeight);
+  maxHeightRef.current = maxHeight;
+  const currentSheetMax = () => maxHeightRef.current ?? getSheetMax();
   const isAtTopRef = useRef(true);
   /** Tracks the height value captured at the start of a gesture */
   const gestureStartHeight = useRef(0);
@@ -85,7 +91,7 @@ export function DraggableSheet({
   const snapToNearest = useCallback(
     (current: number, velocity: number) => {
       const sheetDefault = getSheetDefault();
-      const sheetMax = getSheetMax();
+      const sheetMax = currentSheetMax();
 
       // Fast flick shortcuts
       if (velocity > 0.5) { snapTo(SHEET_MIN); return; }
@@ -125,7 +131,7 @@ export function DraggableSheet({
 
   const onGestureMove = useCallback(
     (dy: number) => {
-      const sheetMax = getSheetMax();
+      const sheetMax = currentSheetMax();
       const next = Math.min(sheetMax, Math.max(SHEET_MIN, gestureStartHeight.current - dy));
       sheetHeight.setValue(next);
     },
@@ -240,8 +246,8 @@ const styles = StyleSheet.create({
           shadowOpacity: 0.15,
           shadowRadius: 12,
         }),
-    elevation: 12,
-    zIndex: 220,
+    elevation: 700,
+    zIndex: 700,
     overflow: 'hidden',
   } as any,
   dragZone: {

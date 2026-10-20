@@ -225,7 +225,7 @@ describe('shared legend', () => {
     expect(root.getAttribute('aria-label')).toBe('Route safety legend');
     const head = root.querySelector('.rl-legend-head') as HTMLElement;
     expect(head.getAttribute('aria-controls')).toBe(body.id);
-    expect(head.getAttribute('aria-expanded')).toBe('true');
+    expect(head.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('draws one discrete swatch per ramp colour, Safer on the left and Riskier on the right', () => {
@@ -283,21 +283,18 @@ describe('shared legend', () => {
     expect(order).toEqual(['rl-legend-head', 'rl-legend-notes', 'rl-legend-body']);
   });
 
-  it('keeps the notes visible while the legend is collapsed (narrow viewport default and after a toggle)', () => {
+  it('shows a caveat dot on the collapsed button when there are notes, and the notes open with the legend', () => {
     const narrow = make(390);
     narrow.ctl.update(spec({ notes: ['Crime data unavailable'] }));
     narrow.ctl.setVisible(true);
-    expect(narrow.body.style.display).toBe('none');
+    expect(narrow.root.classList.contains('rl-legend-collapsed')).toBe(true);
+    expect(narrow.root.classList.contains('rl-legend-has-notes')).toBe(true);
+    const head = narrow.root.querySelector('.rl-legend-head') as HTMLElement;
+    expect(head.getAttribute('aria-label')).toBe('Route safety legend, has notes');
+    head.click();
     const holder = narrow.root.querySelector('.rl-legend-notes') as HTMLElement;
     expect(holder.style.display).not.toBe('none');
     expect(holder.textContent).toBe('Crime data unavailable');
-
-    const wide = make(420);
-    wide.ctl.update(spec({ notes: ['Crime data unavailable'] }));
-    wide.ctl.setVisible(true);
-    (wide.root.querySelector('.rl-legend-head') as HTMLElement).click();
-    expect(wide.body.style.display).toBe('none');
-    expect((wide.root.querySelector('.rl-legend-notes') as HTMLElement).style.display).not.toBe('none');
   });
 
   it('hides the notes line when there are no notes and clears stale notes on update', () => {
@@ -309,25 +306,28 @@ describe('shared legend', () => {
     expect(root.querySelectorAll('.rl-legend-note')).toHaveLength(0);
   });
 
-  it('starts collapsed below 400px on first show, expanded otherwise, and remembers the toggle', () => {
-    const narrow = make(390);
-    narrow.ctl.setVisible(true);
-    expect(narrow.root.style.display).toBe('');
-    expect(narrow.body.style.display).toBe('none');
-    expect(narrow.root.classList.contains('rl-legend-collapsed')).toBe(true);
-
-    const wide = make(420);
-    wide.ctl.setVisible(true);
-    expect(wide.body.style.display).toBe('');
-    const head = wide.root.querySelector('.rl-legend-head') as HTMLElement;
+  it('starts collapsed at every width on first show and remembers the toggle', () => {
+    for (const width of [390, 420]) {
+      const { root, body, ctl } = make(width);
+      ctl.setVisible(true);
+      expect(root.style.display).toBe('');
+      expect(root.classList.contains('rl-legend-collapsed')).toBe(true);
+      expect(root.classList.contains('rl-legend-collapsed')).toBe(true);
+    }
+    const { root, body, ctl } = make(420);
+    ctl.setVisible(true);
+    const head = root.querySelector('.rl-legend-head') as HTMLElement;
     head.click();
-    expect(wide.body.style.display).toBe('none');
+    expect(root.classList.contains('rl-legend-collapsed')).toBe(false);
+    expect(head.getAttribute('aria-expanded')).toBe('true');
+    head.click();
+    expect(root.classList.contains('rl-legend-collapsed')).toBe(true);
     expect(head.getAttribute('aria-expanded')).toBe('false');
-    wide.ctl.update(spec());
-    wide.ctl.setVisible(true);
-    expect(wide.body.style.display).toBe('none');
-    wide.ctl.setVisible(false);
-    expect(wide.root.style.display).toBe('none');
+    ctl.update(spec());
+    ctl.setVisible(true);
+    expect(root.classList.contains('rl-legend-collapsed')).toBe(true);
+    ctl.setVisible(false);
+    expect(root.style.display).toBe('none');
   });
 });
 
@@ -368,5 +368,21 @@ describe('web and native templates share the same pieces', () => {
     expect(native).not.toContain('rl-legend-bar');
     expect(native).not.toContain('rl-cluster');
     expect(web).not.toContain('rl-badge-sel');
+  });
+});
+
+describe('map key and callout sizing', () => {
+  it('explains the grey lines, the route score pills and the red crime circles in the legend body', () => {
+    const shared = load(420);
+    const root = document.createElement('div');
+    shared.rlBuildLegend(root, { dashArray: '0.1 15' }).update({ ramp: [], dashedLabel: 'Dashed: estimated' });
+    const text = root.querySelector('.rl-legend-key')!.textContent ?? '';
+    expect(text).toContain('Grey line: other route options');
+    expect(text).toContain('Number on a route: its safety score');
+    expect(text).toContain('Red circle: reported crimes nearby');
+  });
+
+  it('sizes the callout to its text so the background covers the whole label', () => {
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-callout\{[^}]*width:max-content/);
   });
 });

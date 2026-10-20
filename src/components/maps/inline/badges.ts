@@ -66,7 +66,7 @@ export const BADGES_JS = `
 export const BADGES_CSS = `
     .rl-crime{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:${RL_CRIME_SIZE}px;height:${RL_CRIME_SIZE}px;border-radius:50%;background:#b42318;color:#ffffff;font:700 13px/1 ${FONT};border:2px solid #ffffff;box-shadow:0 0 0 2px rgba(180,35,24,.35),0 1px 4px rgba(0,0,0,.35);overflow:hidden;white-space:nowrap;pointer-events:none}
     .rl-crime-lg{width:${RL_CRIME_SIZE_LARGE}px;height:${RL_CRIME_SIZE_LARGE}px}
-    .rl-callout{box-sizing:border-box;white-space:nowrap;background:#ffffff;color:#101828;font:600 13px/1.2 ${FONT};padding:5px 9px;border-radius:999px;box-shadow:0 2px 8px rgba(16,24,40,.25);pointer-events:none}
+    .rl-callout{box-sizing:border-box;display:inline-block;width:max-content;max-width:none;white-space:nowrap;background:rgba(255,255,255,.7);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.95);color:#101828;font:600 13px/1.2 ${FONT};padding:5px 10px;border-radius:999px;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 2px 8px rgba(15,23,42,.12);pointer-events:none}
     .rl-pill-hit{box-sizing:border-box;display:flex;align-items:center;justify-content:center;min-width:${RL_TOUCH_TARGET_PX}px;min-height:${RL_TOUCH_TARGET_PX}px;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
     .rl-pill-hit-sel{cursor:default}
     .rl-pill{box-sizing:border-box;min-width:${RL_PILL_MIN_WIDTH}px;height:${RL_PILL_HEIGHT}px;padding:0 9px;border-radius:999px;background:#ffffff;color:#101828;border:1px solid ${RL_GREY};font:700 13px/${RL_PILL_HEIGHT - 2}px ${FONT};text-align:center;white-space:nowrap;box-shadow:0 1px 4px rgba(16,24,40,.25)}
