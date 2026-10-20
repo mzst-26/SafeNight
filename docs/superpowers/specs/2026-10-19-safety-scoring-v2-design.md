@@ -224,3 +224,15 @@ All tunables live in one `scoring/config.js` with the rationale; a test asserts 
 - 2026-10-19 v0.2 folded in R2/R3/R6 review (crime precompute, outage contract, security criteria, map comparison strip).
 - 2026-10-19 v0.3 R1 review: units fixed (H ranking), blend eps, unknown ordering, crime EB, acceptance criteria, module interfaces.
 - 2026-10-19 v0.3.1 P1a polish: 11.3 priors and urban-speed rule, 11.4 unusable crime dates counted at full weight, 11.5 contiguity-blind score with `worstStretch` reported, `evidence.js` added to 11.7. Spec now matches `scoring/config.js`.
+
+## 12. Time, presence and remoteness (v0.5, owner feedback after first review)
+
+Owner asks: (1) leave-at / arrive-by input and time-of-day danger; (2) town/city size matters (a town street is empty late, a city street is not); (3) more crimes is not less safe: a busy centre with lights/CCTV beats a quiet route; (4) a well-lit but remote park path is Moderate at night.
+Design (four analyst memos synthesised):
+- **Time:** API `leave_at` | `arrive_by` (ISO-8601 with offset; 400 if both or no offset; horizon [-5 min, +24 h]); legacy `departure_hour` kept as alias. Instant `t0` (arrive_by: t0 = arrive - ETA, re-search once if ETA error > 120 s). v1 evaluates the graph at the mid-walk instant `t0 + ETA/2` and reports start/arrival darkness in `meta.time` and per-route `timeline`; route cache key gets a 15-minute bucket. Walking speed constant unified (1.35 m/s). POI "open now" uses the chosen instant in London time, not the server clock.
+- **Settlement class:** shipped gazetteer `backend/src/safety/data/settlements.json` (~1,000 cities/towns with population from OSM place nodes; ODbL attribution) with loader `scoring/settlements.js` `settlementClassAt(lat,lng)`; class from the nearest populated settlement within 5 km (metropolis >= 1M, city >= 100k, largeTown >= 30k, town, village, rural).
+- **Presence index** `P(hour, x) = clamp01(B(class) * (0.35 + 0.65*L(x)) * H(hour, type(x)) + LATE(x,hour))` with L = log10(1 + food/drink venues within 1 km)/log10(201); H curves for centre / residential / park types; LATE for venues open late within 80 m. Replaces the global NIGHT_DISCOUNT in the activity factor; hour-dependent activity floor.
+- **Remoteness** `R0 = 0.40*ramp(distance to nearest non-path road; 25..150 m) + 0.30*(1 - ramp(non-path ways within 100 m; 0..10)) + 0.10*(1 - ramp(open places within 100 m; 0..10))`; hazard `H = R*(1-P)`, lit reduces it `H_eff = H*(1-0.35*L)`, edge safety multiplied by `(1 - 0.6*H_eff)` (a lit interior park path ~52 at 23:00, unchanged at 14:00).
+- **Crime:** pedestrian-relevance weights per category; non-violent pool divided by `(1 + k*P)^beta` (k 2, beta 0.5); violent/robbery/sexual never discounted; capped guardian bonus from CCTV/open venues.
+- **Weak tags:** `lit=yes` on an isolated crossing structure with no lamp within 60 m counts as weak evidence; keep `bridge/layer/tunnel` in the ingestion keep-list (takes effect at next ingestion run).
+- **Deferred:** land-use/building second ingestion pass, ONS polygons, user-report overrides.
