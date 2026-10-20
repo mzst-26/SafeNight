@@ -109,7 +109,15 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 Fix round 3 done: FX-B (waypoint/area/A*/crime key), FX-L (ramp, filters, route badges, a11y), FX-W (web), FX-N (native). Brain fixes: ramp re-chosen (#26998E..#370412, search by OKLCH lightness, CVD >=10.2), backend ramp synced and test reads frontend source; MAX_SEARCH_BBOX_KM2 400 -> 900 (premium 20 km trips); known pre-existing HTTP flakiness on main under load (6 unrelated failures seen on main too).
 Owner-visible blockers: VIS needs permission to restart :8084 dev server from the worktree.
 
-## FINAL STATE (HEAD c7d5b46)
+## STAGE 2: time, presence, remoteness (branch feat/presence-time, merged to main)
+
+Owner feedback (screenshots): old purple rectangles still visible (owner's checkout is on fix/android-search-touch-passthrough, i.e. the OLD frontend/safety service: not a bug of the new code), bridge dark but OSM says lit=yes, unknown-lighting street shown green, Central Park lit path considered Safe, busy city centre should beat quiet route, leave/arrive time input wanted.
+Built: leave_at/arrive_by (API + control + timeline), settlement gazetteer (1,069 entries, ODbL, NOTICE.md), presence index, remoteness, crime pools (violent never discounted; non-violent divided by presence; capped guardian bonus), weak lit tag rule for crossings, certainty independent of time of day, pedestrian road-class scores raised, bridge/layer/tunnel kept in ingestion keep-list (takes effect at next ingestion run), cache re-stamps time per request.
+Gates (all APPROVE or fixed): R1 correctness (major fixed: cache echoed first requester's time; day-vs-night certainty), R3 security APPROVE (minors only), R4 quality (blocker fixed: NOTICE.md ignored by *.md; spec drift fixed), R5 mutation 81/89 (91%) then 8 survivors killed, R6 UX (7 majors fixed).
+Tests: backend 1684, frontend 659, tsc clean.
+Open / owner decisions: (a) the real A38 footbridge is tagged lit=yes in OSM: weak-tag rule applies only when no lamp within 60 m AND lamps mapped nearby (live check pending after ingestion refresh adds bridge tag); (b) Central Park query still reads Safe (63) at night for a mixed park/street route: tuning point; (c) land-use/building second ingestion pass (park detection) deferred; (d) frontend vizStreamUrl time keys not consumed by RouteMap.web (unused SSE path); (e) config.js 550 lines: split proposed as follow-up; (f) disk cache cap, computeSafeRoutes split, SafetyPanel pressable (see F23, F27).
+
+## FINAL STATE (HEAD c7d5b46, stage 1)
 
 Gates: R1 correctness APPROVE (round 3) | R2 performance PASS | R3 security APPROVE (round 3) | R4 quality APPROVE with tracked follow-ups | R5 tests PASS (94% mutants killed) | R6/R7 UX+parity: round-3 majors fixed and unit-tested, NOT visually verified in a browser.
 Tests: backend 1333, frontend 562, tsc clean.
