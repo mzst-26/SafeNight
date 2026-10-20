@@ -14,7 +14,7 @@
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { liveApi, type LiveSession, type WatchResult } from '../services/userApi';
 import { LimitError } from '../types/limitError';
 
@@ -102,6 +102,31 @@ async function registerForPushNotifications(): Promise<string | null> {
 
 // ─── Live tracking hook ──────────────────────────────────────────────────────
 
+const UPLOAD_INTERVAL_MS = 5000;
+const MAX_UPLOAD_BACKOFF_MS = 60_000;
+const UPLOAD_FAILURE_THRESHOLD = 3;
+const UPLOAD_FAILING_MESSAGE = 'Live location updates are failing. Retrying.';
+const SESSION_ENDED_MESSAGE = 'Session ended';
+
+interface TrackingHandles {
+  watcher: Location.LocationSubscription | null;
+  uploadTimer: ReturnType<typeof setTimeout> | null;
+  heartbeat: ReturnType<typeof setInterval> | null;
+}
+
+/** Stop every watcher and timer owned by a tracking session. Safe to call repeatedly. */
+function clearTrackingHandles(handles: { current: TrackingHandles }) {
+  handles.current.watcher?.remove();
+  if (handles.current.uploadTimer) clearTimeout(handles.current.uploadTimer);
+  if (handles.current.heartbeat) clearInterval(handles.current.heartbeat);
+  handles.current = { watcher: null, uploadTimer: null, heartbeat: null };
+}
+
+/** Delay before the next upload tick after `failures` consecutive failures */
+function nextUploadDelay(failures: number): number {
+  return Math.min(UPLOAD_INTERVAL_MS * 2 ** failures, MAX_UPLOAD_BACKOFF_MS);
+}
+
 interface LiveTrackingState {
   isTracking: boolean;
   session: LiveSession | null;
@@ -128,9 +153,14 @@ export function useLiveTracking(isLoggedIn = false) {
     showBackgroundDisclosure: false,
   });
 
-  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
-  const updateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const heartbeatInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handles = useRef<TrackingHandles>({ watcher: null, uploadTimer: null, heartbeat: null });
+  const trackingActive = useRef(false);
+  const pendingStart = useRef<Promise<StartTrackingResult> | null>(null);
+  // Bumped by stop and unmount. Each start captures it, so a watcher, upload or
+  // restore that began before a stop cannot re-arm or keep running afterwards.
+  const trackingGeneration = useRef(0);
+  const uploadInFlight = useRef(false);
+  const uploadFailures = useRef(0);
   const lastLocation = useRef<{ lat: number; lng: number } | null>(null);
   // Resolves the background-permission gate inside startTracking
   const bgPermResolveRef = useRef<((granted: boolean) => void) | null>(null);
@@ -151,30 +181,176 @@ export function useLiveTracking(isLoggedIn = false) {
     })();
   }, [isLoggedIn]);
 
-  // Check for existing session when logged in
+  /**
+   * Start the location watcher, the upload loop and the heartbeat for an
+   * existing session. Shared by startTracking and the restore-on-mount path.
+   */
+  const beginTracking = useCallback(async (generation: number): Promise<boolean> => {
+        // Stopped or unmounted before the watcher could start
+        if (generation !== trackingGeneration.current) return false;
+
+        // Start watching location
+        const watcher = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            distanceInterval: 10, // Update every 10 meters
+            timeInterval: 5000,   // Or every 5 seconds
+          },
+          (loc) => {
+            lastLocation.current = {
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+            };
+          },
+        );
+
+        // Stopped or unmounted while the watcher was starting: release it now
+        if (generation !== trackingGeneration.current) {
+          watcher.remove();
+          return false;
+        }
+        handles.current.watcher = watcher;
+
+        trackingActive.current = true;
+
+        // Send location updates to server every 5 seconds. Each tick is scheduled
+        // only after the previous upload settles (no overlap). Failures back off
+        // exponentially; 401/403/404 ends the session locally.
+        const scheduleNextUpload = (delay: number) => {
+          // A tick from a stopped session must not re-arm the loop
+          if (generation !== trackingGeneration.current) return;
+          handles.current.uploadTimer = setTimeout(uploadTick, delay);
+        };
+        const uploadTick = async () => {
+          handles.current.uploadTimer = null;
+          if (uploadInFlight.current || !lastLocation.current) {
+            scheduleNextUpload(UPLOAD_INTERVAL_MS);
+            return;
+          }
+          uploadInFlight.current = true;
+          try {
+            await liveApi.updateLocation(lastLocation.current.lat, lastLocation.current.lng);
+            uploadFailures.current = 0;
+            setState((s) =>
+              s.error === UPLOAD_FAILING_MESSAGE ? { ...s, error: null } : s,
+            );
+            scheduleNextUpload(UPLOAD_INTERVAL_MS);
+          } catch (err: unknown) {
+            const status = (err as { status?: number } | null)?.status;
+            if (status === 401 || status === 403 || status === 404) {
+              // Session is gone on the server: stop everything locally
+              clearTrackingHandles(handles);
+              trackingActive.current = false;
+              setState((s) => ({
+                ...s,
+                isTracking: false,
+                session: null,
+                error: SESSION_ENDED_MESSAGE,
+              }));
+              return;
+            }
+            uploadFailures.current += 1;
+            if (uploadFailures.current >= UPLOAD_FAILURE_THRESHOLD) {
+              setState((s) => ({ ...s, error: UPLOAD_FAILING_MESSAGE }));
+            }
+            scheduleNextUpload(nextUploadDelay(uploadFailures.current));
+          } finally {
+            uploadInFlight.current = false;
+          }
+        };
+        scheduleNextUpload(UPLOAD_INTERVAL_MS);
+
+        // Send heartbeat every 15 seconds (keeps session alive even if
+        // location doesn't change — important for safety use case where
+        // user may be stationary)
+        handles.current.heartbeat = setInterval(() => {
+          liveApi.heartbeat();
+        }, 15000);
+
+        return true;
+  }, []);
+
+  // Re-send a push token that failed to register, on each app foreground
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        liveApi.flushPendingPushToken().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [isLoggedIn]);
+
+  // Restore an existing session when logged in. Tracking resumes (watcher and
+  // timers, via beginTracking) only if location permission is already granted;
+  // otherwise the session is not reported as tracking.
   useEffect(() => {
     if (!isLoggedIn) return;
     (async () => {
       try {
         const session = await liveApi.getMySession();
-        if (session) {
-          setState((s) => ({ ...s, isTracking: true, session }));
-        }
+        if (!session) return;
+        if (trackingActive.current || pendingStart.current) return;
+
+        // Runs through pendingStart like startTracking, so a start requested
+        // while the restore is pending reuses it instead of adding a watcher
+        const generation = trackingGeneration.current;
+        const restore = (async (): Promise<StartTrackingResult> => {
+          try {
+            const { status } = await Location.getForegroundPermissionsAsync();
+            if (status !== 'granted') {
+              setState((s) => ({ ...s, isTracking: false }));
+              return { ok: false, reason: 'permission-denied', message: 'Location permission required' };
+            }
+
+            const fix = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.High,
+            });
+            lastLocation.current = {
+              lat: fix.coords.latitude,
+              lng: fix.coords.longitude,
+            };
+            const started = await beginTracking(generation);
+            if (!started) {
+              return { ok: false, reason: 'unavailable', message: 'Tracking was stopped' };
+            }
+            setState((s) => ({ ...s, isTracking: true, session }));
+            return { ok: true };
+          } catch {
+            clearTrackingHandles(handles);
+            trackingActive.current = false;
+            setState((s) => ({ ...s, isTracking: false }));
+            return { ok: false, reason: 'unavailable', message: 'Failed to restore tracking' };
+          }
+        })();
+        const pending = restore.finally(() => {
+          pendingStart.current = null;
+        });
+        pendingStart.current = pending;
+        await pending;
       } catch {
-        // Ignore
+        clearTrackingHandles(handles);
+        trackingActive.current = false;
+        setState((s) => ({ ...s, isTracking: false }));
       }
     })();
-  }, [isLoggedIn]);
+  }, [isLoggedIn, beginTracking]);
 
   // Start live tracking — call this when navigation begins
   const startTracking = useCallback(
-    async (params: {
+    (params: {
       destination_lat?: number;
       destination_lng?: number;
       destination_name?: string;
       /** Planned route polyline — passed through to the live session so contacts can see it */
       route_path?: Array<{ lat: number; lng: number }>;
     }): Promise<StartTrackingResult> => {
+      // Never start twice: reuse the active session or the start already in flight
+      if (trackingActive.current) return Promise.resolve({ ok: true });
+      if (pendingStart.current) return pendingStart.current;
+
+      const generation = trackingGeneration.current;
+      const run = (async (): Promise<StartTrackingResult> => {
       try {
         // Get current location
         const { status } = await Location.requestForegroundPermissionsAsync();
@@ -226,44 +402,16 @@ export function useLiveTracking(isLoggedIn = false) {
           ...params,
         });
 
-        setState((s) => ({ ...s, isTracking: true, session, error: null }));
         lastLocation.current = {
           lat: location.coords.latitude,
           lng: location.coords.longitude,
         };
 
-        // Start watching location
-        locationSubscription.current = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            distanceInterval: 10, // Update every 10 meters
-            timeInterval: 5000,   // Or every 5 seconds
-          },
-          (loc) => {
-            lastLocation.current = {
-              lat: loc.coords.latitude,
-              lng: loc.coords.longitude,
-            };
-          },
-        );
-
-        // Send location updates to server every 5 seconds
-        updateInterval.current = setInterval(async () => {
-          if (lastLocation.current) {
-            await liveApi.updateLocation(
-              lastLocation.current.lat,
-              lastLocation.current.lng,
-            );
-          }
-        }, 5000);
-
-        // Send heartbeat every 15 seconds (keeps session alive even if
-        // location doesn't change — important for safety use case where
-        // user may be stationary)
-        heartbeatInterval.current = setInterval(() => {
-          liveApi.heartbeat();
-        }, 15000);
-
+        const started = await beginTracking(generation);
+        if (!started) {
+          return { ok: false, reason: 'unavailable', message: 'Tracking was stopped' };
+        }
+        setState((s) => ({ ...s, isTracking: true, session, error: null }));
         return { ok: true };
       } catch (err: unknown) {
         // Limit errors are handled globally by the LimitReachedModal
@@ -274,31 +422,33 @@ export function useLiveTracking(isLoggedIn = false) {
             message: 'Live sharing limit reached for your current plan.',
           };
         }
+        // Release any watcher/timer started before the failure
+        clearTrackingHandles(handles);
+        trackingActive.current = false;
         const msg = err instanceof Error ? err.message : 'Failed to start tracking';
         setState((s) => ({ ...s, error: msg }));
         return { ok: false, reason: 'unavailable', message: msg };
       }
+      })();
+
+      pendingStart.current = run.finally(() => {
+        pendingStart.current = null;
+      });
+      return pendingStart.current;
     },
-    [],
+    [beginTracking],
   );
 
   // Stop live tracking — call when navigation ends or user manually stops
   const stopTracking = useCallback(
     async (status: 'completed' | 'cancelled' = 'completed') => {
       try {
+        // Invalidate in-flight starts, uploads and restores before clearing timers
+        trackingGeneration.current += 1;
         // Stop location watching
-        if (locationSubscription.current) {
-          locationSubscription.current.remove();
-          locationSubscription.current = null;
-        }
-        if (updateInterval.current) {
-          clearInterval(updateInterval.current);
-          updateInterval.current = null;
-        }
-        if (heartbeatInterval.current) {
-          clearInterval(heartbeatInterval.current);
-          heartbeatInterval.current = null;
-        }
+        clearTrackingHandles(handles);
+        trackingActive.current = false;
+        uploadFailures.current = 0;
 
         await liveApi.end(status);
         setState((s) => ({
@@ -318,15 +468,9 @@ export function useLiveTracking(isLoggedIn = false) {
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-      }
-      if (updateInterval.current) {
-        clearInterval(updateInterval.current);
-      }
-      if (heartbeatInterval.current) {
-        clearInterval(heartbeatInterval.current);
-      }
+      trackingGeneration.current += 1;
+      clearTrackingHandles(handles);
+      trackingActive.current = false;
     };
   }, []);
 
@@ -385,9 +529,14 @@ export function useWatchContact(userId: string | null) {
       return;
     }
 
+    // Set when userId changes or the component unmounts, so an in-flight poll
+    // for a previous contact cannot overwrite the current state
+    let cancelled = false;
+
     const poll = async () => {
       try {
         const result = await liveApi.watchContact(userId);
+        if (cancelled) return;
         setState({
           active: result.active,
           data: result,
@@ -395,8 +544,10 @@ export function useWatchContact(userId: string | null) {
           error: null,
         });
       } catch (err: unknown) {
+        if (cancelled) return;
         const msg = err instanceof Error ? err.message : 'Failed to watch';
-        setState((s) => ({ ...s, isLoading: false, error: msg }));
+        // Do not keep showing the last location once a poll has failed
+        setState({ active: false, data: null, isLoading: false, error: msg });
       }
     };
 
@@ -407,6 +558,7 @@ export function useWatchContact(userId: string | null) {
     intervalRef.current = setInterval(poll, 5000);
 
     return () => {
+      cancelled = true;
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
