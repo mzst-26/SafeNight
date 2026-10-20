@@ -36,9 +36,13 @@ fi
 
 NEW_SHA=$(git rev-parse "$LATEST^{commit}")
 PREV_SHA=$(sed -n 1p "$STATE" 2>/dev/null || true)
-# Images are tagged with the 7-character short SHA by the publish workflow (type=sha,format=short)
-NEW_TAG=$(git rev-parse --short=7 "$NEW_SHA")
-PREV_TAG=$(if [ -n "$PREV_SHA" ]; then git rev-parse --short=7 "$PREV_SHA"; fi)
+# The publish workflow only runs for commits that change backend/, so the images for a release are
+# tagged with the last commit at or before it that touched backend/.
+image_tag() { git rev-list -1 "$1" -- backend | cut -c1-7; }
+NEW_TAG=$(image_tag "$NEW_SHA")
+PREV_TAG=""
+if [ -n "$PREV_SHA" ]; then PREV_TAG=$(image_tag "$PREV_SHA"); fi
+echo "images for $LATEST: tag $NEW_TAG"
 echo "deploying $LATEST ($(git rev-parse --short=12 "$NEW_SHA")), previous: ${PREV_SHA:-none}"
 
 # Waits until every service is running and, where it has a healthcheck, healthy.

@@ -3,6 +3,9 @@ name: Publish backend Docker images
 on:
   push:
     branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/docker-publish-backend.yml'
   workflow_dispatch:
     inputs:
       push_latest:
