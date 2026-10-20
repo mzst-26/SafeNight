@@ -4,7 +4,7 @@
 # Safety rules:
 #   - Only tags with a published GitHub Release are deployed. The release workflow publishes one
 #     only after the full CI suite is green, so pushes to main never reach the server.
-#   - Images are pulled from Docker Hub (<DOCKERHUB_USER>/safenight-<service>:<sha>), published by
+#   - Images are pulled from Docker Hub (<DOCKERHUB_USERNAME>/safenight-<service>:<sha>), published by
 #     the backend publish workflow. Each SHA's images stay on disk as rollback points.
 #   - If any service is not running or not healthy after `up`, the previous SHA is restored
 #     automatically. Build failures leave the running stack untouched.

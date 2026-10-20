@@ -39,7 +39,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.gateway
-    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-gateway:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in backend/.env}/safenight-gateway:${TAG:-latest}
     container_name: safenight-gateway
     user: "1000:1000"
     cap_drop:
@@ -58,7 +58,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.safety
-    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-safety:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in backend/.env}/safenight-safety:${TAG:-latest}
     container_name: safenight-safety
     user: "1000:1000"
     cap_drop:
@@ -82,7 +82,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.user
-    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-user:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in backend/.env}/safenight-user:${TAG:-latest}
     container_name: safenight-user
     user: "1000:1000"
     cap_drop:
@@ -102,7 +102,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.subscription
-    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-subscription:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in backend/.env}/safenight-subscription:${TAG:-latest}
     container_name: safenight-subscription
     user: "1000:1000"
     cap_drop:
@@ -121,7 +121,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.geocode
-    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-geocode:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in backend/.env}/safenight-geocode:${TAG:-latest}
     container_name: safenight-geocode
     user: "1000:1000"
     cap_drop:
@@ -140,7 +140,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.osm-ingestion
-    image: ${DOCKERHUB_USER:?set DOCKERHUB_USER in backend/.env}/safenight-osm-ingestion:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in backend/.env}/safenight-osm-ingestion:${TAG:-latest}
     container_name: safenight-osm-ingestion
     user: "1000:1000"
     cap_drop:
