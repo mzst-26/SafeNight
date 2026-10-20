@@ -157,6 +157,10 @@ async function ensureUserRecords(userId, email, name) {
 // ─── Strict rate limit for sensitive auth endpoints ──────────────────────────
 // magic-link + verify only — prevents brute-force OTP guessing & email spam.
 // Uses ipOnly because there's no JWT yet at sign-in time.
+// Supabase error text is internal (it can name hosts, schemas or policies), so
+// clients get this fixed message instead. The HTTP status is still returned.
+const GENERIC_AUTH_ERROR = 'Request could not be completed.';
+
 const authSensitiveLimit = require('../../shared/middleware/rateLimiter').createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 20,         // 20 per IP per 15 min (plenty for real users, blocks abuse)
@@ -288,8 +292,13 @@ router.post('/magic-link', authSensitiveLimit, async (req, res, next) => {
     });
 
     if (error) {
-      console.error('[auth] Magic link error:', error.message, error.status, JSON.stringify(error));
-      return res.status(400).json({ error: error.message || 'Failed to send magic link' });
+      // Log only the status and a short code. The raw message and full object can
+      // contain the email address or tokens.
+      console.error('[auth] Magic link error:', {
+        status: error.status ?? null,
+        code: typeof error.code === 'string' ? error.code.slice(0, 64) : null,
+      });
+      return res.status(400).json({ error: GENERIC_AUTH_ERROR });
     }
 
     res.json({ message: 'Magic link sent — check your email' });
@@ -445,7 +454,7 @@ router.post('/update-password', authSensitiveLimit, requireAuth, async (req, res
 
     if (error) {
       console.error('[auth] update-password error:', error.message);
-      return res.status(400).json({ error: error.message || 'Failed to update password' });
+      return res.status(400).json({ error: GENERIC_AUTH_ERROR });
     }
 
     // Password changed — lift any password-login lockout for this account.
@@ -822,6 +831,8 @@ router.delete('/account', requireAuth, async (req, res, next) => {
       'family_pack_members',
     ];
 
+    const failedTables = [];
+
     for (const table of tables) {
       const { error } = await supabase
         .from(table)
@@ -829,6 +840,7 @@ router.delete('/account', requireAuth, async (req, res, next) => {
         .eq('user_id', userId);
       if (error) {
         console.warn(`[auth] Delete from ${table} failed: ${error.message}`);
+        failedTables.push(table);
       }
     }
 
@@ -839,6 +851,7 @@ router.delete('/account', requireAuth, async (req, res, next) => {
       .eq('contact_id', userId);
     if (contactErr) {
       console.warn(`[auth] Delete contacts (as contact) failed: ${contactErr.message}`);
+      failedTables.push('emergency_contacts (as contact)');
     }
 
     // Also delete profiles row using id (not user_id)
@@ -848,6 +861,15 @@ router.delete('/account', requireAuth, async (req, res, next) => {
       .eq('id', userId);
     if (profileErr) {
       console.warn(`[auth] Delete profile by id failed: ${profileErr.message}`);
+      failedTables.push('profiles');
+    }
+
+    // Do not remove the auth user while data remains: the user must be able to retry.
+    if (failedTables.length > 0) {
+      console.error(`[auth] Account deletion aborted for user ${userId}; failed tables: ${failedTables.join(', ')}`);
+      return res.status(500).json({
+        error: 'Account deletion could not be completed. Please try again.',
+      });
     }
 
     // 2. Delete the auth user from Supabase Auth

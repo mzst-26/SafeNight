@@ -22,6 +22,7 @@
 const express = require('express');
 const router = express.Router();
 const { GoogleAuth } = require('google-auth-library');
+const { requireAuth } = require('../../user/middleware/authMiddleware');
 
 const PACKAGE_NAME = 'com.safenight.app';
 
@@ -55,7 +56,7 @@ async function getAuthClient() {
  *   - deviceIntegrity: MEETS_DEVICE_INTEGRITY | MEETS_STRONG_INTEGRITY | etc.
  *   - accountDetails: LICENSED | UNLICENSED | UNEVALUATED
  */
-router.post('/verify', async (req, res) => {
+router.post('/verify', requireAuth, async (req, res) => {
   const { token } = req.body;
   if (!token || typeof token !== 'string') {
     return res.status(400).json({ error: 'Missing or invalid integrity token' });

@@ -22,10 +22,15 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'SafeNight <onboarding@resend.dev>'
  */
 async function sendEmail({ to, subject, html, text }) {
   if (!resend) {
-    console.warn('[email] RESEND_API_KEY not set — logging email instead:');
-    console.log(`[email] To: ${to}`);
+    // Log only the recipient domain and subject: the body can contain tokens or
+    // personal data, and full addresses should not reach logs.
+    const recipients = Array.isArray(to) ? to : [to];
+    const domains = recipients
+      .map((addr) => (typeof addr === 'string' && addr.includes('@') ? addr.split('@').pop() : 'unknown'))
+      .join(', ');
+    console.warn('[email] RESEND_API_KEY not set — logging email instead (body omitted):');
+    console.log(`[email] To domain(s): ${domains}`);
     console.log(`[email] Subject: ${subject}`);
-    console.log(`[email] Body: ${text || html}`);
     return { success: true, fallback: true };
   }
 
@@ -43,7 +48,10 @@ async function sendEmail({ to, subject, html, text }) {
       return { success: false, error };
     }
 
-    console.log(`[email] Sent to ${to} — ID: ${data?.id}`);
+    const sentDomains = (Array.isArray(to) ? to : [to])
+      .map((addr) => (typeof addr === 'string' && addr.includes('@') ? addr.split('@').pop() : 'unknown'))
+      .join(', ');
+    console.log(`[email] Sent to domain(s): ${sentDomains} — ID: ${data?.id}`);
     return { success: true, id: data?.id };
   } catch (err) {
     console.error('[email] Send error:', err.message);
@@ -51,11 +59,22 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
+/** Escape a value for safe interpolation into HTML text or attribute context. */
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Send a gift subscription notification email.
  * Uses table-based layout for maximum client compatibility and deliverability.
  */
 async function sendGiftNotification({ to, name, giftEndDate }) {
+  const safeName = name ? escapeHtml(name) : '';
   const formattedDate = new Date(giftEndDate).toLocaleDateString('en-GB', {
     weekday: 'long',
     year: 'numeric',
@@ -79,7 +98,7 @@ async function sendGiftNotification({ to, name, giftEndDate }) {
         </td></tr>
         <!-- Body -->
         <tr><td style="padding:40px;">
-          <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#1E293B;">Hi${name ? ` ${name}` : ' there'},</p>
+          <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#1E293B;">Hi${safeName ? ` ${safeName}` : ' there'},</p>
           <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.6;">
             Great news! You have been gifted our <strong style="color:#6366F1;">Guarded</strong> subscription
             for being one of the first users of SafeNight.

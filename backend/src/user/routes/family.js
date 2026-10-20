@@ -1052,7 +1052,8 @@ router.post('/checkout', requireAuth, async (req, res, next) => {
     }
 
     const totalMembers = pack.max_members;
-    const returnUrl = req.body.return_url || process.env.FRONTEND_URL || 'http://localhost:8083';
+    // return_url is intentionally not read from the client: resolveReturnUrl lives in
+    // the subscription service, and the Stripe session (which uses it) is created there.
 
     // Return checkout info — the actual Stripe session is created by the subscription service
     const subscriptionServiceUrl = process.env.SUBSCRIPTION_SERVICE_URL || 'http://localhost:3004';
