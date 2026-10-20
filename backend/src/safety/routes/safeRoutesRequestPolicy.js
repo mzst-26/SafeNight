@@ -184,7 +184,7 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
     return {
       ok: false,
       error: SAME_LOCATION,
-      message: 'Your start and destination are the same place. Pick a different destination.',
+      message: 'Your start and destination are too close together to route. Pick a destination further away.',
     };
   }
 

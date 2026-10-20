@@ -882,7 +882,7 @@ async function computeSafeRoutes(
       // zero-length walk, so refuse like the request-level SAME_LOCATION check.
       if (startNode === endNode) {
         throw Object.assign(
-          new Error("Your start and destination are the same place. Pick a different destination."),
+          new Error("Your start and destination are too close together to route. Pick a destination further away."),
           { statusCode: 400, code: "SAME_LOCATION" },
         );
       }
