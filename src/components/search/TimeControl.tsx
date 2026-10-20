@@ -32,13 +32,14 @@ export function TimeControl(props: TimeControlProps) {
                 pressed && canEarlier && localStyles.stepBtnPressed,
                 !canEarlier && localStyles.stepBtnDisabled,
               ]}
+              hitSlop={{ top: 7, bottom: 7, left: 7, right: 7 }}
               onPress={() => step(-15)}
               disabled={!canEarlier}
               accessibilityRole="button"
               accessibilityLabel="Earlier by 15 minutes"
               accessibilityState={{ disabled: !canEarlier }}
             >
-              <Ionicons name="remove" size={22} color="#344054" />
+              <Ionicons name="remove" size={16} color="#344054" />
             </Pressable>
             <View
               style={localStyles.timeCell}
@@ -66,13 +67,14 @@ export function TimeControl(props: TimeControlProps) {
                 pressed && canLater && localStyles.stepBtnPressed,
                 !canLater && localStyles.stepBtnDisabled,
               ]}
+              hitSlop={{ top: 7, bottom: 7, left: 7, right: 7 }}
               onPress={() => step(15)}
               disabled={!canLater}
               accessibilityRole="button"
               accessibilityLabel="Later by 15 minutes"
               accessibilityState={{ disabled: !canLater }}
             >
-              <Ionicons name="add" size={22} color="#344054" />
+              <Ionicons name="add" size={16} color="#344054" />
             </Pressable>
           </View>
         );
@@ -87,12 +89,12 @@ const localStyles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   stepBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 1,
     borderColor: "#d0d5dd",
     backgroundColor: "#ffffff",
@@ -113,14 +115,14 @@ const localStyles = StyleSheet.create({
     justifyContent: "center",
   },
   timeText: {
-    fontSize: 32,
+    fontSize: 20,
     fontWeight: "700",
     color: "#101828",
     fontVariant: ["tabular-nums"],
     textAlign: "center",
   },
   daySlot: {
-    height: 18,
+    height: 16,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -162,6 +162,7 @@ export function MobileWebSearchBar({
   const originRef = useRef<TextInput>(null);
   const destRef = useRef<TextInput>(null);
   const prevHasResultsRef = useRef(hasResults);
+  const prevHasDestinationRef = useRef(false);
   const lastCollapsedDestinationQueryRef = useRef<string | null>(null);
   const destinationFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -417,6 +418,20 @@ export function MobileWebSearchBar({
     hasDestinationSearchResults,
     scheduleCollapse,
   ]);
+
+  // Collapse once a destination is set, whether it came from a search result or a dropped pin.
+  // A pin never changes hasResults, so the results-based effect below would not fire for it.
+  useEffect(() => {
+    const hasDestination = !!manualDest || !!destSearch.place;
+    const justSetDestination = !prevHasDestinationRef.current && hasDestination;
+    prevHasDestinationRef.current = hasDestination;
+    if (!justSetDestination || !expanded) return;
+    if (Platform.OS === "android") {
+      scheduleCollapse(2000);
+      return;
+    }
+    collapse();
+  }, [manualDest, destSearch.place, expanded, collapse, scheduleCollapse]);
 
   // Auto-collapse when results appear
   useEffect(() => {

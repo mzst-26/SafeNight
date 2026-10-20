@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 
+import { colors, radius, spacing, type } from "@/src/theme";
 import {
   defaultTimeState,
   describeTripTime,
@@ -106,6 +107,8 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
       const committed = valueRef.current;
       if (next.mode !== committed.mode || next.hhmm !== committed.hhmm) {
         onChangeRef.current(next);
+        // A time is chosen: fold the control back to its single chip.
+        closePanel();
       }
     }, COMMIT_DELAY_MS);
   };
@@ -163,6 +166,7 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
       <View style={styles.chipRow}>
         <Pressable
           ref={chipRef}
+          hitSlop={{ top: 7, bottom: 7 }}
           onPress={() => setOpen((v) => !v)}
           style={[styles.chip, value.mode !== "now" && styles.chipActive]}
           accessibilityRole="button"
@@ -171,13 +175,13 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
         >
           <Ionicons
             name="time-outline"
-            size={16}
+            size={13}
             color={value.mode !== "now" ? ACCENT : "#475467"}
           />
           <Text style={[styles.chipText, value.mode !== "now" && styles.chipTextActive]}>
             {summary}
           </Text>
-          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color="#667085" />
+          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={12} color="#667085" />
         </Pressable>
         {note !== null && <Text style={styles.noteText}>{note}</Text>}
       </View>
@@ -194,6 +198,7 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
               return (
                 <Pressable
                   key={mode}
+                  hitSlop={{ top: 8, bottom: 8 }}
                   onPress={() => pickMode(mode)}
                   style={[styles.segment, selected && styles.segmentSelected]}
                   accessibilityRole="radio"
@@ -225,50 +230,56 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
 }
 
 export const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 12, paddingVertical: 4 },
-  chipRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
+  wrap: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+  // Centred on the row so the trip-time control sits on the panel's axis.
+  chipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
   chip: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 6,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    gap: spacing.xs,
+    minHeight: 32,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "#d0d5dd",
-    backgroundColor: "#ffffff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  chipActive: { borderColor: "#1570ef", backgroundColor: "#f0f9ff" },
-  chipText: { fontSize: 14, fontWeight: "600", color: "#344054" },
+  chipActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  chipText: { ...type.label, color: colors.textSecondary },
   chipTextActive: { color: ACCENT },
-  noteText: { fontSize: 13, color: "#475467" },
+  noteText: { ...type.caption, color: colors.textSecondary },
   panel: {
-    marginTop: 6,
-    gap: 6,
-    padding: 8,
-    borderRadius: 12,
+    marginTop: spacing.xs,
+    gap: spacing.xs,
+    padding: spacing.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "#eaecf0",
-    backgroundColor: "#ffffff",
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.surface,
   },
   segments: {
     flexDirection: "row",
-    borderRadius: 10,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: "#eaecf0",
-    backgroundColor: "#f2f4f7",
-    padding: 2,
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.surfaceMuted,
+    padding: 1,
   },
   segment: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 28,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 8,
+    borderRadius: 6,
   },
-  segmentSelected: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#1570ef" },
-  segmentText: { fontSize: 14, fontWeight: "500", color: "#475467" },
+  segmentSelected: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary },
+  segmentText: { ...type.label, fontWeight: "500", color: colors.textSecondary },
   segmentTextSelected: { color: ACCENT, fontWeight: "700" },
-  fieldSlot: { minHeight: 44 },
+  fieldSlot: { minHeight: 32 },
 });

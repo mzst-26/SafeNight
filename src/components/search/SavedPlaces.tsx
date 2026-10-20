@@ -25,6 +25,7 @@ import {
 
 import type { SavedPlace } from '@/src/hooks/useSavedPlaces';
 import { PLACE_PRESETS } from '@/src/hooks/useSavedPlaces';
+import { colors, radius, spacing, type } from '@/src/theme';
 
 interface SavedPlacesProps {
   places: SavedPlace[];
@@ -225,7 +226,7 @@ export function SavedPlaces({
             ]}
             onPress={() => handleTapPreset(preset)}
           >
-            <Ionicons name={preset.icon as any} size={13} color="#98a2b3" />
+            <Ionicons name={preset.icon as any} size={12} color="#98a2b3" />
             <Text style={styles.pillLabelEmpty} numberOfLines={1}>
               {preset.label}
             </Text>
@@ -400,10 +401,13 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 12,
   },
+  // Fills the viewport and centres the chips when they all fit; scrolls when they don't.
   scrollContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    gap: 8,
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    gap: spacing.sm,
     alignItems: 'center',
   },
 
@@ -422,9 +426,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.32)',
   },
   listIconPill: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
@@ -434,13 +438,14 @@ const styles = StyleSheet.create({
   } as any,
 
   // ── Pill base ──
+  // Every chip shares one height so the row reads as a single line.
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
+    gap: spacing.xs,
+    minHeight: 32,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.full,
     borderWidth: 1,
   },
   pillSaved: {
@@ -448,9 +453,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(21, 112, 239, 0.25)',
   },
   pillEmpty: {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderColor: 'rgba(255, 255, 255, 0.95)',
-    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+    backgroundColor: colors.glass,
+    borderColor: colors.glassBorder,
+    boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.9), ${colors.glassShadow}`,
   } as any,
   pillAdd: {
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
@@ -467,15 +472,13 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.95 }],
   },
   pillLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#1570ef',
+    ...type.label,
+    color: colors.primary,
     maxWidth: 80,
   },
   pillLabelEmpty: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#475467',
+    ...type.caption,
+    color: colors.textSecondary,
     maxWidth: 80,
   },
   pillListLabel: {
