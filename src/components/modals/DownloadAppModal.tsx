@@ -6,7 +6,7 @@ import { glassSurface, glassScrim } from '@/src/components/ui/glass';
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 const APK_URL = 'https://github.com/Jrtowers-prog/PlymHack2026New/releases/download/latest/SafeNightHome.apk';
 
@@ -75,6 +75,7 @@ export function DownloadAppModal({ visible, onClose }: DownloadAppModalProps) {
   if (!visible) return null;
 
   return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
     <View style={styles.overlay}>
       <View style={styles.card}>
         <Ionicons name="phone-portrait-outline" size={48} color="#1570EF" />
@@ -147,6 +148,7 @@ export function DownloadAppModal({ visible, onClose }: DownloadAppModalProps) {
         </Pressable>
       </View>
     </View>
+    </Modal>
   );
 }
 

@@ -198,7 +198,7 @@ export function LimitReachedModal({ visible, limitInfo, onClose, onUpgrade }: Pr
             <Ionicons name="arrow-up-circle" size={16} color="#7C3AED" />
             <Text style={styles.upgradeText}>
               Upgrade to{' '}
-              {limitInfo.currentTier === 'free' ? 'Pro or Premium' : 'Premium'}{' '}
+              {limitInfo.currentTier === 'free' ? 'Guarded' : 'Premium'}{' '}
               for higher limits or unlimited access.
             </Text>
           </View>

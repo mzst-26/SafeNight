@@ -16,6 +16,7 @@ import {
     Animated,
   Easing,
     InteractionManager,
+    Linking,
     type LayoutChangeEvent,
     Platform,
     Pressable,
@@ -674,6 +675,8 @@ export function MobileWebSearchBar({
                 onPress={collapse}
                 style={styles.backButton}
                 hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Back to map"
               >
                 <Ionicons name="arrow-back" size={22} color="#374151" />
               </Pressable>
@@ -688,7 +691,8 @@ export function MobileWebSearchBar({
                 }}
                 style={styles.swapBtn}
                 hitSlop={8}
-                accessibilityLabel="Swap origin and destination"
+                accessibilityRole="button"
+                accessibilityLabel="Swap start and destination"
               >
                 <Ionicons name="swap-vertical" size={18} color="#667085" />
               </Pressable>
@@ -725,8 +729,25 @@ export function MobileWebSearchBar({
                     color="#1570ef"
                   />
                   <Text style={styles.locationText}>
-                    {location ? "Your location" : "Getting location..."}
+                    {location
+                      ? "Your location"
+                      : Platform.OS === "web"
+                        ? "Getting location..."
+                        : "Location is off. Tap to enter a start point."}
                   </Text>
+                  {!location && Platform.OS !== "web" && (
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        Linking.openSettings().catch(() => undefined);
+                      }}
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel="Open settings"
+                    >
+                      <Text style={styles.openSettingsText}>Open settings</Text>
+                    </Pressable>
+                  )}
                   <Pressable
                     style={[
                       styles.pinButton,
@@ -937,6 +958,13 @@ export function MobileWebSearchBar({
                 )}
               </Pressable>
             </View>
+            {destSearch.status === "error" && (
+              <Text style={styles.searchFeedbackText}>
+                {destSearch.error?.code === "no_results"
+                  ? "No places match that search."
+                  : "Search failed. Try again."}
+              </Text>
+            )}
 
             {/* ── Saved places (inside card, below inputs, only when no predictions) ── */}
             {activePredictions.length === 0 &&
@@ -1229,6 +1257,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: "#374151",
+  },
+  openSettingsText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1570ef",
+  },
+  searchFeedbackText: {
+    fontSize: 12,
+    color: "#b42318",
+    paddingHorizontal: 16,
+    paddingBottom: 6,
   },
   swapBtn: {
     width: 32,

@@ -69,14 +69,28 @@ interface Props {
   onOpenFamilyPack?: () => void;
 }
 
+const TIER_RANK: Record<string, number> = {
+  free: 0,
+  pro: 1,
+  premium: 2,
+};
+
+const TIER_NAMES: Record<string, string> = {
+  free: 'Free',
+  pro: 'Guarded',
+  premium: 'Premium',
+};
+
 const TIER_COLORS: Record<string, string> = {
   free: '#6B7280',
   pro: '#7C3AED',
+  premium: '#B45309',
 };
 
 const TIER_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   free: 'shield-outline',
   pro: 'shield-checkmark',
+  premium: 'star',
 };
 
 function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, subscriptionEndsAt, onClose, onSubscriptionChanged, onOpenFamilyPack }: Props) {
@@ -219,10 +233,12 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
   // Family pack members are always on the 'pro' tier, even if the profile
   // denormalized field hasn't been updated yet. Avoid "Free (Family Pack)".
   const effectiveTier = isFamilyPack ? 'pro' : currentTier;
-  const isPaid = effectiveTier === 'pro';
+  const isPaid = (TIER_RANK[effectiveTier] ?? 0) > 0;
   const stripeSub = status?.stripeSubscription;
 
-  const filteredPlans = LOCAL_PLANS.filter((p) => p.tier !== effectiveTier);
+  // Only offer plans above the current tier.
+  const currentRank = TIER_RANK[effectiveTier] ?? 0;
+  const filteredPlans = LOCAL_PLANS.filter((p) => (TIER_RANK[p.tier] ?? 0) > currentRank);
 
   return (
     <Modal
@@ -256,14 +272,14 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
                   color={TIER_COLORS[effectiveTier]}
                 />
                 <Text style={[styles.currentPlanText, { color: TIER_COLORS[effectiveTier] }]}>
-                  Current plan: {effectiveTier === 'pro' ? 'Guarded' : 'Free'}
+                  Current plan: {TIER_NAMES[effectiveTier] ?? 'Free'}
                   {isGift ? ' (Gift)' : ''}
                   {isFamilyPack ? ' (Family Pack)' : ''}
                 </Text>
               </View>
 
               {/* Gift subscription info */}
-              {isGift && subscriptionEndsAt && currentTier === 'pro' && (
+              {isGift && subscriptionEndsAt && (TIER_RANK[currentTier] ?? 0) >= TIER_RANK.pro && (
                 <View style={styles.giftInfoCard}>
                   <View style={styles.giftInfoHeader}>
                     <Text style={styles.giftInfoEmoji}>🎁</Text>
@@ -287,7 +303,7 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
               )}
 
               {/* Subscription end date (non-gift, paid) */}
-              {!isGift && subscriptionEndsAt && currentTier === 'pro' && !stripeSub && (
+              {!isGift && subscriptionEndsAt && (TIER_RANK[currentTier] ?? 0) >= TIER_RANK.pro && !stripeSub && (
                 <View style={styles.endDateCard}>
                   <Ionicons name="time-outline" size={18} color="#6B7280" />
                   <Text style={styles.endDateCardText}>
@@ -370,7 +386,7 @@ function SubscriptionModalInner({ visible, currentTier, isGift, isFamilyPack, su
               {/* Plan cards — only show plans the user is NOT currently on */}
               {filteredPlans.length === 0 && (
                 <View style={{ padding: 20, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 14, color: '#6B7280' }}>You're on the top plan!</Text>
+                  <Text style={{ fontSize: 14, color: '#6B7280' }}>{"You're on the top plan!"}</Text>
                 </View>
               )}
               {filteredPlans

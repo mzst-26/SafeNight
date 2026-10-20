@@ -21,7 +21,7 @@ export function AndroidDownloadBanner({ embedded }: { embedded?: boolean } = {})
         accessibilityRole="link"
       >
         <Ionicons name="logo-google-playstore" size={14} color="#fff" />
-        <Text style={styles.text}>Get the Android app for full navigation</Text>
+        <Text style={styles.text}>Download the Android app</Text>
         <Ionicons name="download-outline" size={14} color="#fff" />
       </Pressable>
       <Pressable onPress={() => setDismissed(true)} style={styles.close} accessibilityRole="button" accessibilityLabel="Dismiss">

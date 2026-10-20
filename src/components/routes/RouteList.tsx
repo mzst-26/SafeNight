@@ -7,6 +7,8 @@ import { RouteCard } from '@/src/components/routes/RouteCard';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { RouteComparison } from '@/src/utils/routeComparison';
 
+const MAX_VISIBLE_ROUTES = 5;
+
 interface RouteListProps {
   routes: SafeRoute[];
   selectedRouteId: string | null;
@@ -33,6 +35,7 @@ export function RouteList({
   updatingLabel,
   hideSafety = false,
 }: RouteListProps) {
+  const hiddenCount = Math.max(0, routes.length - MAX_VISIBLE_ROUTES);
   const recommendedId = routes.find((r) => r.isSafest)?.id;
   const recommendedComparison =
     routeComparison?.find((c) => c.routeId === recommendedId) ?? null;
@@ -50,19 +53,31 @@ export function RouteList({
           {updatingLabel}
         </Text>
       ) : null}
-      {routes.slice(0, 5).map((route, index) => (
-        <RouteCard
-          key={route.id}
-          route={route}
-          index={index}
-          isSelected={route.id === selectedRouteId}
-          onSelect={() => onSelectRoute(route.id)}
-          detailsPanel={route.id === selectedRouteId && !hideSafety ? detailsPanel : undefined}
-          comparison={routeComparison?.find((c) => c.routeId === route.id) ?? null}
-          recommendedComparison={recommendedComparison}
-          hideSafety={hideSafety}
-        />
-      ))}
+      {updatingLabel ? (
+        // Stale cards are not tappable while the chosen time is still loading.
+        <Text style={styles.waiting}>
+          {`Waiting for routes for ${updatingLabel.replace(/^Updating for /, '')}`}
+        </Text>
+      ) : (
+        <>
+          {routes.slice(0, MAX_VISIBLE_ROUTES).map((route, index) => (
+            <RouteCard
+              key={route.id}
+              route={route}
+              index={index}
+              isSelected={route.id === selectedRouteId}
+              onSelect={() => onSelectRoute(route.id)}
+              detailsPanel={route.id === selectedRouteId && !hideSafety ? detailsPanel : undefined}
+              comparison={routeComparison?.find((c) => c.routeId === route.id) ?? null}
+              recommendedComparison={recommendedComparison}
+              hideSafety={hideSafety}
+            />
+          ))}
+          {hiddenCount > 0 ? (
+            <Text style={styles.overflow}>{`+${hiddenCount} more routes not shown`}</Text>
+          ) : null}
+        </>
+      )}
     </View>
   );
 }
@@ -73,6 +88,8 @@ const styles = StyleSheet.create({
   },
   dimmed: { opacity: 0.55 },
   updating: { fontSize: 13, fontWeight: '600', color: '#475467', paddingBottom: 6 },
+  waiting: { fontSize: 14, color: '#475467', paddingVertical: 12 },
+  overflow: { fontSize: 13, color: '#475467', paddingTop: 8, textAlign: 'center' },
   columnWeb: {
     flex: 1,
     maxWidth: '50%' as any,

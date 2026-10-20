@@ -2,7 +2,7 @@ import { glassSurface, glassScrim } from '@/src/components/ui/glass';
 /**
  * OnboardingModal — First-launch consent overlay.
  */
-import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 interface OnboardingModalProps {
   visible: boolean;
@@ -15,6 +15,7 @@ export function OnboardingModal({ visible, error, onAccept, onDismiss }: Onboard
   if (!visible) return null;
 
   return (
+    <Modal visible transparent animationType="fade" onRequestClose={onDismiss}>
     <View style={styles.overlay}>
       <View style={styles.card}>
         <Image
@@ -47,6 +48,7 @@ export function OnboardingModal({ visible, error, onAccept, onDismiss }: Onboard
         </Pressable>
       </View>
     </View>
+    </Modal>
   );
 }
 

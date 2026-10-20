@@ -37,7 +37,7 @@ export function AIExplanationModal({ visible, ai, onClose }: AIExplanationModalP
               <Ionicons name="sparkles" size={20} color="#7c3aed" />
               <Text style={styles.title}>AI Route Insights</Text>
             </View>
-            <Pressable onPress={onClose}>
+            <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
               <Ionicons name="close" size={22} color="#667085" />
             </Pressable>
           </View>

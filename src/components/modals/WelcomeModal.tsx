@@ -148,6 +148,15 @@ export default function WelcomeModal({
     setStep('buddy');
   }, []);
 
+  // "Skip for now" on step 1 persists the accepted state so the wizard does not
+  // reappear on the next launch, the same way finishing the wizard does.
+  const handleSkipForNow = useCallback(() => {
+    setOnboardingAccepted().catch((error) => {
+      console.warn('[onboarding] could not persist skip', error);
+    });
+    onComplete();
+  }, [onComplete]);
+
   // ─── Step 3: Buddy ────────────────────────────────────────────────────────
 
   const handleFinish = useCallback(async () => {
@@ -168,7 +177,7 @@ export default function WelcomeModal({
       visible={visible}
       animationType="fade"
       transparent
-      onRequestClose={() => {}}
+      onRequestClose={handleSkipForNow}
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -245,6 +254,9 @@ export default function WelcomeModal({
                 ) : (
                   <Text style={styles.buttonText}>Continue</Text>
                 )}
+              </Pressable>
+              <Pressable style={styles.skipBtn} onPress={handleSkipForNow} accessibilityRole="button">
+                <Text style={styles.skipText}>Skip for now</Text>
               </Pressable>
             </View>
           )}
