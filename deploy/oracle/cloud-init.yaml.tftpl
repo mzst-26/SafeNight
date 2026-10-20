@@ -33,5 +33,6 @@ runcmd:
   - git -C /opt/safenight checkout --detach ${repo_ref}
   # .env is not in metadata: copy backend/.env to the VM manually (secrets stay off the cloud side)
 
-  # Build and start everything. restart: unless-stopped brings it back after reboots.
-  - cd /opt/safenight/backend && docker compose up -d --build
+  # First deploy goes through the same gated script as updates (release tags only, health-checked).
+  # restart: unless-stopped brings the stack back after reboots.
+  - /opt/safenight/deploy/oracle/update-stack.sh

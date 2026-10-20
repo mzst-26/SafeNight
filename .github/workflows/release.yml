@@ -1,0 +1,24 @@
+name: Release
+
+# A release is cut only from a tag. The release is created after the full CI suite passes,
+# and the VM deploys a tag only once its GitHub Release exists (see deploy/oracle/update-stack.sh).
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci-test-all-coverage.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes

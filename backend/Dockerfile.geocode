@@ -4,6 +4,8 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN npm ci --omit=dev
+# Fail the image build if core dependencies are missing or broken
+RUN node -e "require('express');require('dotenv')"
 
 COPY src ./src
 COPY scripts ./scripts

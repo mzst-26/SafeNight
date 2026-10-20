@@ -11,3 +11,4 @@ ssh_public_key   = "ssh-ed25519 AAAA... you@example.com"
 # ad_index       = 0
 # boot_volume_gb = 100
 # repo_url       = "https://github.com/mzst-26/SafeNight.git"
+repo_ref = "v1.0.0"  # release tag to deploy; never main

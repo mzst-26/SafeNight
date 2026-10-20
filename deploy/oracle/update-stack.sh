@@ -1,21 +1,93 @@
 #!/usr/bin/env bash
-# Pulls the latest main from GitHub and redeploys the stack when it has changed.
-# Runs on the VM every 10 minutes via safenight-update.timer. Output goes to the journal.
-# If a build fails, docker compose stops before replacing anything, so the running stack stays up.
+# Deploys the newest release tag (vX.Y.Z) to this VM. Runs every 10 minutes via safenight-update.timer.
+#
+# Safety rules:
+#   - Only tags with a published GitHub Release are deployed. The release workflow publishes one
+#     only after the full CI suite is green, so pushes to main never reach the server.
+#   - Each build is tagged with its commit SHA (safenight/<service>:<sha>), so the previous
+#     stack's images stay on disk as rollback points.
+#   - If any service is not running or not healthy after `up`, the previous SHA is restored
+#     automatically. Build failures leave the running stack untouched.
 set -euo pipefail
 
 REPO=/opt/safenight
-cd "$REPO"
+STATE="$REPO/.deploy-state"          # line 1: deployed commit SHA, line 2: its tag
+GH_REPO=${GH_REPO:-mzst-26/SafeNight}
+HEALTH_WAIT_SECONDS=${HEALTH_WAIT_SECONDS:-240}
 
-git fetch --quiet origin main
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
-if [ "$LOCAL" = "$REMOTE" ]; then
+cd "$REPO"
+git fetch --quiet --tags origin
+
+LATEST=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+if [ -z "$LATEST" ]; then
+  echo "no release tags yet"
   exit 0
 fi
 
-echo "updating $(git rev-parse --short "$LOCAL") -> $(git rev-parse --short "$REMOTE")"
-git merge --ff-only origin/main
+DEPLOYED_TAG=$(sed -n 2p "$STATE" 2>/dev/null || true)
+if [ "$LATEST" = "$DEPLOYED_TAG" ]; then
+  exit 0
+fi
+
+if ! curl -fsS -o /dev/null "https://api.github.com/repos/$GH_REPO/releases/tags/$LATEST"; then
+  echo "release $LATEST is not published (CI not green or repo private); skipping"
+  exit 0
+fi
+
+NEW_SHA=$(git rev-parse "$LATEST^{commit}")
+PREV_SHA=$(sed -n 1p "$STATE" 2>/dev/null || true)
+echo "deploying $LATEST ($(git rev-parse --short=12 "$NEW_SHA")), previous: ${PREV_SHA:-none}"
+
+# Waits until every service is running and, where it has a healthcheck, healthy.
+wait_healthy() {
+  local deadline=$((SECONDS + HEALTH_WAIT_SECONDS)) id state health
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local pending=0
+    for id in $(docker compose ps -q); do
+      state=$(docker inspect --format '{{.State.Status}}' "$id")
+      health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
+      if [ "$state" != "running" ] || [ "$health" = "unhealthy" ]; then
+        echo "service $(docker inspect --format '{{.Name}}' "$id") is $state/$health"
+        return 1
+      fi
+      [ "$health" = "starting" ] && pending=1
+    done
+    [ "$pending" -eq 0 ] && return 0
+    sleep 5
+  done
+  echo "timed out waiting for healthy services"
+  return 1
+}
+
+# 1. Build the new images. A failure here leaves the running stack untouched.
+git checkout --quiet --detach "$NEW_SHA"
 cd backend
-docker compose up -d --build
-echo "deployed $(git -C "$REPO" rev-parse --short HEAD)"
+if ! TAG="$NEW_SHA" docker compose build --no-cache; then
+  echo "build failed for $LATEST; running stack left as is"
+  exit 1
+fi
+
+# 2. Switch over and verify.
+TAG="$NEW_SHA" docker compose up -d --remove-orphans
+if wait_healthy; then
+  printf '%s\n%s\n' "$NEW_SHA" "$LATEST" > "$STATE"
+  echo "deployed $LATEST"
+  exit 0
+fi
+
+# 3. Roll back to the previous SHA's images (already built, so no rebuild).
+echo "$LATEST failed health checks; rolling back"
+if [ -z "$PREV_SHA" ]; then
+  echo "no previous deploy to roll back to"
+  exit 1
+fi
+cd "$REPO"
+git checkout --quiet --detach "$PREV_SHA"
+cd backend
+TAG="$PREV_SHA" docker compose up -d --remove-orphans --no-build
+if wait_healthy; then
+  echo "rolled back to $(git -C "$REPO" describe --tags --exact-match "$PREV_SHA" 2>/dev/null || echo "$PREV_SHA")"
+else
+  echo "ROLLBACK ALSO UNHEALTHY: manual intervention needed"
+fi
+exit 1

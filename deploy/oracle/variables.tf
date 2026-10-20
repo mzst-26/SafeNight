@@ -73,6 +73,10 @@ variable "ssh_allowed_cidr" {
 
 variable "repo_ref" {
   type        = string
-  default     = "main"
-  description = "Git tag or full commit SHA to deploy. Set a tag or SHA in terraform.tfvars to pin the deploy; the default tracks the main branch."
+  description = "Release tag to check out on first boot (e.g. v1.0.0). Must be a tag; the VM then follows the newest published release. Never main."
+
+  validation {
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+$", var.repo_ref))
+    error_message = "repo_ref must be a release tag such as v1.0.0, not a branch."
+  }
 }

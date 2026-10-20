@@ -7,6 +7,13 @@
 #   ALLOWED_ORIGINS=https://safenight.netlify.app
 #   ...the same secrets the Render services use (Supabase, Stripe, OpenAI, ...)
 
+x-healthcheck: &node-health
+  test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+  interval: 15s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
 services:
   caddy:
     image: caddy:2
@@ -32,7 +39,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.gateway
-    image: safenight/gateway:latest
+      network: host
+    image: safenight/gateway:${TAG:-latest}
     container_name: safenight-gateway
     user: "1000:1000"
     cap_drop:
@@ -45,12 +53,14 @@ services:
       - PORT=3001
       - NODE_ENV=production
     restart: unless-stopped
+    healthcheck: *node-health
 
   safety:
     build:
       context: .
       dockerfile: Dockerfile.safety
-    image: safenight/safety:latest
+      network: host
+    image: safenight/safety:${TAG:-latest}
     container_name: safenight-safety
     user: "1000:1000"
     cap_drop:
@@ -68,12 +78,14 @@ services:
     volumes:
       - safety-cache:/app/cache
     restart: unless-stopped
+    healthcheck: *node-health
 
   user:
     build:
       context: .
       dockerfile: Dockerfile.user
-    image: safenight/user:latest
+      network: host
+    image: safenight/user:${TAG:-latest}
     container_name: safenight-user
     user: "1000:1000"
     cap_drop:
@@ -87,12 +99,14 @@ services:
       - NODE_ENV=production
       - SUBSCRIPTION_SERVICE_URL=http://subscription:3004
     restart: unless-stopped
+    healthcheck: *node-health
 
   subscription:
     build:
       context: .
       dockerfile: Dockerfile.subscription
-    image: safenight/subscription:latest
+      network: host
+    image: safenight/subscription:${TAG:-latest}
     container_name: safenight-subscription
     user: "1000:1000"
     cap_drop:
@@ -105,12 +119,14 @@ services:
       - PORT=3004
       - NODE_ENV=production
     restart: unless-stopped
+    healthcheck: *node-health
 
   geocode:
     build:
       context: .
       dockerfile: Dockerfile.geocode
-    image: safenight/geocode:latest
+      network: host
+    image: safenight/geocode:${TAG:-latest}
     container_name: safenight-geocode
     user: "1000:1000"
     cap_drop:
@@ -123,12 +139,14 @@ services:
       - PORT=3005
       - NODE_ENV=production
     restart: unless-stopped
+    healthcheck: *node-health
 
   osm-ingestion:
     build:
       context: .
       dockerfile: Dockerfile.osm-ingestion
-    image: safenight/osm-ingestion:latest
+      network: host
+    image: safenight/osm-ingestion:${TAG:-latest}
     container_name: safenight-osm-ingestion
     user: "1000:1000"
     cap_drop:
@@ -144,6 +162,7 @@ services:
     volumes:
       - osm-data:/app/data
     restart: unless-stopped
+    healthcheck: *node-health
 
 volumes:
   osm-data:
