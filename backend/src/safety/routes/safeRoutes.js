@@ -535,9 +535,9 @@ router.get("/stream", async (req, res) => {
       return res.end();
     }
 
+    // Never forward raw upstream error text (it can embed response bodies); GET answers INTERNAL_ERROR the same way.
     send("error", {
-      message:
-        err?.message || "Something went wrong while streaming route progress.",
+      message: "Something went wrong while streaming route progress.",
       pct: 0,
     });
     cleanup();

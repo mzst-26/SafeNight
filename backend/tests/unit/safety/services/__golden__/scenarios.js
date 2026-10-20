@@ -70,7 +70,7 @@ function graphSummary(graph) {
 
 const routeSummary = (route) => norm({ ...route });
 
-// ── scenario: three streets (safetyGraph.v2.test.js) ───────────────────────
+// ── scenario: three streets (safetyGraph.model.test.js) ───────────────────────
 
 const LAT = 51.5;
 const LNG = -0.1;

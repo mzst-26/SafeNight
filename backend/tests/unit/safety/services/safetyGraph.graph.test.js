@@ -25,7 +25,7 @@ const DLNG = 0.0016; // ~111 m at this latitude
 
 const NIGHT = { hour: 23, now: new Date('2026-10-19T22:30:00Z') }; // 23:30 London, BST
 
-/** Same three-street network as safetyGraph.v2.test.js: street U (unmapped) is edges 3-5. */
+/** Same three-street network as safetyGraph.model.test.js: street U (unmapped) is edges 3-5. */
 function streetNetwork() {
   const elements = [];
   const streets = [
