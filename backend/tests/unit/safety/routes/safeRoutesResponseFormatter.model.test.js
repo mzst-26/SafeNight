@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// v2 formatter contract. safetyGraph is mocked: its v2 breakdown is derived from the edges it is
+// Formatter contract for the current model. safetyGraph is mocked: its breakdown is derived from the edges it is
 // given, so the expected numbers can be worked out by hand in each test.
 
 jest.mock('../../../../src/safety/services/safetyGraph', () => ({
@@ -123,7 +123,6 @@ function baseArgs(overrides = {}) {
     rawRoutes: [rawRoute(4)],
     osmNodes,
     edges,
-    weights: {},
     cctvNodes: [],
     transitNodes: [],
     nodeDegree: new Map(),
@@ -141,7 +140,7 @@ function baseArgs(overrides = {}) {
   };
 }
 
-describe('safeRoutesResponseFormatter (v2)', () => {
+describe('safeRoutesResponseFormatter model', () => {
   test('score comes from routeRisk, not the legacy overall value', () => {
     const { osmNodes, edges } = buildEdges(4, { risk: 0.39 });
     const [route] = buildRouteResponses(baseArgs({ osmNodes, edges }));

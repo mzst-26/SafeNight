@@ -2,7 +2,7 @@
  * crimeClient.js — UK Police API client with crime-type weighting.
  *
  * ACCURACY IMPROVEMENTS:
- *   • Tags each crime with its category severity (violent > property > nuisance); the v2 model
+ *   • Tags each crime with its category severity (violent > property > nuisance); the scoring model
  *     (scoring/crimeRisk.js) weights crimes by severity and by the month they were recorded
  *   • 24-hour cache — crime data only updates monthly
  *   • Handles API limits gracefully
@@ -18,7 +18,7 @@
 const POLICE_API_BASE = 'https://data.police.uk/api';
 
 const { createSafetyCacheStore } = require('./cacheStore');
-// Severity table lives in crimeSeverity.js (shared with the v2 scoring model).
+// Severity table lives in crimeSeverity.js (shared with the scoring model).
 const { CRIME_SEVERITY, severityOf } = require('./crimeSeverity');
 // Outage status values are defined once, in the scoring model.
 const { STATUS_OK: CRIME_STATUS_OK, STATUS_UNAVAILABLE: CRIME_STATUS_UNAVAILABLE } = require('../scoring/crimeRisk');

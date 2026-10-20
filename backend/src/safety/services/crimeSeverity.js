@@ -2,7 +2,7 @@
  * crimeSeverity.js — Severity of each UK Police API crime category.
  *
  * The single source of the category table. Used by the legacy crime client (to tag each
- * crime) and by the v2 scoring model (to weight crimes), so the two can never disagree.
+ * crime) and by the scoring model (to weight crimes), so the two can never disagree.
  * Severity runs from 0 to 1: violent crime is most severe, shoplifting least.
  */
 

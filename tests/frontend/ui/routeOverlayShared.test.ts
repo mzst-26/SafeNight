@@ -6,7 +6,17 @@ import { CORE_JS } from '@/src/components/maps/inline/core';
 import { FORMAT_JS } from '@/src/components/maps/inline/format';
 import { LEGEND_JS } from '@/src/components/maps/inline/legend';
 import { ROUTE_OVERLAY_CSS } from '@/src/components/maps/inline/overlayCss';
-import { RL_DASH, RL_DASH_PX } from '@/src/components/maps/mapConstants';
+import { SCREEN_CLUSTER_JS } from '@/src/components/maps/inline/screenCluster';
+import {
+  RL_ATTRIBUTION_HEIGHT_PX,
+  RL_DASH,
+  RL_DASH_PX,
+  RL_DASH_UNITS,
+  RL_LEGEND_ATTRIBUTION_GAP_PX,
+  RL_LINE_OPACITY,
+  RL_LINE_WIDTH,
+  RL_TOUCH_TARGET_PX,
+} from '@/src/components/maps/mapConstants';
 import { buildMapHtml } from '@/src/components/maps/RouteMap.native';
 import { buildLeafletHtml } from '@/src/components/maps/RouteMap.web';
 import { RISK_RAMP } from '@/src/components/maps/routeLayers';
@@ -155,6 +165,44 @@ describe('shared overlay CSS', () => {
   it('caps the legend at 200px wide', () => {
     expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-legend\{[^}]*max-width:min\(200px,46vw\)/);
   });
+
+  it('makes the whole legend header row a full-width tap target of at least 44px', () => {
+    const rule = ROUTE_OVERLAY_CSS.match(/\.rl-legend-head\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toContain(`min-height:${RL_TOUCH_TARGET_PX}px`);
+    expect(rule).toContain('width:100%');
+    expect(rule).toContain('align-items:center');
+    expect(rule).toContain('box-sizing:border-box');
+  });
+
+  it('keeps the legend compact: padding sits inside the header, not around the legend', () => {
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-legend\{[^}]*padding:0[;}]/);
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-legend-head\{[^}]*padding:0 10px/);
+  });
+
+  it('styles the persistent notes line at 12px', () => {
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-legend-notes\{[^}]*padding:/);
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-legend-note\{[^}]*font-size:12px/);
+  });
+});
+
+describe('shared line constants', () => {
+  it('derives the MapLibre dash units and the legend px pattern from the single RL_DASH string', () => {
+    const [dot, gap] = RL_DASH.split(' ').map(Number);
+    expect(RL_DASH_PX).toEqual([dot, gap]);
+    expect(RL_DASH_UNITS[0] * RL_LINE_WIDTH).toBeCloseTo(dot, 10);
+    expect(RL_DASH_UNITS[1] * RL_LINE_WIDTH).toBeCloseTo(gap, 10);
+    // Same period on both renderers: Leaflet px pattern == MapLibre units * line width.
+    expect((RL_DASH_UNITS[0] + RL_DASH_UNITS[1]) * RL_LINE_WIDTH).toBeCloseTo(dot + gap, 10);
+  });
+
+  it('shares one solid line opacity', () => {
+    expect(RL_LINE_OPACITY).toBe(1);
+  });
+
+  it('keeps the legend bottom margin at least the attribution height plus 4px', () => {
+    expect(RL_LEGEND_ATTRIBUTION_GAP_PX).toBeGreaterThanOrEqual(4);
+    expect(RL_ATTRIBUTION_HEIGHT_PX).toBeGreaterThan(0);
+  });
 });
 
 describe('shared legend', () => {
@@ -213,15 +261,52 @@ describe('shared legend', () => {
 
     const native = make(420, RL_DASH_PX.join(' '));
     native.ctl.update(spec());
-    expect(native.body.querySelector('svg line')?.getAttribute('stroke-dasharray')).toBe('0.7 14.7');
+    expect(native.body.querySelector('svg line')?.getAttribute('stroke-dasharray')).toBe(RL_DASH);
   });
 
-  it('renders notes as text, at most four', () => {
-    const { ctl, body } = make();
+  it('renders notes as text, at most four, in a persistent line outside the collapsible body', () => {
+    const { root, ctl, body } = make();
     ctl.update(spec({ notes: ['<b>x</b>', 'b', 'c', 'd', 'e'] }));
-    const notes = Array.from(body.querySelectorAll('.rl-legend-note'));
+    const notes = Array.from(root.querySelectorAll('.rl-legend-note'));
     expect(notes.map((n) => n.textContent)).toEqual(['<b>x</b>', 'b', 'c', 'd']);
-    expect(body.querySelector('b')).toBeNull();
+    expect(root.querySelector('b')).toBeNull();
+    expect(body.querySelector('.rl-legend-note')).toBeNull();
+    const holder = root.querySelector('.rl-legend-notes') as HTMLElement;
+    expect(holder.contains(notes[0])).toBe(true);
+    expect(body.contains(holder)).toBe(false);
+  });
+
+  it('places the notes directly under the header, before the body', () => {
+    const { root, ctl } = make();
+    ctl.update(spec({ notes: ['Crime data unavailable'] }));
+    const order = Array.from(root.children).map((c) => c.className.split(' ')[0]);
+    expect(order).toEqual(['rl-legend-head', 'rl-legend-notes', 'rl-legend-body']);
+  });
+
+  it('keeps the notes visible while the legend is collapsed (narrow viewport default and after a toggle)', () => {
+    const narrow = make(390);
+    narrow.ctl.update(spec({ notes: ['Crime data unavailable'] }));
+    narrow.ctl.setVisible(true);
+    expect(narrow.body.style.display).toBe('none');
+    const holder = narrow.root.querySelector('.rl-legend-notes') as HTMLElement;
+    expect(holder.style.display).not.toBe('none');
+    expect(holder.textContent).toBe('Crime data unavailable');
+
+    const wide = make(420);
+    wide.ctl.update(spec({ notes: ['Crime data unavailable'] }));
+    wide.ctl.setVisible(true);
+    (wide.root.querySelector('.rl-legend-head') as HTMLElement).click();
+    expect(wide.body.style.display).toBe('none');
+    expect((wide.root.querySelector('.rl-legend-notes') as HTMLElement).style.display).not.toBe('none');
+  });
+
+  it('hides the notes line when there are no notes and clears stale notes on update', () => {
+    const { root, ctl } = make();
+    ctl.update(spec({ notes: ['old'] }));
+    ctl.update(spec());
+    const holder = root.querySelector('.rl-legend-notes') as HTMLElement;
+    expect(holder.style.display).toBe('none');
+    expect(root.querySelectorAll('.rl-legend-note')).toHaveLength(0);
   });
 
   it('starts collapsed below 400px on first show, expanded otherwise, and remembers the toggle', () => {
@@ -256,13 +341,21 @@ describe('web and native templates share the same pieces', () => {
     ['format', FORMAT_JS],
     ['badges', BADGES_JS],
     ['legend', LEGEND_JS],
+    ['screen cluster', SCREEN_CLUSTER_JS],
     ['overlay css', ROUTE_OVERLAY_CSS],
   ])('interpolates the %s module verbatim into both templates', (_name, chunk) => {
     expect(web).toContain(chunk);
     expect(native).toContain(chunk);
   });
 
-  it.each(['function safeLabel(', 'function normalizePinColor(', 'function rlBuildLegend(', 'function rlBuildPill('])(
+  it.each([
+    'function safeLabel(',
+    'function normalizePinColor(',
+    'function rlBuildLegend(',
+    'function rlBuildPill(',
+    'function mergeScreenClusters(',
+    'function separatePills(',
+  ])(
     'defines %s exactly once per template',
     (decl) => {
       expect(count(web, decl)).toBe(1);

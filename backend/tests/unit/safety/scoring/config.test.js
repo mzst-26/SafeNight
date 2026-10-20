@@ -17,4 +17,9 @@ describe('scoring config', () => {
     expect(config.ACTIVITY_FLOOR).toBe(0.4);
     expect(config.HAZARD_SPEED_KMH).toBe(80);
   });
+
+  test('names the route distance factor and the via-waypoint leg factor', () => {
+    expect(config.SEARCH.MAX_ROUTE_DISTANCE_FACTOR).toBe(2.5);
+    expect(config.SEARCH.VIA_LEG_DISTANCE_FACTOR).toBe(0.7);
+  });
 });

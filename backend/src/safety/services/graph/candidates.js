@@ -8,12 +8,16 @@ const { aStarSafety } = require('./routing');
 const { createSearchBudget } = require('./searchBudget');
 const { rankRoutesByExposure } = require('./ranking');
 
-/** Fraction of edgesB that also appear in edgesA. */
+/**
+ * Fraction of edgesB that also appear in edgesA. A route with no edges (start equals end) is a duplicate of
+ * another such route, so two of them overlap fully; against a route with edges it shares nothing.
+ */
 function countEdgeOverlap(edgesA, edgesB) {
+  if (edgesB.length === 0) return edgesA.length === 0 ? 1 : 0;
   const setA = new Set(edgesA);
   let overlap = 0;
   for (const e of edgesB) if (setA.has(e)) overlap++;
-  return edgesB.length > 0 ? overlap / edgesB.length : 0;
+  return overlap / edgesB.length;
 }
 
 /**

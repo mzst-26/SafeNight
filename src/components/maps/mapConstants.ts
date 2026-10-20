@@ -27,6 +27,17 @@ export const MAPTILER_STREETS_RASTER_STYLE = {
   ],
 };
 
+/** Tile and data credits. Web draws OSM tiles; native draws MapTiler Streets, which is built on OSM data. */
+export const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
+export const MAPTILER_ATTRIBUTION = "© MapTiler";
+export const NATIVE_MAP_ATTRIBUTION = `${MAPTILER_ATTRIBUTION} ${OSM_ATTRIBUTION}`;
+
+/** Height (px) of the Leaflet attribution box in the bottom-right corner (12px text, 1.4 line, no padding). */
+export const RL_ATTRIBUTION_HEIGHT_PX = 18;
+
+/** Clear gap kept between the legend and the attribution box (px). */
+export const RL_LEGEND_ATTRIBUTION_GAP_PX = 4;
+
 export const ROADMAP_STYLE = MAPTILER_STREETS_STYLE_URL;
 export const USES_MAPTILER_STREETS = Boolean(MAPTILER_STREETS_STYLE_URL);
 
@@ -84,20 +95,27 @@ export const RL_TOUCH_TARGET_PX = 44;
  */
 export const RL_HIT_WIDTH = RL_TOUCH_TARGET_PX;
 
-/** Leaflet dashArray (px) for dashed (estimated) lines: dots with round caps. */
+/**
+ * Dash pattern of dashed (estimated) lines: dots with round caps. Single source for every
+ * renderer. Leaflet takes it as a px dashArray string; MapLibre and the SVG legend sample
+ * are derived from it below, so the periods cannot drift apart.
+ */
 export const RL_DASH = "0.1 15";
 
-/**
- * MapLibre dasharray units are multiples of the line width. [0.1, 2.1] at width 7 gives
- * dots that read like the web's "0.1 15" pattern at weight 7.
- */
-export const RL_DASH_UNITS: [number, number] = [0.1, 2.1];
+/** The same pattern as numbers in px (the unit of the SVG legend sample at stroke-width RL_LINE_WIDTH). */
+export const RL_DASH_PX: [number, number] = RL_DASH.split(" ").map(Number) as [number, number];
 
-/** The same pattern in px, for the native SVG legend swatch (drawn at stroke-width RL_LINE_WIDTH). */
-export const RL_DASH_PX: [number, number] = [
-  Number((RL_DASH_UNITS[0] * RL_LINE_WIDTH).toFixed(2)),
-  Number((RL_DASH_UNITS[1] * RL_LINE_WIDTH).toFixed(2)),
+/**
+ * MapLibre dasharray units are multiples of the line width, so the px pattern divided by the
+ * width gives the identical period: [0.1/7, 15/7] at width 7.
+ */
+export const RL_DASH_UNITS: [number, number] = [
+  RL_DASH_PX[0] / RL_LINE_WIDTH,
+  RL_DASH_PX[1] / RL_LINE_WIDTH,
 ];
+
+/** Opacity of the coloured safety lines of the selected route (both renderers). */
+export const RL_LINE_OPACITY = 1;
 
 /** Legend label for dashed (estimated) lines when the spec does not supply one. */
 export const RL_DEFAULT_DASHED_LABEL = "Estimated lighting";
@@ -115,6 +133,15 @@ export const RL_CRIME_SIZE_LARGE = 36;
 /** Score pill visual size (px). The tappable area is RL_TOUCH_TARGET_PX square at least. */
 export const RL_PILL_MIN_WIDTH = 32;
 export const RL_PILL_HEIGHT = 28;
+
+/**
+ * Crime badges (and anything else drawn from clusters) whose projected pixel centres are closer
+ * than this are merged into one badge at draw time. One touch target, so a finger can tell them apart.
+ */
+export const RL_CRIME_MERGE_PX = RL_TOUCH_TARGET_PX;
+
+/** Wait (ms) after zoomend/moveend before badges and pills are merged and separated again. */
+export const RL_RELAYOUT_DEBOUNCE_MS = 90;
 
 /** Gap between the worst-stretch callout and the stretch midpoint (px, above the point). */
 export const RL_CALLOUT_OFFSET_PX = 10;

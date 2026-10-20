@@ -9,6 +9,10 @@ describe('graph/candidates countEdgeOverlap', () => {
     expect(candidates.countEdgeOverlap([1], [2])).toBe(0);
     expect(candidates.countEdgeOverlap([1], [])).toBe(0);
   });
+
+  test('two empty-edge routes count as duplicates of each other', () => {
+    expect(candidates.countEdgeOverlap([], [])).toBe(1);
+  });
 });
 
 describe('graph/candidates findKSafestRoutes', () => {
@@ -35,6 +39,13 @@ describe('graph/candidates findKSafestRoutes', () => {
   test('the same route twice (all edges shared) is kept once', () => {
     const { osmNodes, edges, adjacency } = manualGraph([['S', 'E', 100, 0.1]]);
     expect(candidates.findKSafestRoutes(osmNodes, edges, adjacency, 'S', 'E', 2000, 5, {})).toHaveLength(1);
+  });
+
+  test('start equal to end yields one zero-length route, not one copy per candidate search', () => {
+    const { osmNodes, edges, adjacency } = manualGraph([['S', 'A', 500, 0.5], ['A', 'S', 500, 0.5]]);
+    const routes = candidates.findKSafestRoutes(osmNodes, edges, adjacency, 'S', 'S', 2000, 5, {});
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({ edges: [], totalDist: 0 });
   });
 
   test('cancellation propagates and clears penalties', () => {

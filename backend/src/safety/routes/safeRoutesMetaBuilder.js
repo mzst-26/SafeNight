@@ -1,3 +1,5 @@
+const { normalizeCrimeStatus } = require('../services/graph/clock');
+
 function buildSafeRoutesMeta({
   straightLineKm,
   maxDistanceKm,
@@ -66,13 +68,11 @@ function buildSafeRoutesMeta({
     lightVerificationStatus: lightVerificationStatus || 'not_needed',
   };
 
-  // v2 only (the caller passes crimeStatus only when the v2 model is on): the crime outage state, and
-  // the lighting quality of the recommended route, so the client can show a data-confidence chip.
-  if (crimeStatus !== undefined) {
-    meta.dataQuality.crime = crimeStatus;
-    const lighting = responseRoutes[0]?.safety?.dataQuality?.lighting;
-    if (lighting) meta.dataQuality.lighting = lighting;
-  }
+  // The crime outage state (anything but 'ok' is unavailable) and the lighting quality of the recommended
+  // route, so the client can show a data-confidence chip.
+  meta.dataQuality.crime = normalizeCrimeStatus(crimeStatus);
+  const lighting = responseRoutes[0]?.safety?.dataQuality?.lighting;
+  if (lighting) meta.dataQuality.lighting = lighting;
 
   return meta;
 }

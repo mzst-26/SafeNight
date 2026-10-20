@@ -40,11 +40,11 @@ describe('graph/breakdown routeSafetyBreakdown', () => {
     expect(breakdown.routeSafetyBreakdown(edges, [])).toEqual(breakdown.emptyBreakdown());
   });
 
-  test('length-weights the factor scores, scores 1 - routeRisk and ignores the legacy arguments', () => {
+  test('length-weights the factor scores and scores 1 - routeRisk', () => {
     const { edges } = manualGraph([['A', 'B', 100, 0.2], ['B', 'C', 300, 0.6]]);
     edges[0].lightScore = 0.9;
     edges[1].lightScore = 0.1;
-    const out = breakdown.routeSafetyBreakdown(edges, [0, 1], { stale: true }, [{ needsVerification: true }]);
+    const out = breakdown.routeSafetyBreakdown(edges, [0, 1]);
     expect(out.lighting).toBeCloseTo((0.9 * 100 + 0.1 * 300) / 400, 12);
     expect(out.overall).toBeCloseTo(1 - out.routeRisk, 12);
     expect(out.riskVector.max).toBeCloseTo(0.6, 12);

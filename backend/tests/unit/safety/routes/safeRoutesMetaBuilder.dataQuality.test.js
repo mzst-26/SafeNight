@@ -26,7 +26,7 @@ function baseArgs(overrides = {}) {
   };
 }
 
-describe('safeRoutesMetaBuilder dataQuality (v2)', () => {
+describe('safeRoutesMetaBuilder dataQuality', () => {
   test('adds crime status and the safest route lighting quality to meta.dataQuality', () => {
     const meta = buildSafeRoutesMeta(baseArgs({ crimeStatus: 'unavailable' }));
 
@@ -48,11 +48,17 @@ describe('safeRoutesMetaBuilder dataQuality (v2)', () => {
     expect(meta.dataQuality.lighting).toBe('verified');
   });
 
-  test('without crimeStatus (v1) meta.dataQuality gains no new keys', () => {
+  test('a missing crimeStatus fails closed: reported as unavailable, never as no crime', () => {
     const meta = buildSafeRoutesMeta(baseArgs());
 
-    expect(meta.dataQuality.crime).toBeUndefined();
-    expect(meta.dataQuality.lighting).toBeUndefined();
+    expect(meta.dataQuality.crime).toBe('unavailable');
+    expect(meta.dataQuality.lighting).toBe('mixed');
     expect(meta.dataQuality.roads).toBe(10);
+  });
+
+  test('an unrecognised crimeStatus is reported as unavailable', () => {
+    const meta = buildSafeRoutesMeta(baseArgs({ crimeStatus: 'maybe' }));
+
+    expect(meta.dataQuality.crime).toBe('unavailable');
   });
 });

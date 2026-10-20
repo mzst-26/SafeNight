@@ -23,6 +23,7 @@ describe('safeRoutesMetaBuilder', () => {
       graphTime: 120,
       pathfindTime: 140,
       recorrectionMs: 0,
+      crimeStatus: 'ok',
     });
 
     expect(meta).toEqual({
@@ -30,6 +31,7 @@ describe('safeRoutesMetaBuilder', () => {
       maxDistanceKm: 10,
       routeCount: 2,
       dataQuality: {
+        crime: 'ok',
         roads: 120,
         crimes: 2,
         lightElements: 2,

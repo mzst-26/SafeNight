@@ -7,12 +7,13 @@
  * rates are weighted crimes per km over the window.
  */
 
-const { CRIME } = require('./config');
+const { CRIME, CRIME_STATUS } = require('./config');
 const { assertFinite, assertNonNegative } = require('./validation');
 const { severityOf } = require('../services/crimeSeverity');
 
-const STATUS_OK = 'ok';
-const STATUS_UNAVAILABLE = 'unavailable';
+// Same values as config.CRIME_STATUS, which is the single source; kept as names for existing importers.
+const STATUS_OK = CRIME_STATUS.OK;
+const STATUS_UNAVAILABLE = CRIME_STATUS.UNAVAILABLE;
 const VALID_STATUSES = new Set([STATUS_OK, STATUS_UNAVAILABLE]);
 
 /**

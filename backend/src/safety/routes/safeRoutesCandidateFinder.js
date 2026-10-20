@@ -1,3 +1,5 @@
+const { SEARCH } = require('../scoring/config');
+
 function findRouteCandidates({
   wpLat,
   wpLng,
@@ -12,9 +14,8 @@ function findRouteCandidates({
   findKSafestRoutes,
   logger = console,
   allowHazards = false,
-  edgeConfidences = null,
 }) {
-  const aStarOptions = { allowHazards, edgeConfidences };
+  const aStarOptions = { allowHazards };
 
   if (wpLat != null) {
     const waypointNode = findNearestNode(nodeGrid, adjacency, wpLat, wpLng);
@@ -26,7 +27,7 @@ function findRouteCandidates({
         adjacency,
         startNode,
         waypointNode,
-        maxRouteDist * 0.7,
+        maxRouteDist * SEARCH.VIA_LEG_DISTANCE_FACTOR,
         1,
         aStarOptions,
       );
@@ -36,7 +37,7 @@ function findRouteCandidates({
         adjacency,
         waypointNode,
         endNode,
-        maxRouteDist * 0.7,
+        maxRouteDist * SEARCH.VIA_LEG_DISTANCE_FACTOR,
         3,
         aStarOptions,
       );

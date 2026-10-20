@@ -47,7 +47,6 @@ function riskPercentiles(segments) {
  * Breakdown of a route. The score is 1 - routeRisk (aggregateRoute), the same value the ranking uses.
  * Per-factor values are length-weighted from the edge fields; riskVector describes risk (mean, p95 and max
  * edge risk), and its uncertainty is 1 - certainty. An empty route (no distance) returns zeros.
- * The weights and edgeConfidences arguments of the former v1 signature are accepted and ignored.
  *
  * @param {Array<object>} edges
  * @param {Array<number>} usedEdgeIdxs Edge indexes of the route, in order.

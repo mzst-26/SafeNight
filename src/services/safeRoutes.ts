@@ -533,6 +533,10 @@ export interface SafeRoutesResponse {
       cctvCameras: number;
       places: number;
       transitStops: number;
+      /** Crime data state: "unavailable" when the crime source failed (never shown as zero crime). Absent on older backends. */
+      crime?: CrimeDataQuality;
+      /** Lighting quality of the recommended route. Absent on older backends. */
+      lighting?: LightingDataQuality;
     };
     timing: {
       totalMs: number;

@@ -138,8 +138,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.340417473061,
@@ -291,8 +290,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.416763937036,
@@ -444,8 +442,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.406056522464,
@@ -597,8 +594,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "ae734e7eab73b44d0bcf4a0a6f2ef0917c506e4e49aa1df83a1b2abc0a523d3e",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.252568443282,
@@ -750,8 +746,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.45004487951,
@@ -903,8 +898,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "ae734e7eab73b44d0bcf4a0a6f2ef0917c506e4e49aa1df83a1b2abc0a523d3e",
-    "transitNodesHash": "448527899b972b53aef8ab1354237a7087d32b294e9a89b2df95cd880bce54d7",
-    "edgeConfidences": []
+    "transitNodesHash": "448527899b972b53aef8ab1354237a7087d32b294e9a89b2df95cd880bce54d7"
    },
    "risks": [
     0.44075594333,
@@ -1056,8 +1050,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "ae734e7eab73b44d0bcf4a0a6f2ef0917c506e4e49aa1df83a1b2abc0a523d3e",
-    "transitNodesHash": "448527899b972b53aef8ab1354237a7087d32b294e9a89b2df95cd880bce54d7",
-    "edgeConfidences": []
+    "transitNodesHash": "448527899b972b53aef8ab1354237a7087d32b294e9a89b2df95cd880bce54d7"
    },
    "risks": [
     0.513599948738,
@@ -1209,8 +1202,7 @@
     "adjacencyHash": "3b8e030704caba0b421ba02b5da8305903bc4ac92a3ae0bd99b8f13557b99a1d",
     "nodeDegreeHash": "9bd89b292af2a65ff7eef2909b04e1ccc2b17a018993ac9fc39946dd7e9036f7",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.340417473061,
@@ -1278,74 +1270,6 @@
     }
    ],
    "self": [
-    {
-     "avgSafety": 1,
-     "certainty": 0,
-     "edges": [],
-     "excluded": false,
-     "exposure": 0,
-     "lengthM": 0,
-     "m3": 0,
-     "mean": 0,
-     "path": [
-      1
-     ],
-     "routeRisk": 0,
-     "score": 100,
-     "totalDist": 0,
-     "worstStretch": null
-    },
-    {
-     "avgSafety": 1,
-     "certainty": 0,
-     "edges": [],
-     "excluded": false,
-     "exposure": 0,
-     "lengthM": 0,
-     "m3": 0,
-     "mean": 0,
-     "path": [
-      1
-     ],
-     "routeRisk": 0,
-     "score": 100,
-     "totalDist": 0,
-     "worstStretch": null
-    },
-    {
-     "avgSafety": 1,
-     "certainty": 0,
-     "edges": [],
-     "excluded": false,
-     "exposure": 0,
-     "lengthM": 0,
-     "m3": 0,
-     "mean": 0,
-     "path": [
-      1
-     ],
-     "routeRisk": 0,
-     "score": 100,
-     "totalDist": 0,
-     "worstStretch": null
-    },
-    {
-     "avgSafety": 1,
-     "certainty": 0,
-     "edges": [],
-     "excluded": false,
-     "exposure": 0,
-     "lengthM": 0,
-     "m3": 0,
-     "mean": 0,
-     "path": [
-      1
-     ],
-     "routeRisk": 0,
-     "score": 100,
-     "totalDist": 0,
-     "worstStretch": null
-    },
     {
      "avgSafety": 1,
      "certainty": 0,
@@ -1487,8 +1411,7 @@
     "adjacencyHash": "32ab41abd0e2a3a97e247a85a544a656304f1496ebd30c1e70c91e86247568ab",
     "nodeDegreeHash": "e4750be29797c8f6737f5873c52d147deb690465c5f3a31ff72b26cd51120edb",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.358147807725,
@@ -1593,8 +1516,7 @@
     "adjacencyHash": "32ab41abd0e2a3a97e247a85a544a656304f1496ebd30c1e70c91e86247568ab",
     "nodeDegreeHash": "e4750be29797c8f6737f5873c52d147deb690465c5f3a31ff72b26cd51120edb",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.358147807725,
@@ -1699,8 +1621,7 @@
     "adjacencyHash": "32ab41abd0e2a3a97e247a85a544a656304f1496ebd30c1e70c91e86247568ab",
     "nodeDegreeHash": "e4750be29797c8f6737f5873c52d147deb690465c5f3a31ff72b26cd51120edb",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.358147812469,
@@ -1805,8 +1726,7 @@
     "adjacencyHash": "32ab41abd0e2a3a97e247a85a544a656304f1496ebd30c1e70c91e86247568ab",
     "nodeDegreeHash": "e4750be29797c8f6737f5873c52d147deb690465c5f3a31ff72b26cd51120edb",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.358147812469,
@@ -1951,8 +1871,7 @@
     "adjacencyHash": "737fab419f94e37d048cc62b93247585b62db38ea6e65d60023b5f7becc4f3f5",
     "nodeDegreeHash": "a9825e1d741da597fcbe3b0a631567c575905473a9e804d8f375c5b57ab4b735",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.357890777163,
@@ -2098,8 +2017,7 @@
     "adjacencyHash": "737fab419f94e37d048cc62b93247585b62db38ea6e65d60023b5f7becc4f3f5",
     "nodeDegreeHash": "a9825e1d741da597fcbe3b0a631567c575905473a9e804d8f375c5b57ab4b735",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.643707843992,
@@ -2245,8 +2163,7 @@
     "adjacencyHash": "fae069c9cb43ed1855a5f2d09062d088e259612858c3756236238cb1ac483c1f",
     "nodeDegreeHash": "c214fa6f8eeed10bef8e95277561945bc2a3322be1b9c16fb73817235e9b2868",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.290372769507,
@@ -2365,8 +2282,7 @@
     "adjacencyHash": "32ab41abd0e2a3a97e247a85a544a656304f1496ebd30c1e70c91e86247568ab",
     "nodeDegreeHash": "e4750be29797c8f6737f5873c52d147deb690465c5f3a31ff72b26cd51120edb",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.358147807725,
@@ -2511,8 +2427,7 @@
     "adjacencyHash": "737fab419f94e37d048cc62b93247585b62db38ea6e65d60023b5f7becc4f3f5",
     "nodeDegreeHash": "a9825e1d741da597fcbe3b0a631567c575905473a9e804d8f375c5b57ab4b735",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.684552033945,
@@ -2658,8 +2573,7 @@
     "adjacencyHash": "737fab419f94e37d048cc62b93247585b62db38ea6e65d60023b5f7becc4f3f5",
     "nodeDegreeHash": "a9825e1d741da597fcbe3b0a631567c575905473a9e804d8f375c5b57ab4b735",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.357890785701,
@@ -2765,8 +2679,7 @@
     "adjacencyHash": "32ab41abd0e2a3a97e247a85a544a656304f1496ebd30c1e70c91e86247568ab",
     "nodeDegreeHash": "e4750be29797c8f6737f5873c52d147deb690465c5f3a31ff72b26cd51120edb",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.375977543108,
@@ -2831,8 +2744,7 @@
     "adjacencyHash": "b93b2f45347e4466a336d008a9d13e9154d0a965fbcd9afdd832d30900836b7e",
     "nodeDegreeHash": "d59c613b24f9bf05e277da8d42fdfc2f8aff27ce28c6f83e0abae3af9950e9a1",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.373019991242
@@ -2936,8 +2848,7 @@
     "adjacencyHash": "32ab41abd0e2a3a97e247a85a544a656304f1496ebd30c1e70c91e86247568ab",
     "nodeDegreeHash": "e4750be29797c8f6737f5873c52d147deb690465c5f3a31ff72b26cd51120edb",
     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "edgeConfidences": []
+    "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
     0.426974982015,
@@ -3085,8 +2996,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "activity",
@@ -3268,8 +3178,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "ff877ead1a3d843abd51b3316eca8a72f49d6938b4da290029b0491e6558b8e1",
-     "transitNodesHash": "7e98cddc562607c850963b7907d316df54d05340054550560c2fd54697edf3d8",
-     "edgeConfidences": []
+     "transitNodesHash": "7e98cddc562607c850963b7907d316df54d05340054550560c2fd54697edf3d8"
     },
     "target": {
      "cause": "activity",
@@ -3451,8 +3360,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "road",
@@ -3634,8 +3542,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "road",
@@ -3817,8 +3724,7 @@
      "adjacencyHash": "1841a652d07c3f9c3291fe88ae8d4af2d0560c8119a47a55bce22804705e0816",
      "nodeDegreeHash": "d7f969996837dfdf08f91a1fceb9058c8a98fd2ec238a39182b95f50f53509fa",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "lighting",
@@ -4000,8 +3906,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "lighting",
@@ -4183,8 +4088,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "crime",
@@ -4366,8 +4270,7 @@
      "adjacencyHash": "df683e4730643847cc079b175c01aaac4217059c89c2e9b5fcf168c48adaa31b",
      "nodeDegreeHash": "b51191a21ce957cb2c43ed46745ee51dee539a80f2ce0b48937321c019a9665b",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "lighting",
@@ -4549,8 +4452,7 @@
      "adjacencyHash": "df683e4730643847cc079b175c01aaac4217059c89c2e9b5fcf168c48adaa31b",
      "nodeDegreeHash": "b51191a21ce957cb2c43ed46745ee51dee539a80f2ce0b48937321c019a9665b",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "lighting",
@@ -4732,8 +4634,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "road",
@@ -4915,8 +4816,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "activity",
@@ -5097,8 +4997,7 @@
      "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
      "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "target": {
      "cause": "activity",
@@ -5281,8 +5180,7 @@
      "adjacencyHash": "162b07159713cf23892c98710da236e97611857aaea963881981d5f103b957f9",
      "nodeDegreeHash": "bfa27f5c3889fb11349856a2a72ff3b439857922ca669e99fdd996b56a6562a8",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "breakdown": {
      "cctv": 0,
@@ -5447,8 +5345,7 @@
      "adjacencyHash": "162b07159713cf23892c98710da236e97611857aaea963881981d5f103b957f9",
      "nodeDegreeHash": "bfa27f5c3889fb11349856a2a72ff3b439857922ca669e99fdd996b56a6562a8",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "breakdown": {
      "cctv": 0,
@@ -5613,8 +5510,7 @@
      "adjacencyHash": "162b07159713cf23892c98710da236e97611857aaea963881981d5f103b957f9",
      "nodeDegreeHash": "bfa27f5c3889fb11349856a2a72ff3b439857922ca669e99fdd996b56a6562a8",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "breakdown": {
      "cctv": 0,
@@ -5790,8 +5686,7 @@
      "adjacencyHash": "162b07159713cf23892c98710da236e97611857aaea963881981d5f103b957f9",
      "nodeDegreeHash": "bfa27f5c3889fb11349856a2a72ff3b439857922ca669e99fdd996b56a6562a8",
      "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-     "edgeConfidences": []
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "breakdown": {
      "cctv": 0,
@@ -5971,8 +5866,7 @@
     "adjacencyHash": "26ac37b80f74f6dd60b5b632218ffd362d2a2df8cdb6fa753838ac475b08006a",
     "nodeDegreeHash": "11e0c66a1bb87d94561748ade5cb7862a2860357f4bc9eff84923cc83fd0b54d",
     "cctvNodesHash": "d63bca2329a321eeff60124fc95eef01ad0e4384a6e2d200539ccdbe96aa5068",
-    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297",
-    "edgeConfidences": []
+    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
     0.348249136164,
@@ -6295,8 +6189,7 @@
     "adjacencyHash": "26ac37b80f74f6dd60b5b632218ffd362d2a2df8cdb6fa753838ac475b08006a",
     "nodeDegreeHash": "11e0c66a1bb87d94561748ade5cb7862a2860357f4bc9eff84923cc83fd0b54d",
     "cctvNodesHash": "d63bca2329a321eeff60124fc95eef01ad0e4384a6e2d200539ccdbe96aa5068",
-    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297",
-    "edgeConfidences": []
+    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
     0.375311961491,
@@ -6619,8 +6512,7 @@
     "adjacencyHash": "26ac37b80f74f6dd60b5b632218ffd362d2a2df8cdb6fa753838ac475b08006a",
     "nodeDegreeHash": "11e0c66a1bb87d94561748ade5cb7862a2860357f4bc9eff84923cc83fd0b54d",
     "cctvNodesHash": "d63bca2329a321eeff60124fc95eef01ad0e4384a6e2d200539ccdbe96aa5068",
-    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297",
-    "edgeConfidences": []
+    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
     0.40393055975,
@@ -6943,8 +6835,7 @@
     "adjacencyHash": "26ac37b80f74f6dd60b5b632218ffd362d2a2df8cdb6fa753838ac475b08006a",
     "nodeDegreeHash": "11e0c66a1bb87d94561748ade5cb7862a2860357f4bc9eff84923cc83fd0b54d",
     "cctvNodesHash": "d63bca2329a321eeff60124fc95eef01ad0e4384a6e2d200539ccdbe96aa5068",
-    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297",
-    "edgeConfidences": []
+    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
     0.263645370678,
@@ -7267,8 +7158,7 @@
     "adjacencyHash": "26ac37b80f74f6dd60b5b632218ffd362d2a2df8cdb6fa753838ac475b08006a",
     "nodeDegreeHash": "11e0c66a1bb87d94561748ade5cb7862a2860357f4bc9eff84923cc83fd0b54d",
     "cctvNodesHash": "d63bca2329a321eeff60124fc95eef01ad0e4384a6e2d200539ccdbe96aa5068",
-    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297",
-    "edgeConfidences": []
+    "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
     0.348249136164,

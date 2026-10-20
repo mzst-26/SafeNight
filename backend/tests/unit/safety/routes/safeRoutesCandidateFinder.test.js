@@ -33,6 +33,23 @@ describe('safeRoutesCandidateFinder', () => {
     expect(routes).toHaveLength(1);
   });
 
+  test('each leg of a via-waypoint search is capped at the via-leg factor of the route distance', () => {
+    const args = createBaseArgs({
+      wpLat: 50.37,
+      wpLng: -4.14,
+      findNearestNode: jest.fn(() => 'waypoint'),
+      adjacency: new Map(),
+      maxRouteDist: 1000,
+    });
+    const findKSafestRoutes = jest.fn(() => [{ path: ['a', 'b'], edges: [0], totalDist: 100 }]);
+
+    findRouteCandidates({ ...args, findKSafestRoutes });
+
+    expect(findKSafestRoutes).toHaveBeenCalledTimes(2);
+    expect(findKSafestRoutes.mock.calls[0][5]).toBeCloseTo(700, 9);
+    expect(findKSafestRoutes.mock.calls[1][5]).toBeCloseTo(700, 9);
+  });
+
   test('falls back to direct route when waypoint node is missing', () => {
     const args = createBaseArgs({
       wpLat: 50.37,

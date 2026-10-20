@@ -94,7 +94,7 @@ function countExpansion(budget) {
 
 /**
  * Relaxes the edges out of `current`: updates scores and pushes improved neighbours onto the heap.
- * An edge costs distance / safety, so safer edges are cheaper per metre. v2 uncertainty is already inside edge
+ * An edge costs distance / safety, so safer edges are cheaper per metre. Uncertainty is already inside edge
  * risk (through the priors), so there is no separate confidence penalty.
  */
 function relaxNeighbors(current, search, graph, endNode, maxDistM, allowHazards) {

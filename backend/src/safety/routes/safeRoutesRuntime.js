@@ -196,6 +196,16 @@ function registerActiveSearch(req, cancelToken) {
   };
 }
 
+/**
+ * A numeric env setting, at least `min`. Unset, blank or non-numeric values use the fallback. A bare
+ * Number() would turn "abc" into NaN, and NaN makes every comparison against the limit false.
+ */
+function numericEnv(name, fallback, min) {
+  const raw = process.env[name];
+  const parsed = raw == null || String(raw).trim() === "" ? NaN : Number(raw);
+  return Math.max(min, Number.isFinite(parsed) ? parsed : fallback);
+}
+
 const AVAILABLE_PARALLELISM =
   typeof os.availableParallelism === "function"
     ? os.availableParallelism()
@@ -208,49 +218,19 @@ const DEFAULT_MAX_SERVER_LOAD_UNITS = Math.max(
   4,
   DEFAULT_MAX_CONCURRENT_COMPUTES * 3,
 );
-const MAX_CONCURRENT_COMPUTES = Math.max(
-  1,
-  Number(
-    process.env.SAFE_ROUTES_MAX_CONCURRENT || DEFAULT_MAX_CONCURRENT_COMPUTES,
-  ),
-);
-const MAX_SERVER_LOAD_UNITS = Math.max(
-  1,
-  Number(
-    process.env.SAFE_ROUTES_MAX_SERVER_LOAD_UNITS || DEFAULT_MAX_SERVER_LOAD_UNITS,
-  ),
-);
-const MAX_QUEUE_LENGTH = Math.max(
-  1,
-  Number(process.env.SAFE_ROUTES_MAX_QUEUE_LENGTH || 200),
-);
-const MAX_QUEUE_WAIT_MS = Math.max(
-  1000,
-  Number(process.env.SAFE_ROUTES_MAX_QUEUE_WAIT_MS || 180000),
-);
-const DEFAULT_COMPUTE_ETA_MS = Math.max(
-  10000,
-  Number(process.env.SAFE_ROUTES_DEFAULT_ETA_MS || 30000),
-);
-const DEFAULT_REQUEST_LOAD_UNITS = Math.max(
-  1,
-  Number(process.env.SAFE_ROUTES_DEFAULT_REQUEST_LOAD_UNITS || 3),
-);
-const LOAD_UNITS_PER_KM = Math.max(
-  0.1,
-  Number(process.env.SAFE_ROUTES_LOAD_UNITS_PER_KM || 0.7),
-);
-const WAYPOINT_LOAD_BONUS = Math.max(
-  0,
-  Number(process.env.SAFE_ROUTES_WAYPOINT_LOAD_BONUS || 1),
-);
-const MIN_REQUEST_LOAD_UNITS = Math.max(
-  1,
-  Number(process.env.SAFE_ROUTES_MIN_REQUEST_LOAD_UNITS || 1),
-);
-const MAX_REQUEST_LOAD_UNITS = Math.max(
+const MAX_CONCURRENT_COMPUTES = numericEnv('SAFE_ROUTES_MAX_CONCURRENT', DEFAULT_MAX_CONCURRENT_COMPUTES, 1);
+const MAX_SERVER_LOAD_UNITS = numericEnv('SAFE_ROUTES_MAX_SERVER_LOAD_UNITS', DEFAULT_MAX_SERVER_LOAD_UNITS, 1);
+const MAX_QUEUE_LENGTH = numericEnv('SAFE_ROUTES_MAX_QUEUE_LENGTH', 200, 1);
+const MAX_QUEUE_WAIT_MS = numericEnv('SAFE_ROUTES_MAX_QUEUE_WAIT_MS', 180000, 1000);
+const DEFAULT_COMPUTE_ETA_MS = numericEnv('SAFE_ROUTES_DEFAULT_ETA_MS', 30000, 10000);
+const DEFAULT_REQUEST_LOAD_UNITS = numericEnv('SAFE_ROUTES_DEFAULT_REQUEST_LOAD_UNITS', 3, 1);
+const LOAD_UNITS_PER_KM = numericEnv('SAFE_ROUTES_LOAD_UNITS_PER_KM', 0.7, 0.1);
+const WAYPOINT_LOAD_BONUS = numericEnv('SAFE_ROUTES_WAYPOINT_LOAD_BONUS', 1, 0);
+const MIN_REQUEST_LOAD_UNITS = numericEnv('SAFE_ROUTES_MIN_REQUEST_LOAD_UNITS', 1, 1);
+const MAX_REQUEST_LOAD_UNITS = numericEnv(
+  'SAFE_ROUTES_MAX_REQUEST_LOAD_UNITS',
+  MAX_SERVER_LOAD_UNITS,
   MIN_REQUEST_LOAD_UNITS,
-  Number(process.env.SAFE_ROUTES_MAX_REQUEST_LOAD_UNITS || MAX_SERVER_LOAD_UNITS),
 );
 
 const recentComputeDurationsMs = [];

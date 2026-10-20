@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * calibration-table.js — Prints the v2 calibration archetype table (same scenes and ranges as
+ * calibration-table.js — Prints the calibration archetype table (same scenes and ranges as
  * tests/unit/safety/scoring/calibration.test.js) so constants can be tuned jointly and quickly.
  *
  * Usage: node scripts/eval/calibration-table.js
@@ -33,7 +33,7 @@ async function main() {
   console.log('\nRoutes');
   for (const name of Object.keys(ROUTES)) {
     const graph = await graphOf(ROUTES[name]());
-    const b = routeSafetyBreakdown(graph.edges, routeEdgeIdxs(graph), graph.weights, []);
+    const b = routeSafetyBreakdown(graph.edges, routeEdgeIdxs(graph));
     const s = Math.round(100 * b.overall);
     console.log(`${name.padEnd(8)} ${s}  ${safetyLabel(s).label}`);
   }

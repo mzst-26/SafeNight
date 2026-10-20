@@ -1,5 +1,5 @@
 /**
- * safetyGraph v2 model (the only model).
+ * safetyGraph model: the scoring pipeline.
  * Spec: docs/superpowers/specs/2026-10-19-safety-scoring-v2-design.md sections 10-11.
  *
  * Every network is a tiny synthetic OSM-like dataset, so results are deterministic and
@@ -30,12 +30,12 @@ const LEGACY_EDGE_FIELDS = [
   'surfaceType', 'roadName', 'nearbyCctvCount', 'nearbyTransitCount', 'surfacePenalty',
   'maxspeed', 'isTunnel', 'isLit', 'litTag', 'isDeadEnd',
 ];
-const V2_EDGE_FIELDS = ['risk', 'certainty', 'cause', 'litEstimate', 'pLit', 'lengthM'];
+const MODEL_EDGE_FIELDS = ['risk', 'certainty', 'cause', 'litEstimate', 'pLit', 'lengthM'];
 const LEGACY_BREAKDOWN_FIELDS = [
   'roadType', 'lighting', 'crime', 'cctv', 'openPlaces', 'traffic', 'overall', 'roadTypes',
   'mainRoadRatio', 'riskVector',
 ];
-const V2_BREAKDOWN_FIELDS = ['routeRisk', 'mean', 'm3', 'certainty', 'worstStretch'];
+const MODEL_BREAKDOWN_FIELDS = ['routeRisk', 'mean', 'm3', 'certainty', 'worstStretch'];
 
 /**
  * Three east-west streets about 330 m apart, four nodes each (three edges per street):
@@ -76,7 +76,7 @@ function buildStreets(options = {}) {
   return buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', crimeStatus: 'ok', ...NIGHT, ...options });
 }
 
-describe('safetyGraph v2 model', () => {
+describe('safetyGraph model', () => {
   describe('(a) lighting depends on darkness', () => {
     test('at night a lit residential street is safer than an unmapped one, which is safer than a lit=no path', async () => {
       const graph = await buildStreets({ ...NIGHT, crimeStatus: 'ok' });
@@ -242,10 +242,10 @@ describe('safetyGraph v2 model', () => {
   });
 
   describe('(e) legacy and new fields', () => {
-    test('every edge carries the legacy fields and the v2 fields', async () => {
+    test('every edge carries the legacy fields and the model fields', async () => {
       const graph = await buildStreets({ ...NIGHT });
       for (const edge of graph.edges) {
-        for (const field of [...LEGACY_EDGE_FIELDS, ...V2_EDGE_FIELDS]) {
+        for (const field of [...LEGACY_EDGE_FIELDS, ...MODEL_EDGE_FIELDS]) {
           expect(edge).toHaveProperty(field);
         }
         expect(edge.risk).toBeGreaterThanOrEqual(0);
@@ -268,8 +268,8 @@ describe('safetyGraph v2 model', () => {
 
     test('routeSafetyBreakdown returns the legacy keys and the new route keys', async () => {
       const graph = await buildStreets({ ...NIGHT });
-      const breakdown = routeSafetyBreakdown(graph.edges, [0, 1, 2], graph.weights, []);
-      for (const key of [...LEGACY_BREAKDOWN_FIELDS, ...V2_BREAKDOWN_FIELDS]) {
+      const breakdown = routeSafetyBreakdown(graph.edges, [0, 1, 2]);
+      for (const key of [...LEGACY_BREAKDOWN_FIELDS, ...MODEL_BREAKDOWN_FIELDS]) {
         expect(breakdown).toHaveProperty(key);
       }
       expect(breakdown.overall).toBeCloseTo(1 - breakdown.routeRisk, 12);
@@ -323,7 +323,7 @@ describe('safetyGraph v2 model', () => {
     });
   });
 
-  describe('maxspeed hazards (v2 threshold 80 km/h, 50 mph)', () => {
+  describe('maxspeed hazards (threshold 80 km/h, 50 mph)', () => {
     const base = { hasSidewalk: false, isTunnel: false, isLit: false };
 
     test('40 mph (about 64 km/h) with no sidewalk is not a hazard', () => {
@@ -373,7 +373,7 @@ describe('safetyGraph v2 model', () => {
 
     test('mean, p95 and max are of risk, max is the worst edge and uncertainty is 1 minus certainty', () => {
       const edges = syntheticEdges([[100, 0.2, 0.5], [300, 0.8, 0.5], [100, 0.5, 0.5]]);
-      const breakdown = routeSafetyBreakdown(edges, [0, 1, 2], null, []);
+      const breakdown = routeSafetyBreakdown(edges, [0, 1, 2]);
 
       const mean = (100 * 0.2 + 300 * 0.8 + 100 * 0.5) / 500;
       const m3 = Math.cbrt((100 * 0.2 ** 3 + 300 * 0.8 ** 3 + 100 * 0.5 ** 3) / 500);
@@ -389,7 +389,7 @@ describe('safetyGraph v2 model', () => {
 
     test('max is never the best edge', () => {
       const edges = syntheticEdges([[50, 0.1, 0.9], [50, 0.7, 0.9]]);
-      const breakdown = routeSafetyBreakdown(edges, [0, 1], null, []);
+      const breakdown = routeSafetyBreakdown(edges, [0, 1]);
       expect(breakdown.riskVector.max).toBeCloseTo(0.7, 12);
     });
   });

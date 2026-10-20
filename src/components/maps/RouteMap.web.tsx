@@ -12,16 +12,24 @@ import { CORE_JS } from "@/src/components/maps/inline/core";
 import { FORMAT_JS } from "@/src/components/maps/inline/format";
 import { LEGEND_JS } from "@/src/components/maps/inline/legend";
 import { ROUTE_OVERLAY_CSS } from "@/src/components/maps/inline/overlayCss";
+import { SCREEN_CLUSTER_JS } from "@/src/components/maps/inline/screenCluster";
 import {
+  OSM_ATTRIBUTION,
+  RL_ATTRIBUTION_HEIGHT_PX,
   RL_CALLOUT_OFFSET_PX,
   RL_CASING_COLOR,
   RL_CASING_OPACITY,
   RL_CASING_WIDTH,
+  RL_CRIME_MERGE_PX,
   RL_CRIME_SIZE,
   RL_CRIME_SIZE_LARGE,
   RL_DASH,
   RL_HIT_WIDTH,
+  RL_LEGEND_ATTRIBUTION_GAP_PX,
+  RL_LINE_OPACITY,
   RL_LINE_WIDTH,
+  RL_RELAYOUT_DEBOUNCE_MS,
+  RL_TOUCH_TARGET_PX,
   RL_UNSELECTED_WIDTH,
 } from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
@@ -87,6 +95,8 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     .rl-callout-icon .rl-callout{position:relative;transform:translate(-50%,calc(-100% - ${RL_CALLOUT_OFFSET_PX}px))}
     .rl-badge-icon .rl-pill-hit{position:relative;transform:translate(-50%,-50%)}
     .leaflet-control.rl-legend{pointer-events:auto}
+    /* Lifted so the legend's bottom margin clears the attribution box in the opposite corner (height + gap). */
+    .leaflet-bottom .leaflet-control.rl-legend{margin-bottom:${RL_ATTRIBUTION_HEIGHT_PX + RL_LEGEND_ATTRIBUTION_GAP_PX}px}
   </style>
 </head>
 <body>
@@ -96,6 +106,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     ${FORMAT_JS}
     ${BADGES_JS}
     ${LEGEND_JS}
+    ${SCREEN_CLUSTER_JS}
     var map = null;
     var ready = false;
     var lastData = null;
@@ -127,6 +138,10 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     // The colour ramp comes only from spec.legend.ramp (see inline/legend.ts), never from a constant here.
     var RL_DASH = ${JSON.stringify(RL_DASH)};
     var RL_LINE_WIDTH = ${RL_LINE_WIDTH};
+    var RL_LINE_OPACITY = ${RL_LINE_OPACITY};
+    var RL_TOUCH_TARGET_PX = ${RL_TOUCH_TARGET_PX};
+    var RL_CRIME_MERGE_PX = ${RL_CRIME_MERGE_PX};
+    var RL_RELAYOUT_DEBOUNCE_MS = ${RL_RELAYOUT_DEBOUNCE_MS};
     var RL_UNSELECTED_WIDTH = ${RL_UNSELECTED_WIDTH};
     var RL_HIT_WIDTH = ${RL_HIT_WIDTH};
     var RL_CASING = { color:${JSON.stringify(RL_CASING_COLOR)}, width:${RL_CASING_WIDTH}, opacity:${RL_CASING_OPACITY} };
@@ -137,6 +152,10 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     var legendEl = null;
     var legendCtl = null;
     var legendControl = null;
+    // What the overlay badges are drawn from, so they can be merged/separated again when the zoom changes.
+    var lastRouteOverlay = null;
+    var lastOverlayZoom = null;
+    var overlayLayoutTimer = null;
 
     // Offset strategies for non-overlapping label placement (relative to pin center)
     // Prefer close placement first; only spread out when overlap requires it.
@@ -327,6 +346,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       if(routeOverlayLayer) routeOverlayLayer.clearLayers();
       if(routePointsLayer) routePointsLayer.clearLayers();
       lastRouteLayers = null;
+      lastRouteOverlay = null;
       layerRoutes.clearLayers();
       layerMarkers.clearLayers();
       layerFriends.clearLayers();
@@ -549,7 +569,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         L.polyline(run.coords,{color:RL_CASING.color,weight:RL_CASING.width,opacity:RL_CASING.opacity,lineCap:'round',lineJoin:'round',interactive:true}).addTo(group);
       });
       runs.forEach(function(run){
-        var opts={color:run.color,weight:RL_LINE_WIDTH,opacity:1,lineCap:'round',lineJoin:'round',interactive:true};
+        var opts={color:run.color,weight:RL_LINE_WIDTH,opacity:RL_LINE_OPACITY,lineCap:'round',lineJoin:'round',interactive:true};
         if(run.dashed) opts.dashArray=RL_DASH;
         L.polyline(run.coords,opts).addTo(group);
       });
@@ -597,27 +617,79 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     // --- Score pills ---------------------------------------------------------
 
     // One score pill per route. Tapping a non-selected pill selects that route; the selected pill is not tappable.
-    function rlDrawBadges(group, badges){
+    // project (optional) maps lat/lng to container pixels: a pill whose touch target would overlap an earlier
+    // pill is shifted vertically (inline/screenCluster.ts), so every pill stays tappable.
+    function rlDrawBadges(group, badges, project){
       if(!Array.isArray(badges)) return;
+      var items=[];
       for(var i=0;i<badges.length;i++){
         var b=badges[i]||{};
         var p=rlLatLng(b);
-        if(!p) continue;
-        var sel=b.selected===true;
+        if(p) items.push({ b:b, i:i, p:p });
+      }
+      var shifts=[];
+      if(project){
+        var spread=separatePills(items.map(function(it){ return project(it.p[0], it.p[1]) || {}; }), RL_TOUCH_TARGET_PX);
+        shifts=spread.map(function(r){ return r.dy; });
+      }
+      items.forEach(function(it, k){
+        var sel=it.b.selected===true;
+        var el=rlBuildPill(it.b, it.i);
+        var dy=shifts[k];
+        if(dy) el.style.top=(Math.round(dy*10)/10)+'px';
         var icon=L.divIcon({
           className:'rl-badge-icon',
-          html:rlIconHtml(rlBuildPill(b, i)),
+          html:rlIconHtml(el),
           iconSize:[0,0],
           iconAnchor:[0,0]
         });
-        var marker=L.marker(p,{icon:icon,interactive:!sel,keyboard:false,zIndexOffset:sel?900:800});
+        var marker=L.marker(it.p,{icon:icon,interactive:!sel,keyboard:false,zIndexOffset:sel?900:800});
         if(!sel){
           (function(routeId){
             marker.on('click', function(){ sendMsg('selectRoute', { id:routeId }); });
-          })(b.routeId);
+          })(it.b.routeId);
         }
         marker.addTo(group);
+      });
+    }
+
+    // Callout, crime badges and score pills are positioned in screen space, so they are drawn together
+    // and drawn again whenever the zoom changes (see rlScheduleOverlayLayout).
+    function rlProjector(){
+      if(!map || typeof map.latLngToContainerPoint!=='function') return null;
+      return function(lat, lng){
+        try{
+          var q=map.latLngToContainerPoint([lat,lng]);
+          return { x:q.x, y:q.y };
+        }catch(e){ return null; }
+      };
+    }
+
+    function rlDrawOverlay(){
+      if(!routeOverlayLayer) return;
+      routeOverlayLayer.clearLayers();
+      lastOverlayZoom = map ? map.getZoom() : null;
+      var o=lastRouteOverlay;
+      if(!o) return;
+      var project=rlProjector();
+      if(o.showRoute){
+        rlDrawCallouts(routeOverlayLayer, o.rl.callouts);
+        rlDrawCrime(routeOverlayLayer, project ? mergeScreenClusters(o.rl.crimeClusters, project, RL_CRIME_MERGE_PX) : o.rl.crimeClusters);
       }
+      rlDrawBadges(routeOverlayLayer, o.badges, project);
+    }
+
+    // zoomend/moveend: draw the overlay again once things settle, but only when the zoom actually changed.
+    function rlScheduleOverlayLayout(){
+      if(!map || !lastRouteOverlay) return;
+      if(overlayLayoutTimer) clearTimeout(overlayLayoutTimer);
+      overlayLayoutTimer = setTimeout(function(){
+        overlayLayoutTimer = null;
+        if(!lastRouteOverlay) return;
+        var z=map.getZoom();
+        if(lastOverlayZoom!==null && Math.abs(z-lastOverlayZoom)<0.01) return;
+        rlDrawOverlay();
+      }, RL_RELAYOUT_DEBOUNCE_MS);
     }
 
     // --- Points (lights, cctv, shops) ---------------------------------------
@@ -670,7 +742,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         keepBuffer: 8,
         updateWhenZooming: true,
         updateInterval: 100,
-        attribution: '&copy; OpenStreetMap contributors'
+        attribution: ${JSON.stringify(OSM_ATTRIBUTION)}
       }).addTo(map);
 
       layerRoutes = L.layerGroup().addTo(map);
@@ -736,9 +808,13 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         rlRenderPoints();
         updatePinLabelVisibility();
         schedulePinLabelLayout();
+        rlScheduleOverlayLayout();
       });
 
-      map.on('moveend', schedulePinLabelLayout);
+      map.on('moveend', function(){
+        schedulePinLabelLayout();
+        rlScheduleOverlayLayout();
+      });
       
       window.addEventListener('resize', schedulePinLabelLayout);
       window.addEventListener('orientationchange', schedulePinLabelLayout);
@@ -909,15 +985,10 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       var rl = ctx.rl;
       lastRouteLayers = rl && selected ? rl : null;
       lastRouteHighlight = ctx.hl;
-      if(lastRouteLayers){
-        rlDrawCallouts(routeOverlayLayer, rl.callouts);
-        rlDrawCrime(routeOverlayLayer, rl.crimeClusters);
-        rlRenderPoints();
-      }
-      if(rl){
-        rlRenderLegend(rl.legend);
-        rlDrawBadges(routeOverlayLayer, d.routeBadges);
-      }
+      lastRouteOverlay = rl ? { rl:rl, showRoute:!!lastRouteLayers, badges:d.routeBadges } : null;
+      rlDrawOverlay();
+      if(lastRouteLayers) rlRenderPoints();
+      if(rl) rlRenderLegend(rl.legend);
       rlSetLegendVisible(!!lastRouteLayers);
     }
 

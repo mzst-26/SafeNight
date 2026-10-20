@@ -121,7 +121,7 @@ describe('v2 calibration: route level', () => {
   async function routeScore(name) {
     const graph = await graphOf(ROUTES[name]());
     const idxs = routeEdgeIdxs(graph);
-    const breakdown = routeSafetyBreakdown(graph.edges, idxs, graph.weights, []);
+    const breakdown = routeSafetyBreakdown(graph.edges, idxs);
     return { score: Math.round(100 * breakdown.overall), breakdown, label: safetyLabel(Math.round(100 * breakdown.overall)).label };
   }
 

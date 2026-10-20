@@ -1,5 +1,5 @@
 /**
- * buildGraph: the walking graph with v2 edge risk (spec section 11).
+ * buildGraph: the walking graph with edge risk (spec section 11).
  *
  * Named stages: index the OSM nodes, collect lamps and activity sources, collect the walkable segments (geometry
  * only) with area and crime-cell aggregates, then score every segment from the five factors (lighting, crime,
@@ -149,7 +149,7 @@ function scoreSegments(ctx, options, tick) {
 }
 
 /**
- * Build the walking graph with v2 edge risk.
+ * Build the walking graph with edge risk.
  *
  * @param {{elements: Array<object>}} roadData Overpass-style nodes and highway ways.
  * @param {{elements: Array<object>}|null} lightData Street lamps and lit ways.
@@ -165,8 +165,8 @@ function scoreSegments(ctx, options, tick) {
  * @param {'ok'|'unavailable'} [options.crimeStatus] Anything other than 'ok', including a missing value, is treated as unavailable.
  * @param {Map<number, object>} [options.lightsCacheByEdgeIdx] Lights-cache records by edge index.
  * @param {() => boolean} [options.shouldCancel] Cancellation check, polled during long loops.
- * @returns {Promise<object>} osmNodes, edges, adjacency, nodeGrid, weights, cctvNodes, transitNodes, nodeDegree,
- *   edgeConfidences and darkness.
+ * @returns {Promise<object>} osmNodes, edges, adjacency, nodeGrid, weights, cctvNodes, transitNodes, nodeDegree
+ *   and darkness.
  */
 async function buildGraph(roadData, lightData, cctvData, placeData, transitData, crimes, bbox, options = {}) {
   const tick = createTicker(cancelCallbackOf(options));
@@ -181,7 +181,6 @@ async function buildGraph(roadData, lightData, cctvData, placeData, transitData,
     cctvNodes: ctx.activitySources.cctvNodes,
     transitNodes: ctx.activitySources.transitNodes,
     nodeDegree: ctx.nodeDegree,
-    edgeConfidences: [],
     darkness: ctx.darkness,
   };
 }

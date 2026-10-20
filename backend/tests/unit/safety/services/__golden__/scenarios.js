@@ -65,7 +65,6 @@ function graphSummary(graph) {
     nodeDegreeHash: hashOf(graph.nodeDegree),
     cctvNodesHash: hashOf(graph.cctvNodes),
     transitNodesHash: hashOf(graph.transitNodes),
-    edgeConfidences: norm(graph.edgeConfidences),
   };
 }
 
@@ -139,9 +138,9 @@ async function streetScenarios() {
   const routes = findKSafestRoutes(graph.osmNodes, graph.edges, graph.adjacency, 11, 14, 2000, 5, {});
   out.routes = {
     list: routes.map(routeSummary),
-    breakdowns: routes.map((r) => norm(routeSafetyBreakdown(graph.edges, r.edges, graph.weights, []))),
+    breakdowns: routes.map((r) => norm(routeSafetyBreakdown(graph.edges, r.edges))),
     self: findKSafestRoutes(graph.osmNodes, graph.edges, graph.adjacency, 1, 1, 1000, 5, {}).map(routeSummary),
-    empty: norm(routeSafetyBreakdown(graph.edges, [], graph.weights, [])),
+    empty: norm(routeSafetyBreakdown(graph.edges, [])),
   };
   return out;
 }
@@ -221,7 +220,7 @@ async function calibrationScenarios() {
   for (const name of Object.keys(fixtures.ROUTES)) {
     const graph = await build(fixtures.ROUTES[name](), fixtures.NIGHT);
     const idxs = fixtures.routeEdgeIdxs(graph);
-    out.routes[name] = { summary: graphSummary(graph), breakdown: norm(routeSafetyBreakdown(graph.edges, idxs, graph.weights, [])) };
+    out.routes[name] = { summary: graphSummary(graph), breakdown: norm(routeSafetyBreakdown(graph.edges, idxs)) };
   }
   return out;
 }
@@ -321,7 +320,7 @@ async function gridScenarios() {
     list: routes.map(routeSummary),
     hazards: routesHazards.map(routeSummary),
     mid: mid.map(routeSummary),
-    breakdowns: routes.map((r) => norm(routeSafetyBreakdown(graph.edges, r.edges, graph.weights, []))),
+    breakdowns: routes.map((r) => norm(routeSafetyBreakdown(graph.edges, r.edges))),
     aStar: norm(graphApi.aStarSafety(graph.osmNodes, graph.edges, graph.adjacency, start, end, maxDist, {})),
     aStarUnreachable: graphApi.aStarSafety(graph.osmNodes, graph.edges, graph.adjacency, start, 999999, maxDist, {}),
     polyline: single ? norm(graphApi.routeToPolyline(graph.osmNodes, single.path)) : null,
@@ -345,7 +344,6 @@ async function gridScenarios() {
     rawRoutes: routes.map((r) => ({ ...r })),
     osmNodes: graph.osmNodes,
     edges: graph.edges,
-    weights: graph.weights,
     cctvNodes: graph.cctvNodes,
     transitNodes: graph.transitNodes,
     nodeDegree: graph.nodeDegree,

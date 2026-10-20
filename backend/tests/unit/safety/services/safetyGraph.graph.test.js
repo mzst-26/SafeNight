@@ -366,7 +366,7 @@ describe('graph branches: cancellation, clock, lit ways, cache, A* edges, empty 
 
   test('a zero-length v2 breakdown is all zeros', async () => {
     const graph = await buildStreetsWith(streetNetwork(), null);
-    const breakdown = safetyGraph.routeSafetyBreakdown(graph.edges, [], graph.weights, []);
+    const breakdown = safetyGraph.routeSafetyBreakdown(graph.edges, []);
     expect(breakdown.overall).toBe(0);
     expect(breakdown.routeRisk).toBe(0);
   });

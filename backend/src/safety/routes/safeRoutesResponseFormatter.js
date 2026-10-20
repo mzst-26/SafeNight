@@ -14,7 +14,8 @@ const {
 } = require("../services/lightConfidenceEngine");
 const { severityOf } = require("../services/crimeSeverity");
 const { rankRoutes, buildReason } = require("../scoring/routeAggregate");
-const { RISK_POOR_THRESHOLD, CRIME_STATUS } = require("../scoring/config");
+const { RISK_POOR_THRESHOLD } = require("../scoring/config");
+const { normalizeCrimeStatus } = require("../services/graph/clock");
 const { normalizeResponsePolicy, buildRouteVertices, limitRoutePois } = require("./safeRoutesPoiLimiter");
 
 const WALKING_SPEED_MPS = 1.35;
@@ -112,21 +113,25 @@ function formatWorstStretch(stretch) {
 }
 
 /**
- * Ranks the candidate routes by exposure (v2) and gives each its display id, 1-based, matching the
+ * Ranks the candidate routes by exposure and gives each its display id, 1-based, matching the
  * "Route N" summary label. Returns prepared entries in display order plus buildReason candidates.
  */
 function rankForDisplay(prepared) {
+  // A 0 m route (start equals end) has no length to rank by. It goes first, as in rankRoutesByExposure, and is
+  // kept out of rankRoutes so it cannot become the shortest route that sets the 2.0x cap.
+  const zeroLength = prepared.filter((entry) => !(entry.route.totalDist > 0));
+  const measured = prepared.filter((entry) => entry.route.totalDist > 0);
   const ranked = rankRoutes(
-    prepared.map((entry) => ({
+    measured.map((entry) => ({
       id: entry.index,
-      lengthM: Math.max(1, entry.route.totalDist),
+      lengthM: entry.route.totalDist,
       routeRisk: entry.breakdown.routeRisk,
     })),
   );
-  const ordered = ranked.map((r) => prepared[r.id]);
+  const ordered = [...zeroLength, ...ranked.map((r) => prepared[r.id])];
   const candidates = ordered.map((entry, position) => ({
     id: position + 1,
-    lengthM: Math.max(1, entry.route.totalDist),
+    lengthM: entry.route.totalDist > 0 ? Math.max(1, entry.route.totalDist) : 0,
     routeRisk: entry.breakdown.routeRisk,
     score: Math.round(100 * (1 - entry.breakdown.routeRisk)),
     worstStretch: entry.breakdown.worstStretch
@@ -374,11 +379,6 @@ function cautionFlagFor(breakdown) {
   return breakdown.riskVector && breakdown.riskVector.max >= RISK_POOR_THRESHOLD ? CAUTION_TEXT : null;
 }
 
-/** Crime status as reported to clients: only an explicit "ok" counts as data; missing is an outage. */
-function reportedCrimeStatus(crimeStatus) {
-  return crimeStatus === CRIME_STATUS.OK ? CRIME_STATUS.OK : CRIME_STATUS.UNAVAILABLE;
-}
-
 /** Distance and duration texts for the single leg of a route. */
 function legSummary(totalDist, durationSec, oLat, oLng, dLat, dLng) {
   return {
@@ -536,7 +536,7 @@ function formatRoute({ route, breakdown }, idx, candidates, ctx) {
  * @param {Array|null} [args.edgeConfidences] Per-edge light confidence, used for light-uncertainty spans.
  * @param {number} [args.straightLineDist] Straight-line metres, for the detour ratio.
  * @param {Array<object>} [args.verificationFootprints]
- * @param {string} [args.crimeStatus] 'ok' or 'unavailable'; anything else, including a missing value, is reported as unavailable.
+ * @param {string} [args.crimeStatus] 'ok' or 'unavailable'; anything else, including a missing value, is reported as unavailable (normalizeCrimeStatus).
  * @returns {Array<object>} One payload per route.
  */
 function buildRouteResponses({
@@ -581,7 +581,7 @@ function buildRouteResponses({
     edgeConfidences,
     straightLineDist,
     verificationFootprints,
-    crimeStatus: reportedCrimeStatus(crimeStatus),
+    crimeStatus: normalizeCrimeStatus(crimeStatus),
     lightNodes: collectLightNodes(allData?.lights?.elements),
     placeNodes: collectOpenPlaceNodes(allData?.places?.elements, enableOpeningHoursParse, policy.openPlacesOnly),
   };

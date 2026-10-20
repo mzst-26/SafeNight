@@ -1,10 +1,10 @@
 /**
- * routes/safeRoutes.js — Safety-first pathfinding endpoint (v2).
+ * routes/safeRoutes.js — Safety-first pathfinding endpoint.
  *
  * GET /api/safe-routes?origin_lat=...&origin_lng=...&dest_lat=...&dest_lng=...
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * SPEED IMPROVEMENTS (vs v1):
+ * PERFORMANCE:
  *   1. Single Overpass query instead of 4 parallel ones (~70% less latency)
  *   2. 30-min data cache (OSM) + 24h crime cache (vs 5-min route cache)
  *   3. A* pathfinding with heuristic (3–10× faster per route)
@@ -84,6 +84,7 @@ const {
   CONFIDENCE_THRESHOLDS,
 } = require("../services/lightConfidenceEngine");
 const { verifyLightGaps } = require("../services/osNgdMicroQuery");
+const { SEARCH } = require("../scoring/config");
 
 const router = express.Router();
 
@@ -93,7 +94,7 @@ const DEFAULT_MAX_DISTANCE_KM = 20;
 const ENABLE_RESPONSE_OPENING_HOURS_PARSE =
   process.env.SAFE_ROUTES_PARSE_RESPONSE_OPENING_HOURS === "1";
 const DEBUG_SAFE_ROUTES = process.env.SAFE_ROUTES_DEBUG === "1";
-const debugLog = DEBUG_SAFE_ROUTES ? (...args) => console.log(...args) : () => {};
+const { debugLog } = require("../services/graph/common");
 const debugLogger = DEBUG_SAFE_ROUTES
   ? console
   : { log: () => {}, warn: () => {}, error: () => {} };
@@ -525,6 +526,15 @@ router.get("/stream", async (req, res) => {
       return res.end();
     }
 
+    // Same answer as GET for request-level errors (NO_ROUTE_FOUND, SAME_LOCATION, ...): error code plus message.
+    const knownAnswer = routeErrorResponse(err);
+    if (knownAnswer) {
+      send("error", { ...knownAnswer.payload, pct: 0 });
+      cleanup();
+      activeSearch.release();
+      return res.end();
+    }
+
     send("error", {
       message:
         err?.message || "Something went wrong while streaming route progress.",
@@ -832,7 +842,7 @@ async function computeSafeRoutes(
           hour: departureHour,
           level: safetyLevel,
           lightsCacheByEdgeIdx: dataset.lightsCacheByEdgeIdx || null,
-          // v2 inputs: the clock for darkness, and whether the crime aggregate is usable.
+          // Inputs: the clock for darkness, and whether the crime aggregate is usable.
           now: new Date(),
           crimeStatus,
         },
@@ -868,13 +878,22 @@ async function computeSafeRoutes(
         );
       }
 
+      // Both endpoints snapped to one node (they are a few metres apart): every candidate would be the same
+      // zero-length walk, so refuse like the request-level SAME_LOCATION check.
+      if (startNode === endNode) {
+        throw Object.assign(
+          new Error("Your start and destination are the same place. Pick a different destination."),
+          { statusCode: 400, code: "SAME_LOCATION" },
+        );
+      }
+
       debugLog(
         `[safe-routes] 🔎 A* pathfinding (start=${startNode}, end=${endNode})...`,
       );
       cancelToken?.throwIfCancelled?.();
       progress("pathfind", "Computing route candidates…", 86);
       const t2 = Date.now();
-      const maxRouteDist = straightLineDist * 2.5;
+      const maxRouteDist = straightLineDist * SEARCH.MAX_ROUTE_DISTANCE_FACTOR;
       const rawRoutes = findRouteCandidates({
         wpLat,
         wpLng,
@@ -889,7 +908,6 @@ async function computeSafeRoutes(
         findKSafestRoutes: withSearchCancellation(findKSafestRoutes, cancelToken),
         logger: debugLogger,
         allowHazards,
-        edgeConfidences: graph.edgeConfidences,
       });
 
       const pathfindTime = Date.now() - t2;
@@ -912,7 +930,6 @@ async function computeSafeRoutes(
       edges,
       adjacency,
       nodeGrid,
-      weights,
       cctvNodes,
       transitNodes,
       nodeDegree,
@@ -1081,14 +1098,14 @@ async function computeSafeRoutes(
             );
             // Rebuild graph with verified lights and confirmed-dark cache entries.
             ({
-              osmNodes, edges, adjacency, nodeGrid, weights,
+              osmNodes, edges, adjacency, nodeGrid,
               cctvNodes, transitNodes, nodeDegree,
             } = await computeGraphAndCandidates({
               ...allData,
               lightsCacheByEdgeIdx: verifiedDarkCacheByEdgeIdx,
             }));
             // Re-run pathfinding
-            const maxRouteDist = straightLineDist * 2.5;
+            const maxRouteDist = straightLineDist * SEARCH.MAX_ROUTE_DISTANCE_FACTOR;
             rawRoutes = findRouteCandidates({
               wpLat, wpLng,
               nodeGrid, adjacency,
@@ -1100,7 +1117,6 @@ async function computeSafeRoutes(
               findKSafestRoutes: withSearchCancellation(findKSafestRoutes, cancelToken),
               logger: debugLogger,
               allowHazards,
-              edgeConfidences,
             });
             edgeConfidences = computeEdgeConfidencesForCurrentGraph();
             lightVerificationStatus = 'verified';
@@ -1144,7 +1160,6 @@ async function computeSafeRoutes(
       rawRoutes,
       osmNodes,
       edges,
-      weights,
       cctvNodes,
       transitNodes,
       nodeDegree,
@@ -1210,7 +1225,6 @@ async function computeSafeRoutes(
         dataSources,
         lightVerificationStatus,
         verifiedLightsCount: verifiedLights.length,
-        // Only the v2 model reports crime and lighting quality in meta; v1 meta is unchanged.
         crimeStatus,
       }),
     };

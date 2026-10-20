@@ -2,6 +2,15 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { buildLeafletHtml } from '@/src/components/maps/RouteMap.web';
+import {
+  OSM_ATTRIBUTION,
+  NATIVE_MAP_ATTRIBUTION,
+  RL_ATTRIBUTION_HEIGHT_PX,
+  RL_DASH,
+  RL_LEGEND_ATTRIBUTION_GAP_PX,
+  RL_LINE_OPACITY,
+  RL_RELAYOUT_DEBOUNCE_MS,
+} from '@/src/components/maps/mapConstants';
 import { FakeEl } from './helpers/fakeDom';
 import { buildRouteLayers, RISK_RAMP } from '@/src/components/maps/routeLayers';
 import type { RouteLayerSpec } from '@/src/components/maps/routeLayers';
@@ -68,6 +77,8 @@ const SCRIPT_RE = /<script>([\s\S]*?)<\/script>/;
 
 type HarnessOptions = {
   zoom?: number;
+  /** Pixels per degree at the harness zoom; defaults to the Web Mercator scale 256 * 2^zoom / 360. */
+  project?: ((lat: number, lng: number, zoom: number) => { x: number; y: number }) | null;
   parentOrigin?: string | 'throw';
   innerWidth?: number;
 };
@@ -77,12 +88,22 @@ function loadRouteMap(opts: HarnessOptions = {}) {
   if (!match) throw new Error('inline map script not found in buildLeafletHtml output');
 
   const state = { zoom: opts.zoom ?? 16 };
-  const zoomEndHandlers: Array<() => void> = [];
+  const mapHandlers: Record<string, (() => void)[]> = {};
+  const tileOptions: Record<string, any>[] = [];
+  const timers = new Map<number, { fn: () => void; ms: number }>();
+  let timerId = 0;
+  const project =
+    opts.project ||
+    ((lat: number, lng: number, zoom: number) => {
+      const perDeg = (256 * 2 ** zoom) / 360;
+      return { x: lng * perDeg, y: -lat * perDeg };
+    });
   const fakeMap: any = {
     on: (ev: string, fn: () => void) => {
-      if (ev === 'zoomend') zoomEndHandlers.push(fn);
+      (mapHandlers[ev] ??= []).push(fn);
       return fakeMap;
     },
+    latLngToContainerPoint: (ll: [number, number]) => project(ll[0], ll[1], state.zoom),
     once: () => fakeMap,
     off: () => fakeMap,
     setView: () => fakeMap,
@@ -94,6 +115,7 @@ function loadRouteMap(opts: HarnessOptions = {}) {
     fitBounds: () => undefined,
     removeLayer: () => undefined,
   };
+  if (opts.project === null) delete fakeMap.latLngToContainerPoint;
 
   const postMessage = jest.fn();
   const parentLocation =
@@ -120,7 +142,10 @@ function loadRouteMap(opts: HarnessOptions = {}) {
 
   const L: any = {
     map: () => fakeMap,
-    tileLayer: () => ({ addTo: () => undefined }),
+    tileLayer: (_url: string, options: Record<string, any>) => {
+      tileOptions.push(options);
+      return { addTo: () => undefined };
+    },
     layerGroup: () => makeGroup(),
     polyline: (latlngs: unknown, options: Record<string, any>) => makeLayer('polyline', latlngs, options),
     polygon: (latlngs: unknown, options: Record<string, any>) => makeLayer('polygon', latlngs, options),
@@ -180,8 +205,13 @@ return {
     doc,
     L,
     () => 0,
-    () => 0,
-    () => undefined,
+    (fn: () => void, ms: number) => {
+      timers.set(++timerId, { fn, ms });
+      return timerId;
+    },
+    (id: number) => {
+      timers.delete(id);
+    },
     () => 0,
     () => undefined,
     FakeCustomEvent,
@@ -193,7 +223,20 @@ return {
     setZoom: (z: number) => {
       state.zoom = z;
     },
-    fireZoomEnd: () => zoomEndHandlers.forEach((fn) => fn()),
+    tileOptions,
+    fireMapEvent: (ev: string) => (mapHandlers[ev] ?? []).forEach((fn) => fn()),
+    fireZoomEnd: () => (mapHandlers.zoomend ?? []).forEach((fn) => fn()),
+    /** Pending timers created with the overlay relayout debounce delay. */
+    pendingRelayouts: () => Array.from(timers.values()).filter((t) => t.ms === RL_RELAYOUT_DEBOUNCE_MS).length,
+    /** Runs (once) the debounced overlay relayout timers only; other page timers stay pending. */
+    flushRelayout: () => {
+      Array.from(timers.entries())
+        .filter(([, t]) => t.ms === RL_RELAYOUT_DEBOUNCE_MS)
+        .forEach(([id, t]) => {
+          timers.delete(id);
+          t.fn();
+        });
+    },
   };
 }
 
@@ -742,10 +785,11 @@ describe('RouteMap.web Leaflet route layers', () => {
       } as unknown as RouteLayerSpec['legend'];
       h.updateMap(basePayload({ routeLayers: makeSpec({ legend }) }));
 
-      const body = h.getLegend().querySelector('.rl-legend-body').innerHTML;
-      expect(body).toContain('Crime data unavailable');
-      expect(body).not.toContain('<b>');
-      expect(body).toContain('&lt;b&gt;x&lt;/b&gt;');
+      const notes = h.getLegend().querySelector('.rl-legend-notes').innerHTML;
+      expect(notes).toContain('Crime data unavailable');
+      expect(notes).not.toContain('<b>');
+      expect(notes).toContain('&lt;b&gt;x&lt;/b&gt;');
+      expect(h.getLegend().querySelector('.rl-legend-body').innerHTML).not.toContain('Crime data unavailable');
     });
 
     it('is collapsed by default when the iframe is narrower than 400px', () => {
@@ -1014,5 +1058,267 @@ describe('RouteMap.web Leaflet route layers', () => {
       const deps = source.slice(source.indexOf('// Push when props change'));
       expect(deps.slice(0, deps.indexOf('pushUpdate,\n  ]'))).toMatch(/\brouteBadges,/);
     });
+  });
+});
+
+
+// ── FX3: screen-space merging, pill separation, legend and parity ────────────────
+
+describe('RouteMap.web screen-space badge layout', () => {
+  const perDeg = (zoom: number) => (256 * 2 ** zoom) / 360;
+  const crimeBadges = (h: Harness): FakeLayer[] =>
+    h.groups.overlay.layers.filter((l: FakeLayer) => l.options.icon?.className === 'rl-crime-icon');
+  const pillMarkers = (h: Harness): FakeLayer[] =>
+    h.groups.overlay.layers.filter((l: FakeLayer) => String(l.options.icon?.html).includes('rl-pill-hit'));
+  const labelOf = (l: FakeLayer) => iconHtml(l).match(/>([^<]+)</)?.[1];
+  const cluster = (lat: number, lng: number, count: number, maxSeverity = 0.5) => ({ lat, lng, count, maxSeverity });
+  const draw = (h: Harness, clusters: ReturnType<typeof cluster>[], badges: unknown[] = [], over = {}) =>
+    h.updateMap(basePayload({ routeLayers: makeSpec({ crimeClusters: clusters }), routeBadges: badges, ...over }));
+  const relayout = (h: Harness, ev: 'zoomend' | 'moveend' = 'zoomend') => {
+    h.fireMapEvent(ev);
+    h.flushRelayout();
+  };
+
+  describe('crime badges', () => {
+    it('merges badges that overlap on screen into one badge with the summed count', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [cluster(51.5, -0.1, 5), cluster(51.5001, -0.1, 3), cluster(51.5, -0.1001, 2)]);
+
+      const badges = crimeBadges(h);
+      expect(badges).toHaveLength(1);
+      expect(labelOf(badges[0])).toBe('10');
+      expect(iconHtml(badges[0])).toContain('aria-label="10 crimes reported"');
+      // Count-weighted position: nearer to the biggest cluster than the plain mean.
+      const [lat, lng] = badges[0].latlngs as [number, number];
+      expect(lat).toBeCloseTo((51.5 * 5 + 51.5001 * 3 + 51.5 * 2) / 10, 8);
+      expect(lng).toBeCloseTo((-0.1 * 5 + -0.1 * 3 + -0.1001 * 2) / 10, 8);
+    });
+
+    it('keeps badges that are far apart on screen as separate badges', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [cluster(51.5, -0.1, 5), cluster(51.51, -0.1, 3), cluster(51.52, -0.1, 2)]);
+      expect(crimeBadges(h).map(labelOf)).toEqual(['5', '3', '2']);
+    });
+
+    it('caps the merged label at 99+ and switches to the large badge', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [cluster(51.5, -0.1, 60), cluster(51.5, -0.1001, 60)]);
+      const badges = crimeBadges(h);
+      expect(badges).toHaveLength(1);
+      expect(labelOf(badges[0])).toBe('99+');
+      expect(badges[0].options.icon.iconSize).toEqual([36, 36]);
+      expect(iconHtml(badges[0])).toContain('aria-label="120 crimes reported"');
+    });
+
+    it('at city zoom turns a dozen crowded badges into badges whose centres are at least 44px apart', () => {
+      const h = loadRouteMap({ zoom: 14 });
+      const crowded = Array.from({ length: 12 }, (_, i) => cluster(51.5 + i * 0.001, -0.1 + (i % 2) * 0.0005, i + 1));
+      draw(h, crowded);
+
+      const badges = crimeBadges(h);
+      expect(badges.length).toBeGreaterThan(0);
+      expect(badges.length).toBeLessThan(12);
+      const px = badges.map((b) => ({ x: (b.latlngs as number[])[1] * perDeg(14), y: -(b.latlngs as number[])[0] * perDeg(14) }));
+      for (let i = 0; i < px.length; i++) {
+        for (let j = i + 1; j < px.length; j++) {
+          expect(Math.hypot(px[i].x - px[j].x, px[i].y - px[j].y)).toBeGreaterThanOrEqual(44);
+        }
+      }
+      const total = badges.map((b) => iconHtml(b).match(/aria-label="(\d+) /)?.[1]).reduce((sum, n) => sum + Number(n), 0);
+      expect(total).toBe(crowded.reduce((sum, c) => sum + c.count, 0));
+    });
+
+    it('never draws more badges than clusters (the 12-cluster builder cap is preserved)', () => {
+      const h = loadRouteMap({ zoom: 18 });
+      draw(h, Array.from({ length: 12 }, (_, i) => cluster(51.5 + i * 0.01, -0.1, 1)));
+      expect(crimeBadges(h)).toHaveLength(12);
+    });
+
+    it('re-merges when the map zooms out and splits again when it zooms in, after the debounce', () => {
+      const h = loadRouteMap({ zoom: 17 });
+      draw(h, [cluster(51.5, -0.1, 4), cluster(51.501, -0.1, 3)]);
+      expect(crimeBadges(h).map(labelOf)).toEqual(['4', '3']);
+
+      h.setZoom(14);
+      h.fireZoomEnd();
+      expect(crimeBadges(h)).toHaveLength(2); // nothing happens until the debounce fires
+      h.flushRelayout();
+      expect(crimeBadges(h).map(labelOf)).toEqual(['7']);
+
+      h.setZoom(17);
+      relayout(h, 'moveend');
+      expect(crimeBadges(h).map(labelOf)).toEqual(['4', '3']);
+    });
+
+    it('debounces: a burst of zoomend and moveend events schedules a single relayout', () => {
+      const h = loadRouteMap({ zoom: 17 });
+      draw(h, [cluster(51.5, -0.1, 4)]);
+      h.fireZoomEnd();
+      h.fireZoomEnd();
+      h.fireMapEvent('moveend');
+      h.fireMapEvent('moveend');
+      expect(h.pendingRelayouts()).toBe(1);
+    });
+
+    it('leaves the badges alone when a move ends without a zoom change', () => {
+      const h = loadRouteMap({ zoom: 17 });
+      draw(h, [cluster(51.5, -0.1, 4), cluster(51.51, -0.1, 3)]);
+      const before = crimeBadges(h);
+      relayout(h, 'moveend');
+      expect(crimeBadges(h)).toEqual(before);
+      expect(crimeBadges(h)[0]).toBe(before[0]);
+    });
+
+    it('does not bring crime badges back when no route is selected', () => {
+      const h = loadRouteMap({ zoom: 17 });
+      draw(h, [cluster(51.5, -0.1, 4)], [], { routes: [{ id: 'a', selected: false, path: ROUTE_A }] });
+      expect(crimeBadges(h)).toHaveLength(0);
+      h.setZoom(15);
+      relayout(h);
+      expect(crimeBadges(h)).toHaveLength(0);
+    });
+
+    it('keeps the worst-stretch callout through a relayout', () => {
+      const h = loadRouteMap({ zoom: 17 });
+      h.updateMap(
+        basePayload({
+          routeLayers: makeSpec({
+            callouts: [{ lat: 51.5, lng: -0.1, text: 'Unlit stretch', kind: 'worst-stretch' }],
+            crimeClusters: [cluster(51.5, -0.1, 4)],
+          }),
+        }),
+      );
+      h.setZoom(15);
+      relayout(h);
+      const callouts = h.groups.overlay.layers.filter((l: FakeLayer) => l.options.icon?.className === 'rl-callout-icon');
+      expect(callouts).toHaveLength(1);
+    });
+
+    it('draws every cluster unmerged when the map cannot project (no exception)', () => {
+      const h = loadRouteMap({ zoom: 16, project: null });
+      draw(h, [cluster(51.5, -0.1, 5), cluster(51.5001, -0.1, 3)]);
+      expect(crimeBadges(h).map(labelOf)).toEqual(['5', '3']);
+    });
+  });
+
+  describe('score pills', () => {
+    const badge = (routeId: string, lat: number, lng: number, text: string, selected = false) => ({
+      routeId,
+      lat,
+      lng,
+      text,
+      selected,
+    });
+    const topOf = (l: FakeLayer) => iconHtml(l).match(/style="top:(-?\d+(?:\.\d+)?)px"/)?.[1];
+
+    it('moves the later of two pills whose centres coincide down by 44px so the touch targets do not overlap', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.5, -0.1, '48', true)]);
+      const pills = pillMarkers(h);
+      expect(pills).toHaveLength(2);
+      expect(topOf(pills[0])).toBeUndefined();
+      expect(topOf(pills[1])).toBe('44');
+    });
+
+    it('leaves pills that are already 44px or more apart where they are', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.51, -0.1, '48', true)]);
+      pillMarkers(h).forEach((p) => expect(topOf(p)).toBeUndefined());
+    });
+
+    it('moves the later pill up when it sits above the earlier one', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.50005, -0.1, '48')]);
+      expect(Number(topOf(pillMarkers(h)[1]))).toBeLessThan(0);
+    });
+
+    it('separates again after a zoom change and keeps taps selecting the route', () => {
+      const h = loadRouteMap({ zoom: 17 });
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.501, -0.1, '48', true)]);
+      pillMarkers(h).forEach((p) => expect(topOf(p)).toBeUndefined());
+
+      h.setZoom(14);
+      relayout(h);
+      const pills = pillMarkers(h);
+      expect(pills).toHaveLength(2);
+      // The second pill is the more northerly one (further up the screen), so it moves up, at most 44px.
+      const shift = Number(topOf(pills[1]));
+      expect(shift).toBeLessThan(0);
+      expect(shift).toBeGreaterThanOrEqual(-44);
+      // On screen the pills are 0.001deg apart (about 11.7px at zoom 14); after the shift they are 44px apart.
+      expect(0.001 * perDeg(14) - shift).toBeCloseTo(44, 0);
+
+      (h.postMessage as jest.Mock).mockClear();
+      pills[0].handlers.click();
+      expect(JSON.parse((h.postMessage as jest.Mock).mock.calls[0][0])).toEqual({ type: 'selectRoute', id: 'a' });
+      expect(pills[1].handlers.click).toBeUndefined();
+    });
+
+    it('keeps the pill markers at their geographic position (only the element is shifted)', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.5, -0.1, '48')]);
+      expect(pillMarkers(h).map((p) => p.latlngs)).toEqual([
+        [51.5, -0.1],
+        [51.5, -0.1],
+      ]);
+    });
+  });
+});
+
+describe('RouteMap.web legend placement and notes', () => {
+  const legendWith = (notes: string[]) =>
+    ({ ...EMPTY_SPEC.legend, ramp: builtSpec.legend.ramp, notes }) as unknown as RouteLayerSpec['legend'];
+
+  it('shows the crime-unavailable note while the legend is collapsed (narrow default)', () => {
+    const h = loadRouteMap({ innerWidth: 390 });
+    h.updateMap(basePayload({ routeLayers: makeSpec({ legend: legendWith(['Crime data unavailable']) }) }));
+
+    const legend = h.getLegend();
+    expect(legend.querySelector('.rl-legend-body').style.display).toBe('none');
+    const holder = legend.querySelector('.rl-legend-notes');
+    expect(holder.style.display).not.toBe('none');
+    expect(holder.querySelector('.rl-legend-note').textContent).toBe('Crime data unavailable');
+  });
+
+  it('keeps the notes visible after the user collapses an expanded legend', () => {
+    const h = loadRouteMap({ innerWidth: 420 });
+    h.updateMap(basePayload({ routeLayers: makeSpec({ legend: legendWith(['Crime data unavailable']) }) }));
+    const legend = h.getLegend();
+    legend.querySelector('.rl-legend-head').listeners.click[0]({ stopPropagation: () => undefined });
+    expect(legend.querySelector('.rl-legend-body').style.display).toBe('none');
+    expect(legend.querySelector('.rl-legend-notes').style.display).not.toBe('none');
+  });
+
+  it('lifts the legend so its bottom margin clears the attribution box by at least 4px', () => {
+    const html = buildLeafletHtml(false);
+    const margin = Number(html.match(/\.leaflet-bottom \.leaflet-control\.rl-legend\s*\{[^}]*margin-bottom:(\d+)px/)?.[1]);
+    expect(RL_LEGEND_ATTRIBUTION_GAP_PX).toBeGreaterThanOrEqual(4);
+    expect(margin).toBeGreaterThanOrEqual(RL_ATTRIBUTION_HEIGHT_PX + 4);
+  });
+});
+
+describe('RouteMap.web parity constants', () => {
+  it('draws the coloured selected-route lines with the shared line opacity', () => {
+    const h = loadRouteMap();
+    h.updateMap(basePayload({ routeLayers: builtSpec }));
+    const coloured = polylines(h.groups.routes).filter((l) => l.options.weight === 7);
+    expect(coloured.length).toBeGreaterThan(0);
+    coloured.forEach((l) => expect(l.options.opacity).toBe(RL_LINE_OPACITY));
+  });
+
+  it('draws dashed lines with the shared dash string', () => {
+    const h = loadRouteMap();
+    h.updateMap(basePayload({ routeLayers: builtSpec }));
+    const dashed = polylines(h.groups.routes).filter((l) => l.options.dashArray);
+    expect(dashed.length).toBeGreaterThan(0);
+    dashed.forEach((l) => expect(l.options.dashArray).toBe(RL_DASH));
+  });
+
+  it('credits OpenStreetMap through the shared constant, whose text native reuses', () => {
+    const h = loadRouteMap();
+    expect(h.tileOptions).toHaveLength(1);
+    expect(h.tileOptions[0].attribution).toBe(OSM_ATTRIBUTION);
+    expect(OSM_ATTRIBUTION).toBe('© OpenStreetMap contributors');
+    expect(NATIVE_MAP_ATTRIBUTION.endsWith(OSM_ATTRIBUTION)).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Tunable constants for the v2 safety scoring model (spec section 11).
+ * Tunable constants for the safety scoring model (spec section 11).
  * Every scoring tunable lives here so the rationale sits next to the number.
  * The one exception is the per-category crime severity table, which is data and
  * lives in services/crimeSeverity.js.
@@ -189,9 +189,11 @@ const ACTIVITY_FLOOR = 0.4;
 const HAZARD_SPEED_KMH = 80;
 
 // Longest route, as a multiple of the shortest, that may still be ranked. Raised from 1.5 to 2.0: with the
-// damped exposure (LENGTH_EXPOSURE_EXPONENT) a 2x route must already be about 29% safer to win, and route
-// generation already limits candidates to 2.5x the straight line. At 1.5 a 650 m route at 70 could not be
-// recommended against a 383 m route at 22.
+// damped exposure (LENGTH_EXPOSURE_EXPONENT) a 2x route must already be about 29% safer to win. Candidate
+// generation caps each search at SEARCH.MAX_ROUTE_DISTANCE_FACTOR (2.5) x the straight line, and A* may
+// then go up to SEARCH.MAX_DETOUR_FACTOR (1.5) x that cap (graph/routing.js), so a candidate's path can
+// reach 3.75x the straight line (direct routes; each via-waypoint leg has its own cap, VIA_LEG_DISTANCE_FACTOR).
+// At 1.5 a 650 m route at 70 could not be recommended against a 383 m route at 22.
 const MAX_LENGTH_RATIO = 2.0;
 
 // Exponent on route length (in km) in exposure H = routeRisk * lengthKm^LENGTH_EXPOSURE_EXPONENT.
@@ -318,8 +320,13 @@ const SEARCH = Object.freeze({
   CANCEL_CHECK_MASK: 1023,
   // A* never lets effective safety fall below this, so an edge cost stays finite (cost = distance / safety).
   MIN_EFFECTIVE_SAFETY: 0.05,
-  // A candidate path may be at most this multiple of maxDistM long (callers pass the straight-line based cap).
+  // A* search path may be at most this multiple of the maxDistM it is given. A direct route search passes
+  // maxDistM = straight-line distance x MAX_ROUTE_DISTANCE_FACTOR, so its path cap is 3.75x straight line.
   MAX_DETOUR_FACTOR: 1.5,
+  // Route candidates are searched within this multiple of the straight-line distance (before MAX_DETOUR_FACTOR).
+  MAX_ROUTE_DISTANCE_FACTOR: 2.5,
+  // With a via waypoint, each of the two legs may use this share of the candidate distance cap.
+  VIA_LEG_DISTANCE_FACTOR: 0.7,
   // Each found route adds this to the penalty of its edges, steering the next search elsewhere.
   PENALTY_INCREMENT: 0.15,
   // Two candidates sharing more than this fraction of edges are the same route.

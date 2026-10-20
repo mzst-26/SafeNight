@@ -33,11 +33,11 @@ describe('graph/edgeBuilder roadFactorOf', () => {
 });
 
 describe('graph/edgeBuilder buildGraph', () => {
-  test('returns the graph structure with legacy and v2 edge fields', async () => {
+  test('returns the graph structure with the scored edge fields', async () => {
     const g = await builder.buildGraph(street({ highway: 'residential', name: 'High St', sidewalk: 'both', surface: 'dirt', maxspeed: '30 mph' }),
       null, null, null, null, [], BBOX, { level: 'extra', ...NIGHT });
     expect(Object.keys(g).sort()).toEqual([
-      'adjacency', 'cctvNodes', 'darkness', 'edgeConfidences', 'edges', 'nodeDegree', 'nodeGrid', 'osmNodes', 'transitNodes', 'weights',
+      'adjacency', 'cctvNodes', 'darkness', 'edges', 'nodeDegree', 'nodeGrid', 'osmNodes', 'transitNodes', 'weights',
     ]);
     expect(g.edges).toHaveLength(3);
     expect(g.edges[1]).toMatchObject({
@@ -49,7 +49,6 @@ describe('graph/edgeBuilder buildGraph', () => {
     expect(g.edges[1].start).toEqual({ lat: LAT, lng: LNG + D });
     expect(g.edges[1].safetyScore).toBeCloseTo(1 - g.edges[1].risk, 12);
     expect(g.adjacency.get(2)).toEqual([{ edgeIdx: 0, neighborId: 1 }, { edgeIdx: 1, neighborId: 3 }]);
-    expect(g.edgeConfidences).toEqual([]);
     expect(g.darkness).toBeGreaterThan(0.99);
   });
 

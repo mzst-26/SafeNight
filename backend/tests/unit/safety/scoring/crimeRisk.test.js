@@ -3,7 +3,8 @@ const {
   weightedCrimeCount,
   crimeRisk,
 } = require('../../../../src/safety/scoring/crimeRisk');
-const { CRIME } = require('../../../../src/safety/scoring/config');
+const { CRIME, CRIME_STATUS } = require('../../../../src/safety/scoring/config');
+const crimeRiskStatuses = require('../../../../src/safety/scoring/crimeRisk');
 
 const { RATE_SCALE } = CRIME;
 
@@ -267,5 +268,12 @@ describe('crimeRisk', () => {
         previous = lambda;
       }
     });
+  });
+});
+
+describe('crime status names have one source', () => {
+  test('crimeRisk exports the CRIME_STATUS values from config', () => {
+    expect(crimeRiskStatuses.STATUS_OK).toBe(CRIME_STATUS.OK);
+    expect(crimeRiskStatuses.STATUS_UNAVAILABLE).toBe(CRIME_STATUS.UNAVAILABLE);
   });
 });

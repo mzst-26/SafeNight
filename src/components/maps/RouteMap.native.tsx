@@ -12,20 +12,26 @@ import { CORE_JS } from "@/src/components/maps/inline/core";
 import { FORMAT_JS } from "@/src/components/maps/inline/format";
 import { LEGEND_JS } from "@/src/components/maps/inline/legend";
 import { ROUTE_OVERLAY_CSS } from "@/src/components/maps/inline/overlayCss";
+import { SCREEN_CLUSTER_JS } from "@/src/components/maps/inline/screenCluster";
 import {
   MAPTILER_STREETS_RASTER_STYLE,
+  NATIVE_MAP_ATTRIBUTION,
   RL_CALLOUT_OFFSET_PX,
   RL_CASING_COLOR,
   RL_CASING_OPACITY,
   RL_CASING_WIDTH,
+  RL_CRIME_MERGE_PX,
   RL_DASH_PX,
   RL_DASH_UNITS,
   RL_GREY,
   RL_HIT_WIDTH,
   RL_LIGHT_ZOOM,
+  RL_LINE_OPACITY,
   RL_LINE_WIDTH,
   RL_POINT_COLORS,
+  RL_RELAYOUT_DEBOUNCE_MS,
   RL_REPLACED_KINDS,
+  RL_TOUCH_TARGET_PX,
   RL_UNSELECTED_WIDTH,
   ROADMAP_STYLE,
 } from "@/src/components/maps/mapConstants";
@@ -35,8 +41,8 @@ import type {
   RouteLayerSpec,
 } from "@/src/components/maps/routeLayers";
 
-/** Always-visible map attribution. MapTiler Streets (style and tiles) is built on OpenStreetMap data. */
-export const NATIVE_MAP_ATTRIBUTION = "© MapTiler © OpenStreetMap contributors";
+/** Always-visible map attribution (shared text, see mapConstants). MapTiler Streets is built on OpenStreetMap data. */
+export { NATIVE_MAP_ATTRIBUTION };
 
 // ---------------------------------------------------------------------------
 // Route layers (v2 safety model): RouteLayerSpec -> GeoJSON for the WebView
@@ -289,6 +295,7 @@ export const buildMapHtml = (
     ${FORMAT_JS}
     ${BADGES_JS}
     ${LEGEND_JS}
+    ${SCREEN_CLUSTER_JS}
     /* ── State ─────────────────────────────────────────────── */
     var currentMarkers = [];
     var navMarkerObj = null;
@@ -501,11 +508,32 @@ export const buildMapHtml = (
       return hits && hits[0] ? hits[0] : null;
     }
 
-    /* Lines: unselected hit/line source, casing, solid and dashed sources. Everything is empty outside routeLayers mode. */
-    function rlSyncLines(rl, unselectedFeatures){
+    /* The selected route as one plain line, for a spec without usable lines (mirrors the web renderer). */
+    function rlSelectedFallback(sel){
+      var coords=[];
+      ((sel && sel.path) || []).forEach(function(p){
+        if(p && hasFiniteLngLat(p.lng,p.lat)) coords.push([p.lng,p.lat]);
+      });
+      if(coords.length<2) return null;
+      return {type:'Feature',properties:{color:RL_FALLBACK_BLUE,risk:0},geometry:{type:'LineString',coordinates:coords}};
+    }
+
+    /* Lines: unselected hit/line source, casing, solid and dashed sources. Everything is empty outside routeLayers mode.
+       When the spec carries no usable line (casing holds every valid line), the selected route is drawn as a single
+       RL_FALLBACK_BLUE line with a casing, as on web. */
+    function rlSyncLines(rl, unselectedFeatures, sel){
+      var casing = rl ? rl.casing : emptyFC;
+      var solid = rl ? rl.solid : emptyFC;
+      if(rl && !(rl.casing.features||[]).length){
+        var fallback = rlSelectedFallback(sel);
+        if(fallback){
+          casing = {type:'FeatureCollection',features:[fallback]};
+          solid = casing;
+        }
+      }
       map.getSource('rl-unselected').setData(rl ? {type:'FeatureCollection',features:unselectedFeatures} : emptyFC);
-      map.getSource('rl-casing').setData(rl ? rl.casing : emptyFC);
-      map.getSource('rl-solid').setData(rl ? rl.solid : emptyFC);
+      map.getSource('rl-casing').setData(casing);
+      map.getSource('rl-solid').setData(solid);
       map.getSource('rl-dashed').setData(rl ? rl.dashed : emptyFC);
     }
 
@@ -521,11 +549,41 @@ export const buildMapHtml = (
       rlLegendCtl.setVisible(!!show);
     }
 
-    /* Crime count badges (HTML markers). Individual incidents are never drawn. */
-    function rlDrawCrimeBadges(rl){
-      (rl.clusters.features||[]).forEach(function(f){
-        var badge = rlBuildCrimeBadge(Number(f.properties.count));
-        currentMarkers.push(createViewportMarker({element:badge,anchor:'center'}).setLngLat(f.geometry.coordinates).addTo(map));
+    /*
+     * Crime count badges and score pills are positioned in screen space: clusters closer than
+     * RL_CRIME_MERGE_PX merge into one badge and pills whose touch targets would overlap are shifted
+     * vertically (inline/screenCluster.ts). Both are drawn again when the zoom changes (zoomend/moveend, debounced).
+     */
+    var RL_CRIME_MERGE_PX = ${RL_CRIME_MERGE_PX};
+    var RL_TOUCH_TARGET_PX = ${RL_TOUCH_TARGET_PX};
+    var RL_RELAYOUT_DEBOUNCE_MS = ${RL_RELAYOUT_DEBOUNCE_MS};
+    var rlCrimeMarkers = [];
+    var rlPillMarkers = [];
+    var rlOverlay = null;
+    var rlLayoutZoom = null;
+    var rlLayoutPitch = 0;
+    var rlLayoutTimer = null;
+
+    function rlProject(){
+      if(typeof map.project !== 'function') return null;
+      return function(lat, lng){
+        try{
+          var q = map.project([lng, lat]);
+          return {x:q.x, y:q.y};
+        }catch(e){ return null; }
+      };
+    }
+
+    /* Crime badges (HTML markers) from the cluster features. Individual incidents are never drawn. */
+    function rlDrawCrimeBadges(){
+      clearMarkerArray(rlCrimeMarkers);
+      if(!rlOverlay) return;
+      var project = rlProject();
+      var list = project ? mergeScreenClusters(rlOverlay.clusters, project, RL_CRIME_MERGE_PX) : rlOverlay.clusters;
+      list.forEach(function(c){
+        var n = Math.floor(Number(c.count));
+        if(!(n >= 1) || !hasFiniteLngLat(c.lng,c.lat)) return;
+        rlCrimeMarkers.push(createViewportMarker({element:rlBuildCrimeBadge(n),anchor:'center'}).setLngLat([c.lng,c.lat]).addTo(map));
       });
     }
 
@@ -537,13 +595,63 @@ export const buildMapHtml = (
       });
     }
 
-    /* Route score pills. Tapping a non-selected pill selects that route. */
-    function rlDrawPills(badges){
-      (badges||[]).forEach(function(b, i){
-        if(!b || !hasFiniteLngLat(b.lng,b.lat)) return;
-        var pill = rlBuildPill(b, i, function(routeId){ sendMsg('selectRoute',{id:routeId}); });
-        currentMarkers.push(createViewportMarker({element:pill,anchor:'center'}).setLngLat([b.lng,b.lat]).addTo(map));
+    /* Route score pills. Tapping a non-selected pill selects that route. A pill that would overlap an earlier one is offset. */
+    function rlDrawPills(){
+      clearMarkerArray(rlPillMarkers);
+      if(!rlOverlay) return;
+      var items = [];
+      (rlOverlay.badges||[]).forEach(function(b, i){
+        if(b && hasFiniteLngLat(b.lng,b.lat)) items.push({b:b, i:i});
       });
+      var project = rlProject();
+      var shifts = project
+        ? separatePills(items.map(function(it){ return project(it.b.lat, it.b.lng) || {}; }), RL_TOUCH_TARGET_PX).map(function(r){ return r.dy; })
+        : [];
+      items.forEach(function(it, k){
+        var pill = rlBuildPill(it.b, it.i, function(routeId){ sendMsg('selectRoute',{id:routeId}); });
+        var options = {element:pill,anchor:'center'};
+        if(shifts[k]) options.offset = [0, Math.round(shifts[k]*10)/10];
+        rlPillMarkers.push(createViewportMarker(options).setLngLat([it.b.lng,it.b.lat]).addTo(map));
+      });
+    }
+
+    function rlRememberLayoutView(){
+      rlLayoutZoom = map.getZoom();
+      rlLayoutPitch = typeof map.getPitch === 'function' ? map.getPitch() : 0;
+    }
+
+    function rlDrawScreenBadges(){
+      rlRememberLayoutView();
+      rlDrawCrimeBadges();
+      rlDrawPills();
+    }
+
+    /* routeLayers mode: remembers what the screen-space badges are drawn from and draws the crime badges.
+       The caller draws the callout next and the pills last, which keeps the original stacking order. */
+    function rlSetOverlay(rl, badges){
+      clearMarkerArray(rlCrimeMarkers);
+      clearMarkerArray(rlPillMarkers);
+      rlOverlay = rl ? {
+        clusters: (rl.clusters.features||[]).map(function(f){
+          return {lng:f.geometry.coordinates[0], lat:f.geometry.coordinates[1], count:Number(f.properties.count), maxSeverity:Number(f.properties.maxSeverity)};
+        }),
+        badges: badges || []
+      } : null;
+      rlRememberLayoutView();
+      rlDrawCrimeBadges();
+    }
+
+    /* zoomend/moveend: draw the badges again once things settle, but only when the zoom or pitch actually changed. */
+    function rlScheduleOverlayLayout(){
+      if(!rlOverlay) return;
+      if(rlLayoutTimer) clearTimeout(rlLayoutTimer);
+      rlLayoutTimer = setTimeout(function(){
+        rlLayoutTimer = null;
+        if(!rlOverlay) return;
+        var pitch = typeof map.getPitch === 'function' ? map.getPitch() : 0;
+        if(rlLayoutZoom !== null && Math.abs(map.getZoom() - rlLayoutZoom) < 0.01 && Math.abs(pitch - rlLayoutPitch) < 1) return;
+        rlDrawScreenBadges();
+      }, RL_RELAYOUT_DEBOUNCE_MS);
     }
 
     function clearMarkerArray(arr) { arr.forEach(function(m){m.remove()}); arr.length=0; }
@@ -694,6 +802,10 @@ export const buildMapHtml = (
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
 
+    // Crime badges and score pills depend on the zoom (screen-space merge/separation): lay them out again after it changes.
+    map.on('zoomend', rlScheduleOverlayLayout);
+    map.on('moveend', rlScheduleOverlayLayout);
+
     /* ── Sources & Layers ──────────────────────────────────── */
     function addCustomSources() {
       if (map.getSource('unselected-routes')) return;
@@ -748,10 +860,10 @@ export const buildMapHtml = (
         paint:{'line-color':${JSON.stringify(RL_CASING_COLOR)},'line-opacity':${RL_CASING_OPACITY},'line-width':${RL_CASING_WIDTH}} });
       map.addLayer({ id:'rl-solid', type:'line', source:'rl-solid',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':${RL_LINE_WIDTH}} });
+        paint:{'line-color':['get','color'],'line-opacity':${RL_LINE_OPACITY},'line-width':${RL_LINE_WIDTH}} });
       map.addLayer({ id:'rl-dashed', type:'line', source:'rl-dashed',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':${RL_LINE_WIDTH},'line-dasharray':${JSON.stringify(RL_DASH_UNITS)}} });
+        paint:{'line-color':['get','color'],'line-opacity':${RL_LINE_OPACITY},'line-width':${RL_LINE_WIDTH},'line-dasharray':${JSON.stringify(RL_DASH_UNITS)}} });
       map.addLayer({ id:'route-traversed-line', type:'line', source:'route-traversed',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#1D2939','line-opacity':0.7,'line-width':7} });
@@ -1427,18 +1539,16 @@ export const buildMapHtml = (
       map.getSource('safety-markers').setData({type:'FeatureCollection',features:smF});
 
       /* — Route safety layers (routeLayers mode; empty and hidden otherwise) — */
-      rlSyncLines(rl, unselF);
+      rlSyncLines(rl, unselF, sel);
       rlSyncPoints(rl);
       rlSyncLegend(rl, routeLayersMode);
 
       if(selectedCandidate) renderSelectedCandidateCard(selectedCandidate);
 
       /* — Route safety: crime count badges, worst-stretch callout and score pills (HTML markers) — */
-      if(rl){
-        rlDrawCrimeBadges(rl);
-        rlDrawCallouts(rl);
-      }
-      if(routeLayersMode) rlDrawPills(data.routeBadges);
+      rlSetOverlay(rl, data.routeBadges);
+      if(rl) rlDrawCallouts(rl);
+      rlDrawPills();
 
       /* — Road labels (navigation mode only) — */
       var hasRoutes = Array.isArray(data.routes) && data.routes.length > 0;

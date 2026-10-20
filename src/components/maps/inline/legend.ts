@@ -1,10 +1,12 @@
 /**
  * Shared route safety legend: builder (DOM, from spec.legend) and stylesheet.
  *
- * The legend is a collapsible region: a header button toggling a body that holds
- * one row of discrete colour swatches (Safer on the left, Riskier on the right,
- * colours only from spec.legend.ramp), a dotted-line sample with its label, and
- * optional notes. Everything from the spec is set as text or validated as hex.
+ * The legend is a collapsible region: a header button (a full-width, 44px tall tap
+ * target) toggling a body that holds one row of discrete colour swatches (Safer on the
+ * left, Riskier on the right, colours only from spec.legend.ramp) and a dotted-line
+ * sample with its label. The optional notes (e.g. "Crime data unavailable") are NOT in
+ * the collapsible body: they sit right under the header and stay visible when collapsed.
+ * Everything from the spec is set as text or validated as hex.
  *
  * Requires CORE_JS in the same script.
  */
@@ -16,6 +18,7 @@ import {
   RL_LEGEND_SWATCH_GAP,
   RL_LEGEND_SWATCH_HEIGHT,
   RL_LINE_WIDTH,
+  RL_TOUCH_TARGET_PX,
 } from "@/src/components/maps/mapConstants";
 
 const FONT = "system-ui,-apple-system,sans-serif";
@@ -63,10 +66,20 @@ export const LEGEND_JS = `
       dashRow.appendChild(sample);
       dashRow.appendChild(rlEl('span', 'rl-legend-dash-label', dashed));
       body.appendChild(dashRow);
+    }
+
+    /* Fills the persistent notes line (outside the collapsible body). It is hidden while there are no notes. */
+    function rlFillLegendNotes(holder, legend){
+      holder.textContent = '';
       var notes = (legend && Array.isArray(legend.notes)) ? legend.notes : [];
-      for(var n=0;n<notes.length && n<${RL_LEGEND_MAX_NOTES};n++){
-        if(typeof notes[n] === 'string' && notes[n]) body.appendChild(rlEl('div', 'rl-legend-note', notes[n]));
+      var shown = 0;
+      for(var n=0;n<notes.length && shown<${RL_LEGEND_MAX_NOTES};n++){
+        if(typeof notes[n] === 'string' && notes[n]){
+          holder.appendChild(rlEl('div', 'rl-legend-note', notes[n]));
+          shown++;
+        }
       }
+      holder.style.display = shown ? '' : 'none';
     }
 
     /*
@@ -90,11 +103,14 @@ export const LEGEND_JS = `
       var chevron = rlEl('span', 'rl-legend-chevron', String.fromCharCode(9662));
       chevron.setAttribute('aria-hidden', 'true');
       head.appendChild(chevron);
+      var notesLine = rlEl('div', 'rl-legend-notes');
       var body = rlEl('div', 'rl-legend-body');
       body.id = RL_LEGEND_BODY_ID;
       root.appendChild(head);
+      root.appendChild(notesLine);
       root.appendChild(body);
       rlFillLegendBody(body, null, dashArray);
+      rlFillLegendNotes(notesLine, null);
 
       function applyCollapsed(){
         body.style.display = collapsed ? 'none' : '';
@@ -112,7 +128,10 @@ export const LEGEND_JS = `
       applyCollapsed();
 
       return {
-        update: function(legend){ rlFillLegendBody(body, legend, dashArray); },
+        update: function(legend){
+          rlFillLegendBody(body, legend, dashArray);
+          rlFillLegendNotes(notesLine, legend);
+        },
         setVisible: function(on){
           if(on && !started){
             started = true;
@@ -127,13 +146,15 @@ export const LEGEND_JS = `
 `;
 
 export const LEGEND_CSS = `
-    .rl-legend{box-sizing:border-box;min-width:${RL_LEGEND_MIN_WIDTH}px;max-width:min(${RL_LEGEND_MAX_WIDTH}px,46vw);background:rgba(255,255,255,.95);color:#101828;border-radius:10px;padding:6px 10px;font:600 12px/1.3 ${FONT};box-shadow:0 2px 10px rgba(16,24,40,.18)}
-    .rl-legend-head{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:0;background:transparent;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer}
-    .rl-legend-body{margin-top:6px}
+    .rl-legend{box-sizing:border-box;min-width:${RL_LEGEND_MIN_WIDTH}px;max-width:min(${RL_LEGEND_MAX_WIDTH}px,46vw);background:rgba(255,255,255,.95);color:#101828;border-radius:10px;padding:0;font:600 12px/1.3 ${FONT};box-shadow:0 2px 10px rgba(16,24,40,.18)}
+    .rl-legend-head{box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:${RL_TOUCH_TARGET_PX}px;border:0;background:transparent;padding:0 10px;margin:0;font:inherit;color:inherit;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .rl-legend-notes{padding:0 10px 6px}
+    .rl-legend-body{padding:0 10px 8px}
     .rl-legend-swatches{display:flex;gap:${RL_LEGEND_SWATCH_GAP}px}
     .rl-legend-swatch{flex:1 1 0;min-width:0;height:${RL_LEGEND_SWATCH_HEIGHT}px;border-radius:2px}
     .rl-legend-scale{display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:#344054}
     .rl-legend-dash{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#344054}
     .rl-legend-dash-sample{display:flex;flex:none}
-    .rl-legend-note{margin-top:6px;font-size:12px;font-weight:500;line-height:1.3;color:#344054}
+    .rl-legend-note{margin:0;font-size:12px;font-weight:500;line-height:1.3;color:#344054}
+    .rl-legend-note+.rl-legend-note{margin-top:3px}
 `;
