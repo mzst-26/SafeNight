@@ -1,9 +1,9 @@
 /**
- * features.js — Lighting features for one way, computed the way safetyGraph's buildGraphV2 does.
+ * features.js — Lighting features for one way, computed the way safetyGraph's buildGraph does.
  *
- * Replicated here (not imported) because buildGraphV2 is not exported:
- *   - segments: consecutive vertex pairs, skipped under 0.5 m (buildGraphV2 phase 1)
- *   - area cells: 0.003 deg, keyed by segment midpoint (V2.AREA_CELL_DEG)
+ * Replicated here (not imported) because the graph builder scores a whole network, not one way:
+ *   - segments: consecutive vertex pairs, raised to 0.5 m when shorter (GRAPH.MIN_EDGE_LENGTH_M: never dropped)
+ *   - area cells: 0.003 deg, keyed by segment midpoint (GRAPH.AREA_CELL_DEG)
  *   - lampCount30m = lamps within LAMP_RADIUS_M; litNeighbour = a lit=yes way vertex within it (separate, weaker
  *     evidence since LI; before LI such a vertex was added to the lamp count)
  *   - nearRoad = a trunk..service road within SIDEWALK_RADIUS_M of the segment midpoint (footway-like ways only matter)
@@ -11,7 +11,7 @@
  * (inferLighting, effectiveLit, LAMP_RADIUS_M) are imported read-only from src/safety/.
  * safetyGraph.parity.test.js checks the replica against buildGraph on synthetic data.
  *
- * A way is scored at one anchor segment: the one holding the half-length point. buildGraphV2 scores every
+ * A way is scored at one anchor segment: the one holding the half-length point. buildGraph scores every
  * segment, so this is a per-way approximation of the graph, not a copy of it.
  */
 
@@ -24,8 +24,8 @@ const { inferLighting, effectiveLit } = require(path.join(SCORING, 'lightingInfe
 const { buildRoadProximityIndex, isNearRoad, ROAD_HIGHWAYS } = require(path.join(SCORING, 'roadProximity'));
 const { LAMP_RADIUS_M } = require(path.join(SCORING, 'config'));
 
-const AREA_CELL_DEG = 0.003; // safetyGraph V2.AREA_CELL_DEG
-const MIN_SEGMENT_M = 0.5; // safetyGraph skips shorter segments
+const AREA_CELL_DEG = 0.003; // GRAPH.AREA_CELL_DEG in scoring/config.js
+const MIN_SEGMENT_M = 0.5; // GRAPH.MIN_EDGE_LENGTH_M: safetyGraph raises shorter segments to this
 
 /**
  * Walkable segments of a way as midpoints, endpoints and lengths. coords are [lng, lat] pairs.
@@ -37,8 +37,7 @@ function segmentsOf(coords) {
   for (let i = 0; i < coords.length - 1; i++) {
     const [lngA, latA] = coords[i];
     const [lngB, latB] = coords[i + 1];
-    const dist = fastDistance(latA, lngA, latB, lngB);
-    if (dist < MIN_SEGMENT_M) continue;
+    const dist = Math.max(fastDistance(latA, lngA, latB, lngB), MIN_SEGMENT_M);
     segments.push({
       midLat: (latA + latB) / 2,
       midLng: (lngA + lngB) / 2,
@@ -99,7 +98,7 @@ function buildLampIndex(lamps) {
 }
 
 /**
- * Spatial index of visible lit=yes way vertices (buildGraphV2 litWayNodePositions).
+ * Spatial index of visible lit=yes way vertices (buildGraph's lit-way vertex index).
  * @param {Array<{lat: number, lng: number}>} positions
  */
 function buildLitIndex(positions) {

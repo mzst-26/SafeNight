@@ -1,5 +1,5 @@
 /**
- * Parity: the eval replica of buildGraphV2's lighting inputs must match what buildGraph produces
+ * Parity: the eval replica of buildGraph's lighting inputs must match what buildGraph produces
  * for every segment of a synthetic area. If safetyGraph changes its lighting inputs, this fails.
  */
 const { buildGraph, WALKABLE_HIGHWAYS } = require('../../../../src/safety/services/safetyGraph');
@@ -16,11 +16,7 @@ const {
 
 const { BBOX, synthetic } = require('./support/synthetic');
 
-describe('replica parity with buildGraph (v2)', () => {
-  beforeAll(() => {
-    delete process.env.SAFETY_MODEL;
-  });
-
+describe('replica parity with buildGraph', () => {
   test('per-segment lampCount30m, area density and pLit match the graph edges', async () => {
     const { roadElements, lightElements } = synthetic(11);
     const roadData = { elements: roadElements };
@@ -61,7 +57,7 @@ describe('replica parity with buildGraph (v2)', () => {
         const seg = segs[i];
         const pair = `${way.nodes[i]}-${way.nodes[i + 1]}`;
         const edge = edgeByPair.get(pair);
-        if (!edge) continue; // segment below the 0.5 m floor on both sides
+        if (!edge) continue; // segment with an unknown node on both sides
         const features = lightingFeatures({
           anchor: seg,
           lampIndex,

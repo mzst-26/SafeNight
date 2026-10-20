@@ -3,7 +3,7 @@
  *
  * For each fold, the 1 km blocks of that fold are held out:
  *   - the lit tag of every way in those blocks is hidden (labelled ways are the ones scored);
- *   - lit=yes vertices of those ways are removed from the lit-way index, because buildGraphV2
+ *   - lit=yes vertices of those ways are removed from the lit-way index, because buildGraph
  *     counts a lit-way vertex within 30 m as a lamp, which would leak the label;
  *   - in mode 'hidden', lamps in those blocks are removed too (the spec's default). In mode
  *     'visible', lamps stay, which is the situation a deployed router is in.

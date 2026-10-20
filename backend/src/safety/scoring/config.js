@@ -3,6 +3,9 @@
  * Every scoring tunable lives here so the rationale sits next to the number.
  * The one exception is the per-category crime severity table, which is data and
  * lives in services/crimeSeverity.js.
+ *
+ * Sections: factor weights and priors (top), lighting, crime and darkness models, route ranking,
+ * then the graph builder (road scores, edge evidence, cells, radii, penalties) and the path search.
  */
 
 // Floor on a factor's safety before taking its log: one factor at 0 bounds edge risk below 1.
@@ -199,9 +202,133 @@ const MAX_LENGTH_RATIO = 2.0;
 const LENGTH_EXPOSURE_EXPONENT = 0.5;
 
 // Radius (m) within which a mapped street lamp counts as lighting an edge. This is the radius
-// the caller (safetyGraph) uses when it counts lamps for lightingInference's lampCount30m input,
+// the graph builder (services/graph/lightingStage.js) uses when it counts lamps for lightingInference's lampCount30m input,
 // so the count and the constant must agree. lightingInference itself only sees the count.
 const LAMP_RADIUS_M = 30;
+
+// ── Graph builder (services/graph/*) ────────────────────────────────────────
+
+// Road class score (0 to 1) feeding the road factor: bigger, busier roads are better watched and lit; paths and
+// steps are the weakest. The keys are also the walkable highway set, so a class missing here is not routed.
+const ROAD_TYPE_SCORES = Object.freeze({
+  trunk: 0.90,
+  primary: 0.95,
+  secondary: 0.85,
+  tertiary: 0.75,
+  unclassified: 0.55,
+  residential: 0.50,
+  living_street: 0.55,
+  service: 0.40,
+  pedestrian: 0.60,
+  cycleway: 0.35,
+  footway: 0.25,
+  path: 0.15,
+  steps: 0.10,
+  track: 0.10,
+});
+
+// Score for a walkable class that has no entry above (cannot happen today: the table defines the walkable set).
+const ROAD_SCORE_FALLBACK = 0.3;
+
+// Safety taken off the road score for an unpaved surface (unpaved is scarier at night). Graded by how rough it is.
+const SURFACE_PENALTIES = Object.freeze({
+  gravel: 0.04,
+  dirt: 0.06,
+  grass: 0.04,
+  mud: 0.12,
+  sand: 0.08,
+  earth: 0.06,
+});
+
+// Path classes that take the unlit-path isolation penalty when no lamp is mapped within LAMP_NEAR_PATH_M.
+const PATH_CLASS_HIGHWAYS = new Set(['path', 'track', 'bridleway', 'footway', 'steps', 'cycleway']);
+
+// Radius (m) within which a mapped lamp saves a path from the unlit-path isolation penalty. Wider than
+// LAMP_RADIUS_M on purpose: LAMP_RADIUS_M (30 m) is how far a lamp lights a segment for the lighting estimate,
+// while this is how close a lamp must be for a lonely path not to be judged "nothing lit, nobody passing". A lamp
+// 40 m away does not light the path (lighting stays uncertain) but shows the area is lit and used. Do not merge them.
+const LAMP_NEAR_PATH_M = 60;
+
+// Edge-building tunables.
+const GRAPH = Object.freeze({
+  // Evidence strength (n) for the factors that are not produced by inferLighting or crimeRisk.
+  ROAD_N: 10,        // road class is an OSM tag, so the class itself is well evidenced
+  ACTIVITY_N: 8,     // counts of places, CCTV and transit within fixed radii
+  ISOLATION_N: 6,    // dead ends come from topology; footpath lamp checks are local
+  CACHE_LIGHT_N: 6,  // a non-verified lights-cache record (status lit, limited or unlit)
+
+  // A lights-cache record counts as verified at this confidence; a verified record is near-ground-truth.
+  CACHE_VERIFIED_CONFIDENCE: 0.8,
+  CACHE_VERIFIED_UNLIT: Object.freeze({ pLit: 0.05, n: 20 }),
+  CACHE_VERIFIED_LIT: Object.freeze({ pLit: 0.95, n: 20 }),
+
+  // Isolation penalties (safety units). A dead end halves safety (was 0.3) and an isolated path with no mapped
+  // lamp within LAMP_NEAR_PATH_M leaves almost none (was 0.25): nobody passes by and nothing is lit. Sidewalks
+  // (footway-like ways within reach of a road) never take the path penalty. Tuned jointly with BASE_WEIGHTS
+  // against the calibration archetypes: a pedestrian alone on a dark path at 23:00 must read Use Caution.
+  DEAD_END_PENALTY: 0.5,
+  UNLIT_PATH_PENALTY: 0.95,
+
+  // Cells for area stats and crime aggregation.
+  AREA_CELL_DEG: 0.003,   // ~300 m, the area in which lamp density is judged
+  CRIME_CELL_M: 500,      // crime aggregation cell
+  CRIME_PRIOR_FLOOR: 0.1, // weighted crimes per km, lowest allowed area prior
+  NODE_GRID_CELL_DEG: 0.001, // ~110 m cells of the nearest-node spatial grid
+  METRES_PER_DEG_LAT: 111320,
+
+  // A segment shorter than this is raised to it: two nodes at the same coordinates must stay joined, because
+  // dropping the edge would split the network. 0.5 m is below any real walking step and keeps costs finite.
+  MIN_EDGE_LENGTH_M: 0.5,
+
+  // Activity radii (m).
+  CCTV_RADIUS_M: 80,
+  PLACE_RADIUS_M: 80,
+  TRANSIT_RADIUS_M: 150,
+
+  // Activity load = PLACE_WEIGHT * open places * night discount + CCTV_WEIGHT * cameras + TRANSIT_WEIGHT * stops,
+  // turned into a safety by a saturating curve above ACTIVITY_FLOOR. A camera counts about 2.7 open places.
+  PLACE_WEIGHT: 0.15,
+  CCTV_WEIGHT: 0.4,
+  TRANSIT_WEIGHT: 0.1,
+
+  // Open places count for less late at night, because many are closing: 0.4 from 22:00 to 06:00, 0.7 from 18:00.
+  NIGHT_DISCOUNT: Object.freeze({ LATE: 0.4, EVENING: 0.7, DAY: 1.0, LATE_FROM_HOUR: 22, LATE_TO_HOUR: 6, EVENING_FROM_HOUR: 18 }),
+});
+
+// Place opening heuristic when opening_hours is missing or unparseable. Hours are London wall-clock hours.
+const OPENING_HOURS = Object.freeze({
+  ALWAYS_OPEN: Object.freeze(['hospital', 'clinic', 'pharmacy', 'fuel', 'atm', 'police', 'fire_station', 'hotel', 'hostel', 'parking', 'toilets']),
+  EVENING: Object.freeze(['pub', 'bar', 'nightclub', 'biergarten', 'casino', 'restaurant', 'fast_food', 'food_court', 'ice_cream', 'cafe']),
+  EXTENDED_SHOPS: Object.freeze(['convenience', 'supermarket', 'kiosk', 'mall']),
+  EVENING_HOURS: Object.freeze({ from: 10, to: 24 }),
+  EXTENDED_SHOP_HOURS: Object.freeze({ from: 6, to: 23 }),
+  DEFAULT_HOURS: Object.freeze({ from: 7, to: 20 }),
+});
+
+// Crime data status. Anything other than OK is treated as an outage, so missing data never reads as safe.
+const CRIME_STATUS = Object.freeze({ OK: 'ok', UNAVAILABLE: 'unavailable' });
+
+// ── Path search (services/graph/routing.js, candidates.js) ──────────────────
+
+const SEARCH = Object.freeze({
+  // Expansion budget for one safest-path search (and, shared, all candidate searches of one findKSafestRoutes).
+  // Exceeding it is reported as a path-not-found unless a route was already found.
+  MAX_ASTAR_EXPANSIONS: 3_000_000,
+  // The A* loops check for cancellation every (CANCEL_CHECK_MASK + 1) heap pops.
+  CANCEL_CHECK_MASK: 1023,
+  // A* never lets effective safety fall below this, so an edge cost stays finite (cost = distance / safety).
+  MIN_EFFECTIVE_SAFETY: 0.05,
+  // A candidate path may be at most this multiple of maxDistM long (callers pass the straight-line based cap).
+  MAX_DETOUR_FACTOR: 1.5,
+  // Each found route adds this to the penalty of its edges, steering the next search elsewhere.
+  PENALTY_INCREMENT: 0.15,
+  // Two candidates sharing more than this fraction of edges are the same route.
+  DUPLICATE_OVERLAP: 0.85,
+  // Extra searches beyond k, to absorb duplicate candidates.
+  EXTRA_SEARCHES: 3,
+  // Default snap radius (m) when mapping a coordinate to the nearest graph node.
+  NEAREST_NODE_MAX_M: 500,
+});
 
 module.exports = Object.freeze({
   ACTIVITY_FLOOR,
@@ -209,6 +336,7 @@ module.exports = Object.freeze({
   MAX_LENGTH_RATIO,
   LENGTH_EXPOSURE_EXPONENT,
   LAMP_RADIUS_M,
+  LAMP_NEAR_PATH_M,
   MIN_FACTOR_SAFETY,
   BASE_WEIGHTS,
   PRIOR_SAFETY,
@@ -219,4 +347,12 @@ module.exports = Object.freeze({
   CRIME,
   DARKNESS,
   LIGHTING,
+  ROAD_TYPE_SCORES,
+  ROAD_SCORE_FALLBACK,
+  SURFACE_PENALTIES,
+  PATH_CLASS_HIGHWAYS,
+  GRAPH,
+  OPENING_HOURS,
+  CRIME_STATUS,
+  SEARCH,
 });

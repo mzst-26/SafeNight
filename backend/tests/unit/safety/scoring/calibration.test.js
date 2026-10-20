@@ -14,7 +14,8 @@ const {
   NIGHT, DAY, ARCHETYPES, RANGES, ROUTES, routeEdgeIdxs,
 } = require('./fixtures/calibrationScenes');
 
-const OPTIONS = { level: 'extra', ...NIGHT };
+// crimeStatus is explicit: a missing status is an outage (fail closed), and the archetype ranges assume crime data.
+const OPTIONS = { level: 'extra', crimeStatus: 'ok', ...NIGHT };
 
 async function graphOf(scene, options = OPTIONS) {
   return buildGraph(scene.roadData, scene.lightData, scene.cctvData, scene.placeData,
@@ -73,7 +74,7 @@ describe('v2 calibration: single-street archetypes at night', () => {
 
   test('I: street A in full daylight is within 8 points of A or higher, and never more than 3 below A', async () => {
     const a = await archetypeScore('A');
-    const { score: day, graph } = await archetypeScore('A', { level: 'extra', ...DAY });
+    const { score: day, graph } = await archetypeScore('A', { level: 'extra', crimeStatus: 'ok', ...DAY });
     expect(graph.darkness).toBeCloseTo(0, 6);
     expect(day).toBeGreaterThanOrEqual(a.score - 3);
     expect(day >= a.score || Math.abs(day - a.score) <= 8).toBe(true);

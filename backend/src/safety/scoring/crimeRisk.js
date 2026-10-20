@@ -106,4 +106,7 @@ module.exports = {
   recencyWeight,
   weightedCrimeCount,
   crimeRisk,
+  // Crime data outage states, shared with the crime client and the route cache.
+  STATUS_OK,
+  STATUS_UNAVAILABLE,
 };

@@ -1,5 +1,5 @@
 /**
- * safetyGraph v2 model (SAFETY_MODEL unset or anything other than 'v1').
+ * safetyGraph v2 model (the only model).
  * Spec: docs/superpowers/specs/2026-10-19-safety-scoring-v2-design.md sections 10-11.
  *
  * Every network is a tiny synthetic OSM-like dataset, so results are deterministic and
@@ -12,7 +12,6 @@ const {
   findKSafestRoutes,
   routeSafetyBreakdown,
   isHazardEdge,
-  useV2,
 } = require(path.resolve(__dirname, '../../../../src/safety/services/safetyGraph'));
 const { ACTIVITY_FLOOR } = require(path.resolve(__dirname, '../../../../src/safety/scoring/config'));
 
@@ -74,29 +73,10 @@ function streetNetwork() {
 
 function buildStreets(options = {}) {
   const net = streetNetwork();
-  return buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: "extra", ...NIGHT, ...options });
+  return buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', crimeStatus: 'ok', ...NIGHT, ...options });
 }
 
 describe('safetyGraph v2 model', () => {
-  const previous = process.env.SAFETY_MODEL;
-  beforeEach(() => { delete process.env.SAFETY_MODEL; });
-  afterEach(() => {
-    if (previous === undefined) delete process.env.SAFETY_MODEL;
-    else process.env.SAFETY_MODEL = previous;
-  });
-
-  describe('model flag', () => {
-    test('v2 is the default and the flag is read on every call', () => {
-      expect(useV2()).toBe(true);
-      process.env.SAFETY_MODEL = 'v1';
-      expect(useV2()).toBe(false);
-      process.env.SAFETY_MODEL = 'v2';
-      expect(useV2()).toBe(true);
-      process.env.SAFETY_MODEL = 'anything-else';
-      expect(useV2()).toBe(true);
-    });
-  });
-
   describe('(a) lighting depends on darkness', () => {
     test('at night a lit residential street is safer than an unmapped one, which is safer than a lit=no path', async () => {
       const graph = await buildStreets({ ...NIGHT, crimeStatus: 'ok' });
@@ -168,7 +148,7 @@ describe('safetyGraph v2 model', () => {
 
     test('a footway that meets a motorway at a junction is not a dead end', async () => {
       const net = junctionNetwork();
-      const graph = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { ...NIGHT });
+      const graph = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { ...NIGHT, crimeStatus: 'ok' });
       const footwayToJunction = graph.edges.find((e) => e.highway === 'footway' && (e.from === 2 && e.to === 4 || e.from === 4 && e.to === 2));
       expect(footwayToJunction).toBeDefined();
       expect(footwayToJunction.isDeadEnd).toBe(false);
@@ -176,7 +156,7 @@ describe('safetyGraph v2 model', () => {
 
     test('a footway that really ends is still a dead end', async () => {
       const net = junctionNetwork();
-      const graph = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { ...NIGHT });
+      const graph = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { ...NIGHT, crimeStatus: 'ok' });
       const footwayToTip = graph.edges.find((e) => e.highway === 'footway' && (e.from === 2 && e.to === 7 || e.from === 7 && e.to === 2));
       expect(footwayToTip).toBeDefined();
       expect(footwayToTip.isDeadEnd).toBe(true);
@@ -207,22 +187,57 @@ describe('safetyGraph v2 model', () => {
       return { osmNodes, edges, adjacency };
     }
 
-    test('a longer route with slightly lower risk per metre ranks below a shorter route with more exposure, and a route over 1.5x the shortest is excluded', () => {
+    // Exposure H = routeRisk * (lengthM / 1000)^0.5 (LENGTH_EXPOSURE_EXPONENT = 0.5); candidates longer than
+    // 2.0x the shortest (MAX_LENGTH_RATIO) stay in the list, marked excluded, after every kept route.
+    // Every edge of a route has the same risk, so routeRisk equals that risk (mean = M3).
+    test('a 1.4x longer route that is only 10% less risky ranks below the shorter route, and a route over 2.0x the shortest is excluded last', () => {
       const { osmNodes, edges, adjacency } = manualGraph([
         ['S', 'A', 500, 0.5], ['A', 'E', 500, 0.5],                 // A: 1000 m at risk 0.50
-        ['S', 'B1', 466.6667, 0.45], ['B1', 'B2', 466.6667, 0.45], ['B2', 'E', 466.6667, 0.45], // B: 1400 m at 0.45
-        ['S', 'E', 1600, 0.1],                                       // C: 1600 m at 0.10 (over 1.5x)
+        ['S', 'B1', 466.6667, 0.45], ['B1', 'B2', 466.6667, 0.45], ['B2', 'E', 466.6667, 0.45], // B: 1400.0001 m at 0.45
+        ['S', 'E', 2100, 0.1],                                       // C: 2100 m at 0.10 (2.1x the shortest)
       ]);
 
       const routes = findKSafestRoutes(osmNodes, edges, adjacency, 'S', 'E', 2000, 5, {});
 
       expect(routes.map((r) => r.edges)).toEqual([[0, 1], [2, 3, 4], [5]]);
       expect(routes.map((r) => r.excluded)).toEqual([false, false, true]);
-      // Exposure = routeRisk * km: A 0.50, B 0.63, C 0.16 (but C is excluded by the cap).
+      // A: 0.50 * sqrt(1.0)    = 0.500000
+      // B: 0.45 * sqrt(1.4)    = 0.45 * 1.183216 = 0.532447 (needs risk below 0.5 / 1.183216 = 0.4226 to beat A)
+      // C: 0.10 * sqrt(2.1)    = 0.10 * 1.449138 = 0.144914 (lowest, but 2.1x > 2.0x, so excluded and last)
       expect(routes[0].exposure).toBeCloseTo(0.5, 6);
-      expect(routes[1].exposure).toBeCloseTo(0.63, 6);
+      expect(routes[1].exposure).toBeCloseTo(0.45 * Math.sqrt(1.4000001), 5);
+      expect(routes[1].exposure).toBeCloseTo(0.532447, 5);
+      expect(routes[2].exposure).toBeCloseTo(0.144914, 5);
       expect(routes[1].routeRisk).toBeLessThan(routes[0].routeRisk);
+      expect(routes[1].exposure).toBeGreaterThan(routes[0].exposure);
       expect(routes[0].score).toBe(50);
+    });
+
+    test('a 1.4x longer route wins once its risk is more than 15.5% lower (0.40 against 0.50)', () => {
+      const { osmNodes, edges, adjacency } = manualGraph([
+        ['S', 'A', 500, 0.5], ['A', 'E', 500, 0.5],                 // A: 1000 m at 0.50, exposure 0.500000
+        ['S', 'B1', 466.6667, 0.4], ['B1', 'B2', 466.6667, 0.4], ['B2', 'E', 466.6667, 0.4], // B: 1400 m at 0.40
+      ]);
+
+      const routes = findKSafestRoutes(osmNodes, edges, adjacency, 'S', 'E', 2000, 5, {});
+
+      // B: 0.40 * sqrt(1.4) = 0.473286 < 0.5, so the longer route is recommended.
+      expect(routes.map((r) => r.edges)).toEqual([[2, 3, 4], [0, 1]]);
+      expect(routes[0].exposure).toBeCloseTo(0.473286, 5);
+      expect(routes.map((r) => r.excluded)).toEqual([false, false]);
+    });
+
+    test('a route at exactly 2.0x the shortest is kept and, being far less risky, ranks first', () => {
+      const { osmNodes, edges, adjacency } = manualGraph([
+        ['S', 'A', 500, 0.5], ['A', 'E', 500, 0.5],                 // A: 1000 m at 0.50, exposure 0.500000
+        ['S', 'E', 2000, 0.1],                                       // C: 2000 m at 0.10 = 2.0x, exposure 0.1 * sqrt(2) = 0.141421
+      ]);
+
+      const routes = findKSafestRoutes(osmNodes, edges, adjacency, 'S', 'E', 2000, 5, {});
+
+      expect(routes.map((r) => r.edges)).toEqual([[2], [0, 1]]);
+      expect(routes.map((r) => r.excluded)).toEqual([false, false]);
+      expect(routes[0].exposure).toBeCloseTo(0.141421, 5);
     });
   });
 
@@ -268,8 +283,8 @@ describe('safetyGraph v2 model', () => {
     test('a convenience shop counts at 12:00 and not at 23:00 (it closes at 23:00), whatever the server clock says', async () => {
       const net = streetNetwork();
       const places = { elements: [shop] };
-      const noon = await buildGraph(net.roadData, net.lightData, null, places, null, [], net.bbox, { level: 'extra', hour: 12, now: NIGHT.now });
-      const late = await buildGraph(net.roadData, net.lightData, null, places, null, [], net.bbox, { level: 'extra', hour: 23, now: NIGHT.now });
+      const noon = await buildGraph(net.roadData, net.lightData, null, places, null, [], net.bbox, { level: 'extra', hour: 12, now: NIGHT.now, crimeStatus: 'ok' });
+      const late = await buildGraph(net.roadData, net.lightData, null, places, null, [], net.bbox, { level: 'extra', hour: 23, now: NIGHT.now, crimeStatus: 'ok' });
       expect(noon.edges[4].placeScore).toBeCloseTo(0.15, 9);
       expect(late.edges[4].placeScore).toBe(0);
     });
@@ -277,15 +292,15 @@ describe('safetyGraph v2 model', () => {
     test('with no place, transit or CCTV data at all, activity is unknown and adds no certainty', async () => {
       const net = streetNetwork();
       const none = await buildStreets({ ...NIGHT });
-      const withCctv = await buildGraph(net.roadData, net.lightData, { elements: [{ type: 'node', id: 901, lat: LAT + 0.002, lon: LNG + 0.001 }] }, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+      const withCctv = await buildGraph(net.roadData, net.lightData, { elements: [{ type: 'node', id: 901, lat: LAT + 0.002, lon: LNG + 0.001 }] }, null, null, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
       expect(withCctv.edges[4].certainty).toBeGreaterThan(none.edges[4].certainty);
     });
 
     test('the standard data level drops activity, so CCTV data does not change edge risk', async () => {
       const net = streetNetwork();
       const cctv = { elements: [{ type: 'node', id: 901, lat: LAT + 0.002, lon: LNG + 0.001 }] };
-      const standardNone = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'standard', ...NIGHT });
-      const standardCctv = await buildGraph(net.roadData, net.lightData, cctv, null, null, [], net.bbox, { level: 'standard', ...NIGHT });
+      const standardNone = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'standard', ...NIGHT, crimeStatus: 'ok' });
+      const standardCctv = await buildGraph(net.roadData, net.lightData, cctv, null, null, [], net.bbox, { level: 'standard', ...NIGHT, crimeStatus: 'ok' });
       expect(standardCctv.edges[4].risk).toBeCloseTo(standardNone.edges[4].risk, 12);
       expect(standardCctv.weights.activity).toBe(0);
     });
@@ -295,7 +310,7 @@ describe('safetyGraph v2 model', () => {
 
     test('a single far-away camera gives activity the floor, not zero, so trafficScore is the road score blended with ACTIVITY_FLOOR', async () => {
       const net = streetNetwork();
-      const far = await buildGraph(net.roadData, net.lightData, farCamera, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+      const far = await buildGraph(net.roadData, net.lightData, farCamera, null, null, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
       const edge = far.edges[4];
       expect(edge.trafficScore).toBeCloseTo((edge.roadScore + ACTIVITY_FLOOR) / 2, 9);
     });
@@ -303,7 +318,7 @@ describe('safetyGraph v2 model', () => {
     test('a single far-away camera does not make an edge riskier than the same street with no activity data at all', async () => {
       const net = streetNetwork();
       const none = await buildStreets({ ...NIGHT });
-      const far = await buildGraph(net.roadData, net.lightData, farCamera, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+      const far = await buildGraph(net.roadData, net.lightData, farCamera, null, null, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
       expect(far.edges[4].risk).toBeLessThanOrEqual(none.edges[4].risk);
     });
   });
@@ -343,22 +358,6 @@ describe('safetyGraph v2 model', () => {
 
     test('an unlit tunnel is still a hazard at any speed', () => {
       expect(isHazardEdge({ ...base, isTunnel: true, maxspeed: '30 mph' })).toBe(true);
-    });
-  });
-
-  describe('maxspeed hazards with SAFETY_MODEL=v1 (characterization, unchanged)', () => {
-    const previous = process.env.SAFETY_MODEL;
-    beforeEach(() => { process.env.SAFETY_MODEL = 'v1'; });
-    afterEach(() => {
-      if (previous === undefined) delete process.env.SAFETY_MODEL;
-      else process.env.SAFETY_MODEL = previous;
-    });
-    const base = { hasSidewalk: false, isTunnel: false, isLit: false };
-
-    test('v1 reads the leading number, so a bare 50 and 50 mph are hazards', () => {
-      expect(isHazardEdge({ ...base, maxspeed: '50' })).toBe(true);
-      expect(isHazardEdge({ ...base, maxspeed: '50 mph' })).toBe(true);
-      expect(isHazardEdge({ ...base, maxspeed: '40 mph' })).toBe(false);
     });
   });
 

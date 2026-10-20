@@ -4,7 +4,6 @@
 // given, so the expected numbers can be worked out by hand in each test.
 
 jest.mock('../../../../src/safety/services/safetyGraph', () => ({
-  useV2: jest.fn(() => true),
   routeToPolyline: jest.fn(() => [
     { lat: 50.37, lng: -4.14 },
     { lat: 50.38, lng: -4.13 },
@@ -153,12 +152,12 @@ describe('safeRoutesResponseFormatter (v2)', () => {
     expect(route.safety.color).toBe('#558B2F');
   });
 
-  test('the v1 lighting override is disabled: a dark route is labelled by its score alone', () => {
+  test('there is no lighting override: a dark route is labelled by its score alone', () => {
     const { osmNodes, edges } = buildEdges(4, { risk: 0.4, lightScore: 0.1 });
     const args = baseArgs({ osmNodes, edges });
     const [route] = buildRouteResponses(args);
 
-    // Score 60 with 10% lighting: v1 forced "Use Caution" here; v2 must not.
+    // Score 60 with 10% lighting: the label follows the score, never the lighting alone.
     expect(route.safety.score).toBe(60);
     expect(route.safety.breakdown.lighting).toBe(10);
     expect(route.safety.label).toBe('Safe');
@@ -232,7 +231,7 @@ describe('safeRoutesResponseFormatter (v2)', () => {
     expect(responseRoutes[0].safety.reason).not.toMatch(/NaN|Infinity/);
   });
 
-  test('routes longer than 1.5x the shortest are ranked last and marked excluded', () => {
+  test('routes longer than 2.0x the shortest (here 3x: 1200 m against 400 m) are ranked last', () => {
     const shortRoute = buildEdges(4, { risk: 0.5 });
     const longBlock = buildEdges(12, { risk: 0.01 });
     const osmNodes = new Map([...shortRoute.osmNodes, ...longBlock.osmNodes]);

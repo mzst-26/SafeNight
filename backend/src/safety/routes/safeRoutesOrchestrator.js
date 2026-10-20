@@ -1,5 +1,18 @@
+const { STATUS_UNAVAILABLE } = require("../scoring/crimeRisk");
+
 // Total size of cached route responses (estimated as their JSON length). Oldest entries go first.
 const MAX_ROUTE_CACHE_BYTES = 64 * 1024 * 1024;
+// A response built during a crime outage is only kept briefly, so recovery shows up on the next search.
+const CRIME_OUTAGE_TTL_MS = 20 * 1000;
+// Route coordinates are keyed at 1e-5 degrees (about 1 m). Coarser keys merged points about 100 m apart.
+const KEY_COORDINATE_SCALE = 1e5;
+
+function isCrimeOutageResult(result) {
+  return (
+    result?.meta?.crimeStatus === STATUS_UNAVAILABLE ||
+    result?.meta?.dataQuality?.crime === STATUS_UNAVAILABLE
+  );
+}
 
 function estimateJsonBytes(data) {
   try {
@@ -18,6 +31,7 @@ function createSafeRoutesOrchestrator({
   cacheTtlMs = 5 * 60 * 1000,
   maxCacheEntries = 100,
   maxCacheBytes = MAX_ROUTE_CACHE_BYTES,
+  outageTtlMs = CRIME_OUTAGE_TTL_MS,
 }) {
   const routeCache = new Map();
   let routeCacheBytes = 0;
@@ -31,10 +45,12 @@ function createSafeRoutesOrchestrator({
   }
 
   // Map iterates in insertion order, so the first keys are the oldest. The entry just stored is never evicted.
+  // Each entry carries its own TTL: an outage answer is stored with the short outage TTL.
   function cacheSet(key, data) {
     cacheDelete(key);
     const bytes = estimateJsonBytes(data);
-    routeCache.set(key, { data, timestamp: Date.now(), bytes });
+    const ttlMs = isCrimeOutageResult(data) ? outageTtlMs : cacheTtlMs;
+    routeCache.set(key, { data, timestamp: Date.now(), bytes, ttlMs });
     routeCacheBytes += bytes;
     for (const oldestKey of routeCache.keys()) {
       if (routeCacheBytes <= maxCacheBytes || oldestKey === key) break;
@@ -61,7 +77,7 @@ function createSafeRoutesOrchestrator({
   // Standard and extra results differ, so the safety level is part of the key.
   // The response echoes maxDistanceKm in its meta, so it is part of the key too.
   function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel = "extra", maxDistanceKm = null) {
-    const r = (v) => Math.round(v * 1000) / 1000;
+    const r = (v) => Math.round(v * KEY_COORDINATE_SCALE) / KEY_COORDINATE_SCALE;
     const base = `${r(oLat)},${r(oLng)}->${r(dLat)},${r(dLng)}`;
     const routeKey = wpLat != null && wpLng != null
       ? `${base}@${r(wpLat)},${r(wpLng)}`
@@ -89,7 +105,7 @@ function createSafeRoutesOrchestrator({
     if (routeCache.size <= maxCacheEntries) return;
     const now = Date.now();
     for (const [key, val] of routeCache) {
-      if (now - val.timestamp > cacheTtlMs) cacheDelete(key);
+      if (now - val.timestamp > val.ttlMs) cacheDelete(key);
     }
   }
 
@@ -126,7 +142,7 @@ function createSafeRoutesOrchestrator({
     );
     const cached = routeCache.get(cacheKey);
 
-    if (cached && Date.now() - cached.timestamp < cacheTtlMs) {
+    if (cached && Date.now() - cached.timestamp < cached.ttlMs) {
       console.log(`[safe-routes] 📋 Route cache hit for ${cacheKey}`);
       return { result: cached.data, source: "cache" };
     }
@@ -300,4 +316,5 @@ function createSafeRoutesOrchestrator({
 module.exports = {
   createSafeRoutesOrchestrator,
   MAX_ROUTE_CACHE_BYTES,
+  CRIME_OUTAGE_TTL_MS,
 };

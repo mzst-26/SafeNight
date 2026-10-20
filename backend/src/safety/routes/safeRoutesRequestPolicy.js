@@ -6,13 +6,19 @@ const { bboxFromPoints } = require('../services/geo');
 
 const RESPONSE_VERBOSITY_FULL = 'full';
 const RESPONSE_VERBOSITY_COMPACT = 'compact';
-const POI_CAP_MAX = Math.max(
-  1,
-  Number(process.env.SAFE_ROUTES_POI_CAP_MAX || 500),
-);
+const DEFAULT_POI_CAP_MAX = 500;
+// Env override of the server-side POI ceiling. NaN and non-positive values fall back to the default.
+function parsePoiCapMaxEnv(raw) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(1, Math.floor(parsed)) : DEFAULT_POI_CAP_MAX;
+}
+const POI_CAP_MAX = parsePoiCapMaxEnv(process.env.SAFE_ROUTES_POI_CAP_MAX);
 const INVALID_MAX_DISTANCE = 'INVALID_MAX_DISTANCE';
 const INVALID_WAYPOINT = 'INVALID_WAYPOINT';
 const AREA_TOO_LARGE = 'AREA_TOO_LARGE';
+const SAME_LOCATION = 'SAME_LOCATION';
+// Origin and destination closer than this are the same place: the route would be three identical 0 m walks.
+const SAME_LOCATION_MAX_M = 10;
 
 // A waypoint may add at most this multiple of the straight-line distance to the trip.
 const WAYPOINT_MAX_DETOUR_RATIO = 2.5;
@@ -138,6 +144,11 @@ function parseResponsePolicy(query = {}) {
   };
 }
 
+/** The straight-line trip is within the distance limit (the limit itself is allowed). Shared by both handlers. */
+function isWithinMaxDistance(straightLineKm, maxDistanceKm) {
+  return straightLineKm <= maxDistanceKm;
+}
+
 function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
   const oLat = checkCoordinate(req.query.origin_lat, validateLatitude, 'latitude');
   const oLng = checkCoordinate(req.query.origin_lng, validateLongitude, 'longitude');
@@ -169,6 +180,14 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
   );
   const straightLineKm = straightLineDist / 1000;
 
+  if (straightLineDist <= SAME_LOCATION_MAX_M) {
+    return {
+      ok: false,
+      error: SAME_LOCATION,
+      message: 'Your start and destination are the same place. Pick a different destination.',
+    };
+  }
+
   // Absent (or empty) uses the default. A supplied value must be a finite positive number of km.
   let maxDistanceKm = defaultMaxDistanceKm;
   const rawMaxDistance = req.query.max_distance;
@@ -184,32 +203,37 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
     maxDistanceKm = Math.min(requestedKm, defaultMaxDistanceKm);
   }
 
-  // A waypoint widens the search box, so it is bounded before anything is fetched: the trip through it
-  // may add at most 2.5x the straight line (and never more than maxDistanceKm), and it must be within maxDistanceKm of the origin.
-  if (wpLat != null) {
-    const originToWpM = haversine(oLat.value, oLng.value, wpLat, wpLng);
-    const wpToDestM = haversine(wpLat, wpLng, dLat.value, dLng.value);
-    const detourLimitM = Math.min(straightLineDist * WAYPOINT_MAX_DETOUR_RATIO, maxDistanceKm * 1000);
-    if (originToWpM > maxDistanceKm * 1000 || originToWpM + wpToDestM > detourLimitM) {
-      return {
-        ok: false,
-        error: INVALID_WAYPOINT,
-        message: 'That waypoint is too far out of the way for this trip. Pick a point closer to the route between your start and destination.',
-      };
+  // Distance comes first. A trip over the limit is answered by the handler with DESTINATION_OUT_OF_RANGE,
+  // so the waypoint and area guards below only judge trips that are in range. Both still run before any upstream fetch.
+  if (isWithinMaxDistance(straightLineKm, maxDistanceKm)) {
+    // A waypoint widens the search box, so it is bounded before anything is fetched: the trip through it
+    // may add at most 2.5x the straight line (and never more than maxDistanceKm), and it must be within maxDistanceKm of the origin.
+    if (wpLat != null) {
+      const originToWpM = haversine(oLat.value, oLng.value, wpLat, wpLng);
+      const wpToDestM = haversine(wpLat, wpLng, dLat.value, dLng.value);
+      const detourLimitM = Math.min(straightLineDist * WAYPOINT_MAX_DETOUR_RATIO, maxDistanceKm * 1000);
+      if (originToWpM > maxDistanceKm * 1000 || originToWpM + wpToDestM > detourLimitM) {
+        return {
+          ok: false,
+          error: INVALID_WAYPOINT,
+          message: 'That waypoint is too far out of the way for this trip. Pick a point closer to the route between your start and destination.',
+        };
+      }
     }
+
+    // The search box (origin, destination, waypoint and the largest corridor buffer) must stay within the area limit.
+    const requestBboxPoints = [{ lat: oLat.value, lng: oLng.value }, { lat: dLat.value, lng: dLng.value }];
+    if (wpLat != null) requestBboxPoints.push({ lat: wpLat, lng: wpLng });
+    const areaRefusal = searchAreaRefusal(bboxFromPoints(requestBboxPoints, SEARCH_BBOX_MAX_BUFFER_M));
+    if (areaRefusal) return areaRefusal;
   }
 
-  // The search box (origin, destination, waypoint and the largest corridor buffer) must stay within the area limit.
-  const requestBboxPoints = [{ lat: oLat.value, lng: oLng.value }, { lat: dLat.value, lng: dLng.value }];
-  if (wpLat != null) requestBboxPoints.push({ lat: wpLat, lng: wpLng });
-  const areaRefusal = searchAreaRefusal(bboxFromPoints(requestBboxPoints, SEARCH_BBOX_MAX_BUFFER_M));
-  if (areaRefusal) return areaRefusal;
-
+  // Fractional hours are floored first (23.7 is hour 23); anything still outside 0-23 is ignored.
   let departureHour = null;
   if (req.query.departure_hour != null && !isBlankOrRepeated(req.query.departure_hour)) {
-    const dh = Number(req.query.departure_hour);
+    const dh = Math.floor(Number(req.query.departure_hour));
     if (Number.isFinite(dh) && dh >= 0 && dh <= 23) {
-      departureHour = Math.floor(dh);
+      departureHour = dh;
     }
   }
 
@@ -297,6 +321,8 @@ function buildOutOfRangePayload({
 
 module.exports = {
   parseRouteRequest,
+  isWithinMaxDistance,
+  SAME_LOCATION,
   buildOutOfRangeMessage,
   buildOutOfRangePayload,
   searchBboxAreaKm2,

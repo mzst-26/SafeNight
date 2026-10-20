@@ -13,7 +13,7 @@ const fixtures = require(path.join(__dirname, '..', '..', 'tests', 'unit', 'safe
 const { NIGHT, ARCHETYPES, ROUTES, routeEdgeIdxs } = fixtures;
 const RANGES = fixtures.RANGES || {};
 
-async function graphOf(scene, options = { level: 'extra', ...NIGHT }) {
+async function graphOf(scene, options = { level: 'extra', crimeStatus: 'ok', ...NIGHT }) {
   return buildGraph(scene.roadData, scene.lightData, scene.cctvData, scene.placeData,
     scene.transitData, scene.crimes, scene.bbox, options);
 }

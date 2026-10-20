@@ -13,7 +13,6 @@ jest.mock('../../../src/safety/services/crimeClient', () => ({
 }));
 
 // The real graph and scoring run. buildGraph is wrapped only so the test can read the options it receives.
-// The model is chosen per test with SAFETY_MODEL (v2 is the default; 'v1' keeps the legacy path).
 jest.mock('../../../src/safety/services/safetyGraph', () => {
   const actual = jest.requireActual('../../../src/safety/services/safetyGraph');
   return {
@@ -25,12 +24,6 @@ jest.mock('../../../src/safety/services/safetyGraph', () => {
 const sourceFusion = require('../../../src/safety/services/sourceFusionEngine');
 const crimeClient = require('../../../src/safety/services/crimeClient');
 const safetyGraph = require('../../../src/safety/services/safetyGraph');
-
-const ORIGINAL_SAFETY_MODEL = process.env.SAFETY_MODEL;
-function setModel(model) {
-  if (model == null) delete process.env.SAFETY_MODEL;
-  else process.env.SAFETY_MODEL = model;
-}
 
 function buildApp() {
   const app = express();
@@ -77,12 +70,7 @@ function query(shift) {
 }
 
 describe('safeRoutes crime status wiring', () => {
-  beforeEach(() => {
-    setModel('v1');
-  });
-
   afterEach(() => {
-    setModel(ORIGINAL_SAFETY_MODEL);
     jest.clearAllMocks();
   });
 
@@ -111,23 +99,9 @@ describe('safeRoutes crime status wiring', () => {
     expect(safetyGraph.buildGraph.mock.calls[0][7].crimeStatus).toBe('ok');
   });
 
-  test('v1 response meta gains no dataQuality crime or lighting keys', async () => {
-    const app = buildApp();
-    mockOneStreet(0.0303);
-    setModel('v1');
-
-    const res = await request(app).get('/api/safe-routes').query(query(0.0303));
-
-    expect(res.status).toBe(200);
-    expect(res.body.meta.dataQuality.crime).toBeUndefined();
-    expect(res.body.meta.dataQuality.lighting).toBeUndefined();
-    expect(res.body.routes[0].safety.dataQuality).toBeUndefined();
-  });
-
-  test('v2 response carries crime status in meta and on each route', async () => {
+  test('the response carries crime status in meta and on each route', async () => {
     const app = buildApp();
     mockOneStreet(0.0404);
-    setModel(undefined);
     crimeClient.fetchCrimesWithStatus.mockResolvedValueOnce({ crimes: [], status: 'unavailable' });
 
     const res = await request(app).get('/api/safe-routes').query(query(0.0404));

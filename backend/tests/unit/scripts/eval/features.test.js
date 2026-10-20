@@ -25,9 +25,11 @@ describe('segmentsOf', () => {
     expect(segs[0].km).toBeCloseTo(0.1, 3);
   });
 
-  test('skips segments shorter than 0.5 m, as buildGraphV2 does', () => {
+  test('raises segments shorter than 0.5 m to 0.5 m instead of dropping them, as buildGraph does', () => {
     const coords = [[LNG, LAT], [LNG, LAT + 0.2 * DEG_PER_M_LAT], [LNG, LAT + 50 * DEG_PER_M_LAT]];
-    expect(segmentsOf(coords)).toHaveLength(1);
+    const segs = segmentsOf(coords);
+    expect(segs).toHaveLength(2);
+    expect(segs[0].km).toBeCloseTo(0.0005, 9);
   });
 
   test('returns an empty list for a single vertex', () => {
@@ -54,7 +56,7 @@ describe('anchorOf', () => {
 });
 
 describe('areaKeyOf', () => {
-  test('uses 0.003 degree cells as buildGraphV2 does', () => {
+  test('uses 0.003 degree cells as buildGraph does', () => {
     expect(areaKeyOf(50.3001, -4.2999)).toBe(`${Math.floor(50.3001 / 0.003)},${Math.floor(-4.2999 / 0.003)}`);
   });
 });

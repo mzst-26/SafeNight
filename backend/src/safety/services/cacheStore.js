@@ -18,11 +18,21 @@ function sanitizeNamespace(namespace) {
   return String(namespace || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+/** Estimated size of a value: its JSON length. Used only for the memory byte budget. */
+function estimateBytes(data) {
+  try {
+    return String(JSON.stringify(data) ?? '').length;
+  } catch {
+    return 0;
+  }
+}
+
 function createSafetyCacheStore(options = {}) {
   const {
     namespace = 'default',
     ttlMs,
     maxEntries = 100,
+    maxBytes = Infinity,
     cacheDir = process.env.SAFE_ROUTES_CACHE_DIR,
     now = () => Date.now(),
   } = options;
@@ -33,11 +43,9 @@ function createSafetyCacheStore(options = {}) {
 
   const safeNamespace = sanitizeNamespace(namespace);
   const persistentDir = resolveCacheDir(cacheDir);
+  // Memory layer: a Map in insertion order, so the first key is always the oldest. memoryBytes tracks the estimated JSON size.
   const memory = new Map();
-
-  function isFresh(entry) {
-    return !!entry && now() - entry.timestamp < ttlMs;
-  }
+  let memoryBytes = 0;
 
   function getFilePathForKey(key) {
     if (!persistentDir) return null;
@@ -61,11 +69,24 @@ function createSafetyCacheStore(options = {}) {
     }
   }
 
-  function compactMemoryIfNeeded() {
-    if (memory.size <= maxEntries) return;
-    for (const [cacheKey, entry] of memory.entries()) {
-      if (!isFresh(entry)) memory.delete(cacheKey);
-      if (memory.size <= maxEntries) break;
+  function memoryDelete(key) {
+    const existing = memory.get(key);
+    if (!existing) return;
+    memoryBytes -= existing.bytes;
+    memory.delete(key);
+  }
+
+  // Evicts oldest-inserted entries (fresh or not) until both the entry cap and the byte budget hold.
+  // The entry just stored is never evicted by its own insert.
+  function memorySet(key, data, timestamp) {
+    memoryDelete(key);
+    const bytes = estimateBytes(data);
+    memory.set(key, { data, timestamp, bytes });
+    memoryBytes += bytes;
+    for (const oldestKey of memory.keys()) {
+      if (memory.size <= maxEntries && memoryBytes <= maxBytes) break;
+      if (oldestKey === key) break;
+      memoryDelete(oldestKey);
     }
   }
 
@@ -117,7 +138,7 @@ function createSafetyCacheStore(options = {}) {
           cacheLayer: 'memory',
         };
       }
-      memory.delete(key);
+      memoryDelete(key);
     }
 
     const filePath = getFilePathForKey(key);
@@ -126,8 +147,7 @@ function createSafetyCacheStore(options = {}) {
 
     const ageMs = nowTs - diskEntry.timestamp;
     if (ageMs < ttlMs) {
-      memory.set(key, { data: diskEntry.data, timestamp: diskEntry.timestamp });
-      compactMemoryIfNeeded();
+      memorySet(key, diskEntry.data, diskEntry.timestamp);
       return {
         data: diskEntry.data,
         timestamp: diskEntry.timestamp,
@@ -138,8 +158,7 @@ function createSafetyCacheStore(options = {}) {
     }
 
     if (normalizedAllowStale && shouldAllowStale(ageMs, normalizedMaxStaleMs)) {
-      memory.set(key, { data: diskEntry.data, timestamp: diskEntry.timestamp });
-      compactMemoryIfNeeded();
+      memorySet(key, diskEntry.data, diskEntry.timestamp);
       return {
         data: diskEntry.data,
         timestamp: diskEntry.timestamp,
@@ -161,8 +180,7 @@ function createSafetyCacheStore(options = {}) {
   async function set(key, data) {
     const timestamp = now();
     const entry = { data, timestamp };
-    memory.set(key, entry);
-    compactMemoryIfNeeded();
+    memorySet(key, data, timestamp);
 
     const filePath = getFilePathForKey(key);
     if (!filePath) return;
@@ -180,6 +198,7 @@ function createSafetyCacheStore(options = {}) {
 
   function clearMemory() {
     memory.clear();
+    memoryBytes = 0;
   }
 
   return {

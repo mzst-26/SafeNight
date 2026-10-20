@@ -300,7 +300,8 @@ describe('safeRoutesRequestPolicy', () => {
     });
 
     test('a waypoint farther than maxDistanceKm from the origin is rejected', () => {
-      const result = parseReal({ waypoint_lat: '51.52', waypoint_lng: '-0.12', max_distance: '1' });
+      // The trip (about 1.3 km) is within a 2 km limit, but the waypoint (about 2.2 km north) is not.
+      const result = parseReal({ waypoint_lat: '51.52', waypoint_lng: '-0.12', max_distance: '2' });
 
       expect(result.ok).toBe(false);
       expect(result.error).toBe('INVALID_WAYPOINT');
@@ -346,6 +347,135 @@ describe('safeRoutesRequestPolicy', () => {
 
       expect(area).toBeGreaterThan(150);
       expect(area).toBeLessThan(160);
+    });
+  });
+
+  describe('distance first, same location, departure hour (final review F13/F16/F17)', () => {
+    const { isWithinMaxDistance } = require('../../../../src/safety/routes/safeRoutesRequestPolicy');
+    const parseReal = (overrides = {}) =>
+      parseRouteRequest(
+        makeReq({
+          origin_lat: '51.50',
+          origin_lng: '-0.12',
+          dest_lat: '51.51',
+          dest_lng: '-0.11',
+          ...overrides,
+        }),
+        20,
+        haversine,
+      );
+
+    test('a far trip parses as in-range-checkable (no AREA_TOO_LARGE before the distance check)', () => {
+      // Origin 50.0,-4.0 to 50.3,-3.2 is about 66 km and a 1900 km2 box: the distance rule must decide first.
+      const result = parseRouteRequest(
+        makeReq({ origin_lat: '50.0', origin_lng: '-4.0', dest_lat: '50.3', dest_lng: '-3.2' }),
+        20,
+        haversine,
+      );
+
+      expect(result.error).not.toBe('AREA_TOO_LARGE');
+      expect(result.ok).toBe(true);
+      expect(isWithinMaxDistance(result.value.straightLineKm, result.value.maxDistanceKm)).toBe(false);
+    });
+
+    test('a waypoint on a far trip is not reported as INVALID_WAYPOINT ahead of the distance rule', () => {
+      const result = parseReal({
+        origin_lat: '50.0',
+        origin_lng: '-4.0',
+        dest_lat: '50.3',
+        dest_lng: '-3.2',
+        waypoint_lat: '50.15',
+        waypoint_lng: '-3.6',
+      });
+
+      expect(result.error).not.toBe('INVALID_WAYPOINT');
+      expect(result.error).not.toBe('AREA_TOO_LARGE');
+    });
+
+    test('the 18 to 19 km trips still pass the area limit and the distance rule', () => {
+      const result = parseReal({ origin_lat: '51.00', dest_lat: '51.17' });
+
+      expect(result.ok).toBe(true);
+      expect(isWithinMaxDistance(result.value.straightLineKm, result.value.maxDistanceKm)).toBe(true);
+    });
+
+    test('isWithinMaxDistance is inclusive of the limit and false above it', () => {
+      expect(isWithinMaxDistance(20, 20)).toBe(true);
+      expect(isWithinMaxDistance(19.99, 20)).toBe(true);
+      expect(isWithinMaxDistance(20.01, 20)).toBe(false);
+    });
+
+    test('origin equal to destination is refused with SAME_LOCATION', () => {
+      const result = parseReal({ dest_lat: '51.50', dest_lng: '-0.12' });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('SAME_LOCATION');
+      expect(typeof result.message).toBe('string');
+    });
+
+    test('origin and destination within 10 m are refused with SAME_LOCATION', () => {
+      // 0.00005 degrees of latitude is about 5.6 m.
+      const result = parseReal({ dest_lat: '51.50005', dest_lng: '-0.12' });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('SAME_LOCATION');
+    });
+
+    test('origin and destination about 22 m apart are not the same location', () => {
+      const result = parseReal({ dest_lat: '51.5002', dest_lng: '-0.12' });
+
+      expect(result.ok).toBe(true);
+    });
+
+    test.each([
+      ['23.7', 23],
+      ['23.99', 23],
+      ['0.5', 0],
+      ['9', 9],
+    ])('departure_hour %s is floored to %i before the range check', (raw, expected) => {
+      const result = parseReal({ departure_hour: raw });
+
+      expect(result.value.departureHour).toBe(expected);
+    });
+
+    test.each([
+      ['24', null],
+      ['24.5', null],
+      ['-0.5', null],
+      ['-1', null],
+    ])('departure_hour %s stays out of range and is ignored', (raw, expected) => {
+      const result = parseReal({ departure_hour: raw });
+
+      expect(result.value.departureHour).toBe(expected);
+    });
+  });
+
+  describe('SAFE_ROUTES_POI_CAP_MAX env parsing (final review F17)', () => {
+    const ORIGINAL = process.env.SAFE_ROUTES_POI_CAP_MAX;
+    afterEach(() => {
+      if (ORIGINAL === undefined) delete process.env.SAFE_ROUTES_POI_CAP_MAX;
+      else process.env.SAFE_ROUTES_POI_CAP_MAX = ORIGINAL;
+    });
+
+    test.each([
+      ['NaN text', 'abc'],
+      ['zero', '0'],
+      ['negative', '-20'],
+      ['empty string', ''],
+    ])('a %s value falls back to the default ceiling of 500', (_label, raw) => {
+      process.env.SAFE_ROUTES_POI_CAP_MAX = raw;
+      jest.isolateModules(() => {
+        const isolated = require('../../../../src/safety/routes/safeRoutesRequestPolicy');
+        expect(isolated.POI_CAP_MAX).toBe(500);
+      });
+    });
+
+    test('a valid positive override is honoured', () => {
+      process.env.SAFE_ROUTES_POI_CAP_MAX = '250';
+      jest.isolateModules(() => {
+        const isolated = require('../../../../src/safety/routes/safeRoutesRequestPolicy');
+        expect(isolated.POI_CAP_MAX).toBe(250);
+      });
     });
   });
 });

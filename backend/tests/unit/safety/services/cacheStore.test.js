@@ -76,4 +76,95 @@ describe('cacheStore', () => {
     await expect(storeB.get(key)).resolves.toBeNull();
     expect(fs.readdirSync(cacheDir).length).toBe(0);
   });
+
+  describe('memory limits (final review F17)', () => {
+    test('inserting more fresh entries than maxEntries keeps the memory layer at maxEntries', async () => {
+      const store = createSafetyCacheStore({
+        namespace: 'cap-entries',
+        ttlMs: 60_000,
+        maxEntries: 3,
+        cacheDir: '',
+      });
+
+      for (let i = 1; i <= 5; i += 1) {
+        await store.set(`k${i}`, { i });
+      }
+
+      const survivors = [];
+      for (let i = 1; i <= 5; i += 1) {
+        if ((await store.get(`k${i}`)) !== null) survivors.push(i);
+      }
+      expect(survivors).toEqual([3, 4, 5]);
+    });
+
+    test('the oldest inserted entry is evicted first, regardless of freshness', async () => {
+      const store = createSafetyCacheStore({
+        namespace: 'cap-oldest',
+        ttlMs: 60_000,
+        maxEntries: 2,
+        cacheDir: '',
+      });
+
+      await store.set('first', 1);
+      await store.set('second', 2);
+      await store.set('third', 3);
+
+      await expect(store.get('first')).resolves.toBeNull();
+      await expect(store.get('second')).resolves.toBe(2);
+      await expect(store.get('third')).resolves.toBe(3);
+    });
+
+    test('re-setting an existing key refreshes its position so it is not the first evicted', async () => {
+      const store = createSafetyCacheStore({
+        namespace: 'cap-refresh',
+        ttlMs: 60_000,
+        maxEntries: 2,
+        cacheDir: '',
+      });
+
+      await store.set('a', 1);
+      await store.set('b', 2);
+      await store.set('a', 10);
+      await store.set('c', 3);
+
+      await expect(store.get('b')).resolves.toBeNull();
+      await expect(store.get('a')).resolves.toBe(10);
+      await expect(store.get('c')).resolves.toBe(3);
+    });
+
+    test('a byte budget evicts the oldest entries once the estimated JSON size exceeds it', async () => {
+      // Each value serialises to about 600 bytes, so three of them exceed a 1500-byte budget.
+      const store = createSafetyCacheStore({
+        namespace: 'cap-bytes',
+        ttlMs: 60_000,
+        maxEntries: 100,
+        maxBytes: 1500,
+        cacheDir: '',
+      });
+      const big = (tag) => ({ tag, payload: 'x'.repeat(600) });
+
+      await store.set('one', big(1));
+      await store.set('two', big(2));
+      await store.set('three', big(3));
+
+      await expect(store.get('one')).resolves.toBeNull();
+      await expect(store.get('two')).resolves.toEqual(big(2));
+      await expect(store.get('three')).resolves.toEqual(big(3));
+    });
+
+    test('an entry evicted from memory is still served from disk', async () => {
+      cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'safenight-cache-'));
+      const store = createSafetyCacheStore({
+        namespace: 'cap-disk',
+        ttlMs: 60_000,
+        maxEntries: 1,
+        cacheDir,
+      });
+
+      await store.set('older', { v: 1 });
+      await store.set('newer', { v: 2 });
+
+      await expect(store.get('older')).resolves.toEqual({ v: 1 });
+    });
+  });
 });

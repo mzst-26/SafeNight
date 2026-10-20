@@ -4,7 +4,6 @@ jest.mock('../../../../src/safety/routes/safeRoutesUtils', () => ({
   checkOpenNow: jest.fn(() => ({ open: true, nextChange: 'closes at 22:00' })),
   heuristicOpen: jest.fn(() => ({ open: true, nextChange: 'opens at 07:00' })),
   safetyLabel: jest.fn(() => ({ label: 'Safe', color: '#558B2F' })),
-  segmentColor: jest.fn(() => '#4CAF50'),
 }));
 
 jest.mock('../../../../src/safety/routes/safeRoutesPoiCollector', () => ({
@@ -25,6 +24,12 @@ jest.mock('../../../../src/safety/services/safetyGraph', () => ({
   ]),
   routeSafetyBreakdown: jest.fn(() => ({
     overall: 0.61,
+    routeRisk: 0.39,
+    mean: 0.39,
+    m3: 0.39,
+    certainty: 0.8,
+    worstStretch: null,
+    riskVector: { mean: 0.39, p95: 0.4, max: 0.4, uncertainty: 0.2 },
     roadType: 0.6,
     lighting: 0.6,
     crime: 0.6,
@@ -158,6 +163,8 @@ describe('safeRoutesResponseFormatter', () => {
           to: 'n2',
           distance: 700,
           safetyScore: 0.6,
+          risk: 0.4,
+          certainty: 0.8,
           highway: 'residential',
           roadName: 'Main St',
           isDeadEnd: false,
@@ -177,6 +184,8 @@ describe('safeRoutesResponseFormatter', () => {
           to: 'n3',
           distance: 700,
           safetyScore: 0.45,
+          risk: 0.55,
+          certainty: 0.8,
           highway: 'path',
           roadName: '',
           isDeadEnd: false,
@@ -230,7 +239,9 @@ describe('safeRoutesResponseFormatter', () => {
     });
     expect(responseRoutes[0].segments).toHaveLength(2);
     expect(responseRoutes[0].lightUncertaintySpans).toHaveLength(1);
-    expect(responseRoutes[0].generalUncertaintyBoxes).toHaveLength(1);
+    // Uncertainty is drawn as dashed segments, so the legacy box lists stay empty.
+    expect(responseRoutes[0].generalUncertaintyBoxes).toEqual([]);
+    expect(responseRoutes[0].uncertaintyBoxes).toEqual([]);
   });
 
   test('buildRouteResponses in compact mode excludes heavy fields', () => {
@@ -250,6 +261,8 @@ describe('safeRoutesResponseFormatter', () => {
         {
           distance: 1000,
           safetyScore: 0.6,
+          risk: 0.4,
+          certainty: 0.8,
           highway: 'residential',
           roadName: 'Main St',
           isDeadEnd: false,
@@ -346,6 +359,8 @@ describe('safeRoutesResponseFormatter', () => {
         {
           distance: 1000,
           safetyScore: 0.6,
+          risk: 0.4,
+          certainty: 0.8,
           highway: 'residential',
           roadName: 'Main St',
           isDeadEnd: false,
@@ -412,6 +427,8 @@ describe('safeRoutesResponseFormatter', () => {
         {
           distance: 1000,
           safetyScore: 0.6,
+          risk: 0.4,
+          certainty: 0.8,
           highway: 'residential',
           roadName: 'Main St',
           isDeadEnd: false,
@@ -429,6 +446,8 @@ describe('safeRoutesResponseFormatter', () => {
         {
           distance: 1000,
           safetyScore: 0.6,
+          risk: 0.4,
+          certainty: 0.8,
           highway: 'residential',
           roadName: 'Main St',
           isDeadEnd: false,

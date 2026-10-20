@@ -59,14 +59,13 @@ const {
 } = require("./safeRoutesOrchestrator");
 const {
   parseRouteRequest,
-  buildOutOfRangeMessage,
+  isWithinMaxDistance,
   buildOutOfRangePayload,
   assertSearchBboxWithinLimit,
 } = require("./safeRoutesRequestPolicy");
 const {
   buildRouteResponses,
   routeErrorResponse,
-  isScoringV2Enabled,
 } = require("./safeRoutesResponseFormatter");
 const { buildSafeRoutesMeta } = require("./safeRoutesMetaBuilder");
 const { findRouteCandidates } = require("./safeRoutesCandidateFinder");
@@ -200,7 +199,7 @@ router.get("/", async (req, res) => {
       responsePolicy,
     } = parsedRequest.value;
 
-    if (straightLineKm > maxDistanceKm) {
+    if (!isWithinMaxDistance(straightLineKm, maxDistanceKm)) {
       return sendJson(
         400,
         buildOutOfRangePayload({
@@ -424,12 +423,22 @@ router.get("/stream", async (req, res) => {
       straightLineDist,
       straightLineKm,
       maxDistanceKm,
+      departureHour,
+      allowHazards,
       responsePolicy,
     } = parsedRequest.value;
 
-    if (straightLineKm > maxDistanceKm) {
+    if (!isWithinMaxDistance(straightLineKm, maxDistanceKm)) {
+      // Same payload as GET, so the client can map DESTINATION_OUT_OF_RANGE on both paths.
       send("error", {
-        message: buildOutOfRangeMessage(straightLineKm, maxDistanceKm),
+        ...buildOutOfRangePayload({
+          oLat,
+          oLng,
+          dLat,
+          dLng,
+          straightLineKm,
+          maxDistanceKm,
+        }),
         pct: 0,
       });
       return res.end();
@@ -444,6 +453,8 @@ router.get("/stream", async (req, res) => {
         wpLat,
         wpLng,
         responsePolicy,
+        departureHour,
+        allowHazards,
         safetyLevel,
         maxDistanceKm,
       })
@@ -469,6 +480,8 @@ router.get("/stream", async (req, res) => {
       maxDistanceKm,
       wpLat,
       wpLng,
+      departureHour,
+      allowHazards,
       responsePolicy,
       onProgress,
       cancelToken,
@@ -626,6 +639,7 @@ async function computeSafeRoutes(
             distStart,
             distEnd,
             straightLineDist * 3,
+            { shouldCancel: () => cancelToken?.isCancelled?.() === true },
           );
         }
       } catch (err) {
@@ -1197,7 +1211,7 @@ async function computeSafeRoutes(
         lightVerificationStatus,
         verifiedLightsCount: verifiedLights.length,
         // Only the v2 model reports crime and lighting quality in meta; v1 meta is unchanged.
-        crimeStatus: isScoringV2Enabled() ? crimeStatus : undefined,
+        crimeStatus,
       }),
     };
   } finally {

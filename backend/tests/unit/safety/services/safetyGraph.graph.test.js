@@ -1,7 +1,7 @@
 /**
- * safetyGraph graph-building parts: crime month adapter, v1 helper naming, config-driven
- * lamp radius, crime severity fallback, opening-hours parsing and heuristics, and the
- * distance-only fallback graph used when the safety graph is not needed.
+ * safetyGraph graph-building parts: crime month adapter, config-driven lamp radius, crime recency,
+ * opening-hours parsing and heuristics, and the distance-only fallback graph used when the safety
+ * graph is not needed.
  *
  * Synthetic OSM-like data only: no network, and London hour and `now` are passed in.
  */
@@ -17,7 +17,6 @@ const {
   aStarDistance,
   findNearestNode,
   crimesToWeightedCounts,
-  getV1Weights,
 } = safetyGraph;
 
 const LAT = 51.5;
@@ -87,7 +86,7 @@ function loadWithOpeningHoursParse() {
 async function placeScoreFor(tags, hour, now = NIGHT.now, mod = safetyGraph) {
   const net = streetNetwork();
   const place = { elements: [{ type: 'node', id: 950, lat: UNMAPPED_MID.lat + 0.00005, lon: UNMAPPED_MID.lng, tags }] };
-  const graph = await mod.buildGraph(net.roadData, net.lightData, null, place, null, [], net.bbox, { level: 'extra', hour, now });
+  const graph = await mod.buildGraph(net.roadData, net.lightData, null, place, null, [], net.bbox, { level: 'extra', hour, now, crimeStatus: 'ok' });
   return graph.edges[4].placeScore;
 }
 
@@ -132,60 +131,24 @@ describe('crimesToWeightedCounts (crimeClient rows to recency input)', () => {
   });
 });
 
-describe('getV1Weights (v1 time-of-day helper, renamed from getWeights)', () => {
-  test('is exported under its own name and gives the late-night v1 weights', () => {
-    expect(getV1Weights(2, 'extra')).toEqual({
-      roadType: 0.22, lighting: 0.28, crimeRate: 0.25, cctv: 0.08, openPlaces: 0.07, gpsTraffic: 0.10,
-    });
-  });
-
-  test('the standard level drops cctv and openPlaces and rescales the rest to sum to 1', () => {
-    const w = getV1Weights(12, 'standard');
-    expect(w.cctv).toBe(0);
-    expect(w.openPlaces).toBe(0);
-    const total = Object.values(w).reduce((sum, x) => sum + x, 0);
-    expect(total).toBeCloseTo(1, 9);
-  });
-});
-
-describe('v2 lamp radius comes from config (LAMP_RADIUS_M)', () => {
+describe('lamp radius comes from config (LAMP_RADIUS_M)', () => {
   test('a lamp 44 m from an edge lights it only when the config radius is wider than 44 m', async () => {
     const net = streetNetwork();
     net.lightData.elements.push({ type: 'node', id: 700, lat: UNMAPPED_MID.lat + 0.0004, lon: UNMAPPED_MID.lng, tags: { highway: 'street_lamp' } });
 
-    const narrow = await loadWithLampRadius(30).buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
-    const wide = await loadWithLampRadius(60).buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+    const narrow = await loadWithLampRadius(30).buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
+    const wide = await loadWithLampRadius(60).buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
 
     // The residential prior (0.88) already exceeds the one-lamp floor (0.85), so a lamp adds evidence (n), not pLit.
     expect(wide.edges[4].lightScore).toBeGreaterThan(narrow.edges[4].lightScore);
   });
 });
 
-describe('v1 crime severity comes from the category table when a crime has no severity field', () => {
-  const previous = process.env.SAFETY_MODEL;
-  beforeEach(() => { process.env.SAFETY_MODEL = 'v1'; });
-  afterEach(() => {
-    if (previous === undefined) delete process.env.SAFETY_MODEL;
-    else process.env.SAFETY_MODEL = previous;
-  });
-
-  function crimeAt(category) {
-    return { lat: UNMAPPED_MID.lat, lng: UNMAPPED_MID.lng, category, month: '2026-10' };
-  }
-
-  test('a violent crime weighs more than shoplifting (table severity 1.0 against 0.2, not both 0.4)', async () => {
-    const net = streetNetwork();
-    const violent = await buildGraph(net.roadData, net.lightData, null, null, null, [crimeAt('violent-crime')], net.bbox, { level: 'extra', ...NIGHT });
-    const shop = await buildGraph(net.roadData, net.lightData, null, null, null, [crimeAt('shoplifting')], net.bbox, { level: 'extra', ...NIGHT });
-    expect(violent.edges[4].crimeScore).toBeLessThan(shop.edges[4].crimeScore);
-  });
-});
-
-describe('v2 crime recency is measured from the newest month in the data', () => {
+describe('crime recency is measured from the newest month in the data', () => {
   const crime = (month) => ({ lat: UNMAPPED_MID.lat, lng: UNMAPPED_MID.lng, category: 'violent-crime', month });
   const build = (crimes) => {
     const net = streetNetwork();
-    return buildGraph(net.roadData, net.lightData, null, null, null, crimes, net.bbox, { level: 'extra', ...NIGHT });
+    return buildGraph(net.roadData, net.lightData, null, null, null, crimes, net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
   };
 
   test('an older crime in the same release weighs less than a crime from the newest month', async () => {
@@ -202,14 +165,14 @@ describe('v2 crime recency is measured from the newest month in the data', () =>
 
   test('crimes outside the bbox, or with non-finite coordinates, are ignored', async () => {
     const net = streetNetwork();
-    const none = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+    const none = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
     const junk = [
       { lat: 10, lng: 10, category: 'violent-crime', month: '2026-10' },
       { lat: Number.NaN, lng: LNG, category: 'violent-crime', month: '2026-10' },
       { lat: LAT, lng: Number.NaN, category: 'violent-crime', month: '2026-10' },
       null,
     ];
-    const withJunk = await buildGraph(net.roadData, net.lightData, null, null, null, junk, net.bbox, { level: 'extra', ...NIGHT });
+    const withJunk = await buildGraph(net.roadData, net.lightData, null, null, null, junk, net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
     expect(withJunk.edges[4].risk).toBeCloseTo(none.edges[4].risk, 12);
   });
 });
@@ -319,14 +282,14 @@ describe('distance-only fallback graph', () => {
   });
 });
 
-describe('v2 graph branches: cancellation, clock, lit ways, cache, A* edges, empty routes', () => {
+describe('graph branches: cancellation, clock, lit ways, cache, A* edges, empty routes', () => {
   const bbox = { south: LAT - 0.001, north: LAT + 0.008, west: LNG - 0.001, east: LNG + 0.005 };
 
   test('buildGraph stops with SEARCH_CANCELLED once shouldCancel says so during a large build', async () => {
     const elements = [];
     for (let i = 0; i < 3000; i++) elements.push({ type: 'node', id: i + 1, lat: LAT, lon: LNG });
     await expect(
-      buildGraph({ elements }, null, null, null, null, [], bbox, { ...NIGHT, shouldCancel: () => true }),
+      buildGraph({ elements }, null, null, null, null, [], bbox, { ...NIGHT, crimeStatus: 'ok', shouldCancel: () => true }),
     ).rejects.toMatchObject({ code: 'SEARCH_CANCELLED', statusCode: 409 });
   });
 
@@ -342,7 +305,7 @@ describe('v2 graph branches: cancellation, clock, lit ways, cache, A* edges, emp
       type: 'way', id: 960, nodes: [1, 2], tags: { amenity: 'pub' },
       center: { lat: UNMAPPED_MID.lat + 0.00005, lon: UNMAPPED_MID.lng },
     };
-    const graph = await buildGraph(net.roadData, net.lightData, null, { elements: [way] }, null, [], net.bbox, { level: 'extra', hour: 12, now: NIGHT.now });
+    const graph = await buildGraph(net.roadData, net.lightData, null, { elements: [way] }, null, [], net.bbox, { level: 'extra', hour: 12, now: NIGHT.now, crimeStatus: 'ok' });
     expect(graph.edges[4].placeScore).toBeGreaterThan(0);
   });
 
@@ -355,7 +318,7 @@ describe('v2 graph branches: cancellation, clock, lit ways, cache, A* edges, emp
       ],
     };
     const cctv = { elements: [{ type: 'way', id: 972 }, { type: 'node', id: 973 }] };
-    const graph = await buildGraph(net.roadData, net.lightData, cctv, null, transit, [], net.bbox, { level: 'extra', ...NIGHT });
+    const graph = await buildGraph(net.roadData, net.lightData, cctv, null, transit, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
     expect(graph.edges[4].nearbyTransitCount).toBe(1);
     expect(graph.edges[4].nearbyCctvCount).toBe(0);
   });
@@ -410,7 +373,7 @@ describe('v2 graph branches: cancellation, clock, lit ways, cache, A* edges, emp
 
   test('a route from a node to itself is a single zero-length, unexcluded route', async () => {
     const net = streetNetwork();
-    const graph = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT });
+    const graph = await buildGraph(net.roadData, net.lightData, null, null, null, [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
     const routes = safetyGraph.findKSafestRoutes(graph.osmNodes, graph.edges, graph.adjacency, 1, 1, 1000, 5, {});
     expect(routes.length).toBeGreaterThan(0);
     for (const route of routes) {
@@ -421,5 +384,5 @@ describe('v2 graph branches: cancellation, clock, lit ways, cache, A* edges, emp
 
 /** Builds the streetNetwork graph with the given crimes (or none), at NIGHT. */
 function buildStreetsWith(net, crimes) {
-  return buildGraph(net.roadData, net.lightData, null, null, null, crimes || [], net.bbox, { level: 'extra', ...NIGHT });
+  return buildGraph(net.roadData, net.lightData, null, null, null, crimes || [], net.bbox, { level: 'extra', ...NIGHT, crimeStatus: 'ok' });
 }

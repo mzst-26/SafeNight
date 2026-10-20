@@ -20,16 +20,18 @@ const POLICE_API_BASE = 'https://data.police.uk/api';
 const { createSafetyCacheStore } = require('./cacheStore');
 // Severity table lives in crimeSeverity.js (shared with the v2 scoring model).
 const { CRIME_SEVERITY, severityOf } = require('./crimeSeverity');
-
-const CRIME_STATUS_OK = 'ok';
-const CRIME_STATUS_UNAVAILABLE = 'unavailable';
+// Outage status values are defined once, in the scoring model.
+const { STATUS_OK: CRIME_STATUS_OK, STATUS_UNAVAILABLE: CRIME_STATUS_UNAVAILABLE } = require('../scoring/crimeRisk');
 
 // ── Crime data cache (24h — data updates monthly) ───────────────────────────
 const CRIME_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const CRIME_CACHE_MAX_ENTRIES = 30;
+const CRIME_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const crimeCacheStore = createSafetyCacheStore({
   namespace: 'crime-data',
   ttlMs: CRIME_CACHE_TTL,
-  maxEntries: 30,
+  maxEntries: CRIME_CACHE_MAX_ENTRIES,
+  maxBytes: CRIME_CACHE_MAX_BYTES,
 });
 const backgroundRefreshInflight = new Map();
 const liveFetchInProgress = new Set();
@@ -323,5 +325,7 @@ module.exports = {
   CRIME_STATUS_OK,
   CRIME_STATUS_UNAVAILABLE,
   CRIME_SEVERITY,
-  __resetForTests,
+  CRIME_CACHE_MAX_BYTES,
+  // Test-only hook: never part of the production surface.
+  ...(process.env.NODE_ENV === 'test' ? { __resetForTests } : {}),
 };
