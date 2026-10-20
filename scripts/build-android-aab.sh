@@ -15,6 +15,50 @@ if [[ ! -f "$ANDROID_DIR/gradlew" ]]; then
   exit 1
 fi
 
+# Reject any EXPO_PUBLIC_*_URL that is not https://, whether it comes from the
+# process environment or from the env file the build reads. Only names are printed.
+check_public_https_urls() {
+  local failed=0 name value line env_file="${SAFENIGHT_ENV_FILE:-.env.android}"
+
+  case "$env_file" in
+    /*) ;;
+    *) env_file="$ROOT_DIR/$env_file" ;;
+  esac
+
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    if [[ "${!name}" != https://* ]]; then
+      echo "[error] $name must start with https:// (set in the environment)."
+      failed=1
+    fi
+  done < <(compgen -e | grep -E '^EXPO_PUBLIC_.*_URL$')
+
+  if [[ -f "$env_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line="${line#export }"
+      case "$line" in
+        EXPO_PUBLIC_*_URL=*) ;;
+        *) continue ;;
+      esac
+      name="${line%%=*}"
+      value="${line#*=}"
+      value="${value#\"}"; value="${value%\"}"
+      value="${value#\'}"; value="${value%\'}"
+      if [[ "$value" != https://* ]]; then
+        echo "[error] $name must start with https:// (in $(basename "$env_file"))."
+        failed=1
+      fi
+    done < "$env_file"
+  fi
+
+  if [[ "$failed" -ne 0 ]]; then
+    echo "[error] Refusing to build with non-https EXPO_PUBLIC URLs."
+    exit 1
+  fi
+}
+
+check_public_https_urls
+
 # Default Android SDK paths for macOS if not already set.
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
