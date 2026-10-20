@@ -30,7 +30,7 @@ const PLANS = {
  * @returns {{ name: string, priceGBP: number, stripePriceId: string | null } | null}
  */
 function getPlan(tier) {
-  return PLANS[tier] || null;
+  return Object.hasOwn(PLANS, tier) ? PLANS[tier] : null;
 }
 
 /**
@@ -40,6 +40,8 @@ function getPlan(tier) {
  * @returns {string | null}
  */
 function getTierByPriceId(priceId) {
+  // Unset env vars leave stripePriceId as null; a null/empty webhook id must never match them.
+  if (priceId === null || priceId === undefined || priceId === '') return null;
   for (const [tier, plan] of Object.entries(PLANS)) {
     if (plan.stripePriceId === priceId) return tier;
   }

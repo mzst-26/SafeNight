@@ -122,9 +122,10 @@ function getFeatureLimit(feature, tier) {
   return config[tier] || config.free; // fallback to free
 }
 
-/** Check if tier A >= tier B */
+/** Check if tier A >= tier B. An unknown required tier fails closed (false). */
 function tierAtLeast(userTier, requiredTier) {
-  return (TIER_RANK[userTier] ?? 0) >= (TIER_RANK[requiredTier] ?? 0);
+  if (!Object.hasOwn(TIER_RANK, requiredTier)) return false;
+  return (TIER_RANK[userTier] ?? 0) >= TIER_RANK[requiredTier];
 }
 
 /** Check if a feature is enabled (limit > 0 or -1) for a tier */
