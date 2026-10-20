@@ -7,6 +7,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+import { BADGES_JS } from "@/src/components/maps/inline/badges";
+import { CORE_JS } from "@/src/components/maps/inline/core";
+import { FORMAT_JS } from "@/src/components/maps/inline/format";
+import { LEGEND_JS } from "@/src/components/maps/inline/legend";
+import { ROUTE_OVERLAY_CSS } from "@/src/components/maps/inline/overlayCss";
+import {
+  RL_CALLOUT_OFFSET_PX,
+  RL_CASING_COLOR,
+  RL_CASING_OPACITY,
+  RL_CASING_WIDTH,
+  RL_CRIME_SIZE,
+  RL_CRIME_SIZE_LARGE,
+  RL_DASH,
+  RL_HIT_WIDTH,
+  RL_LINE_WIDTH,
+  RL_UNSELECTED_WIDTH,
+} from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
 
 export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
@@ -64,27 +81,21 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     .leaflet-top.leaflet-left{margin-top:10px;margin-left:10px}
     @keyframes vizscan{0%,100%{opacity:.95}50%{opacity:.45}}
     .viz-search-zone{pointer-events:none;background:rgba(88,28,235,.22);border:1.5px solid rgba(167,139,250,.7);border-radius:5px;padding:4px 12px;color:#ddd6fe;font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap;display:flex;align-items:center;gap:5px;animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
-    /* Route layers (routeLayers prop). Only applied to elements the route layer code creates. */
-    .leaflet-control.rl-legend{background:rgba(255,255,255,.94);color:#101828;border-radius:10px;box-shadow:0 2px 10px rgba(16,24,40,.18);padding:6px 8px;font-size:12px;line-height:1.3;max-width:min(190px,46vw);pointer-events:auto}
-    .rl-legend-head{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:0;background:transparent;padding:0;margin:0;font:700 12px/1.3 system-ui,-apple-system,sans-serif;color:#101828;cursor:pointer}
-    .rl-legend-body{margin-top:6px}
-    .rl-ramp{height:8px;border-radius:4px}
-    .rl-ramp-labels{display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:#344054}
-    .rl-dash-row{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:#344054}
-    .rl-dash-row svg{flex:none}
-    .rl-callout-icon{background:none;border:0;pointer-events:none}
-    .rl-callout{position:relative;transform:translate(-50%,calc(-100% - 10px));white-space:nowrap;background:#ffffff;color:#101828;font:600 13px/1.2 system-ui,-apple-system,sans-serif;padding:5px 9px;border-radius:999px;box-shadow:0 2px 8px rgba(16,24,40,.25);pointer-events:none}
-    .rl-crime-icon{background:none;border:0}
-    .rl-crime{box-sizing:border-box;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#b42318;color:#ffffff;font:700 13px/1 system-ui,-apple-system,sans-serif;border:2px solid #ffffff;box-shadow:0 0 0 2px rgba(180,35,24,.35),0 1px 4px rgba(0,0,0,.35)}
-    .rl-note{margin-top:4px;font-size:12px;line-height:1.3;color:#475467}
-    .rl-badge-icon{background:none;border:0}
-    .rl-badge{position:relative;transform:translate(-50%,-50%);box-sizing:border-box;white-space:nowrap;background:#ffffff;color:#101828;border:1px solid #667085;border-radius:999px;padding:3px 8px;font:700 13px/1.2 system-ui,-apple-system,sans-serif;box-shadow:0 1px 4px rgba(16,24,40,.25);cursor:pointer}
-    .rl-badge-sel{background:#101828;color:#ffffff;border-color:#101828}
+    /* Route overlays (routeLayers prop): shared appearance from inline/*, Leaflet positioning below. */
+    ${ROUTE_OVERLAY_CSS}
+    .rl-callout-icon,.rl-crime-icon,.rl-badge-icon{background:none;border:0}
+    .rl-callout-icon .rl-callout{position:relative;transform:translate(-50%,calc(-100% - ${RL_CALLOUT_OFFSET_PX}px))}
+    .rl-badge-icon .rl-pill-hit{position:relative;transform:translate(-50%,-50%)}
+    .leaflet-control.rl-legend{pointer-events:auto}
   </style>
 </head>
 <body>
   <div id="map"></div>
   <script>
+    ${CORE_JS}
+    ${FORMAT_JS}
+    ${BADGES_JS}
+    ${LEGEND_JS}
     var map = null;
     var ready = false;
     var lastData = null;
@@ -113,22 +124,20 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     var lastMapDragAt = 0;
 
     // Route layers (routeLayers prop). Everything below is inert unless a route layer spec is present.
-    // The colour ramp comes only from spec.legend.ramp (see rlLegendBodyMarkup), never from a constant here.
-    var RL_DASH = '0.1 15';
-    var RL_GREY = '#667085';
-    var RL_FALLBACK_BLUE = '#4285F4';
-    var RL_LIGHT_ZOOM = 17;
-    var RL_POINT_COLORS = { light:'#facc15', cctv:'#8b5cf6', shop:'#22c55e' };
+    // The colour ramp comes only from spec.legend.ramp (see inline/legend.ts), never from a constant here.
+    var RL_DASH = ${JSON.stringify(RL_DASH)};
+    var RL_LINE_WIDTH = ${RL_LINE_WIDTH};
+    var RL_UNSELECTED_WIDTH = ${RL_UNSELECTED_WIDTH};
+    var RL_HIT_WIDTH = ${RL_HIT_WIDTH};
+    var RL_CASING = { color:${JSON.stringify(RL_CASING_COLOR)}, width:${RL_CASING_WIDTH}, opacity:${RL_CASING_OPACITY} };
     var routeOverlayLayer = null;
     var routePointsLayer = null;
     var lastRouteLayers = null;
     var lastRouteHighlight = null;
     var legendEl = null;
-    var legendToggleEl = null;
-    var legendBodyEl = null;
+    var legendCtl = null;
     var legendControl = null;
-    var legendCollapsed = false;
-    
+
     // Offset strategies for non-overlapping label placement (relative to pin center)
     // Prefer close placement first; only spread out when overlap requires it.
     var pinLabelOffsetCandidates = [
@@ -471,23 +480,9 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       L.marker([l.lat,l.lng],{icon:icon,interactive:false}).addTo(layerLabels);
     }
 
-    function safeLabel(text){
-      return String(text||'')
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;')
-        .replace(/'/g,'&#39;');
-    }
+    // ═══ Route layers (Leaflet drawing). One function per concern; shared badge/legend builders live in inline/*. ═══
 
-    function normalizePinColor(color){
-      var value = String(color || '').trim();
-      if(/^#[0-9a-fA-F]{6}$/.test(value) || /^#[0-9a-fA-F]{3}$/.test(value)){
-        return value;
-      }
-      return '#ef4444';
-    }
-
+    // Defensive copy of the spec: every list is an array, the legend an object or null.
     function rlNormalize(raw){
       if(!raw || typeof raw!=='object') return null;
       return {
@@ -498,8 +493,6 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         legend: (raw.legend && typeof raw.legend==='object') ? raw.legend : null
       };
     }
-
-    function rlIsNum(v){ return typeof v==='number' && isFinite(v); }
 
     function rlCoords(list){
       var out=[];
@@ -515,9 +508,9 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       return (p && rlIsNum(p.lat) && rlIsNum(p.lng)) ? [p.lat,p.lng] : null;
     }
 
-    function rlColor(c, fallback){
-      return (typeof c==='string' && /^#[0-9a-fA-F]{6}$/.test(c)) ? c : fallback;
-    }
+    // Leaflet divIcon html is a string, so shared DOM builders are serialised. Listeners do not survive
+    // this; selection is bound to the Leaflet marker instead.
+    function rlIconHtml(el){ return el.outerHTML; }
 
     // Light points only from zoom 17, or when lights are the highlighted category.
     // CCTV and shops only when highlighted.
@@ -527,11 +520,13 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       return false;
     }
 
-    // Unselected route: solid grey line, plus a wide invisible hit line that selects it.
+    // --- Route lines ---------------------------------------------------------
+
+    // Unselected route: solid grey line, plus a wide (touch-target sized) invisible hit line that selects it.
     // Hit lines are drawn before the selected route (updateMap), so the selected route sits above them.
     function rlDrawUnselected(group, latlngs, onSelect){
-      L.polyline(latlngs,{color:RL_GREY,weight:4,opacity:1,lineCap:'round',lineJoin:'round',interactive:false}).addTo(group);
-      var hit=L.polyline(latlngs,{color:RL_GREY,weight:40,opacity:0,lineCap:'round',lineJoin:'round'});
+      L.polyline(latlngs,{color:RL_GREY,weight:RL_UNSELECTED_WIDTH,opacity:1,lineCap:'round',lineJoin:'round',interactive:false}).addTo(group);
+      var hit=L.polyline(latlngs,{color:RL_GREY,weight:RL_HIT_WIDTH,opacity:0,lineCap:'round',lineJoin:'round'});
       hit.on('click', onSelect);
       hit.addTo(group);
     }
@@ -551,16 +546,18 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       }
       // Interactive so a tap on the selected route is taken here, not by an unselected route's wide hit line below it.
       runs.forEach(function(run){
-        L.polyline(run.coords,{color:'#ffffff',weight:11,opacity:0.9,lineCap:'round',lineJoin:'round',interactive:true}).addTo(group);
+        L.polyline(run.coords,{color:RL_CASING.color,weight:RL_CASING.width,opacity:RL_CASING.opacity,lineCap:'round',lineJoin:'round',interactive:true}).addTo(group);
       });
       runs.forEach(function(run){
-        var opts={color:run.color,weight:7,opacity:1,lineCap:'round',lineJoin:'round',interactive:true};
+        var opts={color:run.color,weight:RL_LINE_WIDTH,opacity:1,lineCap:'round',lineJoin:'round',interactive:true};
         if(run.dashed) opts.dashArray=RL_DASH;
         L.polyline(run.coords,opts).addTo(group);
       });
     }
 
-    // Only one label: the first callout with a valid position.
+    // --- Callout -------------------------------------------------------------
+
+    // Only one label: the first callout with a valid position. Positioned above the point by CSS.
     function rlDrawCallouts(group, callouts){
       for(var i=0;i<callouts.length;i++){
         var c=callouts[i]||{};
@@ -568,7 +565,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         if(!p) continue;
         var icon=L.divIcon({
           className:'rl-callout-icon',
-          html:'<div class="rl-callout">'+safeLabel(c.text)+'</div>',
+          html:rlIconHtml(rlBuildCallout(c.text)),
           iconSize:[0,0],
           iconAnchor:[0,0]
         });
@@ -577,6 +574,8 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       }
     }
 
+    // --- Crime clusters ------------------------------------------------------
+
     // Crime is shown as count badges only, never as individual dots.
     function rlDrawCrime(group, clusters){
       for(var i=0;i<clusters.length;i++){
@@ -584,17 +583,18 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         var p=rlLatLng(c);
         if(!p || !rlIsNum(c.count) || c.count<1) continue;
         var n=Math.floor(c.count);
-        var size=n>=100?36:32;
-        var label=n>99?'99+':String(n);
+        var size=rlCrimeIsLarge(n)?${RL_CRIME_SIZE_LARGE}:${RL_CRIME_SIZE};
         var icon=L.divIcon({
           className:'rl-crime-icon',
-          html:'<div class="rl-crime" style="width:'+size+'px;height:'+size+'px">'+label+'</div>',
+          html:rlIconHtml(rlBuildCrimeBadge(n)),
           iconSize:[size,size],
           iconAnchor:[size/2,size/2]
         });
         L.marker(p,{icon:icon,interactive:false,keyboard:false,zIndexOffset:500}).addTo(group);
       }
     }
+
+    // --- Score pills ---------------------------------------------------------
 
     // One score pill per route. Tapping a non-selected pill selects that route; the selected pill is not tappable.
     function rlDrawBadges(group, badges){
@@ -606,7 +606,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         var sel=b.selected===true;
         var icon=L.divIcon({
           className:'rl-badge-icon',
-          html:'<div class="rl-badge'+(sel?' rl-badge-sel':'')+'">'+safeLabel(b.text)+'</div>',
+          html:rlIconHtml(rlBuildPill(b, i)),
           iconSize:[0,0],
           iconAnchor:[0,0]
         });
@@ -619,6 +619,8 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         marker.addTo(group);
       }
     }
+
+    // --- Points (lights, cctv, shops) ---------------------------------------
 
     function rlDrawPoints(group, points, zoom, hl){
       for(var i=0;i<points.length;i++){
@@ -639,44 +641,14 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       rlDrawPoints(routePointsLayer, lastRouteLayers.points, map.getZoom(), lastRouteHighlight);
     }
 
-    function rlLegendMarkup(){
-      return '<button type="button" class="rl-legend-head" aria-expanded="true"><span>Route safety</span><span class="rl-chev">&#9662;</span></button>'+
-        '<div class="rl-legend-body">'+rlLegendBodyMarkup(null)+'</div>';
-    }
-
-    // Everything here comes from spec.legend: ramp colours (six-digit hex only), the dashed label and optional notes.
-    function rlLegendBodyMarkup(legend){
-      var ramp = (legend && Array.isArray(legend.ramp)) ? legend.ramp : [];
-      var colours = [];
-      for(var i=0;i<ramp.length;i++){
-        var c = rlColor(ramp[i] ? ramp[i].color : null, null);
-        if(c) colours.push(c);
-      }
-      var dashed = (legend && typeof legend.dashedLabel==='string' && legend.dashedLabel) ? legend.dashedLabel : 'Estimated lighting';
-      var html = '';
-      if(colours.length){
-        html += '<div class="rl-ramp" style="background:linear-gradient(to right,'+colours.join(',')+')"></div>'+
-          '<div class="rl-ramp-labels"><span>Safer</span><span>Riskier</span></div>';
-      }
-      html += '<div class="rl-dash-row"><svg width="28" height="8" viewBox="0 0 28 8" aria-hidden="true"><line x1="2" y1="4" x2="26" y2="4" stroke="#344054" stroke-width="7" stroke-linecap="round" stroke-dasharray="'+RL_DASH+'"/></svg><span>'+safeLabel(dashed)+'</span></div>';
-      var notes = (legend && Array.isArray(legend.notes)) ? legend.notes : [];
-      for(var j=0;j<notes.length && j<4;j++){
-        if(typeof notes[j]==='string' && notes[j]) html += '<div class="rl-note">'+safeLabel(notes[j])+'</div>';
-      }
-      return html;
-    }
+    // --- Legend (built by inline/legend.ts) ----------------------------------
 
     function rlRenderLegend(legend){
-      if(legendBodyEl) legendBodyEl.innerHTML = rlLegendBodyMarkup(legend);
-    }
-
-    function rlApplyLegendState(){
-      if(legendBodyEl) legendBodyEl.style.display = legendCollapsed ? 'none' : '';
-      if(legendToggleEl) legendToggleEl.setAttribute('aria-expanded', legendCollapsed ? 'false' : 'true');
+      if(legendCtl) legendCtl.update(legend);
     }
 
     function rlSetLegendVisible(on){
-      if(legendEl) legendEl.style.display = on ? '' : 'none';
+      if(legendCtl) legendCtl.setVisible(on);
     }
 
     function init(){
@@ -709,25 +681,14 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       routeOverlayLayer = L.layerGroup().addTo(map);
       routePointsLayer = L.layerGroup().addTo(map);
 
-      // Narrow iframes start with the legend collapsed; a user toggle is remembered after that.
-      legendCollapsed = (Number(window.innerWidth) || 0) < 400;
-
+      // The legend (inline/legend.ts) starts collapsed on narrow iframes; a user toggle is remembered after that.
       legendControl = L.control({position:'bottomleft'});
       legendControl.onAdd = function(){
         var el=document.createElement('div');
         el.className='leaflet-control rl-legend';
-        el.style.display='none';
-        el.innerHTML=rlLegendMarkup();
         legendEl=el;
-        legendToggleEl=el.querySelector('.rl-legend-head');
-        legendBodyEl=el.querySelector('.rl-legend-body');
-        if(legendToggleEl) legendToggleEl.addEventListener('click', function(ev){
-          if(ev && ev.stopPropagation) ev.stopPropagation();
-          legendCollapsed=!legendCollapsed;
-          rlApplyLegendState();
-        });
+        legendCtl=rlBuildLegend(el,{dashArray:RL_DASH});
         if(L.DomEvent && L.DomEvent.disableClickPropagation) L.DomEvent.disableClickPropagation(el);
-        rlApplyLegendState();
         return el;
       };
       legendControl.addTo(map);
@@ -792,150 +753,144 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     // field being edited) must not move the map away from where the user is.
     var londonFallbackShown=false;
 
-    function updateMap(d){
-      if(!ready || !d) return;
-      lastData = d;
-      clearLayers();
+    // ═══ updateMap: one function per concern. ctx carries the per-update state they share. ═══
 
-      var london=[51.5074,-0.1278];
-      var bounds=[];
-      var focusCandidatesOnly = !!d.fitCandidateBounds;
-      var isUserCameraOverride = Date.now() < userCameraOverrideUntil;
-      var colorMap={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
-      var rl = rlNormalize(d.routeLayers);
-
-      if(typeof d.isInPipMode!=='undefined') isPipMode=!!d.isInPipMode;
-
+    // Origin and destination dots. Their positions join the fit bounds unless only candidates are focused.
+    function drawEndpoints(d, ctx){
       if(d.origin && !d.navLocation){
         L.circleMarker([d.origin.lat,d.origin.lng],{radius:7,color:'#fff',weight:3,fillColor:'#4285F4',fillOpacity:1}).addTo(layerMarkers);
-        if(!focusCandidatesOnly){
-          bounds.push([d.origin.lat,d.origin.lng]);
+        if(!ctx.focusCandidatesOnly){
+          ctx.bounds.push([d.origin.lat,d.origin.lng]);
         }
       }
 
       if(d.destination){
         L.circleMarker([d.destination.lat,d.destination.lng],{radius:8,color:'#fff',weight:2,fillColor:'#ef4444',fillOpacity:1}).addTo(layerMarkers);
-        if(!focusCandidatesOnly){
-          bounds.push([d.destination.lat,d.destination.lng]);
+        if(!ctx.focusCandidatesOnly){
+          ctx.bounds.push([d.destination.lat,d.destination.lng]);
         }
       }
+    }
 
+    // Unselected routes: wide hit line (routeLayers mode) or the legacy grey line. Clicking selects the route.
+    function drawUnselectedRoutes(d, ctx){
       (d.routes||[]).forEach(function(r){
         if(r.selected) return;
         var latlngs=r.path.map(function(p){return [p.lat,p.lng];});
-        if(rl){
+        if(ctx.rl){
           rlDrawUnselected(layerRoutes, latlngs, function(){ sendMsg('selectRoute', { id:r.id }); });
         } else {
-        var poly=L.polyline(latlngs,{color:'#98a2b3',weight:5,opacity:0.6}).addTo(layerRoutes);
-        poly.on('click', function(){ sendMsg('selectRoute', { id:r.id }); });
+          var poly=L.polyline(latlngs,{color:'#98a2b3',weight:5,opacity:0.6}).addTo(layerRoutes);
+          poly.on('click', function(){ sendMsg('selectRoute', { id:r.id }); });
         }
-        if(!focusCandidatesOnly){
-          for(var i=0;i<latlngs.length;i++) bounds.push(latlngs[i]);
+        if(!ctx.focusCandidatesOnly){
+          for(var i=0;i<latlngs.length;i++) ctx.bounds.push(latlngs[i]);
         }
       });
+    }
 
+    // Selected route: route-layer lines, legacy coloured segments, or a plain blue line. Returns the route or null.
+    function drawSelectedRoute(d, ctx){
       var selected=null;
       for(var i=0;i<(d.routes||[]).length;i++) if(d.routes[i].selected) { selected=d.routes[i]; break; }
+      if(!selected) return null;
 
-      if(selected){
-        var selLatLngs=selected.path.map(function(p){ return [p.lat,p.lng]; });
-        if(rl){
-          rlDrawSelected(layerRoutes, rl.lines, selLatLngs);
-        } else if(d.segments && d.segments.length>0){
-          d.segments.forEach(function(seg){
-            L.polyline(seg.path.map(function(p){return [p.lat,p.lng];}),{color:seg.color,weight:7,opacity:0.9}).addTo(layerRoutes);
-          });
-        } else {
-          L.polyline(selLatLngs,{color:'#4285F4',weight:6,opacity:0.9}).addTo(layerRoutes);
-        }
-        if(!focusCandidatesOnly){
-          for(var j=0;j<selLatLngs.length;j++) bounds.push(selLatLngs[j]);
-        }
+      var selLatLngs=selected.path.map(function(p){ return [p.lat,p.lng]; });
+      if(ctx.rl){
+        rlDrawSelected(layerRoutes, ctx.rl.lines, selLatLngs);
+      } else if(d.segments && d.segments.length>0){
+        d.segments.forEach(function(seg){
+          L.polyline(seg.path.map(function(p){return [p.lat,p.lng];}),{color:seg.color,weight:7,opacity:0.9}).addTo(layerRoutes);
+        });
+      } else {
+        L.polyline(selLatLngs,{color:'#4285F4',weight:6,opacity:0.9}).addTo(layerRoutes);
+      }
+      if(!ctx.focusCandidatesOnly){
+        for(var j=0;j<selLatLngs.length;j++) ctx.bounds.push(selLatLngs[j]);
+      }
+      return selected;
+    }
+
+    // A search-candidate pin (with its details card when selected). Pins stay drawn in routeLayers mode.
+    function addCandidatePin(m, ctx){
+      var isSelectedCandidate = !!m.isSelected;
+      var candidateColor = normalizePinColor(m.pinColor);
+      var raw = String(m.popupTitle || m.label || 'Place').trim();
+      var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
+      var popupTitle = safeLabel(m.popupTitle || raw || 'Place');
+      var popupSubtitle = safeLabel(m.popupSubtitle || raw || '');
+      var popupMeta = safeLabel(m.popupMeta || '');
+      var popupCoords = safeLabel(m.popupCoords || '');
+      var popupButtonLabel = safeLabel(m.popupButtonLabel || 'Select');
+      var selectedCardHtml = isSelectedCandidate
+        ? '<div class="search-pin-card"><div class="search-pin-card-head"><div class="search-pin-card-title">'+popupTitle+'</div><button class="search-pin-card-close" type="button" aria-label="Close details">×</button></div><div class="search-pin-card-subtitle">'+popupSubtitle+'</div>'+
+          (popupMeta ? '<div class="search-pin-card-meta">'+popupMeta+'</div>' : '')+
+          (popupCoords ? '<div class="search-pin-card-coords">'+popupCoords+'</div>' : '')+
+          '<div class="search-pin-card-actions"><button class="search-pin-card-btn" type="button">'+popupButtonLabel+'</button></div></div>'
+        : '<div class="search-pin-label">'+safeLabel(trimmed)+'</div>';
+      var icon=L.divIcon({
+        className:'',
+        html:'<div class="search-pin-wrap'+(isSelectedCandidate?' selected':'')+'" style="--pin-color:'+candidateColor+'"><div class="search-pin-dot"></div>'+selectedCardHtml+'</div>',
+        iconSize:[34,40],
+        iconAnchor:[17,34],
+      });
+      var pin=L.marker([m.lat,m.lng],{icon:icon}).addTo(layerMarkers);
+      var markerEl = pin.getElement && pin.getElement();
+
+      // Track unselected labels for collision layout
+      if(!isSelectedCandidate && markerEl){
+        candidatePinLabelMarkers.push({ id: m.id, lat: m.lat, lng: m.lng, el: markerEl });
       }
 
-      var hl=d.highlightCategory||null;
-      var includeCandidateBounds = !!d.fitCandidateBounds;
+      pin.on('click', function(){
+        if(shouldIgnoreMarkerSelection()) return;
+        sendMsg('selectMarker', { id:m.id });
+      });
+      if(isSelectedCandidate){
+        var buttonEl = markerEl ? markerEl.querySelector('.search-pin-card-btn') : null;
+        if(buttonEl){
+          buttonEl.addEventListener('click', function(ev){
+            ev.preventDefault();
+            ev.stopPropagation();
+            if(shouldIgnoreMarkerSelection()) return;
+            sendMsg('findSafeRoutes', { id:m.id });
+          });
+        }
+        var closeEl = markerEl ? markerEl.querySelector('.search-pin-card-close') : null;
+        if(closeEl){
+          closeEl.addEventListener('click', function(ev){
+            ev.preventDefault();
+            ev.stopPropagation();
+            sendMsg('dismissMarkerDetails', { id:m.id });
+          });
+        }
+      }
+      if(ctx.includeCandidateBounds){
+        ctx.bounds.push([m.lat,m.lng]);
+      }
+    }
+
+    // Safety markers: candidate pins always; legacy category dots only when routeLayers is not set.
+    function drawSafetyMarkers(d, ctx){
+      var hl = ctx.hl;
       (d.safetyMarkers||[]).forEach(function(m){
         var isCandidate = m.id && String(m.id).indexOf('search-candidate:')===0;
-        if(rl && !isCandidate) return;
+        if(ctx.rl && !isCandidate) return;
         var k=m.kind||'crime';
         if(hl && hl!==k) return;
         if(isCandidate){
-          var isSelectedCandidate = !!m.isSelected;
-          var candidateColor = normalizePinColor(m.pinColor);
-          var raw = String(m.popupTitle || m.label || 'Place').trim();
-          var trimmed = raw.length > 18 ? raw.slice(0, 18) + '…' : raw;
-          var popupTitle = safeLabel(m.popupTitle || raw || 'Place');
-          var popupSubtitle = safeLabel(m.popupSubtitle || raw || '');
-          var popupMeta = safeLabel(m.popupMeta || '');
-          var popupCoords = safeLabel(m.popupCoords || '');
-          var popupButtonLabel = safeLabel(m.popupButtonLabel || 'Select');
-          var selectedCardHtml = isSelectedCandidate
-            ? '<div class="search-pin-card"><div class="search-pin-card-head"><div class="search-pin-card-title">'+popupTitle+'</div><button class="search-pin-card-close" type="button" aria-label="Close details">×</button></div><div class="search-pin-card-subtitle">'+popupSubtitle+'</div>'+
-              (popupMeta ? '<div class="search-pin-card-meta">'+popupMeta+'</div>' : '')+
-              (popupCoords ? '<div class="search-pin-card-coords">'+popupCoords+'</div>' : '')+
-              '<div class="search-pin-card-actions"><button class="search-pin-card-btn" type="button">'+popupButtonLabel+'</button></div></div>'
-            : '<div class="search-pin-label">'+safeLabel(trimmed)+'</div>';
-          var icon=L.divIcon({
-            className:'',
-            html:'<div class="search-pin-wrap'+(isSelectedCandidate?' selected':'')+'" style="--pin-color:'+candidateColor+'"><div class="search-pin-dot"></div>'+selectedCardHtml+'</div>',
-            iconSize:[34,40],
-            iconAnchor:[17,34],
-          });
-          var pin=L.marker([m.lat,m.lng],{icon:icon}).addTo(layerMarkers);
-          
-          // Track unselected labels for collision layout
-          if(!isSelectedCandidate){
-            var markerEl = pin.getElement && pin.getElement();
-            if(markerEl){
-              candidatePinLabelMarkers.push({ id: m.id, lat: m.lat, lng: m.lng, el: markerEl });
-            }
-          }
-          
-          pin.on('click', function(){
-            if(shouldIgnoreMarkerSelection()) return;
-            sendMsg('selectMarker', { id:m.id });
-          });
-          if(isSelectedCandidate){
-            var markerEl = pin.getElement && pin.getElement();
-            var buttonEl = markerEl ? markerEl.querySelector('.search-pin-card-btn') : null;
-            if(buttonEl){
-              buttonEl.addEventListener('click', function(ev){
-                ev.preventDefault();
-                ev.stopPropagation();
-                if(shouldIgnoreMarkerSelection()) return;
-                sendMsg('findSafeRoutes', { id:m.id });
-              });
-            }
-            var closeEl = markerEl ? markerEl.querySelector('.search-pin-card-close') : null;
-            if(closeEl){
-              closeEl.addEventListener('click', function(ev){
-                ev.preventDefault();
-                ev.stopPropagation();
-                sendMsg('dismissMarkerDetails', { id:m.id });
-              });
-            }
-          }
-          if(includeCandidateBounds){
-            bounds.push([m.lat,m.lng]);
-          }
+          addCandidatePin(m, ctx);
           return;
         }
 
         var isHl=hl && hl===k;
         var radius=(k==='via')?8:(isHl?7:4);
-        var marker=L.circleMarker([m.lat,m.lng],{radius:radius,color:'#fff',weight:isHl?2:1,fillColor:colorMap[k]||'#94a3b8',fillOpacity:isHl?1:0.85}).addTo(layerMarkers);
-        if(includeCandidateBounds && isCandidate){
-          bounds.push([m.lat,m.lng]);
-        }
-        if(isCandidate){
-          marker.on('click', function(){
-            if(shouldIgnoreMarkerSelection()) return;
-            sendMsg('selectMarker', { id:m.id });
-          });
-        }
+        L.circleMarker([m.lat,m.lng],{radius:radius,color:'#fff',weight:isHl?2:1,fillColor:SAFETY_MARKER_COLORS[k]||SAFETY_MARKER_FALLBACK_COLOR,fillOpacity:isHl?1:0.85}).addTo(layerMarkers);
       });
+    }
 
+    // Friends: breadcrumb trail, planned route (dashed) and the name chip.
+    function drawFriends(d){
       (d.friendMarkers||[]).forEach(function(f){
         var ap=f.path||[];
         var rp=f.routePath||[];
@@ -947,9 +902,13 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         }
         addFriendMarker(f);
       });
+    }
 
+    // Route overlay: callout, crime badges, points (only with a selected route), legend, and the score pills.
+    function drawRouteOverlay(d, ctx, selected){
+      var rl = ctx.rl;
       lastRouteLayers = rl && selected ? rl : null;
-      lastRouteHighlight = hl;
+      lastRouteHighlight = ctx.hl;
       if(lastRouteLayers){
         rlDrawCallouts(routeOverlayLayer, rl.callouts);
         rlDrawCrime(routeOverlayLayer, rl.crimeClusters);
@@ -960,16 +919,26 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         rlDrawBadges(routeOverlayLayer, d.routeBadges);
       }
       rlSetLegendVisible(!!lastRouteLayers);
+    }
 
+    function drawRoadLabels(d){
       var hasRoutes = Array.isArray(d.routes) && d.routes.length > 0;
       if(d.showExtraDetail && hasRoutes){
         (d.roadLabels||[]).forEach(addRoadLabel);
       }
+    }
 
+    function drawRangeRing(d){
       if(d.origin && d.maxDistanceKm && d.maxDistanceKm>0 && !d.navLocation){
         L.polygon(makeCirclePolygon(d.origin.lat,d.origin.lng,d.maxDistanceKm,64),{color:'#22c55e',weight:2.5,fillColor:'#22c55e',fillOpacity:0.04,dashArray:'6 4'}).addTo(layerRange);
       }
+    }
 
+    // Camera: navigation follow, pan-to, fit-bounds and the first-load London fallback.
+    function applyCamera(d, ctx){
+      var london=[51.5074,-0.1278];
+      var bounds=ctx.bounds;
+      var isUserCameraOverride = ctx.isUserCameraOverride;
       var isOutOfRangeCameraHold = Date.now() < outOfRangeCameraHoldUntil;
       var fitBottomPadding = Math.max(40, Number(d.fitBottomPadding || 40));
       var fitTopPadding = Math.max(40, Number(d.fitTopPadding || 40));
@@ -1010,8 +979,8 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       } else if(!isOutOfRangeCameraHold && d.fitBounds && bounds.length>0 && !d.navLocation && (isExplicitCandidateRefit || !isUserCameraOverride)){
         map.stop();
         map.fitBounds(bounds, {
-        paddingTopLeft:[isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding, isExplicitCandidateRefit ? candidateFitTopPadding : fitTopPadding],
-        paddingBottomRight:[isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding, isExplicitCandidateRefit ? candidateFitBottomPadding : fitBottomPadding],
+          paddingTopLeft:[isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding, isExplicitCandidateRefit ? candidateFitTopPadding : fitTopPadding],
+          paddingBottomRight:[isExplicitCandidateRefit ? candidateFitSidePadding : fitSidePadding, isExplicitCandidateRefit ? candidateFitBottomPadding : fitBottomPadding],
           maxZoom:16,
           animate:true,
           duration:0.36,
@@ -1022,6 +991,33 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
         map.stop();
         map.flyTo(london,13,{animate:true,duration:0.45,easeLinearity:0.2});
       }
+    }
+
+    function updateMap(d){
+      if(!ready || !d) return;
+      lastData = d;
+      clearLayers();
+
+      var ctx = {
+        bounds: [],
+        focusCandidatesOnly: !!d.fitCandidateBounds,
+        includeCandidateBounds: !!d.fitCandidateBounds,
+        isUserCameraOverride: Date.now() < userCameraOverrideUntil,
+        hl: d.highlightCategory||null,
+        rl: rlNormalize(d.routeLayers)
+      };
+
+      if(typeof d.isInPipMode!=='undefined') isPipMode=!!d.isInPipMode;
+
+      drawEndpoints(d, ctx);
+      drawUnselectedRoutes(d, ctx);
+      var selected = drawSelectedRoute(d, ctx);
+      drawSafetyMarkers(d, ctx);
+      drawFriends(d);
+      drawRouteOverlay(d, ctx, selected);
+      drawRoadLabels(d);
+      drawRangeRing(d);
+      applyCamera(d, ctx);
 
       // Apply out-of-range cue last so it cannot be overridden by regular camera updates.
       if(d.outOfRangeCueToken && d.outOfRangeCueToken !== lastOutOfRangeCueToken){

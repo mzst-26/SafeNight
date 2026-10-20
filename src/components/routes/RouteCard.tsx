@@ -6,13 +6,49 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { riskToColor } from "@/src/components/maps/routeLayers";
 import type { RouteComparison } from "@/src/utils/routeComparison";
-import { isV2SafeRoute, type SafeRoute } from "@/src/services/safeRoutes";
+import { isV2SafeRoute, type RouteSafety, type SafeRoute } from "@/src/services/safeRoutes";
 import { formatDistance, formatDuration } from "@/src/utils/format";
 
 const METRES_PER_MILE = 1609.344;
 
+/** Text shades (WCAG AA, 4.5:1 or better on the card backgrounds). Colour lives on the dot and tint only. */
+const SCORE_TEXT_COLOR = "#101828";
+const SECONDARY_TEXT_COLOR = "#475467";
+const BEST_LABEL_COLOR = "#15803D";
+const ACCENT_TEXT_COLOR = "#1849A9";
+
 const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+export type ConfidenceTier = "verified" | "mostly" | "estimated";
+
+const TIER_TEXT: Record<ConfidenceTier, string> = {
+  verified: "Verified",
+  mostly: "Mostly mapped",
+  estimated: "Estimated",
+};
+
+const TIER_ACCESSIBILITY_LABEL: Record<ConfidenceTier, string> = {
+  verified: "Lighting verified",
+  mostly: "Lighting partly mapped",
+  estimated: "Lighting partly estimated",
+};
+
+/**
+ * How much of the route's lighting is measured, for the small text tier on a v2 card.
+ * Estimated: lighting estimated, or certainty below 0.4 (the map's dashed cut-off).
+ * Verified: lighting verified and certainty at least 0.6. Mostly mapped: mixed lighting, or
+ * certainty from 0.4 up to 0.6. Null when the data says nothing either way.
+ */
+export function confidenceTier(safety: Partial<RouteSafety>): ConfidenceTier | null {
+  const certainty = isFiniteNumber(safety.certainty) ? safety.certainty : null;
+  const lighting = safety.dataQuality?.lighting;
+  if (lighting === "estimated" || (certainty !== null && certainty < 0.4)) return "estimated";
+  if (lighting === "verified" && certainty !== null && certainty >= 0.6) return "verified";
+  if (lighting === "mixed" || (certainty !== null && certainty < 0.6)) return "mostly";
+  return null;
+}
 
 /**
  * Compact delta of one route against the recommended route, e.g. "+0.6 mi · 5 pts safer" or
@@ -86,10 +122,9 @@ export function RouteCard({
     isV2 && !isBest && comparison && recommendedComparison
       ? formatRouteDelta(comparison, recommendedComparison)
       : null;
-  // Same 0.4 cut-off the map uses to draw a segment dashed (routeLayers.ts DASHED_CERTAINTY_BELOW).
-  const showEstimated =
-    (isFiniteNumber(safety.certainty) && safety.certainty < 0.4) ||
-    safety.dataQuality?.lighting === "estimated";
+  const tier = isV2 ? confidenceTier(safety) : null;
+  // One encoding for v2: the dot and tint use the same risk ramp as the map. v1 keeps the backend band colour.
+  const dotColor = isV2 ? riskToColor(1 - safety.score / 100) : safety.color;
 
   // Collapse whenever the card is deselected
   useEffect(() => {
@@ -123,23 +158,23 @@ export function RouteCard({
               <Text style={styles.bestBadgeText}>★ Recommended</Text>
             </View>
           )}
-          {showEstimated && (
+          {tier !== null && (
             <View
-              style={styles.estimatedChip}
+              style={styles.tierChip}
               accessible
-              accessibilityLabel="Lighting partly estimated"
+              accessibilityLabel={TIER_ACCESSIBILITY_LABEL[tier]}
             >
-              <Text style={styles.estimatedChipText}>Estimated</Text>
+              <Text style={styles.tierChipText}>{TIER_TEXT[tier]}</Text>
             </View>
           )}
         </View>
         <View
-          style={[styles.scoreChip, { backgroundColor: safety.color + "20" }]}
+          style={[styles.scoreChip, { backgroundColor: dotColor + "20" }]}
         >
           <View
-            style={[styles.scoreChipDot, { backgroundColor: safety.color }]}
+            style={[styles.scoreChipDot, { backgroundColor: dotColor }]}
           />
-          <Text style={[styles.scoreChipText, { color: safety.color }]}>
+          <Text style={styles.scoreChipText}>
             {safety.score}
           </Text>
         </View>
@@ -154,12 +189,12 @@ export function RouteCard({
 
       {/* ── Summary line ─────────────────────────────────────── */}
       <View style={styles.summaryRow}>
-        <Ionicons name="walk-outline" size={14} color="#475467" />
+        <Ionicons name="walk-outline" size={14} color={SECONDARY_TEXT_COLOR} />
         <Text style={styles.details}>
           {formatDistance(route.distanceMeters)} ·{" "}
           {formatDuration(route.durationSeconds)}
           {"  "}
-          <Text style={[styles.safetyInline, { color: safety.color }]}>
+          <Text style={styles.safetyInline}>
             {safety.label}
           </Text>
         </Text>
@@ -229,10 +264,10 @@ const styles = StyleSheet.create({
     color: "#101828",
   },
   labelSelected: {
-    color: "#1570ef",
+    color: ACCENT_TEXT_COLOR,
   },
   labelBest: {
-    color: "#16a34a",
+    color: BEST_LABEL_COLOR,
   },
   bestBadge: {
     backgroundColor: "#DCFCE7",
@@ -245,27 +280,27 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#047857",
   },
-  estimatedChip: {
+  tierChip: {
     backgroundColor: "#f2f4f7",
     borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  estimatedChipText: {
+  tierChipText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#475467",
+    color: SECONDARY_TEXT_COLOR,
   },
   reason: {
     fontSize: 13,
     lineHeight: 18,
-    color: "#475467",
+    color: SECONDARY_TEXT_COLOR,
     marginBottom: 6,
   },
   deltaLine: {
     fontSize: 12,
     lineHeight: 16,
-    color: "#475467",
+    color: SECONDARY_TEXT_COLOR,
     marginTop: 2,
   },
   scoreChip: {
@@ -284,6 +319,7 @@ const styles = StyleSheet.create({
   scoreChipText: {
     fontSize: 13,
     fontWeight: "700",
+    color: SCORE_TEXT_COLOR,
   },
   summaryRow: {
     flexDirection: "row",
@@ -298,6 +334,7 @@ const styles = StyleSheet.create({
   safetyInline: {
     fontSize: 13,
     fontWeight: "600",
+    color: SECONDARY_TEXT_COLOR,
   },
   detailsToggle: {
     flexDirection: "row",
@@ -311,12 +348,12 @@ const styles = StyleSheet.create({
   detailsToggleText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#1570ef",
+    color: ACCENT_TEXT_COLOR,
   },
   chevron: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#1570ef",
+    color: ACCENT_TEXT_COLOR,
     transform: [{ rotate: "90deg" }],
   },
   chevronOpen: {

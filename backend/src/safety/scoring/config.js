@@ -185,8 +185,18 @@ const ACTIVITY_FLOOR = 0.4;
 // Set well above urban limits because 95% of ways carry no sidewalk tag at all.
 const HAZARD_SPEED_KMH = 80;
 
-// Longest route, as a multiple of the shortest, that may still be recommended.
-const MAX_LENGTH_RATIO = 1.5;
+// Longest route, as a multiple of the shortest, that may still be ranked. Raised from 1.5 to 2.0: with the
+// damped exposure (LENGTH_EXPOSURE_EXPONENT) a 2x route must already be about 29% safer to win, and route
+// generation already limits candidates to 2.5x the straight line. At 1.5 a 650 m route at 70 could not be
+// recommended against a 383 m route at 22.
+const MAX_LENGTH_RATIO = 2.0;
+
+// Exponent on route length (in km) in exposure H = routeRisk * lengthKm^LENGTH_EXPOSURE_EXPONENT.
+// 1 would make risk add per metre (H = routeRisk * length), so a short bad route beats a longer, far
+// safer one: 383 m at risk 0.775 scores 0.48 against 0.24 for 650 m at 0.301. Danger concentrates in
+// weak stretches rather than adding up per metre, so length is damped. 0 would ignore length.
+// At 0.5, a route 1.4x longer wins only when its risk is more than 15.5% lower (1 - 1/1.4^0.5 = 15.48%).
+const LENGTH_EXPOSURE_EXPONENT = 0.5;
 
 // Radius (m) within which a mapped street lamp counts as lighting an edge. This is the radius
 // the caller (safetyGraph) uses when it counts lamps for lightingInference's lampCount30m input,
@@ -197,6 +207,7 @@ module.exports = Object.freeze({
   ACTIVITY_FLOOR,
   HAZARD_SPEED_KMH,
   MAX_LENGTH_RATIO,
+  LENGTH_EXPOSURE_EXPONENT,
   LAMP_RADIUS_M,
   MIN_FACTOR_SAFETY,
   BASE_WEIGHTS,

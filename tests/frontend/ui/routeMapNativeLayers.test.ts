@@ -2,16 +2,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  buildMapHtml,
-  buildNativeRouteLayerCollections,
-  NATIVE_MAP_ATTRIBUTION,
   RL_DASH_PX,
   RL_DASH_UNITS,
   RL_DEFAULT_DASHED_LABEL,
   RL_LINE_WIDTH,
   RL_REPLACED_KINDS,
+} from '@/src/components/maps/mapConstants';
+import {
+  buildMapHtml,
+  buildNativeRouteLayerCollections,
+  NATIVE_MAP_ATTRIBUTION,
   type NativeRouteLayerCollections,
 } from '@/src/components/maps/RouteMap.native';
+import { FakeEl } from './helpers/fakeDom';
 import { RISK_RAMP, type RouteLayerSpec } from '@/src/components/maps/routeLayers';
 
 // The WebView native module is not available under jest; the map script is run against fakes below.
@@ -87,7 +90,7 @@ describe('buildNativeRouteLayerCollections (pure)', () => {
   it('emits crime only as cluster badges with count labels, never individual crime features', () => {
     const c = buildNativeRouteLayerCollections(spec, null);
     expect(c.clusters.features).toHaveLength(2);
-    expect(c.clusters.features.map((f) => f.properties.label)).toEqual(['12', '3']);
+    expect(c.clusters.features.map((f) => f.properties.count)).toEqual([12, 3]);
     expect(c.clusters.features[0].properties.count).toBe(12);
     expect(c.clusters.features[0].properties.maxSeverity).toBe(0.7);
     expect(Object.keys(c).sort()).toEqual(
@@ -95,13 +98,12 @@ describe('buildNativeRouteLayerCollections (pure)', () => {
     );
   });
 
-  it('caps crime badge labels at 99+ like the web renderer', () => {
+  it('passes the raw cluster count through (the shared inline badge builder caps the label at 99+)', () => {
     const big: RouteLayerSpec = {
       ...spec,
       crimeClusters: [{ lat: 51.5, lng: -0.11, count: 120, maxSeverity: 0.7 }],
     };
     const c = buildNativeRouteLayerCollections(big, null);
-    expect(c.clusters.features[0].properties.label).toBe('99+');
     expect(c.clusters.features[0].properties.count).toBe(120);
   });
 
@@ -197,89 +199,6 @@ describe('RouteMap.native legacy path (routeLayers null) is untouched', () => {
 type Listener = (ev?: any) => void;
 type Point = { x: number; y: number };
 type RenderFn = (point: Point, layers: string[]) => Array<{ properties: Record<string, unknown> }>;
-
-class FakeEl {
-  tagName: string;
-  id: string;
-  className = '';
-  parentElement: FakeEl | null = null;
-  children: FakeEl[] = [];
-  listeners: Record<string, Listener[]> = {};
-  attributes: Record<string, string> = {};
-  style: Record<string, any> = {};
-  private text = '';
-  private html = '';
-
-  constructor(tag = 'div', id = '') {
-    this.tagName = tag;
-    this.id = id;
-  }
-
-  get textContent(): string {
-    return this.text;
-  }
-
-  set textContent(value: string) {
-    this.text = String(value);
-    this.html = '';
-    this.children = [];
-  }
-
-  get innerHTML(): string {
-    return this.html;
-  }
-
-  set innerHTML(value: string) {
-    this.html = String(value);
-    this.text = '';
-    this.children = [];
-  }
-
-  get classList() {
-    const self = this;
-    const classes = () => self.className.split(/\s+/).filter(Boolean);
-    const write = (list: string[]) => {
-      self.className = list.join(' ');
-    };
-    return {
-      contains: (c: string) => classes().includes(c),
-      add: (c: string) => write(Array.from(new Set([...classes(), c]))),
-      remove: (c: string) => write(classes().filter((x) => x !== c)),
-      toggle: (c: string, force?: boolean) => {
-        const has = classes().includes(c);
-        const next = force === undefined ? !has : force;
-        write(next ? Array.from(new Set([...classes(), c])) : classes().filter((x) => x !== c));
-        return next;
-      },
-    };
-  }
-
-  setAttribute(key: string, value: string) {
-    this.attributes[key] = String(value);
-  }
-
-  getAttribute(key: string) {
-    return this.attributes[key] ?? null;
-  }
-
-  addEventListener(ev: string, fn: Listener) {
-    (this.listeners[ev] ??= []).push(fn);
-  }
-
-  appendChild(child: FakeEl) {
-    child.parentElement = this;
-    this.children.push(child);
-    return child;
-  }
-
-  querySelector() {
-    return null;
-  }
-
-  remove() {
-    /* detached */
-  }
-}
 
 const chain = (): any => {
   const fn: any = function () {
@@ -483,13 +402,13 @@ describe('RouteMap.native routeLayers paint (MapLibre layer specs)', () => {
     expect(h.layerSpec('rl-dashed').paint['line-width']).toBe(RL_LINE_WIDTH);
   });
 
-  it('renders unselected routes #667085 at width 4, opacity 1, with a 40px wide invisible hit layer', () => {
+  it('renders unselected routes #667085 at width 4, opacity 1, with a 44px wide invisible hit layer (touch target)', () => {
     expect(h.layerSpec('rl-unselected-line').paint).toMatchObject({
       'line-color': '#667085',
       'line-opacity': 1,
       'line-width': 4,
     });
-    expect(h.layerSpec('rl-unselected-hit').paint).toMatchObject({ 'line-width': 40, 'line-opacity': 0 });
+    expect(h.layerSpec('rl-unselected-hit').paint).toMatchObject({ 'line-width': 44, 'line-opacity': 0 });
   });
 
   it('gates lights by minzoom 17 and lets a light highlight show them at any zoom', () => {
@@ -554,22 +473,23 @@ describe('RouteMap.native route badges', () => {
   it('renders one pill per route in routeLayers mode, with the selected one emphasised', () => {
     const h = loadNativeMap();
     h.updateMap(baseData({ routeLayers: layerPayload(), routeBadges: badges }));
-    const pills = h.markersWithClass('rl-route-badge');
+    const pills = h.markersWithClass('rl-pill-hit');
     expect(pills.map((m) => m.options.element.textContent)).toEqual(['62', '48']);
-    expect(pills[0].options.element.className).toContain('selected');
-    expect(pills[1].options.element.className).not.toContain('selected');
+    expect(pills[0].options.element.className).toContain('rl-pill-hit-sel');
+    expect(pills[1].options.element.className).not.toContain('rl-pill-hit-sel');
+    expect(pills[0].options.element.querySelector('.rl-pill-sel')).not.toBeNull();
   });
 
   it('does not draw route badges outside routeLayers mode', () => {
     const h = loadNativeMap();
     h.updateMap(baseData({ routeLayers: null, routeBadges: badges }));
-    expect(h.markersWithClass('rl-route-badge')).toHaveLength(0);
+    expect(h.markersWithClass('rl-pill-hit')).toHaveLength(0);
   });
 
   it('tapping a non-selected badge posts selectRoute for its routeId, and the selected badge does nothing', () => {
     const h = loadNativeMap();
     h.updateMap(baseData({ routeLayers: layerPayload(), routeBadges: badges }));
-    const [selectedPill, otherPill] = h.markersWithClass('rl-route-badge');
+    const [selectedPill, otherPill] = h.markersWithClass('rl-pill-hit');
     const stop = { stopPropagation: () => undefined, preventDefault: () => undefined };
     selectedPill.options.element.listeners.click[0](stop);
     expect(selectRouteMessages(h)).toEqual([]);
@@ -597,10 +517,10 @@ describe('RouteMap.native crime badges and callout', () => {
       ],
     };
     h.updateMap(baseData({ routeLayers: layerPayload(big) }));
-    const badges = h.markersWithClass('rl-cluster');
+    const badges = h.markersWithClass('rl-crime');
     expect(badges.map((m) => m.options.element.textContent)).toEqual(['12', '99+']);
-    expect(badges[0].options.element.className).toBe('rl-cluster');
-    expect(badges[1].options.element.className).toContain('rl-cluster-lg');
+    expect(badges[0].options.element.className).toBe('rl-crime');
+    expect(badges[1].options.element.className).toContain('rl-crime-lg');
   });
 
   it('places the callout as a white pill 10px above the stretch midpoint (bottom anchor, offset -10)', () => {
@@ -613,82 +533,139 @@ describe('RouteMap.native crime badges and callout', () => {
     expect(callout.ll).toEqual([-0.1, 51.5015]);
   });
 
-  it('keeps the crime and callout CSS aligned with the web sizes', () => {
+  it('uses the shared overlay CSS: crime 32px (36px large) at 13px bold, callout a 13px 600-weight white pill', () => {
     const css = buildMapHtml();
     const rule = (sel: string) => css.match(new RegExp(`(?:^|[\\s}])${sel.replace(/\./g, '\\.')}\\{[^}]*\\}`))?.[0] ?? '';
-    const cluster = rule('.rl-cluster');
-    expect(cluster).toContain('min-width:32px');
-    expect(cluster).toContain('font-size:13px');
-    expect(cluster).toContain('font-weight:700');
-    expect(rule('.rl-cluster.rl-cluster-lg')).toMatch(/width:36px/);
+    const crime = rule('.rl-crime');
+    expect(crime).toContain('width:32px');
+    expect(crime).toContain('font:700 13px');
+    expect(rule('.rl-crime-lg')).toContain('width:36px');
     const callout = rule('.rl-callout');
-    expect(callout).toContain('background:#fff');
-    expect(callout).toContain('font-size:13px');
-    expect(callout).toContain('font-weight:600');
+    expect(callout).toContain('background:#ffffff');
+    expect(callout).toContain('font:600 13px');
     expect(callout).toContain('border-radius:999px');
+  });
+
+  it('announces crime badges as images with their count', () => {
+    const h = loadNativeMap();
+    h.updateMap(baseData({ routeLayers: layerPayload() }));
+    const badges = h.markersWithClass('rl-crime');
+    expect(badges.map((m) => m.options.element.getAttribute('aria-label'))).toEqual([
+      '12 crimes reported',
+      '3 crimes reported',
+    ]);
+    expect(badges[0].options.element.getAttribute('role')).toBe('img');
+  });
+
+  it('gives each pill a >=44px transparent hit area, a compact visible pill and an aria label', () => {
+    const css = buildMapHtml();
+    expect(css).toMatch(/\.rl-pill-hit\{[^}]*min-width:44px;min-height:44px/);
+    expect(css).toMatch(/\.rl-pill\{[^}]*min-width:32px;height:28px/);
+    const h = loadNativeMap();
+    h.updateMap(
+      baseData({
+        routeLayers: layerPayload(),
+        routeBadges: [
+          { routeId: 'a', lat: 51.5, lng: -0.1, text: '62', selected: true },
+          { routeId: 'b', lat: 51.51, lng: -0.1, text: '48', selected: false },
+        ],
+      }),
+    );
+    const [first, second] = h.markersWithClass('rl-pill-hit').map((m) => m.options.element);
+    expect(first.getAttribute('aria-label')).toBe('Route 1 score 62, selected');
+    expect(second.getAttribute('aria-label')).toBe('Route 2 score 48, tap to select');
+    expect(second.getAttribute('role')).toBe('button');
   });
 });
 
 // ── Legend ───────────────────────────────────────────────────────────────────
 
 describe('RouteMap.native legend', () => {
+  const legendRoot = (h: NativeHarness) => h.elements['rlLegend'];
+  const body = (h: NativeHarness) => legendRoot(h).querySelector('.rl-legend-body');
+
   it('uses the dashed legend label from the spec, with the estimated-lighting fallback', () => {
     expect(RL_DEFAULT_DASHED_LABEL).toBe('Estimated lighting');
     const h = loadNativeMap();
     h.updateMap(baseData({ routeLayers: layerPayload() }));
-    expect(h.elements['rlLegendDashLabel'].textContent).toBe('Dashed: estimated lighting or low certainty');
+    expect(body(h)!.querySelector('.rl-legend-dash-label')!.textContent).toBe(
+      'Dashed: estimated lighting or low certainty',
+    );
 
     const fallback = loadNativeMap();
     fallback.updateMap(baseData({ routeLayers: layerPayload({ ...spec, legend: { ...spec.legend, dashedLabel: '' } }) }));
-    expect(fallback.elements['rlLegendDashLabel'].textContent).toBe('Estimated lighting');
+    expect(body(fallback)!.querySelector('.rl-legend-dash-label')!.textContent).toBe('Estimated lighting');
   });
 
   it('renders legend notes as separate text lines (never markup)', () => {
     const h = loadNativeMap();
     const withNotes = { ...spec, legend: { ...spec.legend, notes: ['First note', '<b>Second</b>'] } } as RouteLayerSpec;
     h.updateMap(baseData({ routeLayers: layerPayload(withNotes) }));
-    const notes = h.elements['rlLegendNotes'].children;
+    const notes = body(h)!.querySelectorAll('.rl-legend-note');
     expect(notes.map((n) => n.textContent)).toEqual(['First note', '<b>Second</b>']);
-    expect(notes.every((n) => n.className === 'rl-legend-note')).toBe(true);
+  });
+
+  it('draws six discrete swatches from spec.legend.ramp with Safer on the left and Riskier on the right', () => {
+    const h = loadNativeMap();
+    h.updateMap(baseData({ routeLayers: layerPayload() }));
+    const swatches = body(h)!.querySelectorAll('.rl-legend-swatch');
+    expect(swatches.map((sw) => sw.style.background)).toEqual([...RISK_RAMP]);
+    expect(body(h)!.querySelector('.rl-legend-scale')!.children.map((c) => c.textContent)).toEqual(['Safer', 'Riskier']);
+    expect(body(h)!.innerHTML).not.toContain('gradient');
+  });
+
+  it('exposes a labelled region whose toggle controls the body', () => {
+    const h = loadNativeMap();
+    h.updateMap(baseData({ routeLayers: layerPayload() }));
+    expect(legendRoot(h).getAttribute('role')).toBe('region');
+    expect(legendRoot(h).getAttribute('aria-label')).toBe('Route safety legend');
+    const head = legendRoot(h).querySelector('.rl-legend-head')!;
+    expect(head.getAttribute('aria-controls')).toBe(body(h)!.id);
   });
 
   it('shows the legend only in routeLayers mode', () => {
     const h = loadNativeMap();
     h.updateMap(baseData({ routeLayers: layerPayload() }));
-    expect(h.elements['rlLegend'].className).toContain('on');
+    expect(legendRoot(h).style.display).toBe('');
     h.updateMap(baseData({ routeLayers: null }));
-    expect(h.elements['rlLegend'].className).not.toContain('on');
+    expect(legendRoot(h).style.display).toBe('none');
   });
 
   it('starts collapsed when the viewport is narrower than 400px and expanded otherwise', () => {
     const narrow = loadNativeMap({ innerWidth: 390 });
     narrow.updateMap(baseData({ routeLayers: layerPayload() }));
-    expect(narrow.elements['rlLegend'].className).toContain('collapsed');
+    expect(legendRoot(narrow).className).toContain('rl-legend-collapsed');
+    expect(body(narrow)!.style.display).toBe('none');
 
     const wide = loadNativeMap({ innerWidth: 420 });
     wide.updateMap(baseData({ routeLayers: layerPayload() }));
-    expect(wide.elements['rlLegend'].className).not.toContain('collapsed');
+    expect(legendRoot(wide).className).not.toContain('rl-legend-collapsed');
   });
 
-  it('toggles collapsed from the header button', () => {
+  it('toggles collapsed from the header button and remembers it across updates', () => {
     const h = loadNativeMap({ innerWidth: 420 });
     h.updateMap(baseData({ routeLayers: layerPayload() }));
-    const toggle = h.elements['rlLegendToggle'];
+    const toggle = legendRoot(h).querySelector('.rl-legend-head')!;
     toggle.listeners.click[0]({ preventDefault: () => undefined, stopPropagation: () => undefined });
-    expect(h.elements['rlLegend'].className).toContain('collapsed');
+    expect(legendRoot(h).className).toContain('rl-legend-collapsed');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    h.updateMap(baseData({ routeLayers: layerPayload() }));
+    expect(legendRoot(h).className).toContain('rl-legend-collapsed');
   });
 
   it('draws the dashed swatch with the same pattern as the map (line-width multiples converted to px)', () => {
     expect(RL_DASH_PX).toEqual([0.7, 14.7]);
-    expect(buildMapHtml()).toContain('stroke-dasharray="0.7 14.7"');
-    expect(buildMapHtml()).not.toContain('stroke-dasharray="0.1 12"');
+    const h = loadNativeMap();
+    h.updateMap(baseData({ routeLayers: layerPayload() }));
+    expect(body(h)!.innerHTML).toContain('stroke-dasharray="0.7 14.7"');
+    expect(body(h)!.innerHTML).not.toContain('stroke-dasharray="0.1 12"');
   });
 
-  it('sets the legend text sizes to at least 12px', () => {
+  it('sets the legend text sizes to at least 12px, at most 200px wide, placed bottom-left', () => {
     const css = buildMapHtml();
-    expect(css).toMatch(/\.rl-legend\{[^}]*font-size:1[2-9]px/);
+    expect(css).toMatch(/\.rl-legend\{[^}]*font:600 1[2-9]px/);
     expect(css).toMatch(/\.rl-legend-note\{[^}]*font-size:1[2-9]px/);
+    expect(css).toMatch(/\.rl-legend\{[^}]*max-width:min\(200px,46vw\)/);
     expect(css).toMatch(/\.rl-legend\{[^}]*left:12px/);
   });
 });
@@ -778,5 +755,41 @@ describe('RouteMap.native safety markers in routeLayers mode', () => {
       (f) => f.properties.kind,
     );
     expect(drawn.sort()).toEqual([...kinds].sort());
+  });
+});
+
+// ── updateMap split into per-concern functions: smoke ────────────────────────
+
+describe('RouteMap.native updateMap concerns', () => {
+  it('renders navigation, friends, the selected candidate card and the range circle without throwing', () => {
+    const h = loadNativeMap();
+    const path = [
+      { lat: 51.5, lng: -0.1 },
+      { lat: 51.501, lng: -0.1 },
+      { lat: 51.502, lng: -0.1 },
+    ];
+    expect(() =>
+      h.updateMap(
+        baseData({
+          origin: { lat: 51.5, lng: -0.1 },
+          destination: { lat: 51.502, lng: -0.1 },
+          routes: [{ id: 'a', selected: true, path }],
+          navLocation: { lat: 51.5005, lng: -0.1 },
+          navHeading: 40,
+          maxDistanceKm: 2,
+          fitBounds: true,
+          friendMarkers: [{ userId: 'u1', name: 'Sam', lat: 51.5, lng: -0.1, path, routePath: path }],
+          safetyMarkers: [
+            { id: 'search-candidate:1', kind: 'search_candidate', label: 'Cafe', lat: 51.51, lng: -0.1, isSelected: true, pinColor: '#ef4444' },
+            { id: 'crime-1', kind: 'crime', label: 'Crime', lat: 51.5005, lng: -0.1 },
+          ],
+        }),
+      ),
+    ).not.toThrow();
+    expect(h.markersWithClass('friend-marker')).toHaveLength(1);
+    expect(h.markersWithClass('search-pin-wrap')).toHaveLength(1);
+    expect(h.markersWithClass('hazard-label')).toHaveLength(1);
+    expect(h.sourceData('range-circle').features).toHaveLength(0);
+    expect(h.sourceData('friend-planned-routes').features).toHaveLength(1);
   });
 });

@@ -2,7 +2,9 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
-import { RouteCard, formatRouteDelta } from '@/src/components/routes/RouteCard';
+import { RouteCard, confidenceTier, formatRouteDelta } from '@/src/components/routes/RouteCard';
+import { riskToColor } from '@/src/components/maps/routeLayers';
+import { textContrastProblems } from '@/src/utils/__tests__/contrastHelpers';
 import type { RouteComparison } from '@/src/utils/routeComparison';
 import type { RouteSafety, SafeRoute, SafetyBreakdown } from '@/src/services/safeRoutes';
 
@@ -249,5 +251,130 @@ describe('RouteCard', () => {
     });
     const renderer = renderCard({ route });
     expect(textNodes(renderer)).not.toContain('Estimated');
+  });
+});
+
+describe('confidenceTier', () => {
+  const safety = (certainty: number | null | undefined, lighting?: 'verified' | 'mixed' | 'estimated') =>
+    ({ certainty, dataQuality: lighting ? { lighting } : undefined }) as Partial<RouteSafety>;
+
+  it('is verified when lighting is verified and certainty is at least 0.6', () => {
+    expect(confidenceTier(safety(0.6, 'verified') as RouteSafety)).toBe('verified');
+    expect(confidenceTier(safety(0.95, 'verified') as RouteSafety)).toBe('verified');
+  });
+
+  it('is mostly mapped just under the verified line, at 0.59 with verified lighting', () => {
+    expect(confidenceTier(safety(0.59, 'verified') as RouteSafety)).toBe('mostly');
+  });
+
+  it('is mostly mapped for mixed lighting when certainty is not below 0.4', () => {
+    expect(confidenceTier(safety(0.9, 'mixed') as RouteSafety)).toBe('mostly');
+  });
+
+  it('is mostly mapped when certainty is 0.4 up to 0.6, lighting permitting', () => {
+    expect(confidenceTier(safety(0.4) as RouteSafety)).toBe('mostly');
+    expect(confidenceTier(safety(0.5, 'verified') as RouteSafety)).toBe('mostly');
+  });
+
+  it('is estimated when lighting is estimated, whatever the certainty', () => {
+    expect(confidenceTier(safety(0.95, 'estimated') as RouteSafety)).toBe('estimated');
+  });
+
+  it('is estimated when certainty is below 0.4, even with mixed lighting', () => {
+    expect(confidenceTier(safety(0.39, 'mixed') as RouteSafety)).toBe('estimated');
+    expect(confidenceTier(safety(0) as RouteSafety)).toBe('estimated');
+  });
+
+  it('is null when there is nothing to say', () => {
+    expect(confidenceTier({} as RouteSafety)).toBeNull();
+    expect(confidenceTier(safety(null, 'verified') as RouteSafety)).toBeNull();
+    expect(confidenceTier(safety(0.9) as RouteSafety)).toBeNull();
+  });
+});
+
+describe('RouteCard confidence text', () => {
+  it('shows Verified on a verified, confident v2 card', () => {
+    const renderer = renderCard({
+      route: makeRoute({ safety: { certainty: 0.8, reason: 'x', dataQuality: { lighting: 'verified' } } }),
+    });
+    expect(textNodes(renderer)).toContain('Verified');
+  });
+
+  it('shows Mostly mapped in place of the Estimated chip for mid certainty', () => {
+    const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.5, reason: 'x' } }) });
+    expect(textNodes(renderer)).toContain('Mostly mapped');
+    expect(textNodes(renderer)).not.toContain('Estimated');
+  });
+
+  it('keeps the Estimated accessibility label on the estimated tier', () => {
+    const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.2, reason: 'x' } }) });
+    expect(findByA11yLabel(renderer, 'Lighting partly estimated').length).toBeGreaterThan(0);
+  });
+
+  it('sets the tier text at 12px', () => {
+    const renderer = renderCard({ route: makeRoute({ safety: { certainty: 0.5, reason: 'x' } }) });
+    const tier = renderer.root.findAll((n) => n.type === Text && n.props.children === 'Mostly mapped')[0];
+    expect(StyleSheet.flatten(tier.props.style).fontSize).toBe(12);
+  });
+});
+
+describe('RouteCard single encoding of safety colour', () => {
+  const dotOf = (renderer: ReactTestRenderer) =>
+    renderer.root.findAll((n) => n.type === View && StyleSheet.flatten(n.props.style)?.width === 6)[0];
+
+  it('colours a v2 score dot from the map risk ramp, ignoring the backend band colour', () => {
+    const renderer = renderCard({
+      route: makeRoute({ safety: { score: 67, color: '#558B2F', certainty: 0.8, reason: 'x' } }),
+    });
+    expect(StyleSheet.flatten(dotOf(renderer).props.style).backgroundColor).toBe(riskToColor(1 - 67 / 100));
+  });
+
+  it('keeps the backend band colour on a v1 score dot', () => {
+    const renderer = renderCard({ route: makeRoute({ safety: { score: 67, color: '#16a34a' } }) });
+    expect(StyleSheet.flatten(dotOf(renderer).props.style).backgroundColor).toBe('#16a34a');
+  });
+
+  it('gives the score chip a 20% tint of the same colour as its dot', () => {
+    const renderer = renderCard({
+      route: makeRoute({ safety: { score: 20, color: '#558B2F', certainty: 0.8, reason: 'x' } }),
+    });
+    const dot = StyleSheet.flatten(dotOf(renderer).props.style).backgroundColor as string;
+    const chip = dotOf(renderer).parent!;
+    expect(StyleSheet.flatten(chip.props.style).backgroundColor).toBe(`${dot}20`);
+  });
+});
+
+describe('RouteCard text contrast (WCAG AA, 4.5:1 against the real background)', () => {
+  const comparison = (routeId: string, deltaScoreVsFastest: number, deltaDistanceVsFastest: number) =>
+    makeComparison({ routeId, deltaScoreVsFastest, deltaDistanceVsFastest });
+
+  it.each([
+    ['v1 unselected', makeRoute({ safety: { color: '#558B2F' } }), {}],
+    ['v1 recommended and selected', makeRoute({ isSafest: true, safety: { color: '#F9A825' } }), { isSelected: true }],
+    [
+      'v2 recommended, verified',
+      makeRoute({ isSafest: true, safety: { reason: 'x', certainty: 0.9, dataQuality: { lighting: 'verified' } } }),
+      {},
+    ],
+    [
+      'v2 other route, selected with details and delta',
+      makeRoute({ id: 'r2', safety: { score: 62, reason: 'x', certainty: 0.3 } }),
+      {
+        index: 1,
+        isSelected: true,
+        detailsPanel: <View />,
+        comparison: comparison('r2', 5, 900),
+        recommendedComparison: comparison('r1', 0, 0),
+      },
+    ],
+    [
+      'v2 recommended, selected, estimated',
+      makeRoute({ isSafest: true, safety: { reason: 'x', certainty: 0.2 } }),
+      { isSelected: true, detailsPanel: <View /> },
+    ],
+  ])('keeps every text colour at 4.5:1 or better: %s', (_name, route, extra) => {
+    const renderer = renderCard({ route, ...(extra as object) });
+    expect(textNodes(renderer).length).toBeGreaterThan(0);
+    expect(textContrastProblems(renderer)).toEqual([]);
   });
 });

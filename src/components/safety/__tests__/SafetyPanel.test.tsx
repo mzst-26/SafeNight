@@ -5,8 +5,14 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { RoadTypeBreakdown, SafetyPanel, formatWorstStretch } from '@/src/components/safety/SafetyPanel';
 import type { RouteDataQuality, RouteSafety, SafeRoute, SafetyBreakdown, WorstStretch } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
+import { riskToColor } from '@/src/components/maps/routeLayers';
+import { textContrastProblems } from '@/src/utils/__tests__/contrastHelpers';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+// safeRoutes.ts (imported for isV2SafeRoute) loads AsyncStorage at module scope.
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
 jest.mock('@/src/components/ui/CircleProgress', () => ({ CircleProgress: () => null }));
 
 function makeSafetyResult(overrides: Partial<SafetyMapResult> = {}): SafetyMapResult {
@@ -167,5 +173,33 @@ describe('SafetyPanel', () => {
     expect(texts).toContain('Crime data unavailable');
     const labelled = renderer.root.findAll((n) => n.props?.accessibilityLabel === 'Crime data unavailable');
     expect(labelled.length).toBeGreaterThan(0);
+  });
+});
+
+describe('SafetyPanel colour and text contrast', () => {
+  /** Props the (mocked) CircleProgress was rendered with: the score ring. */
+  const ringOf = (renderer: ReactTestRenderer) =>
+    renderer.root.findAll((n) => typeof n.props.progress === 'number' && n.props.color !== undefined)[0];
+
+  it('draws a v2 score ring from the map risk ramp, not the backend band colour', () => {
+    const renderer = render(
+      makeSafetyResult({ safetyScore: 67, safetyColor: '#558B2F' }),
+      makeRoute({ score: 67, color: '#558B2F', certainty: 0.8, reason: 'x' }),
+    );
+    expect(ringOf(renderer).props.color).toBe(riskToColor(1 - 67 / 100));
+    expect(ringOf(renderer).props.color).not.toBe('#558B2F');
+  });
+
+  it('keeps the score colour on a v1 ring', () => {
+    const renderer = render(makeSafetyResult({ safetyColor: '#16a34a' }), makeRoute());
+    expect(ringOf(renderer).props.color).toBe('#16a34a');
+  });
+
+  it.each([
+    ['v1 route', makeRoute({ color: '#F9A825' })],
+    ['v2 route with crime unavailable and a weakest stretch', makeRoute({ score: 30, certainty: 0.3, reason: 'x', worstStretch: stretch(), dataQuality: { crime: 'unavailable', lighting: 'estimated' } }, 12)],
+  ])('keeps every panel text at 4.5:1 or better on its real background: %s', (_name, route) => {
+    const renderer = render(makeSafetyResult({ safetyLabel: 'Insufficient Data', safetyColor: '#94a3b8' }), route);
+    expect(textContrastProblems(renderer)).toEqual([]);
   });
 });

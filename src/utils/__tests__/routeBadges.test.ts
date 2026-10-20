@@ -101,3 +101,18 @@ describe('buildRouteBadges', () => {
     expect(buildRouteBadges([route('a')], { a: { score: 100 } }, null)[0].text).toBe('100');
   });
 });
+
+describe('routeMidpointByDistance haversine', () => {
+  // Reference values from an independent haversine walk (R = 6371008.8 m). A first-latitude-only
+  // cos term (cos(a.lat)^2 instead of cos(a.lat)*cos(b.lat)) moves this midpoint by about 0.025 deg.
+  it('uses both latitudes when a long segment runs north-south and also shifts east', () => {
+    const path = [
+      { latitude: 0, longitude: 0 },
+      { latitude: 50, longitude: 10 },
+      { latitude: 50, longitude: 20 },
+    ];
+    const mid = routeMidpointByDistance(path);
+    expect(mid?.lat).toBeCloseTo(28.165543, 4);
+    expect(mid?.lng).toBeCloseTo(5.633109, 4);
+  });
+});

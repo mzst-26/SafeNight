@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { buildLeafletHtml } from '@/src/components/maps/RouteMap.web';
+import { FakeEl } from './helpers/fakeDom';
 import { buildRouteLayers, RISK_RAMP } from '@/src/components/maps/routeLayers';
 import type { RouteLayerSpec } from '@/src/components/maps/routeLayers';
 
@@ -63,26 +64,6 @@ const makeLayer = (type: FakeLayer['type'], latlngs: unknown, options: Record<st
   return layer;
 };
 
-const makeEl = (): any => {
-  const cache: Record<string, any> = {};
-  const listeners: Record<string, (ev?: any) => void> = {};
-  return {
-    style: {},
-    className: '',
-    innerHTML: '',
-    listeners,
-    classList: { add: () => undefined, remove: () => undefined, toggle: () => undefined },
-    setAttribute: () => undefined,
-    addEventListener: (ev: string, fn: (ev?: any) => void) => {
-      listeners[ev] = fn;
-    },
-    querySelector: (sel: string) => {
-      if (!cache[sel]) cache[sel] = makeEl();
-      return cache[sel];
-    },
-  };
-};
-
 const SCRIPT_RE = /<script>([\s\S]*?)<\/script>/;
 
 type HarnessOptions = {
@@ -132,9 +113,9 @@ function loadRouteMap(opts: HarnessOptions = {}) {
   };
 
   const doc: any = {
-    body: makeEl(),
-    createElement: () => makeEl(),
-    getElementById: () => makeEl(),
+    body: new FakeEl('body'),
+    createElement: (tag: string) => new FakeEl(tag),
+    getElementById: () => new FakeEl('div'),
   };
 
   const L: any = {
@@ -276,6 +257,9 @@ const builtSpec = buildRouteLayers(
   { zoom: 16 },
 );
 
+/** Markup of a divIcon: the shared builders are serialised (strings stay strings). */
+const iconHtml = (l: FakeLayer): string => String(l.options.icon?.html ?? '');
+
 const polylines = (group: FakeGroup) => group.layers.filter((l) => l.type === 'polyline');
 const circles = (group: FakeGroup) => group.layers.filter((l) => l.type === 'circleMarker');
 
@@ -290,7 +274,7 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(grey).toHaveLength(1);
       expect(grey[0].options).toMatchObject({ weight: 5, opacity: 0.6 });
       expect(typeof grey[0].handlers.click).toBe('function');
-      expect(lines.some((l) => l.options.weight === 40)).toBe(false);
+      expect(lines.some((l) => l.options.weight === 44)).toBe(false);
     });
 
     it('draws the selected route as a blue weight-6 line when there are no segments', () => {
@@ -410,7 +394,7 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(all.some((l) => l.type === 'rectangle' || l.type === 'polygon')).toBe(false);
     });
 
-    it('gives unselected routes a solid #667085 weight-4 line plus an invisible wide hit line that selects the route', () => {
+    it('gives unselected routes a solid #667085 weight-4 line plus an invisible 44px hit line (touch target) that selects the route', () => {
       const h = loadRouteMap();
       h.updateMap(basePayload({ routeLayers: builtSpec }));
 
@@ -419,7 +403,7 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(grey).toHaveLength(1);
       expect(grey[0].options).toMatchObject({ weight: 4, opacity: 1 });
 
-      const hit = lines.filter((l) => l.options.weight === 40);
+      const hit = lines.filter((l) => l.options.weight === 44);
       expect(hit).toHaveLength(1);
       expect(hit[0].options.opacity).toBe(0);
       expect(hit[0].latlngs).toEqual(ROUTE_A.map((p) => [p.lat, p.lng]));
@@ -437,7 +421,7 @@ describe('RouteMap.web Leaflet route layers', () => {
       h.updateMap(basePayload({ routeLayers: builtSpec }));
 
       const lines = h.groups.routes.layers as FakeLayer[];
-      const hitIdx = lines.map((l, i) => (l.type === 'polyline' && l.options.weight === 40 ? i : -1)).filter((i) => i >= 0);
+      const hitIdx = lines.map((l, i) => (l.type === 'polyline' && l.options.weight === 44 ? i : -1)).filter((i) => i >= 0);
       const selectedIdx = lines
         .map((l, i) => (l.type === 'polyline' && (l.options.weight === 11 || l.options.weight === 7) ? i : -1))
         .filter((i) => i >= 0);
@@ -492,6 +476,27 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(badges.map((b: FakeLayer) => countOf(b.options.icon.html))).toEqual(
         builtSpec.crimeClusters.map((c) => c.count),
       );
+    });
+
+    it('announces each crime badge as an image with its count', () => {
+      const h = loadRouteMap();
+      h.updateMap(
+        basePayload({
+          routeLayers: makeSpec({
+            crimeClusters: [
+              { lat: 51.51, lng: -0.12, count: 1, maxSeverity: 1 },
+              { lat: 51.511, lng: -0.12, count: 12, maxSeverity: 1 },
+            ],
+          }),
+        }),
+      );
+
+      const badges = h.groups.overlay.layers.filter((l: FakeLayer) => l.options.icon?.className === 'rl-crime-icon');
+      expect(badges.map(iconHtml).map((html: string) => html.match(/aria-label="([^"]+)"/)?.[1])).toEqual([
+        '1 crime reported',
+        '12 crimes reported',
+      ]);
+      badges.forEach((b: FakeLayer) => expect(iconHtml(b)).toContain('role="img"'));
     });
 
     it('sizes crime badges 32px, grows to 36px at 100 or more, and caps the label at 99+', () => {
@@ -631,7 +636,7 @@ describe('RouteMap.web Leaflet route layers', () => {
       const h = loadRouteMap();
       h.updateMap(basePayload());
 
-      expect(polylines(h.groups.routes).some((l) => l.options.weight === 40)).toBe(false);
+      expect(polylines(h.groups.routes).some((l) => l.options.weight === 44)).toBe(false);
       expect(h.groups.overlay.layers).toHaveLength(0);
     });
   });
@@ -648,6 +653,31 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(body).toContain('Safer');
       expect(body).toContain('Riskier');
       expect(body).toContain(builtSpec.legend.dashedLabel);
+    });
+
+    it('draws six discrete swatches in a row (Safer left, Riskier right) instead of a gradient', () => {
+      const h = loadRouteMap();
+      h.updateMap(basePayload({ routeLayers: builtSpec }));
+
+      const body = h.getLegend().querySelector('.rl-legend-body');
+      const swatches = body.querySelectorAll('.rl-legend-swatch');
+      expect(swatches.map((s: any) => s.style.background)).toEqual([...RISK_RAMP]);
+      expect(body.innerHTML).not.toContain('gradient');
+      const labels = body.querySelector('.rl-legend-scale').children.map((c: any) => c.textContent);
+      expect(labels).toEqual(['Safer', 'Riskier']);
+    });
+
+    it('gives the legend region, toggle and body the same accessibility wiring as native', () => {
+      const h = loadRouteMap();
+      h.updateMap(basePayload({ routeLayers: builtSpec }));
+
+      const legend = h.getLegend();
+      expect(legend.getAttribute('role')).toBe('region');
+      expect(legend.getAttribute('aria-label')).toBe('Route safety legend');
+      const head = legend.querySelector('.rl-legend-head');
+      const body = legend.querySelector('.rl-legend-body');
+      expect(head.getAttribute('aria-controls')).toBe(body.id);
+      expect(head.getAttribute('aria-expanded')).toBe('true');
     });
 
     it('reads the ramp colours from legend.ramp in the spec, not from a constant', () => {
@@ -754,13 +784,13 @@ describe('RouteMap.web Leaflet route layers', () => {
       const head = legend.querySelector('.rl-legend-head');
       expect(body.style.display).toBe('');
 
-      head.listeners.click({ stopPropagation: () => undefined });
+      head.listeners.click[0]({ stopPropagation: () => undefined });
       expect(body.style.display).toBe('none');
 
       h.updateMap(basePayload({ routeLayers: builtSpec }));
       expect(legend.querySelector('.rl-legend-body').style.display).toBe('none');
 
-      head.listeners.click({ stopPropagation: () => undefined });
+      head.listeners.click[0]({ stopPropagation: () => undefined });
       expect(legend.querySelector('.rl-legend-body').style.display).toBe('');
     });
 
@@ -771,10 +801,10 @@ describe('RouteMap.web Leaflet route layers', () => {
         return Number(html.match(re)?.[1]);
       };
       expect(size('.rl-legend')).toBeGreaterThanOrEqual(12);
-      expect(size('.rl-note')).toBeGreaterThanOrEqual(12);
+      expect(size('.rl-legend-note')).toBeGreaterThanOrEqual(12);
       expect(size('.rl-callout')).toBeGreaterThanOrEqual(13);
       expect(size('.rl-crime')).toBeGreaterThanOrEqual(13);
-      expect(size('.rl-badge')).toBeGreaterThanOrEqual(13);
+      expect(size('.rl-pill')).toBeGreaterThanOrEqual(13);
     });
 
     it('styles the callout as a white 600-weight pill placed 10px above its anchor', () => {
@@ -783,13 +813,14 @@ describe('RouteMap.web Leaflet route layers', () => {
       expect(rule).toMatch(/background:#ffffff/);
       expect(rule).toMatch(/font:600 13px/);
       expect(rule).toMatch(/border-radius:999px/);
-      expect(rule).toMatch(/translate\(-50%,calc\(-100% - 10px\)\)/);
+      const placement = html.match(/\.rl-callout-icon \.rl-callout\s*\{([^}]*)\}/)?.[1] ?? '';
+      expect(placement).toMatch(/translate\(-50%,calc\(-100% - 10px\)\)/);
     });
 
     it('draws crime badges and score pills in bold 13px type', () => {
       const html = buildLeafletHtml(false);
       expect(html).toMatch(/\.rl-crime\s*\{[^}]*font:700 13px/);
-      expect(html).toMatch(/\.rl-badge\s*\{[^}]*font:700 13px/);
+      expect(html).toMatch(/\.rl-pill\s*\{[^}]*font:700 13px/);
     });
   });
 
@@ -862,20 +893,34 @@ describe('RouteMap.web Leaflet route layers', () => {
       const h = loadRouteMap();
       h.updateMap(basePayload({ routeLayers: builtSpec, routeBadges: badges() }));
 
-      const pills = h.groups.overlay.layers.filter((l: FakeLayer) => String(l.options.icon?.html).includes('rl-badge'));
+      const pills = h.groups.overlay.layers.filter((l: FakeLayer) => String(l.options.icon?.html).includes('rl-pill-hit'));
       expect(pills).toHaveLength(2);
       expect(pills[0].latlngs).toEqual([51.51, -0.12]);
       expect(pills[0].options.icon.html).toContain('>62<');
-      expect(pills[0].options.icon.html).not.toContain('rl-badge-sel');
-      expect(pills[1].options.icon.html).toContain('rl-badge-sel');
+      expect(pills[0].options.icon.html).not.toContain('rl-pill-sel');
+      expect(pills[1].options.icon.html).toContain('rl-pill-sel');
       expect(pills[1].options.icon.html).toContain('>88<');
+    });
+
+    it('wraps each pill in an accessible hit area with the same labels as native', () => {
+      const h = loadRouteMap();
+      h.updateMap(basePayload({ routeLayers: builtSpec, routeBadges: badges() }));
+
+      const pills = h.groups.overlay.layers.filter((l: FakeLayer) => String(l.options.icon?.html).includes('rl-pill-hit'));
+      expect(iconHtml(pills[0])).toContain('role="button"');
+      expect(iconHtml(pills[0])).toContain('aria-label="Route 1 score 62, tap to select"');
+      expect(iconHtml(pills[1])).not.toContain('role="button"');
+      expect(iconHtml(pills[1])).toContain('aria-label="Route 2 score 88, selected"');
+      const html = buildLeafletHtml(false);
+      expect(html).toMatch(/\.rl-pill-hit\s*\{[^}]*min-width:44px;min-height:44px/);
+      expect(html).toMatch(/\.rl-pill\s*\{[^}]*min-width:32px;height:28px/);
     });
 
     it('tapping a non-selected badge posts selectRoute for its route, and the selected badge does nothing', () => {
       const h = loadRouteMap();
       h.updateMap(basePayload({ routeLayers: builtSpec, routeBadges: badges() }));
 
-      const pills = h.groups.overlay.layers.filter((l: FakeLayer) => String(l.options.icon?.html).includes('rl-badge'));
+      const pills = h.groups.overlay.layers.filter((l: FakeLayer) => String(l.options.icon?.html).includes('rl-pill-hit'));
       (h.postMessage as jest.Mock).mockClear();
 
       expect(typeof pills[0].handlers.click).toBe('function');
@@ -902,8 +947,31 @@ describe('RouteMap.web Leaflet route layers', () => {
         }),
       );
 
-      const pill = h.groups.overlay.layers.find((l: FakeLayer) => String(l.options.icon?.html).includes('rl-badge'));
+      const pill = h.groups.overlay.layers.find((l: FakeLayer) => String(l.options.icon?.html).includes('rl-pill-hit'));
       expect(pill.options.icon.html).not.toContain('<u>');
+    });
+  });
+
+  describe('updateMap concerns (split into functions)', () => {
+    it('draws endpoints, selected pins, friends, the range ring and fits bounds without throwing', () => {
+      const h = loadRouteMap();
+      expect(() =>
+        h.updateMap(
+          basePayload({
+            origin: pt(51.5, -0.13),
+            destination: pt(51.515, -0.115),
+            maxDistanceKm: 2,
+            fitBounds: true,
+            friendMarkers: [{ name: 'Sam', lat: 51.51, lng: -0.12, path: ROUTE_A, routePath: ROUTE_A }],
+            safetyMarkers: [
+              { id: 'search-candidate:1', kind: 'place', lat: 51.512, lng: -0.118, label: 'Cafe', pinColor: '#ef4444', isSelected: true },
+              { id: 'crime-1', kind: 'crime', lat: 51.51, lng: -0.12, label: 'Crime' },
+            ],
+          }),
+        ),
+      ).not.toThrow();
+      expect(circles(h.groups.markers).length).toBeGreaterThanOrEqual(3);
+      expect(h.groups.friends.layers.length).toBeGreaterThan(0);
     });
   });
 

@@ -176,6 +176,11 @@ const MAX_POINTS_PER_KIND = 150;
  */
 export const LIGHTS_MIN_ZOOM = 17;
 const DEFAULT_CLUSTER_CELL_M = 120;
+/**
+ * Most crime clusters the map draws for one route. Clusters beyond this are dropped, lowest
+ * count times max severity first, so dense areas do not bury the map in markers.
+ */
+export const CRIME_CLUSTER_MAP_CAP = 12;
 const METRES_PER_DEG_LAT = 111320;
 const DEG_TO_RAD = Math.PI / 180;
 const MAX_LAT_DEG = 90;
@@ -295,15 +300,87 @@ function buildLines(segments: LayerSegment[]): LineLayer[] {
   }));
 }
 
-function buildCallouts(stretch: WorstStretchInput | null | undefined): Callout[] {
+/**
+ * Point on the drawn polyline halfway, by distance along the path, between the vertices nearest
+ * the stretch's start and end. Null when there is no path with length to measure.
+ */
+function pointHalfwayAlongPath(
+  lines: LineLayer[],
+  start: GeoPoint,
+  end: GeoPoint,
+): GeoPoint | null {
+  const pts: Array<[number, number]> = lines.flatMap((line) => line.coords);
+  if (pts.length < 2) return null;
+
+  const meanLat = pts.reduce((sum, p) => sum + p[0], 0) / pts.length;
+  const metresPerDegLng = METRES_PER_DEG_LAT * Math.cos(meanLat * DEG_TO_RAD);
+  const toXY = (lat: number, lng: number): [number, number] => [
+    lng * metresPerDegLng,
+    lat * METRES_PER_DEG_LAT,
+  ];
+
+  // Cumulative distance at each vertex, in local planar metres.
+  const xy = pts.map(([lat, lng]) => toXY(lat, lng));
+  const cum: number[] = [0];
+  for (let i = 1; i < xy.length; i += 1) {
+    cum.push(cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
+  }
+  const total = cum[cum.length - 1];
+  if (total === 0) return { lat: pts[0][0], lng: pts[0][1] };
+
+  // Distance along the path of the closest point on the polyline to a given point.
+  const alongPath = (p: GeoPoint): number => {
+    const [px, py] = toXY(p.lat, p.lng);
+    let bestDist = Infinity;
+    let bestS = 0;
+    for (let i = 0; i < xy.length - 1; i += 1) {
+      const [ax, ay] = xy[i];
+      const dx = xy[i + 1][0] - ax;
+      const dy = xy[i + 1][1] - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 === 0 ? 0 : clamp01(((px - ax) * dx + (py - ay) * dy) / len2);
+      const qx = ax + t * dx;
+      const qy = ay + t * dy;
+      const dist = Math.hypot(px - qx, py - qy);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestS = cum[i] + t * (cum[i + 1] - cum[i]);
+      }
+    }
+    return bestS;
+  };
+
+  const target = (alongPath(start) + alongPath(end)) / 2;
+  for (let i = 0; i < xy.length - 1; i += 1) {
+    if (target <= cum[i + 1]) {
+      const span = cum[i + 1] - cum[i];
+      const t = span === 0 ? 0 : (target - cum[i]) / span;
+      return {
+        lat: pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t,
+        lng: pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t,
+      };
+    }
+  }
+  return { lat: pts[pts.length - 1][0], lng: pts[pts.length - 1][1] };
+}
+
+/**
+ * The worst-stretch callout sits on the selected route's drawn path, halfway along it between
+ * the stretch's ends. Without drawable lines it falls back to the chord midpoint.
+ */
+function buildCallouts(
+  stretch: WorstStretchInput | null | undefined,
+  lines: LineLayer[],
+): Callout[] {
   if (!stretch || !isValidCoord(stretch.start) || !isValidCoord(stretch.end)) return [];
   if (!isFiniteNumber(stretch.lengthM) || stretch.lengthM < WORST_STRETCH_MIN_M) return [];
 
+  const onPath = pointHalfwayAlongPath(lines, stretch.start, stretch.end);
   const label = stretch.cause === 'lighting' ? 'Unlit stretch' : 'High-risk stretch';
   return [
     {
-      lat: (stretch.start.lat + stretch.end.lat) / 2,
-      lng: (stretch.start.lng + stretch.end.lng) / 2,
+      lat: onPath ? onPath.lat : (stretch.start.lat + stretch.end.lat) / 2,
+      lng: onPath ? onPath.lng : (stretch.start.lng + stretch.end.lng) / 2,
       text: `${label} · ${Math.round(stretch.lengthM)} m`,
       kind: 'worst-stretch',
     },
@@ -348,14 +425,24 @@ function buildCrimeClusters(crimes: CrimeInput[] | undefined, cellM: number): Cr
     }
   }
 
-  return Array.from(cells.values())
-    .map((cell) => ({
-      lat: cell.latSum / cell.count,
-      lng: cell.lngSum / cell.count,
-      count: cell.count,
-      maxSeverity: cell.maxSeverity,
-    }))
-    .sort((a, b) => a.lat - b.lat || a.lng - b.lng);
+  const clusters: CrimeCluster[] = Array.from(cells.values()).map((cell) => ({
+    lat: cell.latSum / cell.count,
+    lng: cell.lngSum / cell.count,
+    count: cell.count,
+    maxSeverity: cell.maxSeverity,
+  }));
+
+  // Keep the most important clusters (count times max severity, then the same tie-break as the
+  // output order), then return the kept ones in output order.
+  const byImportance = (a: CrimeCluster, b: CrimeCluster) =>
+    b.count * b.maxSeverity - a.count * a.maxSeverity ||
+    b.count - a.count ||
+    a.lat - b.lat ||
+    a.lng - b.lng;
+  return clusters
+    .sort(byImportance)
+    .slice(0, CRIME_CLUSTER_MAP_CAP)
+    .sort((a, b) => b.count - a.count || a.lat - b.lat || a.lng - b.lng);
 }
 
 /** Evenly samples `items` down to `cap` entries (order preserved). */
@@ -445,9 +532,10 @@ export function buildRouteLayers(
       : DEFAULT_CLUSTER_CELL_M;
   const showCrime = highlight === null || highlight === 'crime';
 
+  const lines = buildLines(Array.isArray(data.segments) ? data.segments : []);
   return {
-    lines: buildLines(Array.isArray(data.segments) ? data.segments : []),
-    callouts: buildCallouts(data.worstStretch),
+    lines,
+    callouts: buildCallouts(data.worstStretch, lines),
     crimeClusters: showCrime ? buildCrimeClusters(data.crimes, cellM) : [],
     points: pointSourcesFor(data, highlight).flatMap(([kind, list]) => buildPointsOfKind(kind, list)),
     legend: {

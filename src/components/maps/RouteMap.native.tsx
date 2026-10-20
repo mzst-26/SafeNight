@@ -7,8 +7,26 @@ import { useCallback, useEffect, useRef } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
+import { BADGES_JS } from "@/src/components/maps/inline/badges";
+import { CORE_JS } from "@/src/components/maps/inline/core";
+import { FORMAT_JS } from "@/src/components/maps/inline/format";
+import { LEGEND_JS } from "@/src/components/maps/inline/legend";
+import { ROUTE_OVERLAY_CSS } from "@/src/components/maps/inline/overlayCss";
 import {
   MAPTILER_STREETS_RASTER_STYLE,
+  RL_CALLOUT_OFFSET_PX,
+  RL_CASING_COLOR,
+  RL_CASING_OPACITY,
+  RL_CASING_WIDTH,
+  RL_DASH_PX,
+  RL_DASH_UNITS,
+  RL_GREY,
+  RL_HIT_WIDTH,
+  RL_LIGHT_ZOOM,
+  RL_LINE_WIDTH,
+  RL_POINT_COLORS,
+  RL_REPLACED_KINDS,
+  RL_UNSELECTED_WIDTH,
   ROADMAP_STYLE,
 } from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
@@ -17,61 +35,12 @@ import type {
   RouteLayerSpec,
 } from "@/src/components/maps/routeLayers";
 
-// ---------------------------------------------------------------------------
-// Shared constants (also used by the WebView script and by the tests)
-// ---------------------------------------------------------------------------
-
 /** Always-visible map attribution. MapTiler Streets (style and tiles) is built on OpenStreetMap data. */
 export const NATIVE_MAP_ATTRIBUTION = "© MapTiler © OpenStreetMap contributors";
-
-/** Legend label for dashed (estimated) lines when the spec does not supply one. */
-export const RL_DEFAULT_DASHED_LABEL = "Estimated lighting";
-
-/** Stroke width of the route safety lines. */
-export const RL_LINE_WIDTH = 7;
-
-/**
- * MapLibre dasharray units are multiples of the line width. [0.1, 2.1] at width 7 gives
- * dots that read like the web's "0.1 15" pattern at weight 7.
- */
-export const RL_DASH_UNITS: [number, number] = [0.1, 2.1];
-
-/** The same pattern in px, for the SVG legend swatch (drawn at stroke-width RL_LINE_WIDTH). */
-export const RL_DASH_PX: [number, number] = [
-  Number((RL_DASH_UNITS[0] * RL_LINE_WIDTH).toFixed(2)),
-  Number((RL_DASH_UNITS[1] * RL_LINE_WIDTH).toFixed(2)),
-];
-
-/** Crime badge labels stop at this count and show "99+" (web parity). */
-export const RL_BADGE_LABEL_CAP = 99;
-
-/** Crime badges at or above this count use the large (36px) size. */
-export const RL_BADGE_LARGE_FROM = 100;
-
-/** Gap between the worst-stretch callout and the stretch midpoint (px, above the point). */
-export const RL_CALLOUT_OFFSET_PX = 10;
-
-/** Marker kinds replaced by the route safety layers when routeLayers is set (web parity). */
-export const RL_REPLACED_KINDS = [
-  "crime",
-  "light",
-  "cctv",
-  "shop",
-  "bus_stop",
-  "dead_end",
-  "via",
-] as const;
-
-/** Narrower viewports start with the route safety legend collapsed. */
-export const RL_LEGEND_COLLAPSE_BELOW_PX = 400;
 
 // ---------------------------------------------------------------------------
 // Route layers (v2 safety model): RouteLayerSpec -> GeoJSON for the WebView
 // ---------------------------------------------------------------------------
-
-/** Crime badge label: the count, capped at 99+. */
-const crimeBadgeLabel = (count: number): string =>
-  count > RL_BADGE_LABEL_CAP ? `${RL_BADGE_LABEL_CAP}+` : String(count);
 
 export interface LineGeometry {
   type: "LineString";
@@ -177,7 +146,6 @@ export function buildNativeRouteLayerCollections(
         spec.crimeClusters.map((c) =>
           pointFeature(c.lat, c.lng, {
             count: c.count,
-            label: crimeBadgeLabel(c.count),
             maxSeverity: c.maxSeverity,
           }),
         ),
@@ -304,39 +272,23 @@ export const buildMapHtml = (
       white-space:nowrap;display:flex;align-items:center;gap:5px;
       animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
 
-    /* ─── Route safety layers (v2) ─── */
-    .rl-cluster{box-sizing:border-box;min-width:32px;width:32px;height:32px;border-radius:50%;background:#b42318;color:#fff;font-size:13px;font-weight:700;line-height:32px;text-align:center;white-space:nowrap;overflow:hidden;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.35);pointer-events:none}
-    .rl-cluster.rl-cluster-lg{width:36px;height:36px;line-height:36px}
-    .rl-callout{box-sizing:border-box;background:#fff;color:#101828;font-size:13px;font-weight:600;line-height:1.2;padding:5px 9px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 8px rgba(16,24,40,.25);pointer-events:none}
-    .rl-route-badge{box-sizing:border-box;min-width:32px;height:28px;padding:0 9px;border-radius:999px;background:#fff;color:#101828;border:1px solid #667085;font-size:13px;font-weight:700;line-height:26px;text-align:center;white-space:nowrap;box-shadow:0 2px 8px rgba(16,24,40,.25);cursor:pointer}
-    .rl-route-badge.selected{background:#101828;color:#fff;border-color:#101828}
-    .rl-legend{position:absolute;left:12px;bottom:38px;z-index:5;display:none;min-width:150px;max-width:200px;background:rgba(255,255,255,.95);color:#101828;border-radius:10px;padding:6px 10px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(15,23,42,.2)}
-    .rl-legend.on{display:block}
-    .rl-legend-head{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
-    .rl-legend-body{margin-top:6px}
-    .rl-legend.collapsed .rl-legend-body{display:none}
-    .rl-legend-bar{height:8px;border-radius:4px}
-    .rl-legend-scale{display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:#344054}
-    .rl-legend-dash{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#344054}
-    .rl-legend-note{margin-top:6px;font-size:12px;font-weight:500;line-height:1.3;color:#344054}
+    /* ─── Route safety overlays (v2): shared appearance from inline/*, MapLibre placement below ─── */
+    ${ROUTE_OVERLAY_CSS}
+    .rl-legend{position:absolute;left:12px;bottom:38px;z-index:5}
     .rl-attrib{position:absolute;right:6px;bottom:4px;z-index:4;pointer-events:none;font-size:11px;line-height:1.2;color:#344054;background:rgba(255,255,255,.7);padding:1px 4px;border-radius:4px;white-space:nowrap}
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <div id="rlLegend" class="rl-legend" role="region" aria-label="Route safety legend">
-    <button type="button" class="rl-legend-head" id="rlLegendToggle" aria-expanded="true" aria-controls="rlLegendBody"><span>Route safety</span><span aria-hidden="true">&#9662;</span></button>
-    <div class="rl-legend-body" id="rlLegendBody">
-      <div class="rl-legend-bar" id="rlLegendBar"></div>
-      <div class="rl-legend-scale"><span>Safer</span><span>Riskier</span></div>
-      <div class="rl-legend-dash"><svg width="36" height="10" aria-hidden="true"><line x1="2" y1="5" x2="34" y2="5" stroke="#475467" stroke-width="${RL_LINE_WIDTH}" stroke-linecap="round" stroke-dasharray="${RL_DASH_PX.join(" ")}"/></svg><span id="rlLegendDashLabel">${RL_DEFAULT_DASHED_LABEL}</span></div>
-      <div id="rlLegendNotes"></div>
-    </div>
-  </div>
+  <div id="rlLegend" class="rl-legend"></div>
   <div class="rl-attrib" id="mapAttrib">${NATIVE_MAP_ATTRIBUTION}</div>
 
 
   <script>
+    ${CORE_JS}
+    ${FORMAT_JS}
+    ${BADGES_JS}
+    ${LEGEND_JS}
     /* ── State ─────────────────────────────────────────────── */
     var currentMarkers = [];
     var navMarkerObj = null;
@@ -534,11 +486,13 @@ export const buildMapHtml = (
 
     var emptyFC = { type: 'FeatureCollection', features: [] };
 
+    /* ═══ Route layers (MapLibre drawing). One function per concern; badge/legend builders live in inline/*. ═══ */
     /* Marker kinds replaced by the route safety layer when routeLayers is set (crime is clustered, never dotted). */
     var RL_REPLACED_KINDS = ${JSON.stringify(RL_REPLACED_KINDS)};
     var RL_SELECTED_LAYERS = ['rl-casing','rl-solid','rl-dashed'];
-    var rlLegendWired = false;
-    var rlLegendShown = false;
+    var RL_CALLOUT_OFFSET_PX = ${RL_CALLOUT_OFFSET_PX};
+    /* Dotted legend sample: the same pattern as the dashed line, in px. */
+    var rlLegendCtl = rlBuildLegend(document.getElementById('rlLegend'), { dashArray: ${JSON.stringify(RL_DASH_PX.join(" "))} });
 
     /* Tap precedence (routeLayers mode): the selected route's coloured lines win over the wide unselected hit layer. */
     function rlUnselectedHitAt(point){
@@ -547,67 +501,53 @@ export const buildMapHtml = (
       return hits && hits[0] ? hits[0] : null;
     }
 
-    function renderRouteLegend(legend, show){
-      var box = document.getElementById('rlLegend');
-      if(!box) return;
-      var toggle = document.getElementById('rlLegendToggle');
-      if(!rlLegendWired){
-        rlLegendWired = true;
-        if(toggle){
-          toggle.addEventListener('click', function(ev){
-            ev.preventDefault();
-            ev.stopPropagation();
-            var collapsed = box.classList.toggle('collapsed');
-            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-          });
-        }
-      }
-      box.classList.toggle('on', !!show);
-      if(!show || !legend){ rlLegendShown = false; return; }
-      if(!rlLegendShown){
-        // Collapsed by default on narrow screens so the legend does not cover the map.
-        rlLegendShown = true;
-        var startCollapsed = (window.innerWidth || 0) < ${RL_LEGEND_COLLAPSE_BELOW_PX};
-        box.classList.toggle('collapsed', startCollapsed);
-        if(toggle) toggle.setAttribute('aria-expanded', startCollapsed ? 'false' : 'true');
-      }
-      var stops = (legend.ramp || []).map(function(s){ return s.color; });
-      if(stops.length){
-        document.getElementById('rlLegendBar').style.background = 'linear-gradient(to right,' + stops.join(',') + ')';
-      }
-      var dashLabel = document.getElementById('rlLegendDashLabel');
-      if(dashLabel) dashLabel.textContent = legend.dashedLabel || ${JSON.stringify(RL_DEFAULT_DASHED_LABEL)};
-      var notesEl = document.getElementById('rlLegendNotes');
-      if(notesEl){
-        notesEl.textContent = '';
-        (legend.notes || []).forEach(function(line){
-          var note = document.createElement('div');
-          note.className = 'rl-legend-note';
-          note.textContent = String(line);
-          notesEl.appendChild(note);
-        });
-      }
+    /* Lines: unselected hit/line source, casing, solid and dashed sources. Everything is empty outside routeLayers mode. */
+    function rlSyncLines(rl, unselectedFeatures){
+      map.getSource('rl-unselected').setData(rl ? {type:'FeatureCollection',features:unselectedFeatures} : emptyFC);
+      map.getSource('rl-casing').setData(rl ? rl.casing : emptyFC);
+      map.getSource('rl-solid').setData(rl ? rl.solid : emptyFC);
+      map.getSource('rl-dashed').setData(rl ? rl.dashed : emptyFC);
+    }
+
+    /* Points: lights (zoom gated by layer minzoom, lowered when highlighted), cctv and shops (only when highlighted). */
+    function rlSyncPoints(rl){
+      map.getSource('rl-points').setData(rl ? rl.points : emptyFC);
+      map.setLayerZoomRange('rl-lights', rl && rl.highlightCategory === 'light' ? 0 : ${RL_LIGHT_ZOOM}, 24);
+    }
+
+    /* Legend (inline/legend.ts): shown only in routeLayers mode. */
+    function rlSyncLegend(rl, show){
+      if(rl) rlLegendCtl.update(rl.legend);
+      rlLegendCtl.setVisible(!!show);
+    }
+
+    /* Crime count badges (HTML markers). Individual incidents are never drawn. */
+    function rlDrawCrimeBadges(rl){
+      (rl.clusters.features||[]).forEach(function(f){
+        var badge = rlBuildCrimeBadge(Number(f.properties.count));
+        currentMarkers.push(createViewportMarker({element:badge,anchor:'center'}).setLngLat(f.geometry.coordinates).addTo(map));
+      });
+    }
+
+    /* Worst-stretch callout sits above the stretch midpoint, not centred on the line. */
+    function rlDrawCallouts(rl){
+      (rl.callouts.features||[]).forEach(function(f){
+        var callout = rlBuildCallout(f.properties.text);
+        currentMarkers.push(createViewportMarker({element:callout,anchor:'bottom',offset:[0,-RL_CALLOUT_OFFSET_PX]}).setLngLat(f.geometry.coordinates).addTo(map));
+      });
+    }
+
+    /* Route score pills. Tapping a non-selected pill selects that route. */
+    function rlDrawPills(badges){
+      (badges||[]).forEach(function(b, i){
+        if(!b || !hasFiniteLngLat(b.lng,b.lat)) return;
+        var pill = rlBuildPill(b, i, function(routeId){ sendMsg('selectRoute',{id:routeId}); });
+        currentMarkers.push(createViewportMarker({element:pill,anchor:'center'}).setLngLat([b.lng,b.lat]).addTo(map));
+      });
     }
 
     function clearMarkerArray(arr) { arr.forEach(function(m){m.remove()}); arr.length=0; }
     function sendMsg(t, d) { try { window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({type:t},d||{}))); } catch(e){} }
-    function safeLabel(text){
-      return String(text||'')
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/\"/g,'&quot;')
-        .replace(/'/g,'&#39;');
-    }
-
-    function normalizePinColor(color){
-      var value = String(color || '').trim();
-      if(/^#[0-9a-fA-F]{6}$/.test(value) || /^#[0-9a-fA-F]{3}$/.test(value)){
-        return value;
-      }
-      return '#ef4444';
-    }
-
     function createViewportMarker(options){
       var marker = new maplibregl.Marker(Object.assign({
         pitchAlignment: 'viewport',
@@ -799,13 +739,13 @@ export const buildMapHtml = (
          overlays so navigation progress still draws on top. */
       map.addLayer({ id:'rl-unselected-line', type:'line', source:'rl-unselected',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#667085','line-opacity':1,'line-width':4} });
+        paint:{'line-color':${JSON.stringify(RL_GREY)},'line-opacity':1,'line-width':${RL_UNSELECTED_WIDTH}} });
       map.addLayer({ id:'rl-unselected-hit', type:'line', source:'rl-unselected',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#000000','line-width':40,'line-opacity':0} });
+        paint:{'line-color':'#000000','line-width':${RL_HIT_WIDTH},'line-opacity':0} });
       map.addLayer({ id:'rl-casing', type:'line', source:'rl-casing',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#ffffff','line-opacity':0.9,'line-width':11} });
+        paint:{'line-color':${JSON.stringify(RL_CASING_COLOR)},'line-opacity':${RL_CASING_OPACITY},'line-width':${RL_CASING_WIDTH}} });
       map.addLayer({ id:'rl-solid', type:'line', source:'rl-solid',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':${RL_LINE_WIDTH}} });
@@ -844,15 +784,15 @@ export const buildMapHtml = (
       /* Route safety point layers. Lights are zoom-gated (minzoom 17; setLayerZoomRange
          lowers it when lights are the highlighted category). cctv and shops only arrive
          in the source when highlighted. Emphasised points (highlighted category) are larger. */
-      map.addLayer({ id:'rl-lights', type:'circle', source:'rl-points', minzoom:17,
+      map.addLayer({ id:'rl-lights', type:'circle', source:'rl-points', minzoom:${RL_LIGHT_ZOOM},
         filter:['==',['get','kind'],'light'],
-        paint:{'circle-radius':['case',['==',['get','emph'],1],8,5.5],'circle-color':'#facc15','circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
+        paint:{'circle-radius':['case',['==',['get','emph'],1],8,5.5],'circle-color':${JSON.stringify(RL_POINT_COLORS.light)},'circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
       map.addLayer({ id:'rl-cctv', type:'circle', source:'rl-points',
         filter:['==',['get','kind'],'cctv'],
-        paint:{'circle-radius':['case',['==',['get','emph'],1],9,6],'circle-color':'#8b5cf6','circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
+        paint:{'circle-radius':['case',['==',['get','emph'],1],9,6],'circle-color':${JSON.stringify(RL_POINT_COLORS.cctv)},'circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
       map.addLayer({ id:'rl-shop', type:'circle', source:'rl-points',
         filter:['==',['get','kind'],'shop'],
-        paint:{'circle-radius':['case',['==',['get','emph'],1],9,6],'circle-color':'#22c55e','circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
+        paint:{'circle-radius':['case',['==',['get','emph'],1],9,6],'circle-color':${JSON.stringify(RL_POINT_COLORS.shop)},'circle-stroke-color':'#ffffff','circle-stroke-width':1.5} });
 
       // Click unselected route to select it
       map.on('click','unselected-routes-line',function(e){
@@ -869,7 +809,7 @@ export const buildMapHtml = (
       map.on('mouseenter','safety-circles',function(){map.getCanvas().style.cursor='pointer'});
       map.on('mouseleave','safety-circles',function(){map.getCanvas().style.cursor=''});
 
-      // routeLayers mode: wide invisible hit line selects an unselected route (>= 44 pt target).
+      // routeLayers mode: wide invisible hit line selects an unselected route (44px touch target).
       // A tap on the selected route's own lines takes precedence (see rlUnselectedHitAt).
       map.on('click','rl-unselected-hit',function(e){
         var hit = rlUnselectedHitAt(e.point);
@@ -1153,6 +1093,196 @@ export const buildMapHtml = (
       return {type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[coords]}};
     }
 
+    /* ── updateMap helpers: one function per concern ────────── */
+    /* Selected search candidate: a detail card overlay marker (the pin itself is a GeoJSON circle). */
+    function renderSelectedCandidateCard(selectedCandidate){
+      var selectedRaw = String(selectedCandidate.popupTitle || selectedCandidate.label || 'Place').trim();
+      var popupTitle = safeLabel(selectedCandidate.popupTitle || selectedRaw || 'Place');
+      var popupSubtitle = safeLabel(selectedCandidate.popupSubtitle || selectedRaw || '');
+      var popupMeta = safeLabel(selectedCandidate.popupMeta || '');
+      var popupCoords = safeLabel(selectedCandidate.popupCoords || '');
+      var popupButtonLabel = safeLabel(selectedCandidate.popupButtonLabel || 'Select');
+
+      var selectedEl=document.createElement('div');
+      selectedEl.className='search-pin-wrap selected';
+      selectedEl.style.cursor='pointer';
+      selectedEl.style.setProperty('--pin-color', normalizePinColor(selectedCandidate.pinColor));
+      selectedEl.innerHTML='<div class="search-pin-card"><div class="search-pin-card-head"><div class="search-pin-card-title">'+popupTitle+'</div><button class="search-pin-card-close" type="button" aria-label="Close details">×</button></div><div class="search-pin-card-subtitle">'+popupSubtitle+'</div>'+
+        (popupMeta ? '<div class="search-pin-card-meta">'+popupMeta+'</div>' : '')+
+        (popupCoords ? '<div class="search-pin-card-coords">'+popupCoords+'</div>' : '')+
+        '<div class="search-pin-card-actions"><button class="search-pin-card-btn" type="button">'+popupButtonLabel+'</button></div></div>';
+      selectedEl.addEventListener('click', function(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+        if(shouldIgnoreMarkerSelection()) return;
+        sendMsg('selectMarker', { id:selectedCandidate.id });
+      });
+      var selectedButtonEl = selectedEl.querySelector('.search-pin-card-btn');
+      if(selectedButtonEl){
+        selectedButtonEl.addEventListener('click', function(ev){
+          ev.preventDefault();
+          ev.stopPropagation();
+          if(shouldIgnoreMarkerSelection()) return;
+          sendMsg('findSafeRoutes', { id:selectedCandidate.id });
+        });
+      }
+      var selectedCloseEl = selectedEl.querySelector('.search-pin-card-close');
+      if(selectedCloseEl){
+        selectedCloseEl.addEventListener('click', function(ev){
+          ev.preventDefault();
+          ev.stopPropagation();
+          sendMsg('dismissMarkerDetails', { id:selectedCandidate.id });
+        });
+      }
+      selectedCandidateCardData = selectedCandidate;
+      currentMarkers.push(
+        selectedCandidateCardMarker = createViewportMarker({ element:selectedEl, anchor:'bottom' })
+          .setLngLat([selectedCandidate.lng,selectedCandidate.lat])
+          .addTo(map)
+      );
+      scheduleSelectedCandidateCardVisibility();
+    }
+
+    /* Friends: planned route (dashed), actual path (purple on-route, orange off-route) and name markers. */
+    function renderFriends(data){
+    /* — Friend planned routes (dashed purple — the route they clicked navigate on) — */
+    var plannedRouteFeats = [];
+    (data.friendMarkers||[]).forEach(function(f){
+      if(f.routePath && f.routePath.length >= 2){
+        plannedRouteFeats.push({
+          type:'Feature', properties:{userId:f.userId},
+          geometry:{type:'LineString', coordinates:f.routePath.map(function(p){return[p.lng,p.lat]})}
+        });
+      }
+    });
+    map.getSource('friend-planned-routes').setData({type:'FeatureCollection',features:plannedRouteFeats});
+
+    /* — Friend actual path (purple = on-route ≤30m, orange = off-route) — */
+    var actualPathFeats = [];
+    (data.friendMarkers||[]).forEach(function(f){
+      var ap = f.path || [], rp = f.routePath || [];
+      for(var i=0;i<ap.length-1;i++){
+        var mid = {lat:(ap[i].lat+ap[i+1].lat)/2, lng:(ap[i].lng+ap[i+1].lng)/2};
+        var onRoute = isPointOnRoute(mid, rp, 30);
+        actualPathFeats.push({
+          type:'Feature',
+          properties:{color: onRoute ? '#7C3AED' : '#f97316'},
+          geometry:{type:'LineString', coordinates:[[ap[i].lng,ap[i].lat],[ap[i+1].lng,ap[i+1].lat]]}
+        });
+      }
+    });
+    map.getSource('friend-paths').setData({type:'FeatureCollection',features:actualPathFeats});
+
+    /* — Friend markers — */
+    clearMarkerArray(friendMarkerObjs);
+    (data.friendMarkers||[]).forEach(function(f){
+      var el=document.createElement('div');
+      el.className='friend-marker';
+      el.innerHTML='<div class="friend-dot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>';
+      // Friend names are user-supplied: always set as text, never parsed as markup.
+      var friendLabel=document.createElement('div');
+      friendLabel.className='friend-label';
+      friendLabel.textContent=String(f.name||'').slice(0,12);
+      el.appendChild(friendLabel);
+      friendMarkerObjs.push(createViewportMarker({element:el,anchor:'bottom'}).setLngLat([f.lng,f.lat]).addTo(map));
+    });
+
+      // actual path rendered above via actualPathFeats
+    }
+
+    /* Navigation marker, 3D follow camera, nav-mode enter/exit and nearby hazard labels. */
+    function renderNavigation(data, isUserCameraOverride){
+    /* — Navigation marker + 3D camera — */
+    if(navMarkerObj){navMarkerObj.remove();navMarkerObj=null}
+    clearMarkerArray(hazardMarkers);
+
+    if(data.navLocation){
+      var heading=data.navHeading||0;
+      lastNavCenter=[data.navLocation.lng,data.navLocation.lat];
+      lastNavHeading=heading;
+
+      // Direction arrow marker
+      var ne=document.createElement('div');
+      ne.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56">'+
+        '<defs><filter id="glow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#1570EF" flood-opacity="0.5"/></filter></defs>'+
+        '<circle cx="28" cy="28" r="24" fill="#1570EF" stroke="white" stroke-width="3" filter="url(#glow)"/>'+
+        '<polygon points="28,8 36,32 28,26 20,32" fill="white"/></svg>';
+      ne.style.width='56px';ne.style.height='56px';
+      navMarkerObj=createViewportMarker({element:ne,anchor:'center',rotationAlignment:'viewport',rotation:0})
+        .setLngLat(lastNavCenter).addTo(map);
+
+      // Camera follow — dead-zone & duration are tighter in PiP for snappy heading tracking
+      if(!userInteracted && !isUserCameraOverride){
+        setFollowMode(true);
+        var bearingDiff = heading - lastCameraHeading;
+        while (bearingDiff > 180) bearingDiff -= 360;
+        while (bearingDiff < -180) bearingDiff += 360;
+        var absDiff = Math.abs(bearingDiff);
+        // PiP: 1° dead-zone so even slight turns are visible on the small screen
+        // Normal: 5° dead-zone to suppress sensor jitter
+        var deadZone = isPipMode ? 1 : 5;
+        if(absDiff >= deadZone){
+          lastCameraHeading = heading;
+          // PiP: snap at 80ms so the map feels live; Normal: adapt to turn size
+          var camDuration = isPipMode ? 80 : (absDiff >= 30 ? 250 : 500);
+          var navZoom = isPipMode ? 15 : 17;
+          map.easeTo({
+            center:lastNavCenter,
+            zoom:Math.max(map.getZoom(), navZoom),
+            pitch:0,
+            bearing:heading,
+            duration:camDuration,
+          });
+        }
+      }
+
+      // Enter nav mode
+      if(!isNavMode){
+        isNavMode=true;
+        setFollowMode(!userInteracted);
+        var ctrl=document.getElementById('mapCtrl');
+        if(ctrl) ctrl.style.display='none';
+        map.dragRotate.enable();
+        map.touchZoomRotate.enableRotation();
+      }
+
+      // Hazard labels near user
+      var nlat=data.navLocation.lat, nlng=data.navLocation.lng;
+      (data.safetyMarkers||[]).forEach(function(m){
+        var dlat=m.lat-nlat,dlng=m.lng-nlng;
+        if(Math.sqrt(dlat*dlat+dlng*dlng)*111320>200) return;
+        var ht={crime:'⚠ Crime area',dead_end:'⛔ Dead end'};
+        var txt=ht[m.kind]; if(!txt) return;
+        var he=document.createElement('div'); he.className='hazard-label'; he.textContent=txt;
+        hazardMarkers.push(createViewportMarker({element:he,anchor:'center'}).setLngLat([m.lng,m.lat]).addTo(map));
+      });
+
+    } else {
+      // Exit nav mode
+      if(isNavMode){
+        isNavMode=false;
+        userInteracted=false;
+        setFollowMode(true);
+        var ctrl=document.getElementById('mapCtrl');
+        if(ctrl) ctrl.style.display = isPipMode ? 'none' : 'flex';
+        map.easeTo({pitch:0,bearing:0,duration:600});
+        map.dragRotate.disable();
+        map.touchZoomRotate.disableRotation();
+      }
+    }
+    }
+
+    /* Range circle around the origin (hidden during navigation). */
+    function renderRangeCircle(data){
+    /* — Range circle — */
+    if(data.origin&&data.maxDistanceKm&&data.maxDistanceKm>0&&!data.navLocation){
+      var cf=makeCirclePolygon(data.origin.lng,data.origin.lat,data.maxDistanceKm,64);
+      map.getSource('range-circle').setData({type:'FeatureCollection',features:[cf]});
+    }else{
+      map.getSource('range-circle').setData(emptyFC);
+    }
+    }
+
     /* ── Main update (called from RN) ──────────────────────── */
     function updateMap(data){
       if(!styleReady) return;
@@ -1265,8 +1395,7 @@ export const buildMapHtml = (
       map.getSource('route-remaining').setData({type:'FeatureCollection',features:remF});
 
       /* — Safety markers — */
-      var mColors={crime:'#ef4444',shop:'#22c55e',light:'#facc15',bus_stop:'#3b82f6',cctv:'#8b5cf6',dead_end:'#f97316',via:'#d946ef'};
-      var selectedCandidate = null;
+            var selectedCandidate = null;
       var smF=(data.safetyMarkers||[]).flatMap(function(m){
         if(!hasFiniteLngLat(m.lng,m.lat)){
           return [];
@@ -1292,104 +1421,24 @@ export const buildMapHtml = (
         if(data.fitCandidateBounds){
           bounds=extBounds(bounds,[m.lng,m.lat]);
         }
-        return [{type:'Feature',properties:{id:m.id||'',kind:m.kind,label:m.label||m.kind,color:mColors[m.kind]||'#94a3b8',isSelected:0},
+        return [{type:'Feature',properties:{id:m.id||'',kind:m.kind,label:m.label||m.kind,color:SAFETY_MARKER_COLORS[m.kind]||SAFETY_MARKER_FALLBACK_COLOR,isSelected:0},
           geometry:{type:'Point',coordinates:[m.lng,m.lat]}}];
       });
       map.getSource('safety-markers').setData({type:'FeatureCollection',features:smF});
 
       /* — Route safety layers (routeLayers mode; empty and hidden otherwise) — */
-      map.getSource('rl-unselected').setData(routeLayersMode ? {type:'FeatureCollection',features:unselF} : emptyFC);
-      map.getSource('rl-casing').setData(rl ? rl.casing : emptyFC);
-      map.getSource('rl-solid').setData(rl ? rl.solid : emptyFC);
-      map.getSource('rl-dashed').setData(rl ? rl.dashed : emptyFC);
-      map.getSource('rl-points').setData(rl ? rl.points : emptyFC);
-      map.setLayerZoomRange('rl-lights', rl && rl.highlightCategory === 'light' ? 0 : 17, 24);
-      renderRouteLegend(rl ? rl.legend : null, routeLayersMode);
+      rlSyncLines(rl, unselF);
+      rlSyncPoints(rl);
+      rlSyncLegend(rl, routeLayersMode);
 
-      if(selectedCandidate){
-        var selectedRaw = String(selectedCandidate.popupTitle || selectedCandidate.label || 'Place').trim();
-        var popupTitle = safeLabel(selectedCandidate.popupTitle || selectedRaw || 'Place');
-        var popupSubtitle = safeLabel(selectedCandidate.popupSubtitle || selectedRaw || '');
-        var popupMeta = safeLabel(selectedCandidate.popupMeta || '');
-        var popupCoords = safeLabel(selectedCandidate.popupCoords || '');
-        var popupButtonLabel = safeLabel(selectedCandidate.popupButtonLabel || 'Select');
+      if(selectedCandidate) renderSelectedCandidateCard(selectedCandidate);
 
-        var selectedEl=document.createElement('div');
-        selectedEl.className='search-pin-wrap selected';
-        selectedEl.style.cursor='pointer';
-        selectedEl.style.setProperty('--pin-color', normalizePinColor(selectedCandidate.pinColor));
-        selectedEl.innerHTML='<div class="search-pin-card"><div class="search-pin-card-head"><div class="search-pin-card-title">'+popupTitle+'</div><button class="search-pin-card-close" type="button" aria-label="Close details">×</button></div><div class="search-pin-card-subtitle">'+popupSubtitle+'</div>'+
-          (popupMeta ? '<div class="search-pin-card-meta">'+popupMeta+'</div>' : '')+
-          (popupCoords ? '<div class="search-pin-card-coords">'+popupCoords+'</div>' : '')+
-          '<div class="search-pin-card-actions"><button class="search-pin-card-btn" type="button">'+popupButtonLabel+'</button></div></div>';
-        selectedEl.addEventListener('click', function(ev){
-          ev.preventDefault();
-          ev.stopPropagation();
-          if(shouldIgnoreMarkerSelection()) return;
-          sendMsg('selectMarker', { id:selectedCandidate.id });
-        });
-        var selectedButtonEl = selectedEl.querySelector('.search-pin-card-btn');
-        if(selectedButtonEl){
-          selectedButtonEl.addEventListener('click', function(ev){
-            ev.preventDefault();
-            ev.stopPropagation();
-            if(shouldIgnoreMarkerSelection()) return;
-            sendMsg('findSafeRoutes', { id:selectedCandidate.id });
-          });
-        }
-        var selectedCloseEl = selectedEl.querySelector('.search-pin-card-close');
-        if(selectedCloseEl){
-          selectedCloseEl.addEventListener('click', function(ev){
-            ev.preventDefault();
-            ev.stopPropagation();
-            sendMsg('dismissMarkerDetails', { id:selectedCandidate.id });
-          });
-        }
-        selectedCandidateCardData = selectedCandidate;
-        currentMarkers.push(
-          selectedCandidateCardMarker = createViewportMarker({ element:selectedEl, anchor:'bottom' })
-            .setLngLat([selectedCandidate.lng,selectedCandidate.lat])
-            .addTo(map)
-        );
-        scheduleSelectedCandidateCardVisibility();
-      }
-
-      /* — Route safety: crime count badges and worst-stretch callout (HTML markers) — */
+      /* — Route safety: crime count badges, worst-stretch callout and score pills (HTML markers) — */
       if(rl){
-        (rl.clusters.features||[]).forEach(function(f){
-          var badge=document.createElement('div');
-          badge.className='rl-cluster'+(Number(f.properties.count)>=${RL_BADGE_LARGE_FROM}?' rl-cluster-lg':'');
-          badge.textContent=String(f.properties.label);
-          badge.setAttribute('aria-label', f.properties.count+' crime reports nearby');
-          currentMarkers.push(createViewportMarker({element:badge,anchor:'center'}).setLngLat(f.geometry.coordinates).addTo(map));
-        });
-        // Worst-stretch callout sits above the stretch midpoint, not centred on the line.
-        (rl.callouts.features||[]).forEach(function(f){
-          var callout=document.createElement('div');
-          callout.className='rl-callout';
-          callout.textContent=String(f.properties.text);
-          currentMarkers.push(createViewportMarker({element:callout,anchor:'bottom',offset:[0,-${RL_CALLOUT_OFFSET_PX}]}).setLngLat(f.geometry.coordinates).addTo(map));
-        });
+        rlDrawCrimeBadges(rl);
+        rlDrawCallouts(rl);
       }
-
-      /* — Route score pills (routeLayers mode). Tapping a non-selected pill selects that route. — */
-      if(routeLayersMode){
-        (data.routeBadges||[]).forEach(function(b){
-          if(!b || !hasFiniteLngLat(b.lng,b.lat)) return;
-          var pill=document.createElement('div');
-          pill.className='rl-route-badge'+(b.selected?' selected':'');
-          pill.textContent=String(b.text);
-          pill.setAttribute('aria-label','Route score '+b.text+(b.selected?', selected route':''));
-          pill.addEventListener('click',function(ev){
-            if(ev){
-              if(ev.preventDefault) ev.preventDefault();
-              if(ev.stopPropagation) ev.stopPropagation();
-            }
-            if(!b.selected) sendMsg('selectRoute',{id:b.routeId});
-          });
-          currentMarkers.push(createViewportMarker({element:pill,anchor:'center'}).setLngLat([b.lng,b.lat]).addTo(map));
-        });
-      }
+      if(routeLayersMode) rlDrawPills(data.routeBadges);
 
       /* — Road labels (navigation mode only) — */
       var hasRoutes = Array.isArray(data.routes) && data.routes.length > 0;
@@ -1432,13 +1481,7 @@ export const buildMapHtml = (
       // Native/phone behavior: do not force a default-city recenter when location is cleared.
       // Keep the current camera instead; web handles default-city fallback independently.
 
-      /* — Range circle — */
-      if(data.origin&&data.maxDistanceKm&&data.maxDistanceKm>0&&!data.navLocation){
-        var cf=makeCirclePolygon(data.origin.lng,data.origin.lat,data.maxDistanceKm,64);
-        map.getSource('range-circle').setData({type:'FeatureCollection',features:[cf]});
-      }else{
-        map.getSource('range-circle').setData(emptyFC);
-      }
+      renderRangeCircle(data);
 
       if(data.outOfRangeCueToken && data.outOfRangeCueToken !== lastOutOfRangeCueToken){
         if(triggerOutOfRangeCue(data)){
@@ -1446,128 +1489,9 @@ export const buildMapHtml = (
         }
       }
 
-      /* — Friend planned routes (dashed purple — the route they clicked navigate on) — */
-      var plannedRouteFeats = [];
-      (data.friendMarkers||[]).forEach(function(f){
-        if(f.routePath && f.routePath.length >= 2){
-          plannedRouteFeats.push({
-            type:'Feature', properties:{userId:f.userId},
-            geometry:{type:'LineString', coordinates:f.routePath.map(function(p){return[p.lng,p.lat]})}
-          });
-        }
-      });
-      map.getSource('friend-planned-routes').setData({type:'FeatureCollection',features:plannedRouteFeats});
+      renderFriends(data);
 
-      /* — Friend actual path (purple = on-route ≤30m, orange = off-route) — */
-      var actualPathFeats = [];
-      (data.friendMarkers||[]).forEach(function(f){
-        var ap = f.path || [], rp = f.routePath || [];
-        for(var i=0;i<ap.length-1;i++){
-          var mid = {lat:(ap[i].lat+ap[i+1].lat)/2, lng:(ap[i].lng+ap[i+1].lng)/2};
-          var onRoute = isPointOnRoute(mid, rp, 30);
-          actualPathFeats.push({
-            type:'Feature',
-            properties:{color: onRoute ? '#7C3AED' : '#f97316'},
-            geometry:{type:'LineString', coordinates:[[ap[i].lng,ap[i].lat],[ap[i+1].lng,ap[i+1].lat]]}
-          });
-        }
-      });
-      map.getSource('friend-paths').setData({type:'FeatureCollection',features:actualPathFeats});
-
-      /* — Friend markers — */
-      clearMarkerArray(friendMarkerObjs);
-      (data.friendMarkers||[]).forEach(function(f){
-        var el=document.createElement('div');
-        el.className='friend-marker';
-        el.innerHTML='<div class="friend-dot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>';
-        // Friend names are user-supplied: always set as text, never parsed as markup.
-        var friendLabel=document.createElement('div');
-        friendLabel.className='friend-label';
-        friendLabel.textContent=String(f.name||'').slice(0,12);
-        el.appendChild(friendLabel);
-        friendMarkerObjs.push(createViewportMarker({element:el,anchor:'bottom'}).setLngLat([f.lng,f.lat]).addTo(map));
-      });
-
-        // actual path rendered above via actualPathFeats
-
-      /* — Navigation marker + 3D camera — */
-      if(navMarkerObj){navMarkerObj.remove();navMarkerObj=null}
-      clearMarkerArray(hazardMarkers);
-
-      if(data.navLocation){
-        var heading=data.navHeading||0;
-        lastNavCenter=[data.navLocation.lng,data.navLocation.lat];
-        lastNavHeading=heading;
-
-        // Direction arrow marker
-        var ne=document.createElement('div');
-        ne.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56">'+
-          '<defs><filter id="glow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#1570EF" flood-opacity="0.5"/></filter></defs>'+
-          '<circle cx="28" cy="28" r="24" fill="#1570EF" stroke="white" stroke-width="3" filter="url(#glow)"/>'+
-          '<polygon points="28,8 36,32 28,26 20,32" fill="white"/></svg>';
-        ne.style.width='56px';ne.style.height='56px';
-        navMarkerObj=createViewportMarker({element:ne,anchor:'center',rotationAlignment:'viewport',rotation:0})
-          .setLngLat(lastNavCenter).addTo(map);
-
-        // Camera follow — dead-zone & duration are tighter in PiP for snappy heading tracking
-        if(!userInteracted && !isUserCameraOverride){
-          setFollowMode(true);
-          var bearingDiff = heading - lastCameraHeading;
-          while (bearingDiff > 180) bearingDiff -= 360;
-          while (bearingDiff < -180) bearingDiff += 360;
-          var absDiff = Math.abs(bearingDiff);
-          // PiP: 1° dead-zone so even slight turns are visible on the small screen
-          // Normal: 5° dead-zone to suppress sensor jitter
-          var deadZone = isPipMode ? 1 : 5;
-          if(absDiff >= deadZone){
-            lastCameraHeading = heading;
-            // PiP: snap at 80ms so the map feels live; Normal: adapt to turn size
-            var camDuration = isPipMode ? 80 : (absDiff >= 30 ? 250 : 500);
-            var navZoom = isPipMode ? 15 : 17;
-            map.easeTo({
-              center:lastNavCenter,
-              zoom:Math.max(map.getZoom(), navZoom),
-              pitch:0,
-              bearing:heading,
-              duration:camDuration,
-            });
-          }
-        }
-
-        // Enter nav mode
-        if(!isNavMode){
-          isNavMode=true;
-          setFollowMode(!userInteracted);
-          var ctrl=document.getElementById('mapCtrl');
-          if(ctrl) ctrl.style.display='none';
-          map.dragRotate.enable();
-          map.touchZoomRotate.enableRotation();
-        }
-
-        // Hazard labels near user
-        var nlat=data.navLocation.lat, nlng=data.navLocation.lng;
-        (data.safetyMarkers||[]).forEach(function(m){
-          var dlat=m.lat-nlat,dlng=m.lng-nlng;
-          if(Math.sqrt(dlat*dlat+dlng*dlng)*111320>200) return;
-          var ht={crime:'⚠ Crime area',dead_end:'⛔ Dead end'};
-          var txt=ht[m.kind]; if(!txt) return;
-          var he=document.createElement('div'); he.className='hazard-label'; he.textContent=txt;
-          hazardMarkers.push(createViewportMarker({element:he,anchor:'center'}).setLngLat([m.lng,m.lat]).addTo(map));
-        });
-
-      } else {
-        // Exit nav mode
-        if(isNavMode){
-          isNavMode=false;
-          userInteracted=false;
-          setFollowMode(true);
-          var ctrl=document.getElementById('mapCtrl');
-          if(ctrl) ctrl.style.display = isPipMode ? 'none' : 'flex';
-          map.easeTo({pitch:0,bearing:0,duration:600});
-          map.dragRotate.disable();
-          map.touchZoomRotate.disableRotation();
-        }
-      }
+      renderNavigation(data, isUserCameraOverride);
 
       schedulePinLabelLayout();
     }

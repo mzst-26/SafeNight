@@ -11,7 +11,8 @@ describe('scoring config', () => {
     expect(config.CUBE_MEAN_BLEND).toBe(0.4);
     expect(config.EVIDENCE_PSEUDO_COUNT).toBe(4);
     expect(config.LIGHTING.SHRINK_PSEUDO_COUNT).toBe(1);
-    expect(config.MAX_LENGTH_RATIO).toBe(1.5);
+    expect(config.MAX_LENGTH_RATIO).toBe(2.0);
+    expect(config.LENGTH_EXPOSURE_EXPONENT).toBe(0.5);
     expect(config.LAMP_RADIUS_M).toBe(30);
     expect(config.ACTIVITY_FLOOR).toBe(0.4);
     expect(config.HAZARD_SPEED_KMH).toBe(80);

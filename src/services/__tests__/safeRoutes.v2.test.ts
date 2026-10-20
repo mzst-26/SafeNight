@@ -373,3 +373,27 @@ describe('getRouteCrimeTotal', () => {
     expect(getRouteCrimeTotal({} as SafeRoute)).toBe(0);
   });
 });
+
+describe('getRouteCrimeTotal reported total versus clusters', () => {
+  const clustered = (crimeCount: unknown) =>
+    ({
+      routeStats: { crimeCount },
+      routePOIs: {
+        crimes: [
+          { lat: 51.5, lng: -0.1, count: 4, kind: 'crime' },
+          { lat: 51.6, lng: -0.1, count: 3, kind: 'crime' },
+        ],
+      },
+    }) as unknown as SafeRoute;
+
+  it('lets a reported finite 0 win over clusters that are present', () => {
+    expect(getRouteCrimeTotal(clustered(0))).toBe(0);
+  });
+
+  it('falls back to summing clusters when the reported total is missing, NaN, infinite or negative', () => {
+    expect(getRouteCrimeTotal(clustered(undefined))).toBe(7);
+    expect(getRouteCrimeTotal(clustered(Number.NaN))).toBe(7);
+    expect(getRouteCrimeTotal(clustered(Number.POSITIVE_INFINITY))).toBe(7);
+    expect(getRouteCrimeTotal(clustered(-1))).toBe(7);
+  });
+});

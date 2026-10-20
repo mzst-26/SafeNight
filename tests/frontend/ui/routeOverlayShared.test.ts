@@ -1,0 +1,279 @@
+/**
+ * @jest-environment jsdom
+ */
+import { BADGES_JS } from '@/src/components/maps/inline/badges';
+import { CORE_JS } from '@/src/components/maps/inline/core';
+import { FORMAT_JS } from '@/src/components/maps/inline/format';
+import { LEGEND_JS } from '@/src/components/maps/inline/legend';
+import { ROUTE_OVERLAY_CSS } from '@/src/components/maps/inline/overlayCss';
+import { RL_DASH, RL_DASH_PX } from '@/src/components/maps/mapConstants';
+import { buildMapHtml } from '@/src/components/maps/RouteMap.native';
+import { buildLeafletHtml } from '@/src/components/maps/RouteMap.web';
+import { RISK_RAMP } from '@/src/components/maps/routeLayers';
+
+jest.mock('react-native-webview', () => ({ WebView: () => null }));
+
+/*
+ * The shared inline pieces are evaluated exactly the way the map templates run them
+ * (a plain script), against a real DOM. Both renderers interpolate these same strings,
+ * so testing them here pins web and native together.
+ */
+
+type Shared = {
+  safeLabel: (t: unknown) => string;
+  rlColor: (c: unknown, fallback: string | null) => string | null;
+  normalizePinColor: (c: unknown) => string;
+  rlCrimeLabel: (n: number) => string;
+  rlCrimeAria: (n: number) => string;
+  rlPillAria: (i: number, t: string, sel: boolean) => string;
+  rlBuildCrimeBadge: (n: number) => HTMLElement;
+  rlBuildCallout: (t: string) => HTMLElement;
+  rlBuildPill: (b: any, i: number, onSelect?: (id: string) => void) => HTMLElement;
+  rlBuildLegend: (root: HTMLElement, opts?: { dashArray?: string }) => {
+    update: (legend: any) => void;
+    setVisible: (on: boolean) => void;
+  };
+};
+
+function load(innerWidth = 420): Shared {
+  const win = { innerWidth } as unknown as Window;
+  return new Function(
+    'window',
+    'document',
+    `${CORE_JS}${FORMAT_JS}${BADGES_JS}${LEGEND_JS}
+return { safeLabel, rlColor, normalizePinColor, rlCrimeLabel, rlCrimeAria, rlPillAria,
+  rlBuildCrimeBadge, rlBuildCallout, rlBuildPill, rlBuildLegend };`,
+  )(win, document);
+}
+
+const ramp = (colors: string[]) => colors.map((color, i) => ({ from: i / 6, to: (i + 1) / 6, color }));
+
+describe('shared inline core', () => {
+  const shared = load();
+
+  it('escapes markup characters', () => {
+    expect(shared.safeLabel(`<a href="x">'&'</a>`)).toBe('&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;');
+    expect(shared.safeLabel(null)).toBe('');
+  });
+
+  it('whitelists six-digit hex colours only', () => {
+    expect(shared.rlColor('#abcdef', null)).toBe('#abcdef');
+    expect(shared.rlColor('#abc', 'x')).toBe('x');
+    expect(shared.rlColor('"><img src=x>', 'x')).toBe('x');
+    expect(shared.rlColor(5, 'x')).toBe('x');
+  });
+
+  it('accepts three- and six-digit pin colours and falls back to red', () => {
+    expect(shared.normalizePinColor('#abc')).toBe('#abc');
+    expect(shared.normalizePinColor(' #112233 ')).toBe('#112233');
+    expect(shared.normalizePinColor('red')).toBe('#ef4444');
+  });
+});
+
+describe('shared crime badge', () => {
+  const shared = load();
+
+  it('shows the count, caps the label at 99+ and switches to the large size from 100', () => {
+    expect(shared.rlCrimeLabel(5)).toBe('5');
+    expect(shared.rlCrimeLabel(99)).toBe('99');
+    expect(shared.rlCrimeLabel(100)).toBe('99+');
+    expect(shared.rlBuildCrimeBadge(99).className).toBe('rl-crime');
+    expect(shared.rlBuildCrimeBadge(100).className).toBe('rl-crime rl-crime-lg');
+    expect(shared.rlBuildCrimeBadge(250).textContent).toBe('99+');
+  });
+
+  it('is announced as an image with a pluralised crime count', () => {
+    const one = shared.rlBuildCrimeBadge(1);
+    expect(one.getAttribute('role')).toBe('img');
+    expect(one.getAttribute('aria-label')).toBe('1 crime reported');
+    expect(shared.rlBuildCrimeBadge(12).getAttribute('aria-label')).toBe('12 crimes reported');
+    expect(shared.rlBuildCrimeBadge(150).getAttribute('aria-label')).toBe('150 crimes reported');
+  });
+
+  it('floors fractional counts', () => {
+    expect(shared.rlBuildCrimeBadge(3.9).textContent).toBe('3');
+  });
+});
+
+describe('shared callout', () => {
+  it('sets the text as text, never as markup', () => {
+    const el = load().rlBuildCallout('<b>Unlit</b> 240 m');
+    expect(el.className).toBe('rl-callout');
+    expect(el.textContent).toBe('<b>Unlit</b> 240 m');
+    expect(el.querySelector('b')).toBeNull();
+  });
+});
+
+describe('shared score pill', () => {
+  const shared = load();
+  const badge = (over: Record<string, unknown> = {}) => ({ routeId: 'r1', text: '62', selected: false, ...over });
+
+  it('wraps a compact pill in a transparent hit area and labels it for assistive tech', () => {
+    const hit = shared.rlBuildPill(badge(), 1);
+    expect(hit.className).toBe('rl-pill-hit');
+    expect(hit.querySelector('.rl-pill')?.textContent).toBe('62');
+    expect(hit.getAttribute('role')).toBe('button');
+    expect(hit.getAttribute('aria-label')).toBe('Route 2 score 62, tap to select');
+    expect(shared.rlPillAria(0, '48', true)).toBe('Route 1 score 48, selected');
+  });
+
+  it('marks the selected pill instead of making it a button', () => {
+    const hit = shared.rlBuildPill(badge({ selected: true }), 0);
+    expect(hit.className).toContain('rl-pill-hit-sel');
+    expect(hit.querySelector('.rl-pill-sel')).not.toBeNull();
+    expect(hit.getAttribute('role')).toBeNull();
+    expect(hit.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('selects the route on tap for a non-selected pill only, and always swallows the tap', () => {
+    const onSelect = jest.fn();
+    const stop = { preventDefault: jest.fn(), stopPropagation: jest.fn() };
+
+    const other = shared.rlBuildPill(badge(), 0, onSelect);
+    other.dispatchEvent(Object.assign(new Event('click'), stop));
+    expect(onSelect).toHaveBeenCalledWith('r1');
+
+    onSelect.mockClear();
+    const chosen = shared.rlBuildPill(badge({ selected: true }), 0, onSelect);
+    chosen.dispatchEvent(new Event('click'));
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('escapes pill text by construction (text node)', () => {
+    const hit = shared.rlBuildPill(badge({ text: '<u>x</u>' }), 0);
+    expect(hit.querySelector('u')).toBeNull();
+    expect(hit.innerHTML).toContain('&lt;u&gt;');
+  });
+});
+
+describe('shared overlay CSS', () => {
+  it('sizes the pill 32x28 visually inside a >=44x44 hit area', () => {
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-pill-hit\{[^}]*min-width:44px;min-height:44px/);
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-pill\{[^}]*min-width:32px;height:28px/);
+  });
+
+  it('caps the legend at 200px wide', () => {
+    expect(ROUTE_OVERLAY_CSS).toMatch(/\.rl-legend\{[^}]*max-width:min\(200px,46vw\)/);
+  });
+});
+
+describe('shared legend', () => {
+  const make = (width = 420, dashArray = '0.1 15') => {
+    const shared = load(width);
+    const root = document.createElement('div');
+    const ctl = shared.rlBuildLegend(root, { dashArray });
+    return { root, ctl, body: root.querySelector('.rl-legend-body') as HTMLElement };
+  };
+  const spec = (over: Record<string, unknown> = {}) => ({
+    ramp: ramp([...RISK_RAMP]),
+    dashedLabel: 'Dashed: estimated',
+    ...over,
+  });
+
+  it('is a hidden labelled region whose header button controls the body', () => {
+    const { root, body } = make();
+    expect(root.style.display).toBe('none');
+    expect(root.getAttribute('role')).toBe('region');
+    expect(root.getAttribute('aria-label')).toBe('Route safety legend');
+    const head = root.querySelector('.rl-legend-head') as HTMLElement;
+    expect(head.getAttribute('aria-controls')).toBe(body.id);
+    expect(head.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('draws one discrete swatch per ramp colour, Safer on the left and Riskier on the right', () => {
+    const { ctl, body } = make();
+    ctl.update(spec());
+    const swatches = Array.from(body.querySelectorAll('.rl-legend-swatch')) as HTMLElement[];
+    expect(swatches).toHaveLength(6);
+    expect(swatches.map((s) => s.style.background)).toHaveLength(6);
+    expect(body.innerHTML).not.toContain('gradient');
+    const labels = Array.from(body.querySelector('.rl-legend-scale')!.children).map((c) => c.textContent);
+    expect(labels).toEqual(['Safer', 'Riskier']);
+  });
+
+  it('reads colours only from the spec and drops non six-digit-hex values', () => {
+    const { ctl, body } = make();
+    ctl.update(spec({ ramp: [{ color: '"><img src=x onerror=1>' }, { color: '#abcdef' }, { color: 'red' }] }));
+    expect(body.querySelectorAll('.rl-legend-swatch')).toHaveLength(1);
+    expect(body.querySelector('img')).toBeNull();
+  });
+
+  it('shows no swatch row without usable colours but keeps the dotted sample', () => {
+    const { ctl, body } = make();
+    ctl.update(spec({ ramp: [] }));
+    expect(body.querySelector('.rl-legend-swatches')).toBeNull();
+    expect(body.querySelector('.rl-legend-dash-label')?.textContent).toBe('Dashed: estimated');
+  });
+
+  it('uses the renderer dash pattern for the dotted sample and the default label as fallback', () => {
+    const web = make(420, RL_DASH);
+    web.ctl.update({});
+    expect(web.body.querySelector('svg line')?.getAttribute('stroke-dasharray')).toBe(RL_DASH);
+    expect(web.body.querySelector('.rl-legend-dash-label')?.textContent).toBe('Estimated lighting');
+
+    const native = make(420, RL_DASH_PX.join(' '));
+    native.ctl.update(spec());
+    expect(native.body.querySelector('svg line')?.getAttribute('stroke-dasharray')).toBe('0.7 14.7');
+  });
+
+  it('renders notes as text, at most four', () => {
+    const { ctl, body } = make();
+    ctl.update(spec({ notes: ['<b>x</b>', 'b', 'c', 'd', 'e'] }));
+    const notes = Array.from(body.querySelectorAll('.rl-legend-note'));
+    expect(notes.map((n) => n.textContent)).toEqual(['<b>x</b>', 'b', 'c', 'd']);
+    expect(body.querySelector('b')).toBeNull();
+  });
+
+  it('starts collapsed below 400px on first show, expanded otherwise, and remembers the toggle', () => {
+    const narrow = make(390);
+    narrow.ctl.setVisible(true);
+    expect(narrow.root.style.display).toBe('');
+    expect(narrow.body.style.display).toBe('none');
+    expect(narrow.root.classList.contains('rl-legend-collapsed')).toBe(true);
+
+    const wide = make(420);
+    wide.ctl.setVisible(true);
+    expect(wide.body.style.display).toBe('');
+    const head = wide.root.querySelector('.rl-legend-head') as HTMLElement;
+    head.click();
+    expect(wide.body.style.display).toBe('none');
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+    wide.ctl.update(spec());
+    wide.ctl.setVisible(true);
+    expect(wide.body.style.display).toBe('none');
+    wide.ctl.setVisible(false);
+    expect(wide.root.style.display).toBe('none');
+  });
+});
+
+describe('web and native templates share the same pieces', () => {
+  const web = buildLeafletHtml(false);
+  const native = buildMapHtml();
+  const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
+
+  it.each([
+    ['core', CORE_JS],
+    ['format', FORMAT_JS],
+    ['badges', BADGES_JS],
+    ['legend', LEGEND_JS],
+    ['overlay css', ROUTE_OVERLAY_CSS],
+  ])('interpolates the %s module verbatim into both templates', (_name, chunk) => {
+    expect(web).toContain(chunk);
+    expect(native).toContain(chunk);
+  });
+
+  it.each(['function safeLabel(', 'function normalizePinColor(', 'function rlBuildLegend(', 'function rlBuildPill('])(
+    'defines %s exactly once per template',
+    (decl) => {
+      expect(count(web, decl)).toBe(1);
+      expect(count(native, decl)).toBe(1);
+    },
+  );
+
+  it('no longer carries the old per-renderer legend, pill and crime class names', () => {
+    expect(web).not.toContain('rl-ramp');
+    expect(native).not.toContain('rl-legend-bar');
+    expect(native).not.toContain('rl-cluster');
+    expect(web).not.toContain('rl-badge-sel');
+  });
+});

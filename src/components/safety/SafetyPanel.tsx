@@ -5,8 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { riskToColor } from '@/src/components/maps/routeLayers';
 import { CircleProgress } from '@/src/components/ui/CircleProgress';
-import type { SafeRoute, WorstStretch } from '@/src/services/safeRoutes';
+import { isV2SafeRoute, type SafeRoute, type WorstStretch } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -46,18 +47,22 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
       ? stats.crimeCount
       : safetyResult.crimeCount;
   const weakestLine = formatWorstStretch(selectedSafeRoute.safety.worstStretch);
+  // v2: the score ring uses the same risk ramp as the map and the route cards. v1 keeps the backend colour.
+  const ringColor = isV2SafeRoute(selectedSafeRoute)
+    ? riskToColor(1 - selectedSafeRoute.safety.score / 100)
+    : safetyResult.safetyColor;
 
   return (
     <View style={[styles.column, Platform.OS === 'web' && !inSidebar && styles.columnWeb]}>
       {/* Hero Score */}
-      <View style={[styles.heroCard, { borderColor: safetyResult.safetyColor + '44' }]}>
+      <View style={[styles.heroCard, { borderColor: ringColor + '44' }]}>
         <CircleProgress
           size={Platform.OS === 'web' ? 64 : 52}
           strokeWidth={5}
           progress={safetyResult.safetyScore}
-          color={safetyResult.safetyColor}
+          color={ringColor}
         />
-        <Text style={[styles.heroLabel, { color: safetyResult.safetyColor }]}>
+        <Text style={styles.heroLabel}>
           {safetyResult.safetyLabel}
         </Text>
       </View>
@@ -76,9 +81,9 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
 
       {/* 2×2 grid */}
       <View style={styles.grid}>
-        <GridCard icon="warning-outline" value={crimeValue} label="Crimes" color="#ef4444" onPress={() => onCategoryPress?.('crime')} valueAccessibilityLabel={crimeUnavailable ? CRIME_UNAVAILABLE_LABEL : undefined} />
+        <GridCard icon="warning-outline" value={crimeValue} label="Crimes" color="#ef4444" valueColor="#B42318" onPress={() => onCategoryPress?.('crime')} valueAccessibilityLabel={crimeUnavailable ? CRIME_UNAVAILABLE_LABEL : undefined} />
         <GridCard icon="bulb-outline" value={safetyResult.streetLights} label="Lights" color="#eab308" valueColor="#A15C07" onPress={() => onCategoryPress?.('light')} />
-        <GridCard icon="videocam-outline" value={safetyResult.cctvCount} label="CCTV" color="#6366f1" onPress={() => onCategoryPress?.('cctv')} />
+        <GridCard icon="videocam-outline" value={safetyResult.cctvCount} label="CCTV" color="#6366f1" valueColor="#4F46E5" onPress={() => onCategoryPress?.('cctv')} />
         <GridCard icon="storefront-outline" value={safetyResult.openPlaces} label="Open" color="#22c55e" valueColor="#15803D" onPress={() => onCategoryPress?.('shop')} />
       </View>
 
@@ -212,6 +217,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 8,
     textAlign: 'center',
+    color: '#475467',
   },
   notes: {
     flexDirection: 'row',
@@ -313,7 +319,7 @@ const styles = StyleSheet.create({
   detailLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#475467',
     textAlign: 'center',
     marginTop: 1,
   },

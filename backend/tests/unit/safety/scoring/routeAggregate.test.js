@@ -388,11 +388,11 @@ describe('rankRoutes input validation', () => {
     expect(() => rankRoutes([ranked('a', 2000, routeRisk)])).toThrow(TypeError);
   });
 
-  test('excludes a route at 1.6x the shortest and keeps one at exactly 1.5x', () => {
+  test('excludes a route at 2.1x the shortest and keeps one at exactly 2.0x', () => {
     const ordered = rankRoutes([
       ranked('short', 2000, 0.5),
-      ranked('edge', 3000, 0.1),
-      ranked('over', 3200, 0.1),
+      ranked('edge', 4000, 0.1),
+      ranked('over', 4200, 0.1),
     ]);
 
     expect(ordered.find((r) => r.id === 'edge').excluded).toBe(false);
@@ -401,8 +401,39 @@ describe('rankRoutes input validation', () => {
 });
 
 describe('exposure', () => {
-  test('is routeRisk times length in kilometres', () => {
-    expect(exposure(0.5, 2000)).toBeCloseTo(1.0, 12);
+  // exposure = routeRisk * (lengthKm) ^ LENGTH_EXPOSURE_EXPONENT, with the exponent 0.5 from config.
+
+  test('is routeRisk times the square root of length in kilometres', () => {
+    // 0.5 * sqrt(2.0) = 0.70711
+    expect(exposure(0.5, 2000)).toBeCloseTo(0.5 * Math.SQRT2, 12);
+  });
+
+  test('the 650 m route at risk 0.301 has lower exposure than the 383 m route at risk 0.775', () => {
+    // 0.775 * sqrt(0.383) = 0.47962 and 0.301 * sqrt(0.650) = 0.24267.
+    expect(exposure(0.775, 383)).toBeCloseTo(0.47962, 4);
+    expect(exposure(0.301, 650)).toBeCloseTo(0.24267, 4);
+    expect(exposure(0.301, 650)).toBeLessThan(exposure(0.775, 383));
+  });
+
+  test('is monotone: rises with routeRisk at fixed length and with length at fixed routeRisk', () => {
+    const rand = createSeededRandom(7);
+
+    for (let trial = 0; trial < 300; trial++) {
+      const lengthM = 1 + rand() * 5000;
+      const lowRisk = rand() * 0.5;
+      const highRisk = lowRisk + rand() * (1 - lowRisk);
+      expect(exposure(lowRisk, lengthM)).toBeLessThanOrEqual(exposure(highRisk, lengthM));
+
+      const risk = rand();
+      const shortM = 1 + rand() * 5000;
+      const longM = shortM + rand() * 5000;
+      expect(exposure(risk, shortM)).toBeLessThanOrEqual(exposure(risk, longM));
+    }
+  });
+
+  test('is zero at zero risk for any length, and at zero length for any risk', () => {
+    expect(exposure(0, 5000)).toBe(0);
+    expect(exposure(0.9, 0)).toBe(0);
   });
 });
 
@@ -412,15 +443,18 @@ describe('rankRoutes', () => {
   });
 
   test('orders kept routes by exposure, not by routeRisk', () => {
-    const ordered = rankRoutes([ranked('B', 1400, 0.25), ranked('A', 1000, 0.3)]);
+    // Exposures: X = 0.5 * sqrt(1.0) = 0.5 and Y = 0.45 * sqrt(1.4) = 0.53245. Y has the lower
+    // routeRisk but the higher exposure, so X ranks first.
+    const ordered = rankRoutes([ranked('Y', 1400, 0.45), ranked('X', 1000, 0.5)]);
 
-    expect(ordered.map((r) => r.id)).toEqual(['A', 'B']);
+    expect(ordered.map((r) => r.id)).toEqual(['X', 'Y']);
   });
 
   test('breaks an exposure tie by lower routeRisk first', () => {
-    // Both exposures equal exactly 0.75 (0.75 * 1.0 km and 0.5 * 1.5 km), and both
-    // lengths are within 1.5x the shortest, so neither is excluded.
-    const ordered = rankRoutes([ranked('B', 1000, 0.75), ranked('A', 1500, 0.5)]);
+    // Both exposures equal exactly 1.3125: B = 0.875 * sqrt(2.25) = 0.875 * 1.5 and
+    // A = 0.75 * sqrt(3.0625) = 0.75 * 1.75. A is 1.36x B, so both are within the 1.5x cap.
+    // A has the lower routeRisk, so A ranks first.
+    const ordered = rankRoutes([ranked('B', 2250, 0.875), ranked('A', 3062.5, 0.75)]);
 
     expect(ordered.map((r) => r.id)).toEqual(['A', 'B']);
   });
@@ -437,16 +471,76 @@ describe('rankRoutes', () => {
     expect(ordered.map((r) => r.id)).toEqual(['short', 'long']);
   });
 
-  test('excludes a route over 1.5x the shortest even when it is safer per metre, listing it last', () => {
-    const ordered = rankRoutes([ranked('far', 3500, 0.1), ranked('short', 2000, 0.5)]);
+  test('with equal risk the shorter route wins at every length up to 1.5x the shortest', () => {
+    const rand = createSeededRandom(8);
+
+    for (let trial = 0; trial < 100; trial++) {
+      const risk = rand();
+      const shortM = 500 + rand() * 1500;
+      const longM = shortM * (1 + rand() * 0.5);
+      const ordered = rankRoutes([ranked('long', longM, risk), ranked('short', shortM, risk)]);
+
+      expect(ordered.map((r) => r.id)).toEqual(['short', 'long']);
+    }
+  });
+
+  test('a route 1.4x longer wins when its risk is 15.5% lower (just inside the boundary)', () => {
+    // 0.4225 * sqrt(1.4) = 0.49991 is below 0.5 * sqrt(1.0) = 0.5. 0.4225 is 15.50% below 0.5.
+    // The break-even is 1 - 1/sqrt(1.4) = 15.48% lower.
+    const ordered = rankRoutes([ranked('short', 1000, 0.5), ranked('long', 1400, 0.4225)]);
+
+    expect(ordered.map((r) => r.id)).toEqual(['long', 'short']);
+  });
+
+  test('a route 1.4x longer loses when its risk is only 15.4% lower (just outside the boundary)', () => {
+    // 0.423 * sqrt(1.4) = 0.50050 is above 0.5, so the shorter route stays first.
+    // 0.423 is 15.40% below 0.5.
+    const ordered = rankRoutes([ranked('short', 1000, 0.5), ranked('long', 1400, 0.423)]);
+
+    expect(ordered.map((r) => r.id)).toEqual(['short', 'long']);
+  });
+
+  test('ranks a 650 m route at risk 0.301 ahead of a 500 m route at risk 0.775', () => {
+    // A 500 m shorter route, so the 650 m route is 1.3x. The literal 383 m pair is in the next test.
+    // Exposures: 0.775 * sqrt(0.5) = 0.54801 and 0.301 * sqrt(0.65) = 0.24267.
+    const ordered = rankRoutes([ranked('dark', 500, 0.775), ranked('safe', 650, 0.301)]);
+
+    expect(ordered.map((r) => r.id)).toEqual(['safe', 'dark']);
+    expect(ordered.every((r) => r.excluded === false)).toBe(true);
+  });
+
+  test('the 650 m route at risk 0.301 is Safest beside the 383 m route at risk 0.775', () => {
+    // 650 m is 1.70x the 383 m route, inside the 2.0x cap, so both are kept.
+    // Exposures: 650 m = 0.301 * sqrt(0.650) = 0.24267 and 383 m = 0.775 * sqrt(0.383) = 0.47962.
+    // The 650 m route has the lower exposure, so it ranks first and is not excluded.
+    const ordered = rankRoutes([ranked('dark', 383, 0.775), ranked('safe', 650, 0.301)]);
+
+    expect(ordered.map((r) => r.id)).toEqual(['safe', 'dark']);
+    expect(ordered.every((r) => r.excluded === false)).toBe(true);
+  });
+
+  test('the Safest 650 m route reads as lowest exposure against the 383 m route', () => {
+    // Displayed scores are 70 for 650 m and 22 for 383 m. 267 m is 0.17 mi, shown as 0.2 mi.
+    // 70 - 22 = 48 points higher. The 650 m route is longer, so no "shorter" clause appears.
+    const safe = candidate(1, 650, 0.301, 70);
+    const dark = candidate(2, 383, 0.775, 22);
+
+    expect(buildReason(safe, [safe, dark])).toBe(
+      'Lowest overall exposure: 0.2 mi longer than Route 2, scores 48 higher than Route 2',
+    );
+  });
+
+  test('excludes a route over 2.0x the shortest even when it is safer per metre, listing it last', () => {
+    // 4500 m is 2.25x the 2000 m route, over the cap.
+    const ordered = rankRoutes([ranked('far', 4500, 0.1), ranked('short', 2000, 0.5)]);
 
     expect(ordered.map((r) => r.id)).toEqual(['short', 'far']);
     expect(ordered[0].excluded).toBe(false);
     expect(ordered[1].excluded).toBe(true);
   });
 
-  test('keeps a route exactly 1.5x the shortest', () => {
-    const ordered = rankRoutes([ranked('short', 2000, 0.5), ranked('edge', 3000, 0.1)]);
+  test('keeps a route exactly 2.0x the shortest', () => {
+    const ordered = rankRoutes([ranked('short', 2000, 0.5), ranked('edge', 4000, 0.1)]);
 
     expect(ordered.find((r) => r.id === 'edge').excluded).toBe(false);
   });
@@ -462,7 +556,8 @@ describe('rankRoutes', () => {
   test('attaches exposure to every returned route', () => {
     const ordered = rankRoutes([ranked('short', 2000, 0.5)]);
 
-    expect(ordered[0].exposure).toBeCloseTo(1.0, 12);
+    // 0.5 * sqrt(2.0) = 0.70711
+    expect(ordered[0].exposure).toBeCloseTo(0.5 * Math.SQRT2, 12);
   });
 
   test.each([
@@ -486,11 +581,13 @@ describe('rankRoutes', () => {
 
 describe('buildReason', () => {
   test('explains a lowest-exposure pick that is shorter but less safe than an alternative', () => {
+    // Exposures: best 0.3 * sqrt(2.0) = 0.42426 and alternative 0.25 * sqrt(2.9) = 0.42573, so best is lower.
+    // 900 m is 0.56 mi, shown as 0.6 mi.
     const best = candidate(1, 2000, 0.3, 70);
-    const alternative = candidate(2, 2644, 0.25, 75);
+    const alternative = candidate(2, 2900, 0.25, 75);
 
     expect(buildReason(best, [best, alternative])).toBe(
-      'Lowest overall exposure: 0.4 mi shorter than Route 2, Route 2 scores 5 higher',
+      'Lowest overall exposure: 0.6 mi shorter than Route 2, Route 2 scores 5 higher',
     );
   });
 
@@ -532,8 +629,8 @@ describe('buildReason', () => {
 
   test('compares only with the runner-up, the best alternative by exposure', () => {
     const best = candidate(1, 3000, 0.1, 90);
-    // Equal exposure (1.0): the lower routeRisk (Route 2) must win the runner-up slot
-    // even though Route 3 is listed first.
+    // Exposures: Route 3 is 1.0 (1.0 * sqrt(1.0)) and Route 2 is 0.71 (0.5 * sqrt(2.0)).
+    // Route 3 is listed first but has the higher exposure, so Route 2 must be the runner-up.
     const alt3 = candidate(3, 1000, 1.0, 0);
     const alt2 = candidate(2, 2000, 0.5, 50);
 
@@ -561,7 +658,9 @@ describe('buildReason', () => {
     expect(buildReason(best, [alternative])).toBe('Safest and shortest: avoids a 300 m dark stretch');
   });
 
-  test('names an avoided dark stretch when an alternative carries a longer poor stretch', () => {
+  test('names an avoided dark stretch when the runner-up carries a longer poor stretch', () => {
+    // Exposures: Route 2 is 0.4 * sqrt(1.8) = 0.53666 and Route 3 is 0.35 * sqrt(2.6) = 0.56436,
+    // so Route 2 is the runner-up and its 240 m stretch is the one named.
     const best = candidate(1, 2000, 0.25, 75);
     const shorterAlternative = candidate(2, 1800, 0.4, 60, {
       start: ORIGIN,
@@ -569,7 +668,7 @@ describe('buildReason', () => {
       lengthM: 240,
       cause: 'lighting',
     });
-    const saferAlternative = candidate(3, 2600, 0.3, 70);
+    const saferAlternative = candidate(3, 2600, 0.35, 65);
 
     expect(buildReason(best, [shorterAlternative, saferAlternative])).toBe(
       'Lowest overall exposure: 0.1 mi longer than Route 2, scores 15 higher than Route 2, avoids a 240 m dark stretch',
@@ -590,7 +689,9 @@ describe('buildReason', () => {
     );
   });
 
-  test('names the longest avoided stretch when several alternatives carry one', () => {
+  test('names only the runner-up stretch, not a longer one on another alternative, in either order', () => {
+    // Exposures: Route 2 is 0.53666 (the runner-up) and Route 3 is 0.56436. Route 3 carries the
+    // longer (300 m) stretch, but it is not compared, so Route 2's 240 m dark stretch is named.
     const best = candidate(1, 2000, 0.25, 75);
     const runnerUp = candidate(2, 1800, 0.4, 60, {
       start: ORIGIN,
@@ -598,7 +699,7 @@ describe('buildReason', () => {
       lengthM: 240,
       cause: 'lighting',
     });
-    const other = candidate(3, 2600, 0.3, 70, {
+    const other = candidate(3, 2600, 0.35, 65, {
       start: ORIGIN,
       end: DESTINATION,
       lengthM: 300,
@@ -606,11 +707,27 @@ describe('buildReason', () => {
     });
 
     const expected =
-      'Lowest overall exposure: 0.1 mi longer than Route 2, scores 15 higher than Route 2, avoids a 300 m high-risk stretch';
+      'Lowest overall exposure: 0.1 mi longer than Route 2, scores 15 higher than Route 2, avoids a 240 m dark stretch';
 
-    // Both input orders must name the 300 m stretch, not whichever came last.
     expect(buildReason(best, [runnerUp, other])).toBe(expected);
     expect(buildReason(best, [other, runnerUp])).toBe(expected);
+  });
+
+  test('does not name a stretch carried only by an alternative that is not the runner-up', () => {
+    // Route 2 (exposure 0.53666) is the runner-up and has no poor stretch. Route 3 (0.56436)
+    // carries a 300 m stretch but is not the runner-up, so the reason must not mention it.
+    const best = candidate(1, 2000, 0.25, 75);
+    const runnerUp = candidate(2, 1800, 0.4, 60);
+    const other = candidate(3, 2600, 0.35, 65, {
+      start: ORIGIN,
+      end: DESTINATION,
+      lengthM: 300,
+      cause: 'crime',
+    });
+
+    expect(buildReason(best, [runnerUp, other])).toBe(
+      'Lowest overall exposure: 0.1 mi longer than Route 2, scores 15 higher than Route 2',
+    );
   });
 
   test('does not claim an avoided stretch when the best route has a longer one itself', () => {
@@ -713,32 +830,29 @@ describe('buildReason', () => {
   });
 
   test('leads with "Lowest overall exposure" when the best exposure ties the runner-up', () => {
-    // Both exposures are exactly 0.5, so the best route is still a lowest-exposure pick.
-    const best = candidate(1, 2000, 0.25, 75);
-    const alternative = candidate(2, 1000, 0.5, 50);
+    // Both exposures are exactly 0.75: best 0.5 * sqrt(2.25) = 0.5 * 1.5 and alternative 0.75 * sqrt(1.0).
+    // 1250 m is 0.78 mi, shown as 0.8 mi.
+    const best = candidate(1, 2250, 0.5, 50);
+    const alternative = candidate(2, 1000, 0.75, 25);
 
     expect(buildReason(best, [best, alternative])).toBe(
-      'Lowest overall exposure: 0.6 mi longer than Route 2, scores 25 higher than Route 2',
+      'Lowest overall exposure: 0.8 mi longer than Route 2, scores 25 higher than Route 2',
     );
   });
 
-  test('when two alternatives avoid equally long stretches, the first listed sets the qualifier', () => {
-    const best = candidate(1, 2000, 0.25, 75);
-    const dark = candidate(2, 1800, 0.4, 60, {
+  test('the "Safest and shortest" stretch clause also uses only the runner-up', () => {
+    // Route 2 (exposure 0.47434) is the runner-up and has no poor stretch. Route 3 (0.54222)
+    // carries a 300 m stretch but is not compared, so no avoids clause is added.
+    const best = candidate(1, 2000, 0.2, 80);
+    const runnerUp = candidate(2, 2500, 0.3, 70);
+    const other = candidate(3, 2400, 0.35, 65, {
       start: ORIGIN,
       end: DESTINATION,
       lengthM: 300,
       cause: 'lighting',
     });
-    const highRisk = candidate(3, 2600, 0.3, 70, {
-      start: ORIGIN,
-      end: DESTINATION,
-      lengthM: 300,
-      cause: 'crime',
-    });
 
-    expect(buildReason(best, [dark, highRisk])).toMatch(/avoids a 300 m dark stretch$/);
-    expect(buildReason(best, [highRisk, dark])).toMatch(/avoids a 300 m high-risk stretch$/);
+    expect(buildReason(best, [runnerUp, other])).toBe('Safest and shortest');
   });
 
   test('says "scores 1 higher" for a one-point gap', () => {

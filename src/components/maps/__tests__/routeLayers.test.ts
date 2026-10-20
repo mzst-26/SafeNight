@@ -1,4 +1,5 @@
 import {
+  CRIME_CLUSTER_MAP_CAP,
   DEFAULT_CRIME_SEVERITY,
   LIGHTS_MIN_ZOOM,
   RISK_RAMP,
@@ -800,5 +801,145 @@ describe('buildRouteLayers legend notes and data quality', () => {
 
   it('ignores malformed dataQuality', () => {
     expect(buildRouteLayers({ dataQuality: 'bad' as never }, opts()).legend.notes).toEqual([]);
+  });
+});
+
+// ── Crime cluster cap, ordering and the callout on the path ─────────────────
+
+/** Metres east/north of (51.5, 0) on the same equirectangular scale the builder uses. */
+const M_PER_DEG_LAT = 111320;
+const planar = (eastM: number, northM: number): GeoPoint => ({
+  lat: 51.5 + northM / M_PER_DEG_LAT,
+  lng: eastM / (M_PER_DEG_LAT * Math.cos((51.5 * Math.PI) / 180)),
+});
+
+/** A cluster-sized crime group in its own grid cell, about 1.1 km north of the previous one. */
+const cellCrime = (i: number, extra: { count?: number; severity?: number; lat?: number; lng?: number } = {}) => ({
+  lat: extra.lat ?? 51.5 + i * 0.01,
+  lng: extra.lng ?? BASE_LNG,
+  count: extra.count ?? 1,
+  severity: extra.severity ?? 1,
+});
+
+describe('buildRouteLayers crime cluster cap', () => {
+  it('exports CRIME_CLUSTER_MAP_CAP as 12', () => {
+    expect(CRIME_CLUSTER_MAP_CAP).toBe(12);
+  });
+
+  it('returns at most 12 clusters even when more cells have crimes', () => {
+    const crimes = Array.from({ length: 15 }, (_, i) => cellCrime(i));
+    expect(buildRouteLayers({ crimes }, opts()).crimeClusters).toHaveLength(12);
+  });
+
+  it('keeps the clusters with the highest count times max severity', () => {
+    // Clusters with counts 1..15 at equal severity: the three smallest (counts 1, 2, 3) are dropped.
+    const crimes = Array.from({ length: 15 }, (_, i) => cellCrime(i, { count: i + 1, severity: 0.5 }));
+    const counts = buildRouteLayers({ crimes }, opts()).crimeClusters.map((c) => c.count).sort((a, b) => a - b);
+    expect(counts).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+  });
+
+  it('ranks by count times severity, not by count alone', () => {
+    // Eleven clusters score 1, then one scores 0.5 (count 1, severity 0.5) and one scores 3 (count 1, severity 3).
+    const crimes = [
+      ...Array.from({ length: 11 }, (_, i) => cellCrime(i)),
+      cellCrime(11, { severity: 0.5 }),
+      cellCrime(12, { severity: 3 }),
+    ];
+    const kept = buildRouteLayers({ crimes }, opts()).crimeClusters;
+    expect(kept).toHaveLength(12);
+    expect(kept.map((c) => c.maxSeverity)).toContain(3);
+    expect(kept.map((c) => c.maxSeverity)).not.toContain(0.5);
+  });
+
+  it('breaks ties by the more northerly, then more easterly cluster, whatever the input order', () => {
+    // Thirteen equal-score clusters: the northernmost one is the one dropped.
+    const crimes = Array.from({ length: 13 }, (_, i) => cellCrime(i));
+    const forward = buildRouteLayers({ crimes }, opts()).crimeClusters;
+    const reversed = buildRouteLayers({ crimes: [...crimes].reverse() }, opts()).crimeClusters;
+
+    expect(forward).toHaveLength(12);
+    expect(Math.max(...forward.map((c) => c.lat))).toBeCloseTo(51.5 + 11 * 0.01, 9);
+    expect(reversed).toEqual(forward);
+  });
+});
+
+describe('buildRouteLayers crime cluster order', () => {
+  it('orders by count descending, then latitude, then longitude', () => {
+    const crimes = [
+      cellCrime(0, { count: 1, lat: 51.4 }),
+      cellCrime(1, { count: 3, lat: 51.52 }),
+      cellCrime(2, { count: 3, lat: 51.5 }),
+      cellCrime(3, { count: 2, lat: 51.45, lng: -0.1 }),
+      cellCrime(4, { count: 2, lat: 51.45, lng: -0.2 }),
+    ];
+    const out = buildRouteLayers({ crimes }, opts()).crimeClusters;
+
+    const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+    expect(out.map((c) => [c.count, r6(c.lat), r6(c.lng)])).toEqual([
+      [3, 51.5, BASE_LNG],
+      [3, 51.52, BASE_LNG],
+      [2, 51.45, -0.2],
+      [2, 51.45, -0.1],
+      [1, 51.4, BASE_LNG],
+    ]);
+  });
+
+  it('gives the same order whatever order the crimes arrive in', () => {
+    const crimes = [cellCrime(0, { count: 2 }), cellCrime(1, { count: 5 }), cellCrime(2, { count: 1 })];
+    expect(buildRouteLayers({ crimes: [...crimes].reverse() }, opts()).crimeClusters).toEqual(
+      buildRouteLayers({ crimes }, opts()).crimeClusters,
+    );
+  });
+});
+
+describe('buildRouteLayers worst-stretch callout on the path', () => {
+  it('places the callout on a bent street at the path midpoint, not the chord midpoint', () => {
+    // East 100 m, then north 100 m, in 10 m steps. The chord midpoint (50 m E, 50 m N) is off the street.
+    const corners: GeoPoint[] = [];
+    for (let e = 0; e <= 100; e += 10) corners.push(planar(e, 0));
+    for (let n = 10; n <= 100; n += 10) corners.push(planar(100, n));
+    const segments = corners.slice(1).map((end, i) => ({ start: corners[i], end, risk: 0.1 }));
+    const corner = planar(100, 0);
+
+    const out = buildRouteLayers(
+      {
+        segments,
+        worstStretch: { start: planar(0, 0), end: planar(100, 100), lengthM: 200, cause: 'lighting' },
+      },
+      opts(),
+    );
+
+    expect(out.callouts).toHaveLength(1);
+    expect(out.callouts[0].lat).toBeCloseTo(corner.lat, 6);
+    expect(out.callouts[0].lng).toBeCloseTo(corner.lng, 6);
+    const chord = planar(50, 50);
+    expect(Math.abs(out.callouts[0].lat - chord.lat)).toBeGreaterThan(1e-4);
+  });
+
+  it('keeps the chord midpoint when the route has no drawable lines', () => {
+    const out = buildRouteLayers(
+      { worstStretch: { start: planar(0, 0), end: planar(100, 100), lengthM: 200, cause: 'lighting' } },
+      opts(),
+    );
+    expect(out.callouts[0].lat).toBeCloseTo(planar(50, 50).lat, 9);
+    expect(out.callouts[0].lng).toBeCloseTo(planar(50, 50).lng, 9);
+  });
+});
+
+describe('buildRouteLayers join tolerance', () => {
+  const seg = (start: GeoPoint, end: GeoPoint): LayerSegment => ({ start, end, risk: 0.1 });
+  const first: GeoPoint = { lat: 51.5, lng: BASE_LNG };
+  const joint: GeoPoint = { lat: 51.5001, lng: BASE_LNG };
+
+  it('does not merge a segment whose start is 1e-4 degrees (about 11 m) from the previous end', () => {
+    const segments = [seg(first, joint), seg({ lat: joint.lat + 1e-4, lng: BASE_LNG }, { lat: 51.5003, lng: BASE_LNG })];
+    expect(buildRouteLayers({ segments }, opts()).lines).toHaveLength(2);
+  });
+
+  it('merges a segment whose start is 1e-7 degrees (about 1 cm) from the previous end', () => {
+    const segments = [seg(first, joint), seg({ lat: joint.lat + 1e-7, lng: BASE_LNG }, { lat: 51.5003, lng: BASE_LNG })];
+    const lines = buildRouteLayers({ segments }, opts()).lines;
+    expect(lines).toHaveLength(1);
+    expect(lines[0].coords).toHaveLength(3);
   });
 });

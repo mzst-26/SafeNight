@@ -6,7 +6,12 @@
  * length spread thinly. Splitting an edge in two never changes the result.
  */
 
-const { CUBE_MEAN_BLEND, RISK_POOR_THRESHOLD, MAX_LENGTH_RATIO } = require('./config');
+const {
+  CUBE_MEAN_BLEND,
+  RISK_POOR_THRESHOLD,
+  MAX_LENGTH_RATIO,
+  LENGTH_EXPOSURE_EXPONENT,
+} = require('./config');
 const { assertFinite, assertNonNegative, assertInRange } = require('./validation');
 
 /**
@@ -200,7 +205,9 @@ function aggregateRoute(edges, { g = CUBE_MEAN_BLEND, poorThreshold = RISK_POOR_
 }
 
 /**
- * Exposure ("harm per walk"): routeRisk times length in kilometres.
+ * Exposure ("harm per walk"): routeRisk times the length in kilometres raised to
+ * LENGTH_EXPOSURE_EXPONENT (0.5, see config.js). Length is damped, so a longer route
+ * with a little less risk can still rank ahead of a short, badly lit one.
  * @param {number} routeRisk in [0, 1]
  * @param {number} lengthM >= 0
  * @returns {number}
@@ -209,7 +216,7 @@ function aggregateRoute(edges, { g = CUBE_MEAN_BLEND, poorThreshold = RISK_POOR_
 function exposure(routeRisk, lengthM) {
   assertInRange('routeRisk', routeRisk, 0, 1);
   assertNonNegative('lengthM', lengthM);
-  return routeRisk * (lengthM / METRES_PER_KM);
+  return routeRisk * (lengthM / METRES_PER_KM) ** LENGTH_EXPOSURE_EXPONENT;
 }
 
 /**
@@ -237,7 +244,7 @@ function assertRankable(route) {
 }
 
 /**
- * Ranks candidate routes by exposure. Routes longer than MAX_LENGTH_RATIO (1.5) times the shortest are
+ * Ranks candidate routes by exposure. Routes longer than MAX_LENGTH_RATIO (2.0) times the shortest are
  * kept at the end, marked excluded. The single shortest route is always kept.
  * @param {Array<{id: *, lengthM: number, routeRisk: number}>} routes
  * @returns {Array<object>} Routes with exposure and excluded attached; empty for no routes.
@@ -266,17 +273,6 @@ function rankRoutes(routes) {
     ...kept.map((route) => ({ ...route, excluded: false })),
     ...dropped.map((route) => ({ ...route, excluded: true })),
   ];
-}
-
-/**
- * Chooses the route in the list with the best value, using a strict
- * comparison so the first of equal candidates wins.
- * @param {Array<object>} routes Non-empty.
- * @param {(candidate: object, current: object) => boolean} isBetter
- * @returns {object}
- */
-function pickBest(routes, isBetter) {
-  return routes.reduce((chosen, route) => (isBetter(route, chosen) ? route : chosen));
 }
 
 /**
@@ -314,24 +310,19 @@ function scoreClause(best, other) {
 }
 
 /**
- * Describes a poor stretch the best route avoids: an alternative whose longest
- * poor stretch is longer than the best route's (or the best route has none).
+ * Describes a poor stretch the best route avoids: the other route's longest poor
+ * stretch, when it is longer than the best route's (or the best route has none).
+ * Only the one route passed in is compared, so the clause never mixes routes.
  * @param {object} best
- * @param {Array<object>} alternatives
+ * @param {object} other The runner-up.
  * @returns {string|null}
  */
-function stretchClause(best, alternatives) {
+function stretchClause(best, other) {
   const bestStretchM = best.worstStretch ? best.worstStretch.lengthM : 0;
-  const worse = alternatives.filter(
-    (route) => route.worstStretch && route.worstStretch.lengthM > bestStretchM,
-  );
-  if (worse.length === 0) return null;
+  if (!other.worstStretch || other.worstStretch.lengthM <= bestStretchM) return null;
 
-  const avoided = pickBest(worse, (route, current) =>
-    route.worstStretch.lengthM > current.worstStretch.lengthM,
-  );
-  const qualifier = avoided.worstStretch.cause === LIGHTING_CAUSE ? 'dark' : 'high-risk';
-  return `avoids a ${Math.round(avoided.worstStretch.lengthM)} m ${qualifier} stretch`;
+  const qualifier = other.worstStretch.cause === LIGHTING_CAUSE ? 'dark' : 'high-risk';
+  return `avoids a ${Math.round(other.worstStretch.lengthM)} m ${qualifier} stretch`;
 }
 
 /**
@@ -348,8 +339,9 @@ function assertCandidate(route) {
 
 /**
  * Builds a one-line, data-derived reason for the best route. Every claim is
- * computed from the inputs. The length and score clauses compare against one
- * route only: the runner-up, the best alternative by exposure.
+ * computed from the inputs. The length, score and stretch clauses all compare
+ * against one route only: the runner-up, the best alternative by exposure.
+ * A reason never mixes numbers from two different routes.
  *
  * "Safest and shortest" is decided on the unrounded routeRisk, so two routes that
  * round to the same displayed score are still compared on their real risk.
@@ -375,7 +367,7 @@ function buildReason(best, others) {
   );
 
   if (isSafestAndShortest) {
-    const stretch = stretchClause(best, alternatives);
+    const stretch = stretchClause(best, runnerUp);
     return stretch ? `Safest and shortest: ${stretch}` : 'Safest and shortest';
   }
 
@@ -385,7 +377,7 @@ function buildReason(best, others) {
   const clauses = [
     lengthClause(best, runnerUp),
     scoreClause(best, runnerUp),
-    stretchClause(best, alternatives),
+    stretchClause(best, runnerUp),
   ].filter(Boolean);
 
   return `${lead}: ${clauses.join(', ')}`;
