@@ -99,7 +99,7 @@ describe('crimeClient persistent cache', () => {
       SAFE_ROUTES_CACHE_DIR: cacheDir,
       SAFE_ROUTES_ALLOW_STALE_CACHE: '1',
       SAFE_ROUTES_CRIME_MAX_STALE_MS: String(12 * 60 * 60 * 1000),
-      SAFE_ROUTES_CRIME_STALE_FETCH_GRACE_MS: '5',
+      SAFE_ROUTES_CRIME_STALE_FETCH_GRACE_MS: '50',
     });
 
     const crimePayload = [
@@ -130,7 +130,8 @@ describe('crimeClient persistent cache', () => {
       onSourceMeta: (meta) => sourceMeta.push(meta),
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Wait well past the grace window (50 ms) so the slow-fetch fallback fires even when the machine is loaded.
+    await new Promise((resolve) => setTimeout(resolve, 400));
     const staleResult = await staleResultPromise;
     expect(staleResult.length).toBe(1);
     expect(global.fetch).toHaveBeenCalledTimes(2);
