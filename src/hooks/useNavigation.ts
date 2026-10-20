@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DirectionsRoute, LatLng, NavigationStep } from '@/src/types/geo';
+import { WALKING_SPEED_MPS } from '@/src/utils/tripTime';
 import * as Location from 'expo-location';
 
 // ---------------------------------------------------------------------------
@@ -196,6 +197,12 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
   const lastEmittedHeadingRef = useRef<number | null>(null);
   const syntheticStepsRef = useRef<NavigationStep[] | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * Bumped on every stop/teardown. startWatching awaits permission and sensor
+   * setup; if the generation changes during an await, the watcher it is about
+   * to attach is stale and must be removed instead of kept alive.
+   */
+  const watchGenerationRef = useRef(0);
   const routeMetricsRef = useRef<RouteMetrics | null>(null);
   const lastKnownPathMetersRef = useRef(0);
   const routeRef = useRef(route);
@@ -208,6 +215,9 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
 
   // ── GPS + Compass watcher ────────────────────────────────────
   const startWatching = useCallback(async () => {
+    const generation = watchGenerationRef.current;
+    const isStale = () => watchGenerationRef.current !== generation;
+
     // Clean previous watchers
     try { watchRef.current?.remove(); } catch { /* noop */ }
     try { headingWatchRef.current?.remove(); } catch { /* noop */ }
@@ -222,12 +232,14 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     // Ensure we have location permission (critical on web)
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      if (isStale()) return;
       if (status !== 'granted') {
         console.warn('[useNavigation] Location permission denied');
         setState('idle');
         return;
       }
     } catch (permErr) {
+      if (isStale()) return;
       console.warn('[useNavigation] Permission request failed:', permErr);
       setState('idle');
       return;
@@ -250,6 +262,7 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     const EMIT_THRESHOLD = 8; // degrees — ignore changes smaller than this
     try {
       const headingSub = await Location.watchHeadingAsync((h) => {
+        if (isStale()) return;
         const raw = h.trueHeading > 0 ? h.trueHeading : h.magHeading;
         if (raw < 0) return;
         hasCompassRef.current = true;
@@ -281,6 +294,10 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
           }
         }
       });
+      if (isStale()) {
+        try { (headingSub as unknown as Location.LocationSubscription).remove(); } catch { /* noop */ }
+        return;
+      }
       headingWatchRef.current = headingSub as unknown as Location.LocationSubscription;
     } catch {
       // Compass unavailable (web, simulator) — fall back to GPS heading
@@ -306,6 +323,10 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
           }
         },
       );
+      if (isStale()) {
+        try { sub.remove(); } catch { /* expo-location web compat */ }
+        return;
+      }
       watchRef.current = sub;
 
       // Fallback polling keeps progress/ETA moving if platform watcher stalls.
@@ -335,6 +356,7 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
   }, []);
 
   const stopWatching = useCallback(() => {
+    watchGenerationRef.current += 1;
     try { watchRef.current?.remove(); } catch { /* expo-location web compat */ }
     try { headingWatchRef.current?.remove(); } catch { /* expo-location web compat */ }
     watchRef.current = null;
@@ -472,9 +494,8 @@ export const useNavigation = (route: DirectionsRoute | null): NavigationInfo => 
     const remDist = remainingPathMeters;
     setRemainingDistance(Math.round(remDist));
 
-    // Walking ETA: compute from distance at average walking speed (1.4 m/s ≈ 5 km/h)
-    const WALKING_SPEED = 1.4;
-    setRemainingDuration(Math.round(remDist / WALKING_SPEED));
+    // Walking ETA: same walking speed the route ETA uses (safeRoutes.WALKING_SPEED_MPS)
+    setRemainingDuration(Math.round(remDist / WALKING_SPEED_MPS));
 
     // Update heading toward next step end
     if (!userHeading && s[idx]) {

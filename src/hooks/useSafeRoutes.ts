@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import {
   fetchSafeRoutes,
@@ -87,12 +88,26 @@ export function useSafeRoutes(
     statusRef.current = status;
   }, [status]);
 
-  // 15-minute bucket of the time the control currently shows (resolved when it changes).
+  // Wall clock used to resolve the chosen time. Refreshed every minute and when the app
+  // becomes active, so a HH:MM that has just passed rolls forward to tomorrow.
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setClockMs(Date.now()), 60_000);
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') setClockMs(Date.now());
+    });
+    return () => {
+      clearInterval(tick);
+      sub.remove();
+    };
+  }, []);
+
+  // 15-minute bucket of the time the control currently shows (resolved when it changes or the clock moves).
   const timeMode = tripTime?.mode ?? 'now';
   const timeHhmm = tripTime?.hhmm ?? null;
   const bucket = useMemo(
-    () => tripTimeBucket({ mode: timeMode, hhmm: timeHhmm }, new Date()),
-    [timeMode, timeHhmm],
+    () => tripTimeBucket({ mode: timeMode, hhmm: timeHhmm }, new Date(clockMs)),
+    [timeMode, timeHhmm, clockMs],
   );
 
   // Stabilise coordinate references so the effect doesn't re-fire on every render

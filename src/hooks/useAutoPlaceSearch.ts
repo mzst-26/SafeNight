@@ -45,6 +45,10 @@ export const useAutoPlaceSearch = (
   const skipAutoRef = useRef(false);
   // The query text that selectPrediction programmatically set
   const selectedQueryRef = useRef<string | null>(null);
+  // Bumped on every selection and on clear(). A details lookup only applies its
+  // result if it is still the latest selection, so a slow earlier lookup cannot
+  // overwrite a later choice.
+  const selectionIdRef = useRef(0);
 
   const setQueryWrapped = useCallback((q: string) => {
     // After selectPrediction, Android can re-fire onChangeText with the same
@@ -69,6 +73,7 @@ export const useAutoPlaceSearch = (
   }, []);
 
   const selectPrediction = useCallback((prediction: PlacePrediction) => {
+    const selectionId = ++selectionIdRef.current;
     skipAutoRef.current = true;
     selectedQueryRef.current = prediction.primaryText;
     setPredictions([]);
@@ -87,10 +92,12 @@ export const useAutoPlaceSearch = (
       setStatus('searching');
       fetchPlaceDetails(prediction.placeId)
         .then((details) => {
+          if (selectionId !== selectionIdRef.current) return;
           setPlace(details);
           setStatus('found');
         })
         .catch(() => {
+          if (selectionId !== selectionIdRef.current) return;
           setError(new AppError('place_details_error', 'Could not resolve location'));
           setStatus('error');
         });
@@ -98,6 +105,7 @@ export const useAutoPlaceSearch = (
   }, []);
 
   const clear = useCallback(() => {
+    selectionIdRef.current += 1;
     skipAutoRef.current = true;
     setQuery('');
     setPlace(null);

@@ -16,10 +16,15 @@ export const requestForegroundLocationPermission = async (): Promise<LocationPer
   return status;
 };
 
+/** A cached fix older than this is not shown as the user's location. */
+const MAX_CACHED_LOCATION_AGE_MS = 10 * 60 * 1000;
+
 export const getLastKnownLocation = async (): Promise<LatLng | null> => {
   try {
     const position = await Location.getLastKnownPositionAsync();
     if (!position?.coords) return null;
+    const ageMs = Date.now() - Number(position.timestamp);
+    if (!Number.isFinite(ageMs) || ageMs > MAX_CACHED_LOCATION_AGE_MS) return null;
     return toLatLng(position.coords);
   } catch {
     return null;

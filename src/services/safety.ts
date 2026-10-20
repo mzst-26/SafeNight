@@ -29,11 +29,17 @@ const POLICE_BASE_URL = env.policeApiBaseUrl;
 // Network helpers
 // ---------------------------------------------------------------------------
 
+const SAFETY_FETCH_TIMEOUT_MS = 30_000;
+
 const fetchJson = async <T>(url: string, options?: RequestInit): Promise<T> => {
+  // AbortSignal.timeout() is NOT available in React Native — use AbortController + setTimeout
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SAFETY_FETCH_TIMEOUT_MS);
   try {
     const label = url.includes('police') ? 'Police API' : url.split('?')[0].slice(-40);
     console.log(`[Safety] 🌐 API call → ${label}`);
-    const response = await fetch(url, options);
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
 
     if (!response.ok) {
       throw new AppError('safety_http_error', `Safety request failed: ${response.status}`);
@@ -41,6 +47,7 @@ const fetchJson = async <T>(url: string, options?: RequestInit): Promise<T> => {
 
     return (await response.json()) as T;
   } catch (error) {
+    clearTimeout(timer);
     if (error instanceof AppError) {
       throw error;
     }

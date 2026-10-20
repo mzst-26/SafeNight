@@ -250,9 +250,13 @@ export const fetchPlaceDetails = async (placeId: string): Promise<PlaceDetails> 
 export const reverseGeocode = async (location: LatLng): Promise<PlaceDetails | null> => {
   // Route through the geocode microservice so the result is cached and
   // Nominatim’s 1 req/sec limit is enforced server-side instead of per-client.
+  // AbortSignal.timeout() is NOT available in React Native — use AbortController + setTimeout
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
   try {
     const url = `${GEOCODE_API_BASE}/api/geocode/reverse?lat=${location.latitude}&lng=${location.longitude}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
     if (!response.ok) return null;
     const contentType = String(response.headers?.get?.('content-type') || '').toLowerCase();
     const body = await response.text();
@@ -293,6 +297,7 @@ export const reverseGeocode = async (location: LatLng): Promise<PlaceDetails | n
       source: 'osm',
     };
   } catch {
+    clearTimeout(timer);
     return null;
   }
 };

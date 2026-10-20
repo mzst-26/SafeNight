@@ -196,6 +196,7 @@ export default function HomeScreen() {
   const [phoneWebSheetHeight, setPhoneWebSheetHeight] = useState(0);
   const subscriptionTier = auth.user?.subscription ?? "free";
   const maxDistanceKm = auth.user?.routeDistanceKm ?? 3; // DB-driven, fallback to free tier
+  const maxDistanceMiles = (maxDistanceKm / 1.609344).toFixed(1);
 
   // Responsive breakpoint — phone-size web gets a different layout
   const breakpoint = useWebBreakpoint();
@@ -650,10 +651,20 @@ export default function HomeScreen() {
         iconColor: "#7C3AED",
         duration: 2000,
       });
-      const { found, names } = await checkFriendLocations();
-      if (found === 0) {
+      const { status, found, names } = await checkFriendLocations();
+      if (found === null) {
         setToast({
-          message: "No friends are sharing their location right now",
+          message: "Couldn't check friend locations right now",
+          icon: "alert-circle-outline",
+          iconColor: "#F59E0B",
+          duration: 3500,
+        });
+      } else if (found === 0) {
+        setToast({
+          message:
+            status === "stale"
+              ? "Last known: no friends were sharing"
+              : "No friends are sharing their location right now",
           icon: "location-outline",
           iconColor: "#F59E0B",
           duration: 3500,
@@ -662,8 +673,12 @@ export default function HomeScreen() {
         const nameList =
           names.slice(0, 3).join(", ") +
           (names.length > 3 ? ` +${names.length - 3} more` : "");
+        const countText = `${found} friend${found > 1 ? "s" : ""}`;
         setToast({
-          message: `Found ${found} friend${found > 1 ? "s" : ""} — showing ${nameList}`,
+          message:
+            status === "stale"
+              ? `Last known: ${countText} sharing — showing ${nameList}`
+              : `Found ${countText} — showing ${nameList}`,
           icon: "people",
           iconColor: "#10B981",
           duration: 4000,
@@ -697,11 +712,11 @@ export default function HomeScreen() {
       return;
     }
     setToast({
-      message:
-        "Enable location permissions in your browser/app settings, then retry.",
+      message: "Turn on location for SafeNight in your phone settings.",
       icon: "information-circle-outline",
       iconColor: "#1570ef",
-      duration: 4500,
+      // Stays until dismissed. MapToast uses a setTimeout, so use the largest safe delay.
+      duration: 2147483647,
     });
   }, []);
 
@@ -2184,7 +2199,7 @@ export default function HomeScreen() {
                   </Text>
                   <Text style={styles.warningText}>
                     {h.outOfRangeMessage ||
-                      "Destination is too far away (max 6.2 mi walking distance)."}
+                      `Destination is too far away (max ${maxDistanceMiles} mi walking distance).`}
                   </Text>
                   {h.directionsError?.details?.detail ? (
                     <Text style={styles.warningDetail}>
@@ -2192,7 +2207,7 @@ export default function HomeScreen() {
                     </Text>
                   ) : null}
                   <Text style={styles.warningHint}>
-                    💡 Try selecting a closer destination, or split your journey
+                    Try selecting a closer destination, or split your journey
                     into shorter legs.
                   </Text>
                 </View>
@@ -2255,16 +2270,16 @@ export default function HomeScreen() {
                   ) : null}
                   <Text style={styles.warningHint}>
                     {h.directionsError.code === "NO_ROUTE_FOUND"
-                      ? "💡 The two points are probably on separate road networks — try a destination on the same side of any rivers, motorways, or railways."
+                      ? "The two points are probably on separate road networks — try a destination on the same side of any rivers, motorways, or railways."
                       : h.directionsError.code === "NO_NEARBY_ROAD"
-                        ? "💡 Move the pin closer to a visible street or footpath on the map."
+                        ? "Move the pin closer to a visible street or footpath on the map."
                         : h.directionsError.code === "NO_WALKING_NETWORK"
-                          ? "💡 This area only has motorways or private roads. Pick a more residential destination."
+                          ? "This area only has motorways or private roads. Pick a more residential destination."
                           : h.directionsError.code === "safe_routes_timeout"
-                            ? "💡 Shorter routes compute faster. Try somewhere within 3 mi."
+                            ? "Shorter routes compute faster. Try a closer destination."
                             : h.directionsError.code === "INTERNAL_ERROR"
-                              ? "💡 This is usually temporary — wait a moment and try again."
-                              : "💡 Try again, or pick a different destination."}
+                              ? "This is usually temporary — wait a moment and try again."
+                              : "Try again, or pick a different destination."}
                   </Text>
                 </View>
               </View>
@@ -2297,10 +2312,11 @@ export default function HomeScreen() {
                 style={styles.startNavButton}
                 onPress={() => setShowDownloadModal(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Start navigation"
+                disabled={!!h.timeUpdatingLabel}
+ accessibilityLabel={isWeb ? "Get the app to navigate" : "Start navigation"}
               >
                 <Ionicons name="navigate" size={20} color="#ffffff" />
-                <Text style={styles.startNavButtonText}>Start Navigation</Text>
+                <Text style={styles.startNavButtonText}>Get the app to navigate</Text>
               </Pressable>
             )}
 
@@ -2327,7 +2343,7 @@ export default function HomeScreen() {
                     accessibilityLabel="Clear via point"
                   >
                     <Ionicons name="close-circle" size={15} color="#667085" />
-                    <Text style={styles.viaClearText}>Clear via</Text>
+                    <Text style={styles.viaClearText}>Clear via point</Text>
                   </Pressable>
                 )}
               </View>
@@ -2455,7 +2471,7 @@ export default function HomeScreen() {
                     </Text>
                     <Text style={styles.warningText}>
                       {h.outOfRangeMessage ||
-                        "Destination is too far away (max 6.2 mi walking distance)."}
+                        `Destination is too far away (max ${maxDistanceMiles} mi walking distance).`}
                     </Text>
                     {h.directionsError?.details?.detail ? (
                       <Text style={styles.warningDetail}>
@@ -2463,7 +2479,7 @@ export default function HomeScreen() {
                       </Text>
                     ) : null}
                     <Text style={styles.warningHint}>
-                      💡 Try selecting a closer destination, or split your
+                      Try selecting a closer destination, or split your
                       journey into shorter legs.
                     </Text>
                   </View>
@@ -2526,16 +2542,16 @@ export default function HomeScreen() {
                     ) : null}
                     <Text style={styles.warningHint}>
                       {h.directionsError.code === "NO_ROUTE_FOUND"
-                        ? "💡 The two points are probably on separate road networks — try a destination on the same side of any rivers, motorways, or railways."
+                        ? "The two points are probably on separate road networks — try a destination on the same side of any rivers, motorways, or railways."
                         : h.directionsError.code === "NO_NEARBY_ROAD"
-                          ? "💡 Move the pin closer to a visible street or footpath on the map."
+                          ? "Move the pin closer to a visible street or footpath on the map."
                           : h.directionsError.code === "NO_WALKING_NETWORK"
-                            ? "💡 This area only has motorways or private roads. Pick a more residential destination."
+                            ? "This area only has motorways or private roads. Pick a more residential destination."
                             : h.directionsError.code === "safe_routes_timeout"
-                              ? "💡 Shorter routes compute faster. Try somewhere within 3 mi."
+                              ? "Shorter routes compute faster. Try a closer destination."
                               : h.directionsError.code === "INTERNAL_ERROR"
-                                ? "💡 This is usually temporary — wait a moment and try again."
-                                : "💡 Try again, or pick a different destination."}
+                                ? "This is usually temporary — wait a moment and try again."
+                                : "Try again, or pick a different destination."}
                     </Text>
                   </View>
                 </View>
@@ -2565,11 +2581,12 @@ export default function HomeScreen() {
                   style={styles.startNavButton}
                   onPress={() => setShowDownloadModal(true)}
                   accessibilityRole="button"
-                  accessibilityLabel="Start navigation"
+                  disabled={!!h.timeUpdatingLabel}
+ accessibilityLabel={isWeb ? "Get the app to navigate" : "Start navigation"}
                 >
                   <Ionicons name="navigate" size={20} color="#ffffff" />
                   <Text style={styles.startNavButtonText}>
-                    Start Navigation
+                    Get the app to navigate
                   </Text>
                 </Pressable>
               )}
@@ -2597,7 +2614,7 @@ export default function HomeScreen() {
                       accessibilityLabel="Clear via point"
                     >
                       <Ionicons name="close-circle" size={15} color="#667085" />
-                      <Text style={styles.viaClearText}>Clear via</Text>
+                      <Text style={styles.viaClearText}>Clear via point</Text>
                     </Pressable>
                   )}
                 </View>
@@ -2737,7 +2754,7 @@ export default function HomeScreen() {
             ) : (
               <View style={styles.searchAroundFloatingLimit}>
                 <Text style={styles.searchAroundFloatingLimitText}>
-                  Search around unavailable beyond 30 miles.
+                  {`Search around unavailable beyond ${SEARCH_AROUND_MAX_MILES} miles.`}
                 </Text>
               </View>
             )}
@@ -2864,7 +2881,7 @@ export default function HomeScreen() {
                   </Text>
                   <Text style={styles.warningText}>
                     {h.outOfRangeMessage ||
-                      "Destination is too far away (max 6.2 mi walking distance)."}
+                      `Destination is too far away (max ${maxDistanceMiles} mi walking distance).`}
                   </Text>
                   {h.directionsError?.details?.detail ? (
                     <Text style={styles.warningDetail}>
@@ -2872,7 +2889,7 @@ export default function HomeScreen() {
                     </Text>
                   ) : null}
                   <Text style={styles.warningHint}>
-                    💡 Try selecting a closer destination, or split your journey
+                    Try selecting a closer destination, or split your journey
                     into shorter legs.
                   </Text>
                 </View>
@@ -2935,16 +2952,16 @@ export default function HomeScreen() {
                   ) : null}
                   <Text style={styles.warningHint}>
                     {h.directionsError.code === "NO_ROUTE_FOUND"
-                      ? "💡 The two points are probably on separate road networks — try a destination on the same side of any rivers, motorways, or railways."
+                      ? "The two points are probably on separate road networks — try a destination on the same side of any rivers, motorways, or railways."
                       : h.directionsError.code === "NO_NEARBY_ROAD"
-                        ? "💡 Move the pin closer to a visible street or footpath on the map."
+                        ? "Move the pin closer to a visible street or footpath on the map."
                         : h.directionsError.code === "NO_WALKING_NETWORK"
-                          ? "💡 This area only has motorways or private roads. Pick a more residential destination."
+                          ? "This area only has motorways or private roads. Pick a more residential destination."
                           : h.directionsError.code === "safe_routes_timeout"
-                            ? "💡 Shorter routes compute faster. Try somewhere within 3 mi."
+                            ? "Shorter routes compute faster. Try a closer destination."
                             : h.directionsError.code === "INTERNAL_ERROR"
-                              ? "💡 This is usually temporary — wait a moment and try again."
-                              : "💡 Try again, or pick a different destination."}
+                              ? "This is usually temporary — wait a moment and try again."
+                              : "Try again, or pick a different destination."}
                   </Text>
                 </View>
               </View>
@@ -2998,7 +3015,8 @@ export default function HomeScreen() {
                 style={styles.startNavButton}
                 onPress={handleStartNavigation}
                 accessibilityRole="button"
-                accessibilityLabel="Start navigation"
+                disabled={!!h.timeUpdatingLabel}
+ accessibilityLabel="Start navigation"
               >
                 <Ionicons name="navigate" size={20} color="#ffffff" />
                 <Text style={styles.startNavButtonText}>Start Navigation</Text>
@@ -3268,7 +3286,7 @@ export default function HomeScreen() {
           onPackChanged={() => auth.refreshProfile?.()}
         />
 
-        {/* ── Profile fetch failed — auto-logout overlay (no buttons) ── */}
+        {/* ── Profile fetch failed — overlay with a manual retry (the client keeps retrying) ── */}
         {auth.profileFetchFailed && (
           <View style={styles.profileFailOverlay}>
             <View style={styles.profileFailCard}>
@@ -3283,8 +3301,15 @@ export default function HomeScreen() {
               </Text>
               <Text style={styles.profileFailBody}>
                 Your session is active but we couldn&apos;t retrieve your data.{"\n"}
-                Logging you out automatically…
+                The app will keep retrying in the background.
               </Text>
+              <Pressable
+                style={styles.profileFailButton}
+                onPress={() => auth.refreshProfile?.()}
+                accessibilityRole="button"
+              >
+                <Text style={styles.profileFailButtonText}>Try again</Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -3925,6 +3950,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
+  },
+  profileFailButton: {
+    marginTop: 20,
+    backgroundColor: "#1570EF",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+  },
+  profileFailButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "600",
   },
   stickyHeaderContainer: {
     backgroundColor: "#ffffff",

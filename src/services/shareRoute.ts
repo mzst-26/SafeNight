@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { env } from "@/src/config/env";
+import { refreshIfNeeded } from "@/src/services/userApi";
 import type { LatLng } from "@/src/types/geo";
 
 const ACCESS_TOKEN_KEY = "safenight_access_token";
@@ -52,13 +53,19 @@ function buildWebShareUrl(token: string): string {
 export async function createRouteShareLink(
   payload: ShareRouteCreatePayload,
 ): Promise<ShareRouteCreateResponse> {
+  // Refresh a near-expiry session first, then send the token read after that
+  // refresh. A token read before refreshing may already be dead, so it is never used.
+  await refreshIfNeeded().catch(() => false);
   const token = await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
+  if (!token) {
+    throw new Error("Sign in again to create a route share link");
+  }
 
   const response = await fetchWithTimeout(`${env.userApiUrl}/api/shares`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(payload),
   });
@@ -69,6 +76,9 @@ export async function createRouteShareLink(
   }
 
   const tokenValue = String(body?.token || "");
+  if (!tokenValue) {
+    throw new Error("Route share link was not created: the server returned no token");
+  }
   const rawShareUrl = String(body?.shareUrl || "");
   const webShareUrl = tokenValue ? buildWebShareUrl(tokenValue) : "";
   const rawIsHttpUrl = /^https?:\/\//i.test(rawShareUrl);

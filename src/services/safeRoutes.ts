@@ -24,6 +24,7 @@ import {
 } from "@/src/types/limitError";
 import type { LayerSegment, RouteLayerInput } from "@/src/components/maps/routeLayers";
 import { decodePolyline } from "@/src/utils/polyline";
+import { WALKING_SPEED_MPS } from "@/src/utils/tripTime";
 import {
   appendTimeQuery,
   timeBucketKey,
@@ -33,8 +34,25 @@ import {
   type TripTimeState,
 } from "@/src/utils/tripTime";
 
-/** Walking speed shared with the backend (m/s). */
-export const WALKING_SPEED_MPS = 1.35;
+/** Walking speed shared with the backend (m/s). Defined in utils/tripTime. */
+export { WALKING_SPEED_MPS };
+
+/** Great-circle length in metres of a polyline (haversine over consecutive points). */
+function pathLengthMeters(points: LatLng[]): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const dLat = toRad(b.latitude - a.latitude);
+    const dLng = toRad(b.longitude - a.longitude);
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+    total += 2 * 6371000 * Math.asin(Math.sqrt(h));
+  }
+  return total;
+}
 
 const BACKEND_BASE = env.safetyApiUrl;
 const AUTH_TOKEN_STORAGE_KEY = 'safenight_access_token';
@@ -770,16 +788,18 @@ export async function fetchSafeRoutes(
   await subscriptionApi.ensureFeatureAllowed("route_search");
   const timeParams: TimeParams = tripTime ? toTimeParams(tripTime, new Date()) : {};
 
-  const key = cacheKey(origin, destination, waypoint, timeParams);
+  // Use the DB-driven override if provided, otherwise fall back to hardcoded tier lookup
+  const maxDistanceKm =
+    maxDistanceKmOverride ?? getMaxDistanceKmForTier(subscriptionTier);
+
+  // maxDistanceKm changes the backend result, so it must be part of the cache key.
+  const key = `${cacheKey(origin, destination, waypoint, timeParams)}|max=${maxDistanceKm}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     console.log("[safeRoutes] 📋 Cache hit");
     return cached.data;
   }
 
-  // Use the DB-driven override if provided, otherwise fall back to hardcoded tier lookup
-  const maxDistanceKm =
-    maxDistanceKmOverride ?? getMaxDistanceKmForTier(subscriptionTier);
   const waypointParam = waypoint
     ? `&waypoint_lat=${waypoint.latitude}&waypoint_lng=${waypoint.longitude}`
     : "";
@@ -953,12 +973,18 @@ export async function fetchSafeRoutes(
         }),
       );
 
+      // When the backend omits the leg, fall back to the decoded path length and
+      // walking speed rather than reporting a zero-length route.
+      const distanceMeters = leg?.distance?.value ?? pathLengthMeters(path);
+      const durationSeconds =
+        leg?.duration?.value ?? Math.round(distanceMeters / WALKING_SPEED_MPS);
+
       return {
         id: `safe-route-${idx}`,
         routeIndex: r.routeIndex,
         isSafest: r.isSafest,
-        distanceMeters: leg?.distance?.value ?? 0,
-        durationSeconds: leg?.duration?.value ?? 0,
+        distanceMeters,
+        durationSeconds,
         encodedPolyline: encoded,
         path,
         summary: r.summary,

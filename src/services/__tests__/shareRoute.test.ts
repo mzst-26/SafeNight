@@ -16,7 +16,7 @@ describe('shareRoute service', () => {
   });
 
   it('creates a route share link with auth header when token exists', async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce('token-abc');
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('token-abc');
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ token: 'share-1', shareUrl: 'https://safe/link', expiresAt: '2099-01-01' }),
@@ -58,7 +58,7 @@ describe('shareRoute service', () => {
   });
 
   it('throws on non-ok create response', async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(null);
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('token-abc');
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: false,
       json: async () => ({ error: 'missing auth' }),

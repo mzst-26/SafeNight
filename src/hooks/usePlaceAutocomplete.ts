@@ -33,16 +33,22 @@ export const usePlaceAutocomplete = (
     setStatus('loading');
     setError(null);
 
+    // Set when the query changes or the component unmounts. A response that
+    // arrives after that belongs to an older query and must not overwrite state.
+    let cancelled = false;
+
     const timeout = setTimeout(() => {
       fetchPlacePredictions(trimmedQuery, {
         locationBias: locationBias ?? undefined,
         radiusMeters: locationBias ? 5000 : undefined,
       })
         .then((results) => {
+          if (cancelled) return;
           setPredictions(results);
           setStatus('ready');
         })
         .catch((caught) => {
+          if (cancelled) return;
           const normalizedError =
             caught instanceof AppError
               ? caught
@@ -53,7 +59,10 @@ export const usePlaceAutocomplete = (
         });
     }, 1000);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, [query, locationBias?.latitude, locationBias?.longitude]);
 
   return {

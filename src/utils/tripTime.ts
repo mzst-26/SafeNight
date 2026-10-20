@@ -30,6 +30,13 @@ export interface RouteTimeline {
 }
 
 const TIME_ZONE = 'Europe/London';
+
+/**
+ * Walking speed (m/s) used for every walking ETA: route durations derived from
+ * distance and in-app navigation remaining time. Single source of truth.
+ */
+export const WALKING_SPEED_MPS = 1.35;
+
 export const NOW_STATE: TripTimeState = { mode: 'now', hhmm: null };
 // Must match CACHE_BUCKET_MS in backend/src/safety/routes/safeRoutesTime.js. Change both together.
 const BUCKET_MS = 15 * 60 * 1000;

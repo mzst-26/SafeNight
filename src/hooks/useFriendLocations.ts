@@ -21,12 +21,24 @@ export interface FriendMarker {
   path?: Array<{ lat: number; lng: number }>;
   /** Full planned route polyline shared at session start */
   routePath?: Array<{ lat: number; lng: number }>;
+  /** Epoch ms of the poll that produced this marker */
+  updatedAt?: number;
+  /** True when the most recent poll failed and this marker is from an earlier poll */
+  stale?: boolean;
 }
+
+/**
+ * fresh   – a poll succeeded just now
+ * stale   – the poll failed; `found`/`names` are the last known result
+ * skipped – the app is backgrounded; no request was made. `found` is the
+ *           last known count, or null when there has never been a result.
+ */
+export type FriendCheckStatus = 'fresh' | 'stale' | 'skipped';
 
 export interface FriendLocationResult {
   friends: FriendMarker[];
-  /** Trigger an immediate check; resolves with { found, names } */
-  checkNow: () => Promise<{ found: number; names: string[] }>;
+  /** Trigger an immediate check and resolve with the status, count and names */
+  checkNow: () => Promise<{ status: FriendCheckStatus; found: number | null; names: string[] }>;
 }
 
 const POLL_INTERVAL = 15_000; // 15 seconds
@@ -60,12 +72,20 @@ export function useFriendLocations(enabled: boolean): FriendLocationResult {
   const [friends, setFriends] = useState<FriendMarker[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appActiveRef = useRef(true);
+  /** Last successful poll result, kept so a failed or skipped check can report it */
+  const lastKnownRef = useRef<FriendMarker[] | null>(null);
 
-  const poll = useCallback(async (): Promise<FriendMarker[]> => {
+  const poll = useCallback(async (): Promise<{
+    status: FriendCheckStatus;
+    live: FriendMarker[] | null;
+  }> => {
     // Skip polling when app is backgrounded to save server resources
-    if (!appActiveRef.current) return [];
+    if (!appActiveRef.current) {
+      return { status: 'skipped', live: lastKnownRef.current };
+    }
     try {
       const contacts = await contactsApi.getAll();
+      const updatedAt = Date.now();
       const live = contacts
         .filter((c) => c.is_live && c.live_session)
         .map((c) => ({
@@ -78,21 +98,26 @@ export function useFriendLocations(enabled: boolean): FriendLocationResult {
             c.live_session!.path?.map(({ lat, lng }) => ({ lat, lng })) ?? [],
           ),
           routePath: c.live_session!.route_path ?? undefined,
+          updatedAt,
+          stale: false,
         }));
+      lastKnownRef.current = live;
       setFriends(live);
-      return live;
+      return { status: 'fresh', live };
     } catch {
-      // Silently fail — friend locations are supplementary
-      return [];
+      // Friend locations are supplementary: keep the last markers, flag them stale
+      setFriends((prev) => prev.map((f) => ({ ...f, stale: true })));
+      return { status: 'stale', live: lastKnownRef.current };
     }
   }, []);
 
-  /** Manual one-shot check — returns how many friends are live */
+  /** Manual one-shot check: status, count and names; never a fake zero */
   const checkNow = useCallback(async () => {
-    const result = await poll();
+    const { status, live } = await poll();
     return {
-      found: result.length,
-      names: result.map((f) => f.name),
+      status,
+      found: live ? live.length : null,
+      names: live ? live.map((f) => f.name) : [],
     };
   }, [poll]);
 
@@ -105,6 +130,9 @@ export function useFriendLocations(enabled: boolean): FriendLocationResult {
       }
       return;
     }
+
+    // Start from the app's real state: the effect can mount while backgrounded
+    appActiveRef.current = AppState.currentState === 'active';
 
     // Initial fetch
     poll();
