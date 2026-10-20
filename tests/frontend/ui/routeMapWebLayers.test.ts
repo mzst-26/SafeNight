@@ -1213,7 +1213,7 @@ describe('RouteMap.web screen-space badge layout', () => {
 
     it('moves the later of two pills whose centres coincide down by 44px so the touch targets do not overlap', () => {
       const h = loadRouteMap({ zoom: 16 });
-      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.5, -0.1, '48', true)]);
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.5, -0.1, '48')]);
       const pills = pillMarkers(h);
       expect(pills).toHaveLength(2);
       expect(topOf(pills[0])).toBeUndefined();
@@ -1241,17 +1241,42 @@ describe('RouteMap.web screen-space badge layout', () => {
       relayout(h);
       const pills = pillMarkers(h);
       expect(pills).toHaveLength(2);
-      // The second pill is the more northerly one (further up the screen), so it moves up, at most 44px.
-      const shift = Number(topOf(pills[1]));
-      expect(shift).toBeLessThan(0);
-      expect(shift).toBeGreaterThanOrEqual(-44);
+      // The selected pill (second, further north) stays; the first one moves down, at most 44px.
+      expect(topOf(pills[1])).toBeUndefined();
+      const shift = Number(topOf(pills[0]));
+      expect(shift).toBeGreaterThan(0);
+      expect(shift).toBeLessThanOrEqual(44);
       // On screen the pills are 0.001deg apart (about 11.7px at zoom 14); after the shift they are 44px apart.
-      expect(0.001 * perDeg(14) - shift).toBeCloseTo(44, 0);
+      expect(0.001 * perDeg(14) + shift).toBeGreaterThanOrEqual(44);
 
       (h.postMessage as jest.Mock).mockClear();
       pills[0].handlers.click();
       expect(JSON.parse((h.postMessage as jest.Mock).mock.calls[0][0])).toEqual({ type: 'selectRoute', id: 'a' });
       expect(pills[1].handlers.click).toBeUndefined();
+    });
+
+    it('moves a selected pill off a merged crime badge it would cover, the badge staying put', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      // Badge 3.6px above the pill centre (46 crimes, merged from two clusters).
+      const badgeLat = 51.5 + 3.6 / perDeg(16);
+      draw(h, [cluster(badgeLat, -0.1, 30), cluster(badgeLat, -0.1, 16)], [badge('a', 51.5, -0.1, '78', true)]);
+      const [crime] = crimeBadges(h);
+      expect(labelOf(crime)).toBe('46');
+      expect((crime.latlngs as number[])[0]).toBeCloseTo(badgeLat, 9);
+      const shift = Number(topOf(pillMarkers(h)[0]));
+      expect(Math.abs(shift)).toBeLessThanOrEqual(44);
+      // Pill centre vs badge centre (same x): the 44px touch square (half 22) must clear the 16px radius.
+      const badgeY = -badgeLat * perDeg(16);
+      const pillY = -51.5 * perDeg(16) + shift;
+      expect(Math.abs(pillY - badgeY)).toBeGreaterThanOrEqual(22 + 16 - 1e-6);
+    });
+
+    it('keeps the selected pill in place and moves the other one when they coincide', () => {
+      const h = loadRouteMap({ zoom: 16 });
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.5, -0.1, '48', true)]);
+      const pills = pillMarkers(h);
+      expect(Math.abs(Number(topOf(pills[0])))).toBe(44);
+      expect(topOf(pills[1])).toBeUndefined();
     });
 
     it('keeps the pill markers at their geographic position (only the element is shifted)', () => {

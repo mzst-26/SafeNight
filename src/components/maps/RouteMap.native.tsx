@@ -21,6 +21,8 @@ import {
   RL_CASING_OPACITY,
   RL_CASING_WIDTH,
   RL_CRIME_MERGE_PX,
+  RL_CRIME_SIZE,
+  RL_CRIME_SIZE_LARGE,
   RL_DASH_PX,
   RL_DASH_UNITS,
   RL_GREY,
@@ -560,6 +562,7 @@ export const buildMapHtml = (
     var rlCrimeMarkers = [];
     var rlPillMarkers = [];
     var rlOverlay = null;
+    var rlCrimeObstacles = [];
     var rlLayoutZoom = null;
     var rlLayoutPitch = 0;
     var rlLayoutTimer = null;
@@ -577,6 +580,7 @@ export const buildMapHtml = (
     /* Crime badges (HTML markers) from the cluster features. Individual incidents are never drawn. */
     function rlDrawCrimeBadges(){
       clearMarkerArray(rlCrimeMarkers);
+      rlCrimeObstacles = [];
       if(!rlOverlay) return;
       var project = rlProject();
       var list = project ? mergeScreenClusters(rlOverlay.clusters, project, RL_CRIME_MERGE_PX) : rlOverlay.clusters;
@@ -584,6 +588,8 @@ export const buildMapHtml = (
         var n = Math.floor(Number(c.count));
         if(!(n >= 1) || !hasFiniteLngLat(c.lng,c.lat)) return;
         rlCrimeMarkers.push(createViewportMarker({element:rlBuildCrimeBadge(n),anchor:'center'}).setLngLat([c.lng,c.lat]).addTo(map));
+        var q = project ? project(c.lat, c.lng) : null;
+        if(q) rlCrimeObstacles.push({x:q.x, y:q.y, r:(rlCrimeIsLarge(n) ? ${RL_CRIME_SIZE_LARGE} : ${RL_CRIME_SIZE}) / 2});
       });
     }
 
@@ -595,7 +601,8 @@ export const buildMapHtml = (
       });
     }
 
-    /* Route score pills. Tapping a non-selected pill selects that route. A pill that would overlap an earlier one is offset. */
+    /* Route score pills. Tapping a non-selected pill selects that route. A pill that would overlap another pill or a
+       crime badge is offset vertically (the badges, merged first, stay put; the selected pill moves least). */
     function rlDrawPills(){
       clearMarkerArray(rlPillMarkers);
       if(!rlOverlay) return;
@@ -605,7 +612,10 @@ export const buildMapHtml = (
       });
       var project = rlProject();
       var shifts = project
-        ? separatePills(items.map(function(it){ return project(it.b.lat, it.b.lng) || {}; }), RL_TOUCH_TARGET_PX).map(function(r){ return r.dy; })
+        ? separatePills(items.map(function(it){
+            var q = project(it.b.lat, it.b.lng) || {};
+            return {x:q.x, y:q.y, priority:it.b.selected === true};
+          }), RL_TOUCH_TARGET_PX, rlCrimeObstacles).map(function(r){ return r.dy; })
         : [];
       items.forEach(function(it, k){
         var pill = rlBuildPill(it.b, it.i, function(routeId){ sendMsg('selectRoute',{id:routeId}); });

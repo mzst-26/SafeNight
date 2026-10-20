@@ -1024,11 +1024,26 @@ describe('RouteMap.native screen-space badge layout', () => {
 
     it('moves the later of two coinciding pills down by 44px with a marker offset', () => {
       const h = loadNativeMap({ zoom: 16 });
-      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.5, -0.1, '48', true)]);
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.5, -0.1, '48')]);
       const [first, second] = h.markersWithClass('rl-pill-hit');
       expect(first.options.offset).toBeUndefined();
       expect(second.options.offset).toEqual([0, 44]);
       expect(second.ll).toEqual([-0.1, 51.5]);
+    });
+
+    it('moves a selected pill off a merged crime badge it would cover, the badge staying put', () => {
+      const h = loadNativeMap({ zoom: 16 });
+      const badgeLat = 51.5 + 3.6 / perDeg(16);
+      draw(h, [cluster(badgeLat, -0.1, 30), cluster(badgeLat, -0.1, 16)], [badge('a', 51.5, -0.1, '78', true)]);
+      const [crime] = h.markersWithClass('rl-crime');
+      expect(crime.options.element.textContent).toBe('46');
+      expect(crime.options.offset).toBeUndefined();
+      const [pill] = h.markersWithClass('rl-pill-hit');
+      const shift = pill.options.offset ? pill.options.offset[1] : 0;
+      expect(Math.abs(shift)).toBeLessThanOrEqual(44);
+      const badgeY = -badgeLat * perDeg(16);
+      const pillY = -51.5 * perDeg(16) + shift;
+      expect(Math.abs(pillY - badgeY)).toBeGreaterThanOrEqual(22 + 16 - 1e-6);
     });
 
     it('leaves pills that are 44px or more apart alone', () => {
@@ -1039,7 +1054,7 @@ describe('RouteMap.native screen-space badge layout', () => {
 
     it('separates again after a zoom change and keeps taps selecting the route', () => {
       const h = loadNativeMap({ zoom: 17 });
-      draw(h, [], [badge('a', 51.5, -0.1, '62', true), badge('b', 51.501, -0.1, '48')]);
+      draw(h, [], [badge('a', 51.5, -0.1, '62'), badge('b', 51.501, -0.1, '48')]);
       h.markersWithClass('rl-pill-hit').forEach((m) => expect(m.options.offset).toBeUndefined());
 
       h.setZoom(14);

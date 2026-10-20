@@ -18,10 +18,11 @@ type Project = (lat: number, lng: number) => Pt;
 
 type Api = {
   mergeScreenClusters: (clusters: unknown, project: Project, minPx: number) => Merged[];
-  separatePills: (points: unknown, minPx: number) => Placed[];
+  separatePills: (points: unknown, minPx: number, obstacles?: unknown) => Placed[];
+  separatePillsGreedy: (points: unknown, minPx: number, obstacles?: unknown) => Placed[];
 };
 
-const api: Api = new Function(`${SCREEN_CLUSTER_JS}\nreturn { mergeScreenClusters: mergeScreenClusters, separatePills: separatePills };`)();
+const api: Api = new Function(`${SCREEN_CLUSTER_JS}\nreturn { mergeScreenClusters: mergeScreenClusters, separatePills: separatePills, separatePillsGreedy: separatePillsGreedy };`)();
 
 const project: Project = (lat, lng) => ({ x: lng, y: lat });
 const c = (x: number, count: number, maxSeverity = 0.5, y = 0): Cluster => ({ lat: y, lng: x, count, maxSeverity });
@@ -136,6 +137,14 @@ describe('mergeScreenClusters', () => {
     expect(out.find((m) => m.count === 2)!.lng).toBe(5);
   });
 
+  it('clamps huge counts so merged sums stay finite instead of dropping the badge', () => {
+    const out = merge([c(0, Number.MAX_VALUE), c(10, Number.MAX_VALUE), c(20, Infinity)]);
+    expect(out).toHaveLength(1);
+    expect(Number.isFinite(out[0].count)).toBe(true);
+    expect(out[0].count).toBeGreaterThan(99);
+    expect(Number.isFinite(out[0].lat) && Number.isFinite(out[0].lng)).toBe(true);
+  });
+
   it('does nothing when minPx is not a positive number', () => {
     const input = [c(0, 1), c(1, 1)];
     expect(merge(input, 0)).toEqual(input);
@@ -205,5 +214,80 @@ describe('separatePills', () => {
     const out = place([{ x: Number.NaN, y: 0 }, { x: 0, y: 0 }]);
     expect(out[0].dy).toBe(0);
     expect(out[1].dy).toBe(0);
+  });
+});
+
+describe('separatePills with obstacles and exhaustive search', () => {
+  const G = RL_TOUCH_TARGET_PX;
+  const overlapPair = (a: Pt, b: Pt) => Math.abs(a.x - b.x) < G && Math.abs(a.y - b.y) < G;
+  const overlapCircle = (a: Pt, o: { x: number; y: number; r: number }) => {
+    const dx = Math.max(Math.abs(a.x - o.x) - G / 2, 0);
+    const dy = Math.max(Math.abs(a.y - o.y) - G / 2, 0);
+    return dx * dx + dy * dy < o.r * o.r;
+  };
+  const overlaps = (pts: Pt[], obs: { x: number; y: number; r: number }[] = []) => {
+    let n = 0;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) if (overlapPair(pts[i], pts[j])) n++;
+      obs.forEach((o) => {
+        if (overlapCircle(pts[i], o)) n++;
+      });
+    }
+    return n;
+  };
+
+  it('moves a pill off a crime badge it covers (3.6px away), within the 44px cap', () => {
+    const badge = { x: 100, y: 96.4, r: 16 };
+    const out = api.separatePills([{ x: 100, y: 100 }], G, [badge]);
+    expect(Math.abs(out[0].dy)).toBeLessThanOrEqual(44);
+    expect(overlapCircle(out[0], badge)).toBe(false);
+  });
+
+  it('leaves a pill alone when no badge touches its hit area', () => {
+    const out = api.separatePills([{ x: 100, y: 100 }], G, [{ x: 100, y: 200, r: 16 }]);
+    expect(out[0].dy).toBe(0);
+  });
+
+  it('solves the greedy counterexample (0, -40, -40) with no overlapping touch squares', () => {
+    const input = [{ x: 0, y: 0 }, { x: 0, y: -40 }, { x: 0, y: -40 }];
+    expect(overlaps(api.separatePillsGreedy(input, G))).toBeGreaterThan(0);
+    const out = api.separatePills(input, G);
+    expect(overlaps(out)).toBe(0);
+    out.forEach((p, i) => expect(Math.abs(p.y - input[i].y)).toBeLessThanOrEqual(44));
+  });
+
+  it('displaces the prioritised (selected) pill least', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 0, y: 0, priority: true }];
+    const out = api.separatePills(pts, G);
+    expect(out[1].dy).toBe(0);
+    expect(Math.abs(out[0].dy)).toBe(44);
+  });
+
+  it('counts pill-badge overlaps together with pill-pill overlaps', () => {
+    const obs = [{ x: 0, y: 30, r: 16 }];
+    const input = [{ x: 0, y: 0 }, { x: 0, y: 10 }];
+    const out = api.separatePills(input, G, obs);
+    expect(overlaps(out, obs)).toBeLessThanOrEqual(overlaps(api.separatePillsGreedy(input, G, obs), obs));
+  });
+
+  it('never has more overlaps than the greedy result and never moves more than 44px (random 3-pill sets)', () => {
+    let seed = 12345;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    for (let n = 0; n < 300; n++) {
+      const pts = Array.from({ length: 3 }, () => ({ x: Math.round(rnd() * 60), y: Math.round(rnd() * 120) }));
+      const obs = rnd() < 0.5 ? [{ x: Math.round(rnd() * 60), y: Math.round(rnd() * 120), r: 16 }] : [];
+      const out = api.separatePills(pts, G, obs);
+      const greedy = api.separatePillsGreedy(pts, G, obs);
+      expect(overlaps(out, obs)).toBeLessThanOrEqual(overlaps(greedy, obs));
+      out.forEach((p) => expect(Math.abs(p.dy)).toBeLessThanOrEqual(44));
+    }
+  });
+
+  it('falls back to the greedy pass beyond four pills and survives an infinite gap', () => {
+    const five = Array.from({ length: 5 }, () => ({ x: 0, y: 0 }));
+    const out = api.separatePills(five, G);
+    expect(out).toHaveLength(5);
+    out.forEach((p) => expect(Math.abs(p.dy)).toBeLessThanOrEqual(44));
+    expect(api.separatePills(five, Infinity).map((p) => p.dy)).toEqual([0, 0, 0, 0, 0]);
   });
 });

@@ -619,7 +619,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     // One score pill per route. Tapping a non-selected pill selects that route; the selected pill is not tappable.
     // project (optional) maps lat/lng to container pixels: a pill whose touch target would overlap an earlier
     // pill is shifted vertically (inline/screenCluster.ts), so every pill stays tappable.
-    function rlDrawBadges(group, badges, project){
+    function rlDrawBadges(group, badges, project, obstacles){
       if(!Array.isArray(badges)) return;
       var items=[];
       for(var i=0;i<badges.length;i++){
@@ -629,7 +629,10 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       }
       var shifts=[];
       if(project){
-        var spread=separatePills(items.map(function(it){ return project(it.p[0], it.p[1]) || {}; }), RL_TOUCH_TARGET_PX);
+        var spread=separatePills(items.map(function(it){
+          var q=project(it.p[0], it.p[1]) || {};
+          return { x:q.x, y:q.y, priority:it.b.selected===true };
+        }), RL_TOUCH_TARGET_PX, obstacles);
         shifts=spread.map(function(r){ return r.dy; });
       }
       items.forEach(function(it, k){
@@ -672,11 +675,18 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       var o=lastRouteOverlay;
       if(!o) return;
       var project=rlProjector();
+      var obstacles=[];
       if(o.showRoute){
+        // Merge the crime badges first; the pills then move off them (the badges stay put).
+        var crimes=project ? mergeScreenClusters(o.rl.crimeClusters, project, RL_CRIME_MERGE_PX) : o.rl.crimeClusters;
         rlDrawCallouts(routeOverlayLayer, o.rl.callouts);
-        rlDrawCrime(routeOverlayLayer, project ? mergeScreenClusters(o.rl.crimeClusters, project, RL_CRIME_MERGE_PX) : o.rl.crimeClusters);
+        rlDrawCrime(routeOverlayLayer, crimes);
+        if(project) crimes.forEach(function(c){
+          var q=project(c.lat, c.lng);
+          if(q) obstacles.push({ x:q.x, y:q.y, r:(rlCrimeIsLarge(Math.floor(c.count))?${RL_CRIME_SIZE_LARGE}:${RL_CRIME_SIZE})/2 });
+        });
       }
-      rlDrawBadges(routeOverlayLayer, o.badges, project);
+      rlDrawBadges(routeOverlayLayer, o.badges, project, obstacles);
     }
 
     // zoomend/moveend: draw the overlay again once things settle, but only when the zoom actually changed.
