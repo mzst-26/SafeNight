@@ -22,6 +22,11 @@ module.exports = {
     'src/utils/lightingScore.ts',
     'src/services/openStreetMap.ts',
     'src/services/segmentScoring.ts',
+    // Route map layers and route comparison (safety v2).
+    'src/components/maps/routeLayers.ts',
+    'src/components/maps/inline/*.ts',
+    'src/utils/routeBadges.ts',
+    'src/utils/routeComparison.ts',
     '!**/*.d.ts',
   ],
   coverageDirectory: '<rootDir>/coverage/frontend',

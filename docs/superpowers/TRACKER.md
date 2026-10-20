@@ -21,27 +21,27 @@ Spec: `specs/2026-10-19-safety-scoring-v2-design.md`. Branch: `feat/safety-scori
 | ID | Task | Depends | Model | Status |
 |----|------|---------|-------|--------|
 | S1 | `darkness.js` + tests | P0.4 | H | review done: CHANGES (fix pass B) |
-| S2 | OSM context (landuse/buildings) = PHASE 2 optional; v1 fixes: keep tunnel tag, unit-aware maxspeed | P0.4 | H | deferred |
+| S2 | OSM context (landuse/buildings) = PHASE 2 optional; maxspeed units fixed in v2 | P0.4 | H | deferred (phase 2); geometry proximity used instead |
 | S3 | `lightingInference.js` + tests (tags only, v1) | none | H | review done: CHANGES (fix pass B) |
 | S4a | `crimeRisk.js` pure EB model + tests | none | H | review done: CHANGES (fix pass B) |
 | S4b | Crime aggregation job (osm-ingestion, 500 m cells, 12 months) + outage contract + client | S4a | H/S | todo |
 | S5 | `config.js`, `weights.js`, `edgeRisk.js` + property tests | none | H | review done: CHANGES (fix pass B) |
 | S6/S7 | `routeAggregate.js` (aggregate, exposure rank, reason) + tests | none | H | review done: CHANGES (fix pass A) |
-| S7b | Integration: wire modules into safetyGraph/formatter; fix riskVector inversion, maxspeed units, sidewalk unknown, dead-end double count | S1,S3,S4a,S5,S6 | S | todo |
-| S8 | A* uses edgeRisk; fix dead-end, open-state clock | S5 | H | todo |
-| S9 | Formatter/API additive fields, crime clustering + contract tests | S6,S7 | H | todo |
-| S10 | Integration tests `/safe-routes` | S8,S9 | H | todo |
+| S7b | Integration into graph/formatter; riskVector fixed, maxspeed units, sidewalk unknown, dead-end degree over all ways | S1,S3,S4a,S5,S6 | | done (I1/I2, refactored into services/graph/*) |
+| S8 | A* uses edgeRisk; fix dead-end, open-state clock | S5 | H | done |
+| S9 | Formatter/API additive fields, crime clustering + contract tests | S6,S7 | H | done |
+| S10 | Integration tests `/safe-routes` | S8,S9 | H | done |
 
 ## Phase 2: Map (frontend)
 
 | ID | Task | Depends | Model | Status |
 |----|------|---------|-------|--------|
-| M1 | `routeLayers` pure builder + tests | S9 contract | H | todo |
-| M2 | Web (Leaflet) renders layers; remove purple boxes/dots | M1 | H | todo |
-| M3 | Native (MapLibre) parity | M1 | H | todo |
-| M4 | Legend chip, worst-stretch callout, filter consistency | M2 | H | todo |
-| M5 | Route card shows reason/certainty (route data only) | S9 | H | todo |
-| M6 | Browser verification on :8084 + screenshots | M2-M5 | H | todo |
+| M1 | `routeLayers` pure builder + tests | S9 contract | H | done |
+| M2 | Web (Leaflet) renders layers; remove purple boxes/dots | M1 | H | done |
+| M3 | Native (MapLibre) parity | M1 | H | done |
+| M4 | Legend chip, worst-stretch callout, filter consistency | M2 | H | done |
+| M5 | Route card shows reason/certainty (route data only) | S9 | H | done |
+| M6 | Browser verification on :8084 + screenshots | M2-M5 | H | done |
 
 ## Phase 3: Review gates (per phase, then final)
 
@@ -82,7 +82,7 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 | EV | lighting leave-out + lamp-thinning backtests (backend/scripts/eval) | a4b09 | leave-out done (73 tests); thinning + Bristol pending; rerun after LI |
 | LI (done d6dd0fe) | lighting fix from backtest (sidewalk-vs-isolated footway by road proximity, priors, absence only for isolated paths, neighbour-lit separate) + coupled recalibration E/H + rerun EV | a1776 (SONNET: heavy, coupled, Haiku CAL only partly met targets) | doing |
 | VIS | BLOCKED (permission): visual verification on :8084 needs the user's dev server restarted from the worktree; classifier denied killing pid 72040. Browser restricted to :8084 by owner. Needs owner decision. Original: Visual verification on :8084 (stop user dev server, serve worktree with SAFETY url -> :3012, then RESTORE original `npx expo start` in main checkout) | brain | todo after CAL |
-| S4b | multi-month crime history (background-enrich, bounded) | | stretch, decide after VIS |
+| S4b | multi-month crime history (background-enrich, bounded) | | not done: v2 uses the latest Police month (recency anchored on newest data month); precompute job is future work |
 
 ## A/B result (Frogmore -> Thurlestone, 22:00, local service)
 
@@ -96,7 +96,7 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 - Real-route check after LI (service :3012): 66/62/58 all 'Safe'; recommended route has the smallest weak stretch (137 m vs 564/733 m).
 - Tests: backend 1009 (89 suites) x3 green; frontend 316 green; tsc clean.
 
-## Final gate round (HEAD 59ca2ea)
+## Final gate round 1 (HEAD 59ca2ea, superseded)
 
 | Gate | Agent | Verdict |
 |------|-------|---------|
@@ -108,6 +108,18 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 
 Fix round 3 done: FX-B (waypoint/area/A*/crime key), FX-L (ramp, filters, route badges, a11y), FX-W (web), FX-N (native). Brain fixes: ramp re-chosen (#26998E..#370412, search by OKLCH lightness, CVD >=10.2), backend ramp synced and test reads frontend source; MAX_SEARCH_BBOX_KM2 400 -> 900 (premium 20 km trips); known pre-existing HTTP flakiness on main under load (6 unrelated failures seen on main too).
 Owner-visible blockers: VIS needs permission to restart :8084 dev server from the worktree.
+
+## Final gate round 2 (HEAD after 7c1563d + coverage config)
+
+v1 removed, graph extracted to services/graph/* (17 files, golden-snapshot proven identical), ranking exponent 0.5 + cap 2.0x, request/cache/security fixes, shared inline map modules, UX fixes. Backend 1298 tests x3 green, frontend 468 green, tsc clean.
+
+| Gate | Agent | Verdict |
+|------|-------|---------|
+| R1 correctness | | running |
+| R3 security | | running |
+| R4 quality | | running |
+| R5 tests | | running |
+| R6/R7 UX+parity | | running |
 
 ## Review log (round Phase-1a, commit 4515237)
 
