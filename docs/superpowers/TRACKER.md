@@ -96,6 +96,19 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 - Real-route check after LI (service :3012): 66/62/58 all 'Safe'; recommended route has the smallest weak stretch (137 m vs 564/733 m).
 - Tests: backend 1009 (89 suites) x3 green; frontend 316 green; tsc clean.
 
+## Final gate round (HEAD 59ca2ea)
+
+| Gate | Agent | Verdict |
+|------|-------|---------|
+| R1 correctness (integration/e2e) | ae0d2 | running |
+| R3 security re-check | a902d | running |
+| R4 quality (full diff) | a4166 | running |
+| R5 tests (mutation, coverage) | a17ab | running |
+| R6/R7 UX + parity | ac1ac | running |
+
+Fix round 3 done: FX-B (waypoint/area/A*/crime key), FX-L (ramp, filters, route badges, a11y), FX-W (web), FX-N (native). Brain fixes: ramp re-chosen (#26998E..#370412, search by OKLCH lightness, CVD >=10.2), backend ramp synced and test reads frontend source; MAX_SEARCH_BBOX_KM2 400 -> 900 (premium 20 km trips); known pre-existing HTTP flakiness on main under load (6 unrelated failures seen on main too).
+Owner-visible blockers: VIS needs permission to restart :8084 dev server from the worktree.
+
 ## Review log (round Phase-1a, commit 4515237)
 
 - R1 a188c: CHANGES: NaN/range validation, null-factor-as-good (decision: neutral prior n=0), rankRoutes shortest kept, tag normalisation, maxspeed list.
