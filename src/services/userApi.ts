@@ -11,6 +11,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { env } from '../config/env';
 import { emitLimitReached, LimitError, parseLimitResponse } from '../types/limitError';
+import { SAVED_PLACES_STORAGE_KEY } from './storageKeys';
 
 const BASE = env.userApiUrl;
 
@@ -23,6 +24,9 @@ const AUTH_KEYS = {
 };
 
 const SUBSCRIPTION_CACHE_KEY = 'safenight_subscription_limits_cache_v1';
+const PENDING_PUSH_TOKEN_KEY = 'safenight_pending_push_token';
+/** Waits before the 2nd and 3rd push-registration attempts */
+const PUSH_RETRY_DELAYS_MS = [2_000, 5_000];
 const SUBSCRIPTION_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 
 type CachedFeature = {
@@ -45,6 +49,13 @@ type SubscriptionSnapshot = {
 
 let subscriptionSnapshotMemory: SubscriptionSnapshot | null = null;
 let subscriptionHydrationPromise: Promise<SubscriptionSnapshot | null> | null = null;
+
+/**
+ * Bumped by clearSession (logout, account deletion, expiry). Async work that
+ * started under an earlier session compares against it before writing tokens
+ * or retrying, so nothing from the old session lands in storage afterwards.
+ */
+let sessionEpoch = 0;
 
 // ─── Session event system ────────────────────────────────────────────────────
 
@@ -99,9 +110,18 @@ async function storeSession(session: {
 }
 
 async function clearSession(): Promise<void> {
-  await AsyncStorage.multiRemove([...Object.values(AUTH_KEYS), SUBSCRIPTION_CACHE_KEY]);
+  sessionEpoch += 1;
+  // AUTH_KEYS includes the user email; saved places are per user, so clear them too
+  await AsyncStorage.multiRemove([
+    ...Object.values(AUTH_KEYS),
+    SUBSCRIPTION_CACHE_KEY,
+    SAVED_PLACES_STORAGE_KEY,
+    PENDING_PUSH_TOKEN_KEY,
+  ]);
   subscriptionSnapshotMemory = null;
   subscriptionHydrationPromise = null;
+  // Drop the sendBeacon token cache so the token outlives the session nowhere
+  delete (globalThis as any).__safenight_access_token;
 }
 
 async function loadSubscriptionSnapshotFromStorage(): Promise<SubscriptionSnapshot | null> {
@@ -209,41 +229,71 @@ export async function refreshIfNeeded(bufferMs = 2 * 60 * 1000): Promise<boolean
 
   if (Date.now() + bufferMs < expiresAt) return true;  // still fresh
 
-  const refreshToken = await AsyncStorage.getItem(AUTH_KEYS.refreshToken);
-  if (!refreshToken) {
-    // No refresh token — check if access token is actually expired
-    if (Date.now() < expiresAt) return true; // token still valid, just can't refresh
-    await clearSession();
-    emitSessionEvent('expired');
-    return false;
-  }
+  const outcome = await refreshSession();
+  if (outcome.status === 'refreshed') return true;
 
+  // Refresh could not run or failed transiently: the stored session is kept.
+  // The access token may still be usable.
+  if (Date.now() < expiresAt) return true;
+  if (outcome.status === 'unavailable') return false;
+
+  // Refresh rejected (400/401) and the token is truly expired — session is dead
+  await clearSession();
+  emitSessionEvent('expired');
+  return false;
+}
+
+// ─── Shared token refresh ────────────────────────────────────────────────────
+
+type RefreshOutcome =
+  | { status: 'refreshed'; accessToken: string }
+  /** Server rejected the refresh token (400/401) or none is stored: session is dead */
+  | { status: 'rejected' }
+  /** Network error, timeout or 5xx/other: keep the stored session */
+  | { status: 'unavailable' };
+
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+/**
+ * Single refresh shared by authFetch and refreshIfNeeded. Parallel callers get
+ * the same in-flight promise, so the server sees one refresh per rotation.
+ */
+function refreshSession(): Promise<RefreshOutcome> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function doRefresh(): Promise<RefreshOutcome> {
+  const epoch = sessionEpoch;
+  const refreshToken = await AsyncStorage.getItem(AUTH_KEYS.refreshToken);
+  if (!refreshToken) return { status: 'rejected' };
+
+  let res: Response;
   try {
-    const res = await fetch(`${BASE}/api/auth/refresh`, {
+    res = await fetchWithTimeout(`${BASE}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
-
-    if (res.ok) {
-      const data = await res.json();
-      await storeSession(data);
-      emitSessionEvent('refreshed');
-      return true;
-    }
   } catch {
-    // Network error — if the token hasn't actually expired yet, stay logged in
-    if (Date.now() < expiresAt) return true;
-    return false;
+    return { status: 'unavailable' };
   }
 
-  // Refresh failed with a 4xx — check if access token is still usable
-  if (Date.now() < expiresAt) return true;
+  if (res.ok) {
+    const data = await res.json();
+    // Logged out while this refresh was in flight: drop the new tokens unwritten
+    if (epoch !== sessionEpoch) return { status: 'unavailable' };
+    await storeSession(data);
+    emitSessionEvent('refreshed');
+    return { status: 'refreshed', accessToken: data.access_token };
+  }
 
-  // Token is truly expired and refresh failed — session is dead
-  await clearSession();
-  emitSessionEvent('expired');
-  return false;
+  if (res.status === 400 || res.status === 401) return { status: 'rejected' };
+  return { status: 'unavailable' };
 }
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
@@ -281,37 +331,24 @@ async function authFetch(
     },
   });
 
-  // If 401, try refreshing the token once
+  // If 401, refresh once (shared with any parallel request) and retry
   if (res.status === 401 && token) {
-    const refreshToken = await AsyncStorage.getItem(AUTH_KEYS.refreshToken);
-    if (refreshToken) {
-      const refreshRes = await fetchWithTimeout(`${BASE}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+    const outcome = await refreshSession();
+
+    if (outcome.status === 'refreshed') {
+      // Retry original request with new token
+      return fetchWithTimeout(`${BASE}${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${outcome.accessToken}`,
+          ...(options.headers || {}),
+        },
       });
+    }
 
-      if (refreshRes.ok) {
-        const data = await refreshRes.json();
-        await storeSession(data);
-        emitSessionEvent('refreshed');
-
-        // Retry original request with new token
-        return fetchWithTimeout(`${BASE}${path}`, {
-          ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${data.access_token}`,
-            ...(options.headers || {}),
-          },
-        });
-      } else {
-        // Refresh failed — clear session and notify listeners
-        await clearSession();
-        emitSessionEvent('expired');
-      }
-    } else {
-      // No refresh token — session is dead
+    // Only a rejected refresh ends the session; network/5xx keep it
+    if (outcome.status === 'rejected') {
       await clearSession();
       emitSessionEvent('expired');
     }
@@ -500,8 +537,26 @@ export const authApi = {
       try {
         const res = await authFetch('/api/auth/me');
         if (res.ok) return res.json();
-        if (res.status === 401) return null; // genuinely unauthorized
-        // Server error (5xx) — fall through to retry
+        if (res.status === 401) {
+          // Refresh through the shared single-flight path. Only a rejected
+          // refresh (400/401) ends the session; 5xx and network errors keep it.
+          const outcome = await refreshSession();
+          if (outcome.status === 'rejected') {
+            await clearSession();
+            emitSessionEvent('expired');
+            return null;
+          }
+          // Refreshed: the next attempt uses the new token. Unavailable: retry later.
+        }
+        if (res.status === 403) {
+          const body = await res.json().catch(() => null);
+          if (body?.error === 'account_disabled') {
+            await clearSession();
+            emitSessionEvent('expired');
+            return null;
+          }
+        }
+        // Other errors (5xx etc.) — keep the session and fall through to retry
       } catch {
         // Network error (incl. AbortError from timeout) — fall through to retry
       }
@@ -967,14 +1022,16 @@ export const liveApi = {
   },
 
   /** Update location during active session */
+  /** Throws on network errors and non-OK responses (error.status is set for HTTP errors) */
   async updateLocation(lat: number, lng: number): Promise<void> {
-    try {
-      await authFetch('/api/live/update', {
-        method: 'POST',
-        body: JSON.stringify({ current_lat: lat, current_lng: lng }),
+    const res = await authFetch('/api/live/update', {
+      method: 'POST',
+      body: JSON.stringify({ current_lat: lat, current_lng: lng }),
+    });
+    if (!res.ok) {
+      throw Object.assign(new Error(`Location update failed (${res.status})`), {
+        status: res.status,
       });
-    } catch {
-      // Silently fail — location updates should not block the user
     }
   },
 
@@ -1030,16 +1087,39 @@ export const liveApi = {
     }
   },
 
-  /** Register Expo push token with the server */
+  /**
+   * Register Expo push token with the server. Up to 3 attempts with backoff.
+   * If all fail, the token stays pending and flushPendingPushToken re-sends it.
+   */
   async registerPushToken(pushToken: string): Promise<void> {
-    try {
-      await authFetch('/api/auth/update-profile', {
-        method: 'POST',
-        body: JSON.stringify({ push_token: pushToken }),
-      });
-    } catch {
-      // Silently fail
+    // Retries belong to the session that started them: after logout or a switch
+    // of user, the token must not be sent under the new session.
+    const epoch = sessionEpoch;
+    await AsyncStorage.setItem(PENDING_PUSH_TOKEN_KEY, pushToken);
+    for (let attempt = 0; attempt <= PUSH_RETRY_DELAYS_MS.length; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, PUSH_RETRY_DELAYS_MS[attempt - 1]));
+      }
+      if (epoch !== sessionEpoch) return;
+      try {
+        const res = await authFetch('/api/auth/update-profile', {
+          method: 'POST',
+          body: JSON.stringify({ push_token: pushToken }),
+        });
+        if (res.ok) {
+          await AsyncStorage.removeItem(PENDING_PUSH_TOKEN_KEY);
+          return;
+        }
+      } catch {
+        // Network error — try again after the next delay
+      }
     }
+  },
+
+  /** Re-send a push token that could not be registered earlier (call on app foreground) */
+  async flushPendingPushToken(): Promise<void> {
+    const token = await AsyncStorage.getItem(PENDING_PUSH_TOKEN_KEY);
+    if (token) await this.registerPushToken(token);
   },
 };
 
@@ -1170,14 +1250,17 @@ export const subscriptionApi = {
 
     const feat = snapshot.features[feature];
     if (!feat) {
+      // Unknown to this snapshot: never allow silently. Drop the cache so the
+      // next check re-hydrates the feature list.
+      await this.clearCache();
       return {
         feature,
         tier: snapshot.tier,
-        allowed: true,
-        limit: -1,
+        allowed: false,
+        limit: 0,
         used: 0,
-        remaining: -1,
-        unlimited: true,
+        remaining: 0,
+        reason: 'rehydrate_required',
       };
     }
 

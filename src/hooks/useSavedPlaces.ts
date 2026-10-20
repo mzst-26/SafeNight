@@ -9,8 +9,9 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
+import { SAVED_PLACES_STORAGE_KEY } from '../services/storageKeys';
 
-const STORAGE_KEY = '@safenight_saved_places';
+const STORAGE_KEY = SAVED_PLACES_STORAGE_KEY;
 
 export interface SavedPlace {
   id: string;

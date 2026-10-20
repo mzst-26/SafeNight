@@ -205,13 +205,19 @@ export function useAuth() {
   });
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by every schedule and every cancel, so a schedule that is still
+  // awaiting getTokenExpiresAt drops its timer instead of orphaning it.
+  const scheduleGeneration = useRef(0);
 
   // ─── Schedule proactive token refresh ──────────────────────────────────────
 
   const scheduleRefresh = useCallback(async () => {
+    const generation = ++scheduleGeneration.current;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = null;
 
     const expiresAt = await getTokenExpiresAt();
+    if (generation !== scheduleGeneration.current) return; // superseded or cancelled
     if (!expiresAt) return;
 
     // Refresh 2 minutes before expiry, minimum 10s from now
@@ -224,6 +230,12 @@ export function useAuth() {
       }
       // If not ok, the session event listener below handles logout
     }, refreshIn);
+  }, []);
+
+  const cancelScheduledRefresh = useCallback(() => {
+    scheduleGeneration.current += 1;
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = null;
   }, []);
 
   // ─── Load session (de-duplicated across all instances) ─────────────────────
@@ -252,18 +264,22 @@ export function useAuth() {
     loadSession();
   }, [loadSession]);
 
-  // ─── Retry profile load before auto-logout ────────────────────────────────
-  // If the session is valid but the profile can't be loaded (e.g. Render.com
-  // cold start can take 30–60 s), retry up to 3 times with backoff before
-  // giving up and forcing a logout.
+  // ─── Retry profile load while reconnecting ────────────────────────────────
+  // A valid session whose profile can't be loaded (e.g. Render.com cold start
+  // can take 30-60 s) is kept and shown as "reconnecting". The profile is
+  // retried with backoff. There is no timed logout: logout only happens on an
+  // explicit 401 or a 403 account_disabled (handled in userApi.getProfile
+  // through the session events below).
 
   const profileRetryCount = useRef(0);
   const PROFILE_RETRY_DELAYS = [5_000, 12_000, 25_000];
 
   useEffect(() => {
     if (!state.profileFetchFailed) {
-      // Reset the counter whenever we are in a good state
-      profileRetryCount.current = 0;
+      // Reset only on a settled state (profile loaded or logged out). The retry
+      // timer itself flips profileFetchFailed to false while it reloads, and that
+      // must not restart the ladder.
+      if (state.user || !state.isLoggedIn) profileRetryCount.current = 0;
       return;
     }
 
@@ -288,33 +304,16 @@ export function useAuth() {
       return () => clearTimeout(timer);
     }
 
-    // All retries exhausted — only NOW trigger the actual auto-logout
-    const timer = setTimeout(async () => {
-      console.warn(
-        "[auth] Auto-logout triggered — profile could not be loaded after retries",
-      );
-      profileRetryCount.current = 0;
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      await authApi.logout();
-      setState({
-        isLoggedIn: false,
-        isLoading: false,
-        profileFetchFailed: false,
-        user: null,
-        error: null,
-      });
-    }, 3_000);
-
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.profileFetchFailed]);
+    // Retries exhausted: keep the session and stay reconnecting (no logout)
+    console.warn("[auth] Profile still unavailable after retries — reconnecting, session kept");
+  }, [state.profileFetchFailed, state.user, state.isLoggedIn, loadSession]);
 
   // ─── Listen for session events from userApi ────────────────────────────────
 
   useEffect(() => {
     const unsub = onSessionChange((event) => {
       if (event === "expired" || event === "logged_out") {
-        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        cancelScheduledRefresh();
         setState({
           isLoggedIn: false,
           isLoading: false,
@@ -332,7 +331,7 @@ export function useAuth() {
       }
     });
     return unsub;
-  }, [scheduleRefresh, loadSession]);
+  }, [scheduleRefresh, loadSession, cancelScheduledRefresh]);
 
   // ─── Revalidate on app foreground (phone) / tab focus (web) ────────────────
 
@@ -370,9 +369,9 @@ export function useAuth() {
 
   useEffect(() => {
     return () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      cancelScheduledRefresh();
     };
-  }, []);
+  }, [cancelScheduledRefresh]);
 
   // ─── Auth actions ──────────────────────────────────────────────────────────
 
@@ -580,7 +579,7 @@ export function useAuth() {
   );
 
   const logout = useCallback(async () => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    cancelScheduledRefresh();
     await authApi.logout();
     setState({
       isLoggedIn: false,
@@ -589,7 +588,7 @@ export function useAuth() {
       user: null,
       error: null,
     });
-  }, []);
+  }, [cancelScheduledRefresh]);
 
   const updateName = useCallback(async (name: string): Promise<boolean> => {
     try {
@@ -707,6 +706,8 @@ export function useAuth() {
 
   return {
     ...state,
+    /** Session is kept but the profile is not loaded yet (retrying) */
+    reconnecting: state.profileFetchFailed,
     checkAuthOptions,
     sendMagicLink,
     signInWithPassword,
