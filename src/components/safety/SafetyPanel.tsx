@@ -77,9 +77,9 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
       {/* 2×2 grid */}
       <View style={styles.grid}>
         <GridCard icon="warning-outline" value={crimeValue} label="Crimes" color="#ef4444" onPress={() => onCategoryPress?.('crime')} valueAccessibilityLabel={crimeUnavailable ? CRIME_UNAVAILABLE_LABEL : undefined} />
-        <GridCard icon="bulb-outline" value={safetyResult.streetLights} label="Lights" color="#eab308" onPress={() => onCategoryPress?.('light')} />
+        <GridCard icon="bulb-outline" value={safetyResult.streetLights} label="Lights" color="#eab308" valueColor="#A15C07" onPress={() => onCategoryPress?.('light')} />
         <GridCard icon="videocam-outline" value={safetyResult.cctvCount} label="CCTV" color="#6366f1" onPress={() => onCategoryPress?.('cctv')} />
-        <GridCard icon="storefront-outline" value={safetyResult.openPlaces} label="Open" color="#22c55e" onPress={() => onCategoryPress?.('shop')} />
+        <GridCard icon="storefront-outline" value={safetyResult.openPlaces} label="Open" color="#22c55e" valueColor="#15803D" onPress={() => onCategoryPress?.('shop')} />
       </View>
 
       {/* Detailed route stats */}
@@ -117,7 +117,7 @@ export function SafetyPanel({ safetyResult, selectedSafeRoute, onCategoryPress, 
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function GridCard({ icon, value, label, color, onPress, valueAccessibilityLabel }: { icon: IconName; value: number | string; label: string; color: string; onPress?: () => void; valueAccessibilityLabel?: string }) {
+function GridCard({ icon, value, label, color, valueColor, onPress, valueAccessibilityLabel }: { icon: IconName; value: number | string; label: string; color: string; /** Text colour for the value, where the accent colour is too light to read as text. */ valueColor?: string; onPress?: () => void; valueAccessibilityLabel?: string }) {
   return (
     <Pressable
       style={[styles.gridCard, { borderColor: color + '44' }]}
@@ -129,7 +129,7 @@ function GridCard({ icon, value, label, color, onPress, valueAccessibilityLabel 
         <Ionicons name={icon} size={18} color={color} />
       </View>
       <View>
-        <Text style={[styles.gridValue, { color }]} accessibilityLabel={valueAccessibilityLabel}>{value}</Text>
+        <Text style={[styles.gridValue, { color: valueColor ?? color }]} accessibilityLabel={valueAccessibilityLabel}>{value}</Text>
         <Text style={styles.gridLabel}>{label}</Text>
       </View>
     </Pressable>
@@ -140,7 +140,7 @@ function DetailCard({ icon, value, label, warn }: { icon: IconName; value: strin
   return (
     <View style={[styles.detailCard, warn && styles.detailCardWarning]}>
       <Ionicons name={icon} size={18} color={warn ? '#c2410c' : '#1570ef'} style={styles.detailIcon} />
-      <Text style={[styles.detailValue, warn && { color: '#f97316' }]}>{value}</Text>
+      <Text style={[styles.detailValue, warn && { color: '#C2410C' }]}>{value}</Text>
       <Text style={styles.detailLabel}>{label}</Text>
     </View>
   );
@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   gridLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#667085',
   },
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
     color: '#1e293b',
   },
   detailLabel: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '600',
     color: '#64748b',
     textAlign: 'center',
@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   roadTypeTitle: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     color: '#334155',
     marginBottom: 6,

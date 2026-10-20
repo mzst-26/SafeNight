@@ -31,7 +31,7 @@ function isScoringV2Enabled() {
 
 // Six-step risk ramp, index 0 = lowest risk. Must match RISK_RAMP in
 // src/components/maps/routeLayers.ts (the frontend test pins the same values).
-const RISK_RAMP = ["#B9E3D9", "#6FBFB2", "#C9A24B", "#B5621E", "#7E2E12", "#3D1206"];
+const RISK_RAMP = ["#26998E", "#617933", "#715200", "#693000", "#55120B", "#370412"];
 const UNKNOWN_RISK_COLOR = "#8A8F98";
 
 const CRIME_CLUSTER_CELL_M = 120;

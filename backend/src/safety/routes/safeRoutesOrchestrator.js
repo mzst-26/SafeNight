@@ -1,3 +1,14 @@
+// Total size of cached route responses (estimated as their JSON length). Oldest entries go first.
+const MAX_ROUTE_CACHE_BYTES = 64 * 1024 * 1024;
+
+function estimateJsonBytes(data) {
+  try {
+    return JSON.stringify(data).length;
+  } catch {
+    return 0;
+  }
+}
+
 function createSafeRoutesOrchestrator({
   computeSafeRoutes,
   estimateRequestLoadUnits,
@@ -6,9 +17,30 @@ function createSafeRoutesOrchestrator({
   formatWaitMmSs,
   cacheTtlMs = 5 * 60 * 1000,
   maxCacheEntries = 100,
+  maxCacheBytes = MAX_ROUTE_CACHE_BYTES,
 }) {
   const routeCache = new Map();
+  let routeCacheBytes = 0;
   const inflight = new Map();
+
+  function cacheDelete(key) {
+    const entry = routeCache.get(key);
+    if (!entry) return;
+    routeCacheBytes -= entry.bytes;
+    routeCache.delete(key);
+  }
+
+  // Map iterates in insertion order, so the first keys are the oldest. The entry just stored is never evicted.
+  function cacheSet(key, data) {
+    cacheDelete(key);
+    const bytes = estimateJsonBytes(data);
+    routeCache.set(key, { data, timestamp: Date.now(), bytes });
+    routeCacheBytes += bytes;
+    for (const oldestKey of routeCache.keys()) {
+      if (routeCacheBytes <= maxCacheBytes || oldestKey === key) break;
+      cacheDelete(oldestKey);
+    }
+  }
 
   function getResponsePolicyKey(responsePolicy) {
     const verbosity = responsePolicy?.verbosity === "compact" ? "compact" : "full";
@@ -27,7 +59,8 @@ function createSafeRoutesOrchestrator({
   }
 
   // Standard and extra results differ, so the safety level is part of the key.
-  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel = "extra") {
+  // The response echoes maxDistanceKm in its meta, so it is part of the key too.
+  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel = "extra", maxDistanceKm = null) {
     const r = (v) => Math.round(v * 1000) / 1000;
     const base = `${r(oLat)},${r(oLng)}->${r(dLat)},${r(dLng)}`;
     const routeKey = wpLat != null && wpLng != null
@@ -35,8 +68,9 @@ function createSafeRoutesOrchestrator({
       : base;
     const dhPart = departureHour != null ? `h${departureHour}` : '';
     const hazardPart = allowHazards ? 'H' : '';
+    const maxPart = maxDistanceKm != null ? `m${maxDistanceKm}` : '';
 
-    return `${routeKey}${dhPart}${hazardPart}|${safetyLevel}#${getResponsePolicyKey(responsePolicy)}`;
+    return `${routeKey}${dhPart}${hazardPart}${maxPart}|${safetyLevel}#${getResponsePolicyKey(responsePolicy)}`;
   }
 
   function emitInflightProgress(entry, phase, message, pct) {
@@ -55,7 +89,7 @@ function createSafeRoutesOrchestrator({
     if (routeCache.size <= maxCacheEntries) return;
     const now = Date.now();
     for (const [key, val] of routeCache) {
-      if (now - val.timestamp > cacheTtlMs) routeCache.delete(key);
+      if (now - val.timestamp > cacheTtlMs) cacheDelete(key);
     }
   }
 
@@ -88,6 +122,7 @@ function createSafeRoutesOrchestrator({
       departureHour,
       allowHazards,
       safetyLevel,
+      maxDistanceKm,
     );
     const cached = routeCache.get(cacheKey);
 
@@ -231,7 +266,7 @@ function createSafeRoutesOrchestrator({
         });
       }
 
-      routeCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      cacheSet(cacheKey, result);
       return { result, source: "computed" };
     } finally {
       inflight.delete(cacheKey);
@@ -250,8 +285,9 @@ function createSafeRoutesOrchestrator({
     departureHour,
     allowHazards,
     safetyLevel = "extra",
+    maxDistanceKm = null,
   }) {
-    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel);
+    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel, maxDistanceKm);
     return inflight.has(key);
   }
 
@@ -263,4 +299,5 @@ function createSafeRoutesOrchestrator({
 
 module.exports = {
   createSafeRoutesOrchestrator,
+  MAX_ROUTE_CACHE_BYTES,
 };

@@ -74,6 +74,29 @@ function throwIfCancelled(shouldCancel) {
   }
 }
 
+// Expansion budget for one safest-path search (aStarSafety, and all candidate searches of findKSafestRoutes).
+// Exceeding it is reported as a path-not-found, the same answer as a search that finds no route.
+const MAX_ASTAR_EXPANSIONS = 3_000_000;
+// The A* loops check for cancellation every 1024 heap pops.
+const ASTAR_CANCEL_CHECK_MASK = 1023;
+
+function createRouteBudgetError() {
+  return Object.assign(
+    new Error('This trip is too long to search in one go. Try a closer destination or a smaller detour.'),
+    { statusCode: 404, code: 'NO_ROUTE_FOUND' },
+  );
+}
+
+/** Shared counters for one search. findKSafestRoutes passes one budget to all of its A* calls. */
+function createSearchBudget(options = {}) {
+  return {
+    maxExpansions: Number.isFinite(options.maxExpansions) ? options.maxExpansions : MAX_ASTAR_EXPANSIONS,
+    shouldCancel: typeof options.shouldCancel === 'function' ? options.shouldCancel : null,
+    pops: 0,
+    expansions: 0,
+  };
+}
+
 // ── Road hierarchy scoring ──────────────────────────────────────────────────
 const ROAD_TYPE_SCORES = {
   trunk: 0.90,
@@ -1141,11 +1164,21 @@ function aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM, optio
   const heap = new MinHeap();
   heap.push(startId, h0);
 
+  // Shared across candidate searches when called from findKSafestRoutes; a standalone call gets its own.
+  const budget = options.budget || createSearchBudget(options);
+
   while (heap.size > 0) {
     const { id: current } = heap.pop();
 
+    budget.pops += 1;
+    if ((budget.pops & ASTAR_CANCEL_CHECK_MASK) === 0) {
+      throwIfCancelled(budget.shouldCancel);
+    }
+
     if (closed.has(current)) continue;
     closed.add(current);
+    budget.expansions += 1;
+    if (budget.expansions > budget.maxExpansions) throw createRouteBudgetError();
 
     if (current === endId) break;
 
@@ -1227,29 +1260,36 @@ function aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM, optio
 function findKSafestRoutes(osmNodes, edges, adjacency, startId, endId, maxDistM, k = 5, options = {}) {
   const routes = [];
   const penaltyIncrement = 0.15;
+  // One budget for all k+3 candidate searches, so the cost of this call is bounded as a whole.
+  const budget = createSearchBudget(options);
+  const searchOptions = { ...options, budget };
 
   for (const e of edges) e.penalty = 0;
 
-  for (let i = 0; i < k + 3; i++) {
-    const route = aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM, options);
-    if (!route) break;
+  try {
+    for (let i = 0; i < k + 3; i++) {
+      throwIfCancelled(budget.shouldCancel);
+      const route = aStarSafety(osmNodes, edges, adjacency, startId, endId, maxDistM, searchOptions);
+      if (!route) break;
 
-    const isDuplicate = routes.some((existing) => {
-      const overlap = countEdgeOverlap(existing.edges, route.edges);
-      return overlap > 0.85;
-    });
+      const isDuplicate = routes.some((existing) => {
+        const overlap = countEdgeOverlap(existing.edges, route.edges);
+        return overlap > 0.85;
+      });
 
-    if (!isDuplicate) {
-      routes.push(route);
-      if (routes.length >= k) break;
+      if (!isDuplicate) {
+        routes.push(route);
+        if (routes.length >= k) break;
+      }
+
+      for (const eIdx of route.edges) {
+        edges[eIdx].penalty += penaltyIncrement;
+      }
     }
-
-    for (const eIdx of route.edges) {
-      edges[eIdx].penalty += penaltyIncrement;
-    }
+  } finally {
+    // Penalties belong to this call only. They are cleared on a throw too (cancel or budget).
+    for (const e of edges) e.penalty = 0;
   }
-
-  for (const e of edges) e.penalty = 0;
   if (useV2()) return rankRoutesByExposure(routes, edges);
   routes.sort((a, b) => b.avgSafety - a.avgSafety);
   return routes;
@@ -1653,6 +1693,7 @@ module.exports = {
   findNearestNode,
   aStarSafety,
   findKSafestRoutes,
+  MAX_ASTAR_EXPANSIONS,
   routeToPolyline,
   routeSafetyBreakdown,
   getV1Weights,

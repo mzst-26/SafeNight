@@ -86,8 +86,9 @@ export function RouteCard({
     isV2 && !isBest && comparison && recommendedComparison
       ? formatRouteDelta(comparison, recommendedComparison)
       : null;
+  // Same 0.4 cut-off the map uses to draw a segment dashed (routeLayers.ts DASHED_CERTAINTY_BELOW).
   const showEstimated =
-    (isFiniteNumber(safety.certainty) && safety.certainty < 0.5) ||
+    (isFiniteNumber(safety.certainty) && safety.certainty < 0.4) ||
     safety.dataQuality?.lighting === "estimated";
 
   // Collapse whenever the card is deselected
@@ -234,15 +235,15 @@ const styles = StyleSheet.create({
     color: "#16a34a",
   },
   bestBadge: {
-    backgroundColor: "#dcfce7",
+    backgroundColor: "#DCFCE7",
     borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   bestBadgeText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "700",
-    color: "#16a34a",
+    color: "#047857",
   },
   estimatedChip: {
     backgroundColor: "#f2f4f7",

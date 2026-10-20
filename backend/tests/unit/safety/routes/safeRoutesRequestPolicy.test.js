@@ -6,7 +6,11 @@ const {
   RESPONSE_VERBOSITY_COMPACT,
   FULL_MODE_POI_CAPS,
   COMPACT_MODE_POI_CAPS,
+  POI_CAP_MAX,
+  MAX_SEARCH_BBOX_KM2,
+  searchBboxAreaKm2,
 } = require('../../../../src/safety/routes/safeRoutesRequestPolicy');
+const { haversine } = require('../../../../src/safety/services/geo');
 
 function makeReq(query = {}) {
   return {
@@ -214,28 +218,134 @@ describe('safeRoutesRequestPolicy', () => {
       const result = parse({ poi_cap: 'Infinity' });
 
       expect(Number.isFinite(result.value.responsePolicy.poiCaps.cctv)).toBe(true);
-      expect(result.value.responsePolicy.poiCaps.cctv).toBeLessThanOrEqual(5000);
+      expect(result.value.responsePolicy.poiCaps.cctv).toBeLessThanOrEqual(POI_CAP_MAX);
       expect(result.value.responsePolicy.poiCaps.cctv).toBeGreaterThan(0);
+    });
+
+    test('the server-side POI cap ceiling is 500', () => {
+      expect(POI_CAP_MAX).toBe(500);
+    });
+
+    test('an explicit poi_cap above the ceiling is clamped to 500', () => {
+      const result = parse({ poi_cap: '5000' });
+
+      expect(result.value.responsePolicy.poiCaps.cctv).toBe(500);
+      expect(result.value.responsePolicy.poiCaps.crimes).toBe(500);
     });
 
     test('per-category poi_cap_crimes of Infinity is clamped too', () => {
       const result = parse({ poi_cap_crimes: 'Infinity' });
 
       expect(Number.isFinite(result.value.responsePolicy.poiCaps.crimes)).toBe(true);
-      expect(result.value.responsePolicy.poiCaps.crimes).toBeLessThanOrEqual(5000);
+      expect(result.value.responsePolicy.poiCaps.crimes).toBeLessThanOrEqual(POI_CAP_MAX);
     });
 
     test('the uncapped keywords are clamped to the server maximum as well', () => {
       const result = parse({ poi_cap: 'uncapped' });
 
       expect(Number.isFinite(result.value.responsePolicy.poiCaps.places)).toBe(true);
-      expect(result.value.responsePolicy.poiCaps.places).toBeLessThanOrEqual(5000);
+      expect(result.value.responsePolicy.poiCaps.places).toBeLessThanOrEqual(POI_CAP_MAX);
     });
 
     test('a NaN poi_cap falls back to the default cap', () => {
       const result = parse({ poi_cap: 'abc' });
 
       expect(result.value.responsePolicy.poiCaps).toEqual(FULL_MODE_POI_CAPS);
+    });
+  });
+
+  describe('waypoint detour and search area limits', () => {
+    // Real haversine: the policy's distance checks must use true metres, not the stub used above.
+    const ROUTE = {
+      origin_lat: '51.50',
+      origin_lng: '-0.12',
+      dest_lat: '51.51',
+      dest_lng: '-0.11',
+    };
+    const parseReal = (overrides = {}) =>
+      parseRouteRequest(makeReq({ ...ROUTE, ...overrides }), 20, haversine);
+
+    test('PoC: a waypoint on the far side of Europe is rejected as INVALID_WAYPOINT', () => {
+      const result = parseReal({ waypoint_lat: '51.5', waypoint_lng: '4.5' });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('INVALID_WAYPOINT');
+      expect(typeof result.message).toBe('string');
+    });
+
+    test('a waypoint whose detour exceeds 2.5x the straight line is rejected', () => {
+      // About 3.3 km north of the origin; the detour is roughly 5.6 km against a 1.3 km straight line.
+      const result = parseReal({ waypoint_lat: '51.53', waypoint_lng: '-0.12' });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('INVALID_WAYPOINT');
+    });
+
+    test('a waypoint close to the straight line is accepted', () => {
+      const result = parseReal({ waypoint_lat: '51.505', waypoint_lng: '-0.115' });
+
+      expect(result.ok).toBe(true);
+      expect(result.value.wpLat).toBe(51.505);
+      expect(result.value.wpLng).toBe(-0.115);
+    });
+
+    test('the detour is capped at maxDistanceKm: a waypoint within 2.5x but over max_distance is rejected', () => {
+      // Detour about 3.0 km: inside 2.5x the 1.3 km straight line (3.3 km) but over a 2 km limit.
+      const waypoint = { waypoint_lat: '51.5175', waypoint_lng: '-0.12' };
+
+      expect(parseReal(waypoint).ok).toBe(true);
+      const limited = parseReal({ ...waypoint, max_distance: '2' });
+      expect(limited.ok).toBe(false);
+      expect(limited.error).toBe('INVALID_WAYPOINT');
+    });
+
+    test('a waypoint farther than maxDistanceKm from the origin is rejected', () => {
+      const result = parseReal({ waypoint_lat: '51.52', waypoint_lng: '-0.12', max_distance: '1' });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('INVALID_WAYPOINT');
+    });
+
+    test('MAX_SEARCH_BBOX_KM2 is 900', () => {
+      expect(MAX_SEARCH_BBOX_KM2).toBe(900);
+    });
+
+    test('a long north-south trip within the 20 km premium range is inside the search area limit', () => {
+      // About 19 km: the square search box with its corridor buffer is roughly 480 km2.
+      const result = parseReal({ dest_lat: '51.17', origin_lat: '51.00' });
+
+      expect(result.ok).toBe(true);
+    });
+
+    test('an ordinary short route is inside the search area limit', () => {
+      const result = parseReal();
+
+      expect(result.ok).toBe(true);
+    });
+
+    test('assertSearchBboxWithinLimit throws a 400 AREA_TOO_LARGE error above the limit and passes below it', () => {
+      const { assertSearchBboxWithinLimit } = require('../../../../src/safety/routes/safeRoutesRequestPolicy');
+      const small = { south: 51.0, north: 51.01, west: -0.1, east: -0.09 };
+      const large = { south: 51.0, north: 51.9, west: -0.1, east: 0.3 }; // about 100 km x 28 km
+
+      expect(() => assertSearchBboxWithinLimit(small)).not.toThrow();
+      let thrown = null;
+      try {
+        assertSearchBboxWithinLimit(large);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).not.toBeNull();
+      expect(thrown.statusCode).toBe(400);
+      expect(thrown.code).toBe('AREA_TOO_LARGE');
+    });
+
+    test('searchBboxAreaKm2 measures the box in km2', () => {
+      // 0.1 deg of latitude is about 11.1 km; 0.2 deg of longitude at 51 N is about 13.9 km.
+      const area = searchBboxAreaKm2({ south: 51.0, north: 51.1, west: -0.1, east: 0.1 });
+
+      expect(area).toBeGreaterThan(150);
+      expect(area).toBeLessThan(160);
     });
   });
 });

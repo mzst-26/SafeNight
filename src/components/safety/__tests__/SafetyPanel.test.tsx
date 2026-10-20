@@ -1,7 +1,8 @@
 import React from 'react';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
-import { SafetyPanel, formatWorstStretch } from '@/src/components/safety/SafetyPanel';
+import { RoadTypeBreakdown, SafetyPanel, formatWorstStretch } from '@/src/components/safety/SafetyPanel';
 import type { RouteDataQuality, RouteSafety, SafeRoute, SafetyBreakdown, WorstStretch } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
 
@@ -123,6 +124,38 @@ describe('SafetyPanel', () => {
     const texts = textNodes(renderer);
     expect(texts).toContain('12');
     expect(texts).not.toContain('3');
+  });
+
+  it('colours the lights and open-place stat values for contrast: #A15C07 and #15803D', () => {
+    // streetLights 7 and openPlaces 5 are the only values rendered as bare numbers in these fixtures.
+    const renderer = render(makeSafetyResult({ streetLights: 7, openPlaces: 5 }), makeRoute());
+    const colourOf = (value: number) =>
+      StyleSheet.flatten(renderer.root.findAll((n) => n.type === Text && n.props.children === value)[0].props.style).color;
+    expect(colourOf(7)).toBe('#A15C07');
+    expect(colourOf(5)).toBe('#15803D');
+  });
+
+  it('keeps every route and stat text at 12px or larger', () => {
+    const renderer = render(makeSafetyResult(), makeRoute({ worstStretch: stretch(), dataQuality: { crime: 'unavailable' }, reason: 'x' }, 12));
+    const sizes = renderer.root
+      .findAll((n) => n.type === Text)
+      .map((n) => StyleSheet.flatten(n.props.style)?.fontSize)
+      .filter((s): s is number => typeof s === 'number');
+    expect(sizes.length).toBeGreaterThan(0);
+    sizes.forEach((s) => expect(s).toBeGreaterThanOrEqual(12));
+  });
+
+  it('renders the road-type title and legend at 12px or larger', () => {
+    let renderer!: ReactTestRenderer;
+    act(() => {
+      renderer = create(<RoadTypeBreakdown roadTypes={{ primary: 60, footway: 40 }} />);
+    });
+    const sizes = renderer.root
+      .findAll((n) => n.type === Text)
+      .map((n) => StyleSheet.flatten(n.props.style)?.fontSize)
+      .filter((s): s is number => typeof s === 'number');
+    expect(sizes.length).toBeGreaterThan(0);
+    sizes.forEach((s) => expect(s).toBeGreaterThanOrEqual(12));
   });
 
   it('shows a dash, a chip and an accessible label when crime data is unavailable', () => {

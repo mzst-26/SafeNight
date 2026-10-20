@@ -61,8 +61,15 @@ const {
 } = require('../../../../src/safety/routes/safeRoutesResponseFormatter');
 const { buildReason } = require('../../../../src/safety/scoring/routeAggregate');
 
-// Copy of the frontend ramp (src/components/maps/routeLayers.ts). This test pins the backend to it.
-const RISK_RAMP = ['#B9E3D9', '#6FBFB2', '#C9A24B', '#B5621E', '#7E2E12', '#3D1206'];
+// The frontend ramp (src/components/maps/routeLayers.ts), read from source so the two copies cannot drift apart.
+const RISK_RAMP = (() => {
+  const source = require('fs').readFileSync(
+    require('path').resolve(__dirname, '../../../../../src/components/maps/routeLayers.ts'),
+    'utf8',
+  );
+  const block = /RISK_RAMP: readonly string\[\] = Object\.freeze\(\[([^\]]*)\]\)/.exec(source);
+  return block[1].match(/#[0-9A-Fa-f]{6}/g);
+})();
 const UNKNOWN_RISK_COLOR = '#8A8F98';
 
 const CENTRE = { lat: 50.37, lng: -4.14 };

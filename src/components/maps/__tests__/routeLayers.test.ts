@@ -1,5 +1,6 @@
 import {
   DEFAULT_CRIME_SEVERITY,
+  LIGHTS_MIN_ZOOM,
   RISK_RAMP,
   RISK_STEPS,
   UNKNOWN_RISK_COLOR,
@@ -57,17 +58,58 @@ const hexToLinear = (hex: string): [number, number, number] => {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(srgbToLinear) as [number, number, number];
 };
 
-const DEUTERANOPIA = [
-  [0.367322, 0.860646, -0.227968],
-  [0.280085, 0.672501, 0.047413],
-  [-0.01182, 0.04294, 0.968881],
-];
+// Machado et al. (2009), severity 1.0, applied in linear RGB.
+const MACHADO_SEVERITY_1 = {
+  protan: [
+    [0.152286, 1.052583, -0.204868],
+    [0.114503, 0.786281, 0.099216],
+    [-0.003882, -0.048116, 1.051998],
+  ],
+  deutan: [
+    [0.367322, 0.860646, -0.227968],
+    [0.280085, 0.672501, 0.047413],
+    [-0.01182, 0.04294, 0.968881],
+  ],
+  tritan: [
+    [1.255528, -0.076749, -0.178779],
+    [-0.078411, 0.930809, 0.147602],
+    [0.004733, 0.691367, 0.3039],
+  ],
+} as const;
 
-const simulateDeuteranopia = ([r, g, b]: [number, number, number]): [number, number, number] =>
-  DEUTERANOPIA.map((row) => {
+type CvdType = keyof typeof MACHADO_SEVERITY_1;
+
+const simulateCvd = (type: CvdType, [r, g, b]: [number, number, number]): [number, number, number] =>
+  MACHADO_SEVERITY_1[type].map((row) => {
     const v = row[0] * r + row[1] * g + row[2] * b;
     return Math.min(1, Math.max(0, v));
   }) as [number, number, number];
+
+/** The OpenStreetMap basemap background the route layers are drawn over. */
+const BASEMAP_HEX = '#F2EFE9';
+const WHITE_HEX = '#FFFFFF';
+
+/** WCAG 2.x contrast ratio between two hex colours. */
+const contrastRatio = (a: string, b: string): number => {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+};
+
+/** Lab coordinates of a hex colour as seen by a viewer with the given vision type. */
+const labFor = (hex: string, type: CvdType | 'normal'): [number, number, number] => {
+  const lin = hexToLinear(hex);
+  return linearToLab(type === 'normal' ? lin : simulateCvd(type, lin));
+};
+
+/** Minimum dE76 between adjacent steps for one vision type. */
+const minAdjacentDeltaE = (ramp: readonly string[], type: CvdType | 'normal'): number => {
+  let min = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < ramp.length; i += 1) {
+    min = Math.min(min, deltaE76(labFor(ramp[i], type), labFor(ramp[i - 1], type)));
+  }
+  return min;
+};
 
 const linearToLab = ([r, g, b]: [number, number, number]): [number, number, number] => {
   const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
@@ -135,19 +177,23 @@ describe('risk colour ramp', () => {
     expect(hr).toBeGreaterThan(hb); // high risk: red/orange dominant
   });
 
-  it('keeps adjacent steps distinguishable under normal vision', () => {
-    const labs = RISK_RAMP.map((hex) => linearToLab(hexToLinear(hex)));
-    for (let i = 1; i < labs.length; i += 1) {
-      expect(deltaE76(labs[i], labs[i - 1])).toBeGreaterThanOrEqual(MIN_ADJACENT_DELTA_E);
-    }
+  it('keeps every step at least 3:1 against white and against the basemap', () => {
+    RISK_RAMP.forEach((hex) => {
+      expect(contrastRatio(hex, WHITE_HEX)).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(hex, BASEMAP_HEX)).toBeGreaterThanOrEqual(3);
+    });
   });
 
-  it('keeps adjacent steps distinguishable under deuteranopia simulation', () => {
-    const labs = RISK_RAMP.map((hex) => linearToLab(simulateDeuteranopia(hexToLinear(hex))));
-    for (let i = 1; i < labs.length; i += 1) {
-      expect(deltaE76(labs[i], labs[i - 1])).toBeGreaterThanOrEqual(MIN_ADJACENT_DELTA_E);
-    }
+  it('keeps adjacent steps distinguishable under normal vision', () => {
+    expect(minAdjacentDeltaE(RISK_RAMP, 'normal')).toBeGreaterThanOrEqual(MIN_ADJACENT_DELTA_E);
   });
+
+  it.each(['protan', 'deutan', 'tritan'] as const)(
+    'keeps adjacent steps distinguishable under %s simulation (Machado 2009, severity 1.0)',
+    (type) => {
+      expect(minAdjacentDeltaE(RISK_RAMP, type)).toBeGreaterThanOrEqual(MIN_ADJACENT_DELTA_E);
+    },
+  );
 
   it('maps risk to discrete steps: 0 is the lowest colour, 1 the highest', () => {
     expect(riskToColor(0)).toBe(RISK_RAMP[0]);
@@ -545,10 +591,15 @@ describe('buildRouteLayers crime clusters', () => {
     expect(DEFAULT_CRIME_SEVERITY).toBe(0.4);
   });
 
-  it('shows crime clusters regardless of the highlight category', () => {
+  it('shows crime clusters when nothing is highlighted or crime is highlighted', () => {
     const crimes = [{ lat: 51.5, lng: BASE_LNG, severity: 1 }];
-    const out = buildRouteLayers({ crimes }, opts({ highlightCategory: 'light' }));
-    expect(out.crimeClusters).toHaveLength(1);
+    expect(buildRouteLayers({ crimes }, opts({ highlightCategory: null })).crimeClusters).toHaveLength(1);
+    expect(buildRouteLayers({ crimes }, opts({ highlightCategory: 'crime' })).crimeClusters).toHaveLength(1);
+  });
+
+  it.each(['light', 'cctv', 'shop'] as const)('hides crime clusters when %s is highlighted', (highlightCategory) => {
+    const crimes = [{ lat: 51.5, lng: BASE_LNG, severity: 1 }];
+    expect(buildRouteLayers({ crimes }, opts({ highlightCategory })).crimeClusters).toEqual([]);
   });
 
   it('skips crimes with invalid coordinates', () => {
@@ -573,20 +624,21 @@ describe('buildRouteLayers point gating', () => {
     places: [{ lat: 51.502, lng: BASE_LNG }],
   };
 
-  it('shows no lights, cctv or shops by default', () => {
-    expect(buildRouteLayers(input, opts({ zoom: 15 })).points).toEqual([]);
+  it('includes lights, and no cctv or shops, when nothing is highlighted', () => {
+    expect(buildRouteLayers(input, opts()).points).toEqual([{ kind: 'light', lat: 51.5, lng: BASE_LNG }]);
   });
 
-  it('shows lights from zoom 17 by default, but not at zoom 16', () => {
-    expect(buildRouteLayers(input, opts({ zoom: 16 })).points).toEqual([]);
-    expect(buildRouteLayers(input, opts({ zoom: 17 })).points).toEqual([
-      { kind: 'light', lat: 51.5, lng: BASE_LNG },
-    ]);
+  it('does not gate lights by zoom: the spec is zoom-independent and renderers apply LIGHTS_MIN_ZOOM', () => {
+    const at15 = buildRouteLayers(input, opts({ zoom: 15 }));
+    const at16 = buildRouteLayers(input, opts({ zoom: 16 }));
+    const at18 = buildRouteLayers(input, opts({ zoom: 18 }));
+    expect(at15).toEqual(at16);
+    expect(at16).toEqual(at18);
+    expect(at15.points).toEqual([{ kind: 'light', lat: 51.5, lng: BASE_LNG }]);
   });
 
-  it('honours a custom showLightsAtZoom threshold', () => {
-    expect(buildRouteLayers(input, opts({ zoom: 17, showLightsAtZoom: 18 })).points).toEqual([]);
-    expect(buildRouteLayers(input, opts({ zoom: 18, showLightsAtZoom: 18 })).points).toHaveLength(1);
+  it('exports LIGHTS_MIN_ZOOM as 17 for renderers to gate light points on', () => {
+    expect(LIGHTS_MIN_ZOOM).toBe(17);
   });
 
   it('shows only cctv when cctv is highlighted, at any zoom', () => {
@@ -599,7 +651,7 @@ describe('buildRouteLayers point gating', () => {
     expect(points).toEqual([{ kind: 'shop', lat: 51.502, lng: BASE_LNG }]);
   });
 
-  it('shows lights at low zoom only when light is highlighted', () => {
+  it('shows only lights when light is highlighted, at any zoom', () => {
     const points = buildRouteLayers(input, opts({ zoom: 10, highlightCategory: 'light' })).points;
     expect(points).toEqual([{ kind: 'light', lat: 51.5, lng: BASE_LNG }]);
   });
@@ -645,14 +697,38 @@ describe('buildRouteLayers point cap', () => {
     expect(buildRouteLayers({ lights }, opts({ zoom: 18 })).points).toHaveLength(150);
   });
 
-  it('applies the cap across kinds combined', () => {
-    // 100 lights (shown at zoom 18) + 100 cctv (highlighted) = 200 candidates
-    const lights = Array.from({ length: 100 }, (_, i) => ({ lat: 51.5 + i * 1e-5, lng: BASE_LNG }));
-    const cctv = Array.from({ length: 100 }, (_, i) => ({ lat: 52.5 + i * 1e-5, lng: BASE_LNG }));
-    const out = buildRouteLayers({ lights, cctv }, opts({ zoom: 18, highlightCategory: 'cctv' }));
+  it('applies highlight filtering before the cap, so highlighted cctv is never starved by lights', () => {
+    // 1000 lights + 200 cctv, cctv highlighted: lights are filtered out first, so the cap sees 200 cctv.
+    const lights = Array.from({ length: 1000 }, (_, i) => ({ lat: 51.5 + i * 1e-5, lng: BASE_LNG }));
+    const cctv = Array.from({ length: 200 }, (_, i) => ({ lat: 52.5 + i * 1e-5, lng: BASE_LNG }));
+    const out = buildRouteLayers({ lights, cctv }, opts({ highlightCategory: 'cctv' }));
 
     expect(out.points).toHaveLength(150);
-    expect(new Set(out.points.map((p) => p.kind))).toEqual(new Set(['light', 'cctv']));
+    expect(new Set(out.points.map((p) => p.kind))).toEqual(new Set(['cctv']));
+  });
+
+  it('keeps every highlighted shop when lights would otherwise fill the cap', () => {
+    const lights = Array.from({ length: 1000 }, (_, i) => ({ lat: 51.5 + i * 1e-5, lng: BASE_LNG }));
+    const places = Array.from({ length: 10 }, (_, i) => ({ lat: 52.5 + i * 1e-5, lng: BASE_LNG }));
+    const out = buildRouteLayers({ lights, places }, opts({ highlightCategory: 'shop' }));
+
+    expect(out.points).toHaveLength(10);
+    expect(out.points.every((p) => p.kind === 'shop')).toBe(true);
+  });
+
+  it('caps each kind at 150 on its own (lights 150, cctv 150, shops 150 when all are visible)', () => {
+    const many = (base: number) =>
+      Array.from({ length: 400 }, (_, i) => ({ lat: base + i * 1e-5, lng: BASE_LNG }));
+    const lights = many(51.5);
+    const cctv = many(52.5);
+    const places = many(53.5);
+
+    expect(buildRouteLayers({ lights, cctv, places }, opts()).points.filter((p) => p.kind === 'light')).toHaveLength(150);
+    for (const highlightCategory of ['cctv', 'shop', 'light'] as const) {
+      const out = buildRouteLayers({ lights, cctv, places }, opts({ highlightCategory }));
+      expect(out.points).toHaveLength(150);
+      expect(new Set(out.points.map((p) => p.kind))).toEqual(new Set([highlightCategory]));
+    }
   });
 });
 
@@ -667,14 +743,14 @@ describe('buildRouteLayers robustness', () => {
     expect(buildRouteLayers(undefined as never, opts())).toMatchObject(empty);
   });
 
-  it('tolerates missing options: with no zoom, zoom-gated points stay hidden', () => {
-    const lights = [{ lat: 51.5, lng: BASE_LNG }];
-    expect(buildRouteLayers({ lights }, null as never).points).toEqual([]);
+  it('tolerates missing options: lights are still candidates, cctv and shops stay hidden', () => {
+    const input = { lights: [{ lat: 51.5, lng: BASE_LNG }], cctv: [{ lat: 51.6, lng: BASE_LNG }] };
+    expect(buildRouteLayers(input, null as never).points).toEqual([{ kind: 'light', lat: 51.5, lng: BASE_LNG }]);
   });
 
-  it('treats a NaN zoom as below every threshold', () => {
+  it('ignores a missing or NaN zoom, which no longer gates the spec', () => {
     const lights = [{ lat: 51.5, lng: BASE_LNG }];
-    expect(buildRouteLayers({ lights }, opts({ zoom: Number.NaN })).points).toEqual([]);
+    expect(buildRouteLayers({ lights }, opts({ zoom: Number.NaN })).points).toHaveLength(1);
   });
 
   it('does not mutate the input', () => {
@@ -703,5 +779,26 @@ describe('buildRouteLayers robustness', () => {
     expect(legend.ramp[0].from).toBe(0);
     expect(legend.ramp[RISK_STEPS - 1].to).toBe(1);
     expect(typeof legend.dashedLabel).toBe('string');
+  });
+
+  it('labels the dashed swatch "Estimated lighting or low certainty"', () => {
+    expect(buildRouteLayers({}, opts()).legend.dashedLabel).toBe('Estimated lighting or low certainty');
+  });
+});
+
+describe('buildRouteLayers legend notes and data quality', () => {
+  it('adds "Crime data unavailable" when crime data is reported unavailable', () => {
+    const out = buildRouteLayers({ dataQuality: { crime: 'unavailable' } }, opts());
+    expect(out.legend.notes).toEqual(['Crime data unavailable']);
+  });
+
+  it('has no notes when crime data is ok, lighting is reported, or dataQuality is absent', () => {
+    expect(buildRouteLayers({ dataQuality: { crime: 'ok' } }, opts()).legend.notes).toEqual([]);
+    expect(buildRouteLayers({ dataQuality: { lighting: 'estimated' } }, opts()).legend.notes).toEqual([]);
+    expect(buildRouteLayers({}, opts()).legend.notes).toEqual([]);
+  });
+
+  it('ignores malformed dataQuality', () => {
+    expect(buildRouteLayers({ dataQuality: 'bad' as never }, opts()).legend.notes).toEqual([]);
   });
 });

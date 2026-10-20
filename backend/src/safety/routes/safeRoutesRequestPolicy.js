@@ -2,14 +2,25 @@ const {
   validateLatitude,
   validateLongitude,
 } = require('../../shared/validation/validate');
+const { bboxFromPoints } = require('../services/geo');
 
 const RESPONSE_VERBOSITY_FULL = 'full';
 const RESPONSE_VERBOSITY_COMPACT = 'compact';
 const POI_CAP_MAX = Math.max(
   1,
-  Number(process.env.SAFE_ROUTES_POI_CAP_MAX || 5000),
+  Number(process.env.SAFE_ROUTES_POI_CAP_MAX || 500),
 );
 const INVALID_MAX_DISTANCE = 'INVALID_MAX_DISTANCE';
+const INVALID_WAYPOINT = 'INVALID_WAYPOINT';
+const AREA_TOO_LARGE = 'AREA_TOO_LARGE';
+
+// A waypoint may add at most this multiple of the straight-line distance to the trip.
+const WAYPOINT_MAX_DETOUR_RATIO = 2.5;
+// Largest buffer computeSafeRoutes puts around its search corridor (see safeRoutes.js, corridorBufferM).
+const SEARCH_BBOX_MAX_BUFFER_M = 1000;
+// The search box (route corridor plus buffer) may not cover more than this many km2 before any upstream fetch.
+// Sized so a 20 km premium trip (about 22 km square with its buffer, roughly 480 km2, more on diagonals) still fits.
+const MAX_SEARCH_BBOX_KM2 = 900;
 
 /** A query value that is present but carries nothing usable: "", "   " or a repeated key (array). */
 function isBlankOrRepeated(raw) {
@@ -173,6 +184,27 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
     maxDistanceKm = Math.min(requestedKm, defaultMaxDistanceKm);
   }
 
+  // A waypoint widens the search box, so it is bounded before anything is fetched: the trip through it
+  // may add at most 2.5x the straight line (and never more than maxDistanceKm), and it must be within maxDistanceKm of the origin.
+  if (wpLat != null) {
+    const originToWpM = haversine(oLat.value, oLng.value, wpLat, wpLng);
+    const wpToDestM = haversine(wpLat, wpLng, dLat.value, dLng.value);
+    const detourLimitM = Math.min(straightLineDist * WAYPOINT_MAX_DETOUR_RATIO, maxDistanceKm * 1000);
+    if (originToWpM > maxDistanceKm * 1000 || originToWpM + wpToDestM > detourLimitM) {
+      return {
+        ok: false,
+        error: INVALID_WAYPOINT,
+        message: 'That waypoint is too far out of the way for this trip. Pick a point closer to the route between your start and destination.',
+      };
+    }
+  }
+
+  // The search box (origin, destination, waypoint and the largest corridor buffer) must stay within the area limit.
+  const requestBboxPoints = [{ lat: oLat.value, lng: oLng.value }, { lat: dLat.value, lng: dLng.value }];
+  if (wpLat != null) requestBboxPoints.push({ lat: wpLat, lng: wpLng });
+  const areaRefusal = searchAreaRefusal(bboxFromPoints(requestBboxPoints, SEARCH_BBOX_MAX_BUFFER_M));
+  if (areaRefusal) return areaRefusal;
+
   let departureHour = null;
   if (req.query.departure_hour != null && !isBlankOrRepeated(req.query.departure_hour)) {
     const dh = Number(req.query.departure_hour);
@@ -200,6 +232,33 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
       responsePolicy: parseResponsePolicy(req.query),
     },
   };
+}
+
+/** Area of a {south, west, north, east} box in km2, measured the way bboxFromPoints sizes it. */
+function searchBboxAreaKm2(bbox) {
+  const heightKm = (bbox.north - bbox.south) * 111.32;
+  const midLatRad = (((bbox.north + bbox.south) / 2) * Math.PI) / 180;
+  const widthKm = (bbox.east - bbox.west) * 111.32 * Math.cos(midLatRad);
+  return heightKm * widthKm;
+}
+
+/** Returns the AREA_TOO_LARGE answer for a box over MAX_SEARCH_BBOX_KM2, or null when it is within the limit. */
+function searchAreaRefusal(bbox) {
+  const areaKm2 = searchBboxAreaKm2(bbox);
+  if (areaKm2 <= MAX_SEARCH_BBOX_KM2) return null;
+  return {
+    ok: false,
+    error: AREA_TOO_LARGE,
+    message: `This trip would need to search ${Math.round(areaKm2)} km² of streets, over our ${MAX_SEARCH_BBOX_KM2} km² limit. Try a closer destination.`,
+  };
+}
+
+/** Throws a 400 AREA_TOO_LARGE error when a search box is over the limit. Called before any upstream fetch. */
+function assertSearchBboxWithinLimit(bbox) {
+  const refusal = searchAreaRefusal(bbox);
+  if (refusal) {
+    throw Object.assign(new Error(refusal.message), { statusCode: 400, code: AREA_TOO_LARGE });
+  }
 }
 
 function buildOutOfRangeMessage(straightLineKm, maxDistanceKm) {
@@ -240,8 +299,14 @@ module.exports = {
   parseRouteRequest,
   buildOutOfRangeMessage,
   buildOutOfRangePayload,
+  searchBboxAreaKm2,
+  assertSearchBboxWithinLimit,
   RESPONSE_VERBOSITY_FULL,
   RESPONSE_VERBOSITY_COMPACT,
   FULL_MODE_POI_CAPS,
   COMPACT_MODE_POI_CAPS,
+  POI_CAP_MAX,
+  MAX_SEARCH_BBOX_KM2,
+  INVALID_WAYPOINT,
+  AREA_TOO_LARGE,
 };

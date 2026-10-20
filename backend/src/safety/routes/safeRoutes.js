@@ -52,6 +52,7 @@ const {
   enqueueComputeJob,
   waitWithCancellation,
   formatWaitMmSs,
+  withSearchCancellation,
 } = require("./safeRoutesRuntime");
 const {
   createSafeRoutesOrchestrator,
@@ -60,6 +61,7 @@ const {
   parseRouteRequest,
   buildOutOfRangeMessage,
   buildOutOfRangePayload,
+  assertSearchBboxWithinLimit,
 } = require("./safeRoutesRequestPolicy");
 const {
   buildRouteResponses,
@@ -443,6 +445,7 @@ router.get("/stream", async (req, res) => {
         wpLng,
         responsePolicy,
         safetyLevel,
+        maxDistanceKm,
       })
     ) {
       send("phase", {
@@ -593,6 +596,7 @@ async function computeSafeRoutes(
       ];
       if (wpLat != null) initialBboxPoints.push({ lat: wpLat, lng: wpLng });
       const initialBbox = bboxFromPoints(initialBboxPoints, initialBufferM);
+      assertSearchBboxWithinLimit(initialBbox);
 
       try {
         const roadData = await fetchLocalOsmRoadNetwork(initialBbox, {
@@ -694,6 +698,7 @@ async function computeSafeRoutes(
     if (wpLat != null) corridorPoints.push({ lat: wpLat, lng: wpLng });
 
     const bbox = bboxFromPoints(corridorPoints, corridorBufferM);
+    assertSearchBboxWithinLimit(bbox);
     cancelToken?.throwIfCancelled?.();
     progress("phase2", "Fetching safety data in route corridor…", 50);
     debugLog(
@@ -867,7 +872,7 @@ async function computeSafeRoutes(
         edges: graph.edges,
         maxRouteDist,
         findNearestNode,
-        findKSafestRoutes,
+        findKSafestRoutes: withSearchCancellation(findKSafestRoutes, cancelToken),
         logger: debugLogger,
         allowHazards,
         edgeConfidences: graph.edgeConfidences,
@@ -1078,7 +1083,7 @@ async function computeSafeRoutes(
               osmNodes, edges,
               maxRouteDist,
               findNearestNode,
-              findKSafestRoutes,
+              findKSafestRoutes: withSearchCancellation(findKSafestRoutes, cancelToken),
               logger: debugLogger,
               allowHazards,
               edgeConfidences,

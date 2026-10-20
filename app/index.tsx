@@ -1962,6 +1962,7 @@ export default function HomeScreen() {
         }
         routeSegments={isWebGuest ? [] : h.routeSegments}
         routeLayers={isWebGuest ? null : h.routeLayers}
+        routeBadges={isWebGuest ? [] : h.routeBadges}
         roadLabels={isWebGuest ? [] : h.roadLabels}
         panTo={h.mapPanTo}
         fitCandidateBoundsToken={

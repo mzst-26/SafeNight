@@ -18,8 +18,60 @@ import type {
 } from "@/src/components/maps/routeLayers";
 
 // ---------------------------------------------------------------------------
+// Shared constants (also used by the WebView script and by the tests)
+// ---------------------------------------------------------------------------
+
+/** Always-visible map attribution. MapTiler Streets (style and tiles) is built on OpenStreetMap data. */
+export const NATIVE_MAP_ATTRIBUTION = "© MapTiler © OpenStreetMap contributors";
+
+/** Legend label for dashed (estimated) lines when the spec does not supply one. */
+export const RL_DEFAULT_DASHED_LABEL = "Estimated lighting";
+
+/** Stroke width of the route safety lines. */
+export const RL_LINE_WIDTH = 7;
+
+/**
+ * MapLibre dasharray units are multiples of the line width. [0.1, 2.1] at width 7 gives
+ * dots that read like the web's "0.1 15" pattern at weight 7.
+ */
+export const RL_DASH_UNITS: [number, number] = [0.1, 2.1];
+
+/** The same pattern in px, for the SVG legend swatch (drawn at stroke-width RL_LINE_WIDTH). */
+export const RL_DASH_PX: [number, number] = [
+  Number((RL_DASH_UNITS[0] * RL_LINE_WIDTH).toFixed(2)),
+  Number((RL_DASH_UNITS[1] * RL_LINE_WIDTH).toFixed(2)),
+];
+
+/** Crime badge labels stop at this count and show "99+" (web parity). */
+export const RL_BADGE_LABEL_CAP = 99;
+
+/** Crime badges at or above this count use the large (36px) size. */
+export const RL_BADGE_LARGE_FROM = 100;
+
+/** Gap between the worst-stretch callout and the stretch midpoint (px, above the point). */
+export const RL_CALLOUT_OFFSET_PX = 10;
+
+/** Marker kinds replaced by the route safety layers when routeLayers is set (web parity). */
+export const RL_REPLACED_KINDS = [
+  "crime",
+  "light",
+  "cctv",
+  "shop",
+  "bus_stop",
+  "dead_end",
+  "via",
+] as const;
+
+/** Narrower viewports start with the route safety legend collapsed. */
+export const RL_LEGEND_COLLAPSE_BELOW_PX = 400;
+
+// ---------------------------------------------------------------------------
 // Route layers (v2 safety model): RouteLayerSpec -> GeoJSON for the WebView
 // ---------------------------------------------------------------------------
+
+/** Crime badge label: the count, capped at 99+. */
+const crimeBadgeLabel = (count: number): string =>
+  count > RL_BADGE_LABEL_CAP ? `${RL_BADGE_LABEL_CAP}+` : String(count);
 
 export interface LineGeometry {
   type: "LineString";
@@ -125,7 +177,7 @@ export function buildNativeRouteLayerCollections(
         spec.crimeClusters.map((c) =>
           pointFeature(c.lat, c.lng, {
             count: c.count,
-            label: String(c.count),
+            label: crimeBadgeLabel(c.count),
             maxSeverity: c.maxSeverity,
           }),
         ),
@@ -155,7 +207,7 @@ export function buildNativeRouteLayerCollections(
 // Build the HTML page that runs MapLibre GL JS inside the WebView
 // ---------------------------------------------------------------------------
 
-const buildMapHtml = (
+export const buildMapHtml = (
   _mapType: string = "roadmap",
   showZoomControls: boolean = true,
 ) => `
@@ -253,8 +305,11 @@ const buildMapHtml = (
       animation:vizscan 1.8s ease-in-out infinite;backdrop-filter:blur(6px)}
 
     /* ─── Route safety layers (v2) ─── */
-    .rl-cluster{width:30px;height:30px;border-radius:50%;background:#b42318;color:#fff;font-size:13px;font-weight:700;line-height:30px;text-align:center;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.35);pointer-events:none}
-    .rl-callout{color:#101828;font-size:13px;font-weight:800;line-height:1.2;white-space:nowrap;pointer-events:none;text-shadow:-1px 0 #fff,0 1px #fff,1px 0 #fff,0 -1px #fff,0 0 3px #fff}
+    .rl-cluster{box-sizing:border-box;min-width:32px;width:32px;height:32px;border-radius:50%;background:#b42318;color:#fff;font-size:13px;font-weight:700;line-height:32px;text-align:center;white-space:nowrap;overflow:hidden;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.35);pointer-events:none}
+    .rl-cluster.rl-cluster-lg{width:36px;height:36px;line-height:36px}
+    .rl-callout{box-sizing:border-box;background:#fff;color:#101828;font-size:13px;font-weight:600;line-height:1.2;padding:5px 9px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 8px rgba(16,24,40,.25);pointer-events:none}
+    .rl-route-badge{box-sizing:border-box;min-width:32px;height:28px;padding:0 9px;border-radius:999px;background:#fff;color:#101828;border:1px solid #667085;font-size:13px;font-weight:700;line-height:26px;text-align:center;white-space:nowrap;box-shadow:0 2px 8px rgba(16,24,40,.25);cursor:pointer}
+    .rl-route-badge.selected{background:#101828;color:#fff;border-color:#101828}
     .rl-legend{position:absolute;left:12px;bottom:38px;z-index:5;display:none;min-width:150px;max-width:200px;background:rgba(255,255,255,.95);color:#101828;border-radius:10px;padding:6px 10px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(15,23,42,.2)}
     .rl-legend.on{display:block}
     .rl-legend-head{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
@@ -263,6 +318,8 @@ const buildMapHtml = (
     .rl-legend-bar{height:8px;border-radius:4px}
     .rl-legend-scale{display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:#344054}
     .rl-legend-dash{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#344054}
+    .rl-legend-note{margin-top:6px;font-size:12px;font-weight:500;line-height:1.3;color:#344054}
+    .rl-attrib{position:absolute;right:6px;bottom:4px;z-index:4;pointer-events:none;font-size:11px;line-height:1.2;color:#344054;background:rgba(255,255,255,.7);padding:1px 4px;border-radius:4px;white-space:nowrap}
   </style>
 </head>
 <body>
@@ -272,9 +329,11 @@ const buildMapHtml = (
     <div class="rl-legend-body" id="rlLegendBody">
       <div class="rl-legend-bar" id="rlLegendBar"></div>
       <div class="rl-legend-scale"><span>Safer</span><span>Riskier</span></div>
-      <div class="rl-legend-dash"><svg width="36" height="8" aria-hidden="true"><line x1="2" y1="4" x2="34" y2="4" stroke="#475467" stroke-width="6" stroke-linecap="round" stroke-dasharray="0.1 12"/></svg><span>Estimated lighting</span></div>
+      <div class="rl-legend-dash"><svg width="36" height="10" aria-hidden="true"><line x1="2" y1="5" x2="34" y2="5" stroke="#475467" stroke-width="${RL_LINE_WIDTH}" stroke-linecap="round" stroke-dasharray="${RL_DASH_PX.join(" ")}"/></svg><span id="rlLegendDashLabel">${RL_DEFAULT_DASHED_LABEL}</span></div>
+      <div id="rlLegendNotes"></div>
     </div>
   </div>
+  <div class="rl-attrib" id="mapAttrib">${NATIVE_MAP_ATTRIBUTION}</div>
 
 
   <script>
@@ -476,15 +535,24 @@ const buildMapHtml = (
     var emptyFC = { type: 'FeatureCollection', features: [] };
 
     /* Marker kinds replaced by the route safety layer when routeLayers is set (crime is clustered, never dotted). */
-    var RL_REPLACED_KINDS = ['crime','light','cctv','shop'];
+    var RL_REPLACED_KINDS = ${JSON.stringify(RL_REPLACED_KINDS)};
+    var RL_SELECTED_LAYERS = ['rl-casing','rl-solid','rl-dashed'];
     var rlLegendWired = false;
+    var rlLegendShown = false;
+
+    /* Tap precedence (routeLayers mode): the selected route's coloured lines win over the wide unselected hit layer. */
+    function rlUnselectedHitAt(point){
+      if(map.queryRenderedFeatures(point,{layers:RL_SELECTED_LAYERS}).length) return null;
+      var hits = map.queryRenderedFeatures(point,{layers:['rl-unselected-hit']});
+      return hits && hits[0] ? hits[0] : null;
+    }
 
     function renderRouteLegend(legend, show){
       var box = document.getElementById('rlLegend');
       if(!box) return;
+      var toggle = document.getElementById('rlLegendToggle');
       if(!rlLegendWired){
         rlLegendWired = true;
-        var toggle = document.getElementById('rlLegendToggle');
         if(toggle){
           toggle.addEventListener('click', function(ev){
             ev.preventDefault();
@@ -495,10 +563,29 @@ const buildMapHtml = (
         }
       }
       box.classList.toggle('on', !!show);
-      if(!show || !legend) return;
+      if(!show || !legend){ rlLegendShown = false; return; }
+      if(!rlLegendShown){
+        // Collapsed by default on narrow screens so the legend does not cover the map.
+        rlLegendShown = true;
+        var startCollapsed = (window.innerWidth || 0) < ${RL_LEGEND_COLLAPSE_BELOW_PX};
+        box.classList.toggle('collapsed', startCollapsed);
+        if(toggle) toggle.setAttribute('aria-expanded', startCollapsed ? 'false' : 'true');
+      }
       var stops = (legend.ramp || []).map(function(s){ return s.color; });
       if(stops.length){
         document.getElementById('rlLegendBar').style.background = 'linear-gradient(to right,' + stops.join(',') + ')';
+      }
+      var dashLabel = document.getElementById('rlLegendDashLabel');
+      if(dashLabel) dashLabel.textContent = legend.dashedLabel || ${JSON.stringify(RL_DEFAULT_DASHED_LABEL)};
+      var notesEl = document.getElementById('rlLegendNotes');
+      if(notesEl){
+        notesEl.textContent = '';
+        (legend.notes || []).forEach(function(line){
+          var note = document.createElement('div');
+          note.className = 'rl-legend-note';
+          note.textContent = String(line);
+          notesEl.appendChild(note);
+        });
       }
     }
 
@@ -712,19 +799,19 @@ const buildMapHtml = (
          overlays so navigation progress still draws on top. */
       map.addLayer({ id:'rl-unselected-line', type:'line', source:'rl-unselected',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#98a2b3','line-opacity':0.55,'line-width':4} });
+        paint:{'line-color':'#667085','line-opacity':1,'line-width':4} });
       map.addLayer({ id:'rl-unselected-hit', type:'line', source:'rl-unselected',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#000000','line-width':22,'line-opacity':0} });
+        paint:{'line-color':'#000000','line-width':40,'line-opacity':0} });
       map.addLayer({ id:'rl-casing', type:'line', source:'rl-casing',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':'#ffffff','line-opacity':1,'line-width':11} });
+        paint:{'line-color':'#ffffff','line-opacity':0.9,'line-width':11} });
       map.addLayer({ id:'rl-solid', type:'line', source:'rl-solid',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':7} });
+        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':${RL_LINE_WIDTH}} });
       map.addLayer({ id:'rl-dashed', type:'line', source:'rl-dashed',
         layout:{'line-cap':'round','line-join':'round'},
-        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':7,'line-dasharray':[0.1,2.2]} });
+        paint:{'line-color':['get','color'],'line-opacity':0.95,'line-width':${RL_LINE_WIDTH},'line-dasharray':${JSON.stringify(RL_DASH_UNITS)}} });
       map.addLayer({ id:'route-traversed-line', type:'line', source:'route-traversed',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#1D2939','line-opacity':0.7,'line-width':7} });
@@ -782,9 +869,11 @@ const buildMapHtml = (
       map.on('mouseenter','safety-circles',function(){map.getCanvas().style.cursor='pointer'});
       map.on('mouseleave','safety-circles',function(){map.getCanvas().style.cursor=''});
 
-      // routeLayers mode: wide invisible hit line selects an unselected route (>= 44 pt target)
+      // routeLayers mode: wide invisible hit line selects an unselected route (>= 44 pt target).
+      // A tap on the selected route's own lines takes precedence (see rlUnselectedHitAt).
       map.on('click','rl-unselected-hit',function(e){
-        if(e.features&&e.features[0]) sendMsg('selectRoute',{id:e.features[0].properties.routeId});
+        var hit = rlUnselectedHitAt(e.point);
+        if(hit) sendMsg('selectRoute',{id:hit.properties.routeId});
       });
       map.on('mouseenter','rl-unselected-hit',function(){map.getCanvas().style.cursor='pointer'});
       map.on('mouseleave','rl-unselected-hit',function(){map.getCanvas().style.cursor=''});
@@ -882,6 +971,7 @@ const buildMapHtml = (
       // Don't fire on route-click (already handled above)
       var features = map.queryRenderedFeatures(e.point,{layers:['unselected-routes-line','safety-circles']});
       if(features.length>0) return;
+      if(rlUnselectedHitAt(e.point)) return;
       sendMsg('press',{lat:e.lngLat.lat,lng:e.lngLat.lng});
     });
     map.on('contextmenu',function(e){
@@ -1268,16 +1358,36 @@ const buildMapHtml = (
       if(rl){
         (rl.clusters.features||[]).forEach(function(f){
           var badge=document.createElement('div');
-          badge.className='rl-cluster';
+          badge.className='rl-cluster'+(Number(f.properties.count)>=${RL_BADGE_LARGE_FROM}?' rl-cluster-lg':'');
           badge.textContent=String(f.properties.label);
           badge.setAttribute('aria-label', f.properties.count+' crime reports nearby');
           currentMarkers.push(createViewportMarker({element:badge,anchor:'center'}).setLngLat(f.geometry.coordinates).addTo(map));
         });
+        // Worst-stretch callout sits above the stretch midpoint, not centred on the line.
         (rl.callouts.features||[]).forEach(function(f){
           var callout=document.createElement('div');
           callout.className='rl-callout';
           callout.textContent=String(f.properties.text);
-          currentMarkers.push(createViewportMarker({element:callout,anchor:'center'}).setLngLat(f.geometry.coordinates).addTo(map));
+          currentMarkers.push(createViewportMarker({element:callout,anchor:'bottom',offset:[0,-${RL_CALLOUT_OFFSET_PX}]}).setLngLat(f.geometry.coordinates).addTo(map));
+        });
+      }
+
+      /* — Route score pills (routeLayers mode). Tapping a non-selected pill selects that route. — */
+      if(routeLayersMode){
+        (data.routeBadges||[]).forEach(function(b){
+          if(!b || !hasFiniteLngLat(b.lng,b.lat)) return;
+          var pill=document.createElement('div');
+          pill.className='rl-route-badge'+(b.selected?' selected':'');
+          pill.textContent=String(b.text);
+          pill.setAttribute('aria-label','Route score '+b.text+(b.selected?', selected route':''));
+          pill.addEventListener('click',function(ev){
+            if(ev){
+              if(ev.preventDefault) ev.preventDefault();
+              if(ev.stopPropagation) ev.stopPropagation();
+            }
+            if(!b.selected) sendMsg('selectRoute',{id:b.routeId});
+          });
+          currentMarkers.push(createViewportMarker({element:pill,anchor:'center'}).setLngLat([b.lng,b.lat]).addTo(map));
         });
       }
 
@@ -1369,8 +1479,12 @@ const buildMapHtml = (
       (data.friendMarkers||[]).forEach(function(f){
         var el=document.createElement('div');
         el.className='friend-marker';
-        el.innerHTML='<div class="friend-dot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>'
-          +'<div class="friend-label">'+f.name.slice(0,12)+'</div>';
+        el.innerHTML='<div class="friend-dot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>';
+        // Friend names are user-supplied: always set as text, never parsed as markup.
+        var friendLabel=document.createElement('div');
+        friendLabel.className='friend-label';
+        friendLabel.textContent=String(f.name||'').slice(0,12);
+        el.appendChild(friendLabel);
         friendMarkerObjs.push(createViewportMarker({element:el,anchor:'bottom'}).setLngLat([f.lng,f.lat]).addTo(map));
       });
 
@@ -1657,6 +1771,7 @@ export const RouteMap = ({
   vizProgressMessage = null,
   routeLayers = null,
   highlightCategory = null,
+  routeBadges,
   onSelectRoute,
   onSelectMarker,
   onFindSafeRoutes,
@@ -1705,6 +1820,7 @@ export const RouteMap = ({
     outOfRangeCueSignal,
     routeLayers,
     highlightCategory,
+    routeBadges,
   });
   propsRef.current = {
     origin,
@@ -1734,6 +1850,7 @@ export const RouteMap = ({
     outOfRangeCueSignal,
     routeLayers,
     highlightCategory,
+    routeBadges,
   };
 
   const callbacksRef = useRef({
@@ -1879,6 +1996,8 @@ export const RouteMap = ({
             legend: p.routeLayers.legend,
           }
         : null,
+      // Score pills; the WebView draws them only in routeLayers mode.
+      routeBadges: p.routeBadges ?? [],
       friendMarkers: p.friendMarkers.map((f) => ({
         userId: f.userId,
         name: f.name,
@@ -1934,6 +2053,7 @@ export const RouteMap = ({
     outOfRangeCueSignal,
     routeLayers,
     highlightCategory,
+    routeBadges,
     pushUpdate,
   ]);
 

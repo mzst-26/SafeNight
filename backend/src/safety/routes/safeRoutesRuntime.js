@@ -645,8 +645,22 @@ async function waitWithCancellation(promise, cancelToken) {
   }
 }
 
+/**
+ * Gives a safest-path search (findKSafestRoutes) a cancel check that follows the request's token, so a
+ * client disconnect stops the search between A* checkpoints instead of after it finishes.
+ */
+function withSearchCancellation(findKSafestRoutes, cancelToken) {
+  const shouldCancel = () => cancelToken?.isCancelled?.() === true;
+  return (osmNodes, edges, adjacency, startId, endId, maxDistM, k, options = {}) =>
+    findKSafestRoutes(osmNodes, edges, adjacency, startId, endId, maxDistM, k, {
+      ...options,
+      shouldCancel,
+    });
+}
+
 module.exports = {
   createCancellationToken,
+  withSearchCancellation,
   logSearchCancellation,
   registerActiveSearch,
   estimateRequestLoadUnits,

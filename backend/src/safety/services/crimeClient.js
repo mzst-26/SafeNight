@@ -52,9 +52,25 @@ const SAFE_ROUTES_MAX_STALE_MS = envInt('SAFE_ROUTES_MAX_STALE_MS', 10 * 60 * 10
 const CRIME_MAX_STALE_MS = envInt('SAFE_ROUTES_CRIME_MAX_STALE_MS', SAFE_ROUTES_MAX_STALE_MS);
 const CRIME_STALE_FETCH_GRACE_MS = envInt('SAFE_ROUTES_CRIME_STALE_FETCH_GRACE_MS', 1200);
 
+// Cache keys snap to a 1/200 degree grid (~550m).
+const CRIME_KEY_GRID = 200;
+
+/**
+ * Snaps a bbox outward to the key grid: south/west down, north/east up. The fetched box then always
+ * covers the requested area, and it is exactly the box the cache key names.
+ */
+function snapBboxToKeyGrid(bbox) {
+  const eps = 1e-9; // absorbs float noise, e.g. 51.0 * 200 = 10199.999999999998
+  return {
+    south: Math.floor(bbox.south * CRIME_KEY_GRID + eps) / CRIME_KEY_GRID,
+    west: Math.floor(bbox.west * CRIME_KEY_GRID + eps) / CRIME_KEY_GRID,
+    north: Math.ceil(bbox.north * CRIME_KEY_GRID - eps) / CRIME_KEY_GRID,
+    east: Math.ceil(bbox.east * CRIME_KEY_GRID - eps) / CRIME_KEY_GRID,
+  };
+}
+
 function crimeCacheKey(bbox) {
-  const r = (v) => Math.round(v * 200) / 200; // ~550m grid
-  return `crime:${r(bbox.south)},${r(bbox.west)},${r(bbox.north)},${r(bbox.east)}`;
+  return `crime:${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
 }
 
 function emitSourceMeta(onSourceMeta, meta) {
@@ -187,6 +203,8 @@ async function fetchAndCacheLiveData(key, bbox, liveSignal) {
  */
 async function fetchCrimesWithStatus(bbox, options = {}) {
   const { signal = null, onSourceMeta = null } = options;
+  // Snap first: the key, the live request and any background refresh all use this same box.
+  bbox = snapBboxToKeyGrid(bbox);
   const key = crimeCacheKey(bbox);
   const cacheEntry = await crimeCacheStore.getWithMeta(key, {
     allowStale: SAFE_ROUTES_ALLOW_STALE_CACHE,

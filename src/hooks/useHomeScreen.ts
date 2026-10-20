@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Dimensions, Keyboard, Platform } from "react-native";
 
-import type { MapType } from "@/src/components/maps/RouteMap.types";
+import type { MapType, RouteBadge } from "@/src/components/maps/RouteMap.types";
 import {
   buildRouteLayers,
   type HighlightCategory,
@@ -40,6 +40,7 @@ import {
   buildRouteComparison,
   type RouteComparison,
 } from "@/src/utils/routeComparison";
+import { buildRouteBadges } from "@/src/utils/routeBadges";
 
 const FAKE_PROGRESS_MESSAGES = [
   "Preparing route analysis…",
@@ -48,12 +49,6 @@ const FAKE_PROGRESS_MESSAGES = [
   "Scoring lighting and crime factors…",
   "Ranking route options by safety score…",
 ];
-
-/**
- * Zoom passed to buildRouteLayers. Fixed at 17 so the spec includes light points; the renderer
- * applies the live zoom gate, so the spec does not change as the user zooms.
- */
-const ROUTE_LAYER_SPEC_ZOOM = 17;
 
 /** Maps the hook's highlight state to the categories the route layer spec understands. */
 function toRouteLayerHighlight(category: string | null): HighlightCategory | null {
@@ -601,15 +596,23 @@ export function useHomeScreen() {
   }, [selectedSafeRoute]);
 
   // ── v2 route layers (selected route only). Null for a v1 route, so renderers draw the legacy overlay. ──
+  // The spec does not depend on zoom: lights are always candidates and the renderer gates them by
+  // LIGHTS_MIN_ZOOM, so the spec does not change as the user zooms.
   const routeLayers = useMemo<RouteLayerSpec | null>(() => {
     if (!selectedSafeRoute) return null;
     const input = buildRouteLayerInput(selectedSafeRoute);
     if (!input) return null;
-    return buildRouteLayers(input, {
-      zoom: ROUTE_LAYER_SPEC_ZOOM,
-      highlightCategory: toRouteLayerHighlight(highlightCategory),
-    });
+    return buildRouteLayers(
+      { ...input, dataQuality: selectedSafeRoute.safety.dataQuality },
+      { highlightCategory: toRouteLayerHighlight(highlightCategory) },
+    );
   }, [selectedSafeRoute, highlightCategory]);
+
+  // ── One score pill per scored route, at its overview midpoint. ──
+  const routeBadges = useMemo<RouteBadge[]>(
+    () => buildRouteBadges(routes, routeScores, selectedRouteId),
+    [routes, routeScores, selectedRouteId],
+  );
 
   // ── Per-route comparison data for the route cards (fastest = min duration) ──
   const routeComparison = useMemo<RouteComparison[]>(
@@ -933,6 +936,7 @@ export function useHomeScreen() {
     poiMarkers: displayMarkers,
     routeSegments,
     routeLayers,
+    routeBadges,
     routeComparison,
     roadLabels,
     highlightCategory,

@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { RouteCard, formatRouteDelta } from '@/src/components/routes/RouteCard';
@@ -191,11 +192,47 @@ describe('RouteCard', () => {
     expect(textNodes(renderer).join(' ')).not.toMatch(/safer|lower|shorter|\+/);
   });
 
-  it('shows an Estimated chip when certainty is below 0.5', () => {
+  it('shows an Estimated chip when certainty is below 0.4, the same threshold the map dashes at', () => {
     const route = makeRoute({ safety: { certainty: 0.3, reason: 'x' } });
     const renderer = renderCard({ route });
     expect(textNodes(renderer)).toContain('Estimated');
     expect(findByA11yLabel(renderer, 'Lighting partly estimated').length).toBeGreaterThan(0);
+  });
+
+  it('hides the Estimated chip at certainty 0.45, which the map still draws solid', () => {
+    const route = makeRoute({ safety: { certainty: 0.45, reason: 'x' } });
+    const renderer = renderCard({ route });
+    expect(textNodes(renderer)).not.toContain('Estimated');
+  });
+
+  it('shows the Estimated chip at certainty exactly 0.39 and hides it at exactly 0.4', () => {
+    expect(textNodes(renderCard({ route: makeRoute({ safety: { certainty: 0.39, reason: 'x' } }) }))).toContain('Estimated');
+    expect(textNodes(renderCard({ route: makeRoute({ safety: { certainty: 0.4, reason: 'x' } }) }))).not.toContain('Estimated');
+  });
+
+  it('renders the recommended badge with #047857 text on #DCFCE7 at 12px or larger', () => {
+    const renderer = renderCard({ route: makeRoute({ isSafest: true, safety: { reason: 'x', certainty: 0.8 } }) });
+    const badge = renderer.root.findAll(
+      (n) => n.type === Text && n.props.children === '★ Recommended',
+    )[0];
+    const style = StyleSheet.flatten(badge.props.style);
+    expect(style.color).toBe('#047857');
+    expect(style.fontSize).toBeGreaterThanOrEqual(12);
+    const pill = badge.parent;
+    expect(pill).not.toBeNull();
+    expect(StyleSheet.flatten(pill!.props.style).backgroundColor.toUpperCase()).toBe('#DCFCE7');
+  });
+
+  it('keeps every route card text at 12px or larger', () => {
+    const renderer = renderCard({
+      route: makeRoute({ isSafest: true, safety: { reason: 'x', certainty: 0.3, dataQuality: { lighting: 'estimated' } } }),
+    });
+    const sizes = renderer.root
+      .findAll((n) => n.type === Text)
+      .map((n) => StyleSheet.flatten(n.props.style)?.fontSize)
+      .filter((s): s is number => typeof s === 'number');
+    expect(sizes.length).toBeGreaterThan(0);
+    sizes.forEach((s) => expect(s).toBeGreaterThanOrEqual(12));
   });
 
   it('shows the Estimated chip when lighting data is estimated, even with high certainty', () => {

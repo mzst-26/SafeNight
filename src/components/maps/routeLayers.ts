@@ -50,18 +50,36 @@ export interface RouteLayerInput {
   segments?: LayerSegment[];
   worstStretch?: WorstStretchInput | null;
   crimes?: CrimeInput[];
+  /**
+   * Street lights, always included as candidates (unless a different category is highlighted).
+   * The renderer hides them below LIGHTS_MIN_ZOOM, so the spec does not change as the user zooms.
+   */
   lights?: GeoPoint[];
   cctv?: GeoPoint[];
   places?: GeoPoint[];
+  /** Route data quality from the server (v2). Absent on v1 routes. */
+  dataQuality?: RouteLayerDataQuality;
+}
+
+/** Data quality flags for a route. Mirrors RouteDataQuality in src/services/safeRoutes.ts. */
+export interface RouteLayerDataQuality {
+  crime?: 'ok' | 'unavailable';
+  lighting?: 'verified' | 'mixed' | 'estimated';
 }
 
 export type HighlightCategory = 'crime' | 'light' | 'cctv' | 'shop';
 
 export interface RouteLayerOptions {
-  zoom: number;
+  /**
+   * Accepted for source compatibility and not used. Zoom gating moved to the renderers
+   * (see LIGHTS_MIN_ZOOM), so buildRouteLayers returns the same spec at every zoom.
+   */
+  zoom?: number;
+  /**
+   * null (nothing highlighted) shows the default layers: lights and crime clusters.
+   * A category shows only that category: 'light', 'cctv' or 'shop' points, or 'crime' clusters.
+   */
   highlightCategory?: HighlightCategory | null;
-  /** Lights are drawn as points from this zoom up (default 17). */
-  showLightsAtZoom?: number;
   /**
    * Grid cell size for crime clustering in metres (default 120). Must be finite
    * and > 0; zero, negative, NaN or infinite values fall back to the default.
@@ -104,27 +122,37 @@ export interface RouteLayerSpec {
   points: PointLayer[];
   legend: {
     ramp: Array<{ from: number; to: number; color: string }>;
+    /** Label for the dashed swatch. */
     dashedLabel: string;
+    /** Short data-gap notes to show under the legend, e.g. 'Crime data unavailable'. Empty when there are none. */
+    notes?: string[];
   };
 }
 
 // ── Colour ramp ──────────────────────────────────────────────────────────────
 
 /**
- * Six-step sequential ramp, index 0 = lowest risk (calm pale teal) to index 5 =
- * highest risk (espresso brown). Relative luminance strictly decreases with
- * risk, and the hue path runs teal -> ochre -> burnt orange -> brown, so it
- * stays readable for deuteranopia (see routeLayers.test.ts for the checks).
+ * Six-step sequential ramp, index 0 = lowest risk (bright teal) to index 5 =
+ * highest risk (deep maroon), one hue path teal, green, olive, brown, red,
+ * maroon. Found by a numeric search over OKLCH lightness steps and pinned by
+ * routeLayers.test.ts:
+ * - every step is at least 3:1 against the #F2EFE9 basemap and against white;
+ * - relative luminance strictly decreases with risk, so adjacent steps stay
+ *   apart for colour-blind users (separation comes from lightness, not hue);
+ * - the minimum adjacent dE76 is 13.3 (protan), 10.9 (deutan), 10.2 (tritan,
+ *   Machado 2009 severity 1.0) and 19.5 (normal), against a required 10.
+ * The backend formatter (backend/src/safety/routes/safeRoutesResponseFormatter.js)
+ * carries a copy of these values and must be kept in sync.
  * Frozen: the palette is shared module state and must not be mutated.
  */
 export const RISK_STEPS = 6;
 export const RISK_RAMP: readonly string[] = Object.freeze([
-  '#B9E3D9',
-  '#6FBFB2',
-  '#C9A24B',
-  '#B5621E',
-  '#7E2E12',
-  '#3D1206',
+  '#26998E',
+  '#617933',
+  '#715200',
+  '#693000',
+  '#55120B',
+  '#370412',
 ]);
 
 /** Neutral grey for a non-finite risk value. Deliberately off-ramp. */
@@ -140,8 +168,13 @@ export const DEFAULT_CRIME_SEVERITY = 0.4;
 
 const DASHED_CERTAINTY_BELOW = 0.4;
 const WORST_STRETCH_MIN_M = 50;
-const MAX_POINTS = 150;
-const DEFAULT_SHOW_LIGHTS_ZOOM = 17;
+/** Cap per point kind (lights, cctv, shops), applied after highlight filtering. */
+const MAX_POINTS_PER_KIND = 150;
+/**
+ * Renderers draw light points only from this zoom up, unless 'light' is highlighted.
+ * buildRouteLayers always includes lights, so the zoom rule lives here, not in the spec.
+ */
+export const LIGHTS_MIN_ZOOM = 17;
 const DEFAULT_CLUSTER_CELL_M = 120;
 const METRES_PER_DEG_LAT = 111320;
 const DEG_TO_RAD = Math.PI / 180;
@@ -335,50 +368,88 @@ function evenSample<T>(items: T[], cap: number): T[] {
   return out;
 }
 
-function buildPoints(input: RouteLayerInput, options: RouteLayerOptions): PointLayer[] {
-  const highlight = options.highlightCategory ?? null;
-  const showLightsAt = isFiniteNumber(options.showLightsAtZoom)
-    ? options.showLightsAtZoom
-    : DEFAULT_SHOW_LIGHTS_ZOOM;
-  const lightsVisible = highlight === 'light' || (isFiniteNumber(options.zoom) && options.zoom >= showLightsAt);
+const HIGHLIGHT_CATEGORIES: ReadonlySet<string> = new Set<HighlightCategory>([
+  'crime',
+  'light',
+  'cctv',
+  'shop',
+]);
 
-  const candidates: PointLayer[] = [];
-  const add = (kind: PointLayer['kind'], list: GeoPoint[] | undefined) => {
-    (list ?? []).forEach((p) => {
-      if (isValidCoord(p)) candidates.push({ kind, lat: p.lat, lng: p.lng });
-    });
-  };
-
-  if (lightsVisible) add('light', input.lights);
-  if (highlight === 'cctv') add('cctv', input.cctv);
-  if (highlight === 'shop') add('shop', input.places);
-
-  return evenSample(candidates, MAX_POINTS);
+/** Unknown or missing highlights mean "nothing highlighted" (the default layers). */
+function normaliseHighlight(value: unknown): HighlightCategory | null {
+  return typeof value === 'string' && HIGHLIGHT_CATEGORIES.has(value) ? (value as HighlightCategory) : null;
 }
 
-const LEGEND_DASHED_LABEL = 'Dashed: estimated lighting or low certainty';
+/**
+ * Point kinds shown for a highlight. Nothing highlighted shows lights only (cctv and shops
+ * are opt-in). A highlighted point category shows only that kind. 'crime' shows no points.
+ */
+function pointSourcesFor(
+  input: RouteLayerInput,
+  highlight: HighlightCategory | null,
+): Array<[PointLayer['kind'], GeoPoint[] | undefined]> {
+  switch (highlight) {
+    case null:
+    case 'light':
+      return [['light', input.lights]];
+    case 'cctv':
+      return [['cctv', input.cctv]];
+    case 'shop':
+      return [['shop', input.places]];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Valid points of one kind, evenly capped. Highlight filtering happens before this, so a
+ * highlighted kind always gets its own cap instead of competing with other kinds.
+ */
+function buildPointsOfKind(kind: PointLayer['kind'], list: GeoPoint[] | undefined): PointLayer[] {
+  const valid: PointLayer[] = [];
+  (Array.isArray(list) ? list : []).forEach((p) => {
+    if (isValidCoord(p)) valid.push({ kind, lat: p.lat, lng: p.lng });
+  });
+  return evenSample(valid, MAX_POINTS_PER_KIND);
+}
+
+const LEGEND_DASHED_LABEL = 'Estimated lighting or low certainty';
+const CRIME_UNAVAILABLE_NOTE = 'Crime data unavailable';
+
+function buildLegendNotes(dataQuality: RouteLayerInput['dataQuality']): string[] {
+  const notes: string[] = [];
+  if (dataQuality && typeof dataQuality === 'object' && dataQuality.crime === 'unavailable') {
+    notes.push(CRIME_UNAVAILABLE_NOTE);
+  }
+  return notes;
+}
 
 /**
  * Builds the renderer-agnostic layer spec for one selected route.
  * Never throws on missing or malformed data; invalid entries are skipped.
+ *
+ * The spec does not depend on zoom. Light points are always candidates; renderers hide them
+ * below LIGHTS_MIN_ZOOM unless 'light' is highlighted. Crime clusters appear only when nothing
+ * or 'crime' is highlighted.
  */
 export function buildRouteLayers(
   input: RouteLayerInput | null | undefined,
-  options: RouteLayerOptions,
+  options: RouteLayerOptions | null | undefined,
 ): RouteLayerSpec {
   const data: RouteLayerInput = input ?? {};
-  // A missing zoom is NaN, which hides zoom-gated points.
-  const opts: RouteLayerOptions = options ?? { zoom: Number.NaN };
+  const opts: RouteLayerOptions = options ?? {};
+  const highlight = normaliseHighlight(opts.highlightCategory);
   const cellM =
     isFiniteNumber(opts.clusterCellMetres) && opts.clusterCellMetres > 0
       ? opts.clusterCellMetres
       : DEFAULT_CLUSTER_CELL_M;
+  const showCrime = highlight === null || highlight === 'crime';
 
   return {
     lines: buildLines(Array.isArray(data.segments) ? data.segments : []),
     callouts: buildCallouts(data.worstStretch),
-    crimeClusters: buildCrimeClusters(data.crimes, cellM),
-    points: buildPoints(data, opts),
+    crimeClusters: showCrime ? buildCrimeClusters(data.crimes, cellM) : [],
+    points: pointSourcesFor(data, highlight).flatMap(([kind, list]) => buildPointsOfKind(kind, list)),
     legend: {
       ramp: RISK_RAMP.map((color, i) => ({
         from: i / RISK_STEPS,
@@ -386,6 +457,7 @@ export function buildRouteLayers(
         color,
       })),
       dashedLabel: LEGEND_DASHED_LABEL,
+      notes: buildLegendNotes(data.dataQuality),
     },
   };
 }
