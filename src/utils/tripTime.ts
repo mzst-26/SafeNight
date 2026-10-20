@@ -127,7 +127,7 @@ export function londonIso(date: Date): string {
 }
 
 /** London "HH:MM" of an instant. */
-function londonHhmm(date: Date): string {
+export function londonHhmm(date: Date): string {
   const p = londonParts(date);
   return `${pad(p.h)}:${pad(p.mi)}`;
 }
@@ -294,4 +294,14 @@ export function formatTimelineSummary(timeline: RouteTimeline | null | undefined
   const text = timelineLabelText(timeline.label);
   if (text) parts.push(text);
   return parts.join(' · ');
+}
+
+/** Every 15-minute HH:MM a user may pick for `mode` (same bounds as the native stepper). */
+export function tripTimeSlots(mode: 'leave_at' | 'arrive_by', now: Date): string[] {
+  const { min, max } = tripTimeBounds(mode, now);
+  const slots: string[] = [];
+  for (let t = min.getTime(); t <= max.getTime(); t += 15 * MINUTE_MS) {
+    slots.push(londonHhmm(new Date(t)));
+  }
+  return slots;
 }

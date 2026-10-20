@@ -1,12 +1,16 @@
 /**
  * Shared pieces of the leave-at / arrive-by control: the chip, the segmented mode picker and
  * styles. Platform files (TimeControl.tsx, TimeControl.web.tsx) supply the time field.
+ *
+ * The shell keeps a local draft so the picker responds at once, and commits it (props.onChange)
+ * after COMMIT_DELAY_MS of no further edits. "Leave now" commits immediately.
  */
 import { Ionicons } from "@expo/vector-icons";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   findNodeHandle,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -31,6 +35,8 @@ export interface TimeControlProps {
 }
 
 const ACCENT = "#1849A9";
+/** Pause after the last time edit before the search is triggered. */
+const COMMIT_DELAY_MS = 700;
 
 const MODES: { mode: TripTimeMode; label: string }[] = [
   { mode: "now", label: "Leave now" },
@@ -39,81 +45,139 @@ const MODES: { mode: TripTimeMode; label: string }[] = [
 ];
 
 interface ShellProps extends TimeControlProps {
-  /** Renders the time field for a non-"now" mode. */
+  /**
+   * Renders the time field for a non-"now" mode. `value` is the shell's draft; `onChange` edits it
+   * and the shell commits it after a short pause.
+   */
   renderField: (args: {
     value: TripTimeState;
     /** Chosen time, narrowed to a string (the field only renders when a time is set). */
     hhmm: string;
     isTomorrow: boolean;
     now: () => Date;
+    onChange: (next: TripTimeState) => void;
   }) => ReactNode;
 }
 
 export function TimeControlShell({ value, onChange, now, renderField }: ShellProps) {
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<TripTimeState>(value);
   const clock = now ?? (() => new Date());
   const current = clock();
   const summary = describeTripTime(value, current);
-  const resolved = resolveTripTime(value, current);
+  const draftResolved = resolveTripTime(draft, current);
 
   const chipRef = useRef<View>(null);
 
+  // Latest props for the debounced commit, which can fire after a re-render.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Adopt committed changes (including external ones) into the draft.
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  useEffect(() => () => cancelCommit(), []);
+
+  const cancelCommit = () => {
+    if (commitTimer.current) clearTimeout(commitTimer.current);
+    commitTimer.current = null;
+  };
+
+  // Commit only when the trip time really changed, and only after the user pauses.
+  const editDraft = (next: TripTimeState) => {
+    setDraft(next);
+    cancelCommit();
+    commitTimer.current = setTimeout(() => {
+      commitTimer.current = null;
+      const committed = valueRef.current;
+      if (next.mode !== committed.mode || next.hhmm !== committed.hhmm) {
+        onChangeRef.current(next);
+      }
+    }, COMMIT_DELAY_MS);
+  };
+
   const focusChip = () => {
-    const node = chipRef.current as unknown as { focus?: () => void } | null;
-    // Web (DOM) elements expose focus(); native uses the accessibility focus API.
-    if (typeof node?.focus === "function") node.focus();
+    if (Platform.OS === "web") {
+      // DOM element: focus() is enough. findNodeHandle throws on web.
+      const node = chipRef.current as unknown as { focus?: () => void } | null;
+      node?.focus?.();
+      return;
+    }
     const handle = findNodeHandle(chipRef.current);
     if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
   };
 
+  const closePanel = () => {
+    setOpen(false);
+    // The panel (and the focused control) disappears: put focus back on the chip.
+    setTimeout(focusChip, 0);
+  };
+
+  // Web only: Escape closes the panel.
+  const onPanelKeyDown = (e: { key: string }) => {
+    if (e.key === "Escape") closePanel();
+  };
+  const webKeyProps: object =
+    Platform.OS === "web" ? { onKeyDown: onPanelKeyDown } : {};
+
   const pickMode = (mode: TripTimeMode) => {
-    if (mode === value.mode) return;
+    if (mode === draft.mode) return;
     if (mode === "now") {
-      onChange(NOW_STATE);
-      setOpen(false);
-      // The panel (and the focused segment) disappears: put focus back on the chip.
-      setTimeout(focusChip, 0);
+      // Leave now commits immediately.
+      cancelCommit();
+      setDraft(NOW_STATE);
+      if (value.mode !== "now") onChange(NOW_STATE);
+      closePanel();
       return;
     }
-    // Switching Leave at <-> Arrive by keeps the time the user already chose.
-    onChange(
-      value.mode !== "now" && value.hhmm
-        ? { mode, hhmm: value.hhmm }
+    // Switching Leave at <-> Arrive by keeps the time already chosen in the draft.
+    editDraft(
+      draft.mode !== "now" && draft.hhmm
+        ? { mode, hhmm: draft.hhmm }
         : defaultTimeState(mode, clock()),
     );
   };
+
   const note = value.mode !== "now" ? timeZoneNote() : null;
 
   return (
     <View style={styles.wrap}>
       <View style={styles.chipRow}>
-      <Pressable
-        ref={chipRef}
-        onPress={() => setOpen((v) => !v)}
-        style={[styles.chip, value.mode !== "now" && styles.chipActive]}
-        accessibilityRole="button"
-        accessibilityLabel={`${summary}, change trip time`}
-        accessibilityState={{ expanded: open }}
-      >
-        <Ionicons
-          name="time-outline"
-          size={16}
-          color={value.mode !== "now" ? ACCENT : "#475467"}
-        />
-        <Text style={[styles.chipText, value.mode !== "now" && styles.chipTextActive]}>
-          {summary}
-        </Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color="#667085" />
-      </Pressable>
-      {note !== null && <Text style={styles.fieldLabel}>{note}</Text>}
+        <Pressable
+          ref={chipRef}
+          onPress={() => setOpen((v) => !v)}
+          style={[styles.chip, value.mode !== "now" && styles.chipActive]}
+          accessibilityRole="button"
+          accessibilityLabel={`${summary}, change trip time`}
+          accessibilityState={{ expanded: open }}
+        >
+          <Ionicons
+            name="time-outline"
+            size={16}
+            color={value.mode !== "now" ? ACCENT : "#475467"}
+          />
+          <Text style={[styles.chipText, value.mode !== "now" && styles.chipTextActive]}>
+            {summary}
+          </Text>
+          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color="#667085" />
+        </Pressable>
+        {note !== null && <Text style={styles.noteText}>{note}</Text>}
       </View>
 
       {open && (
-        <View style={styles.panel}>
-          <Text style={styles.fieldLabel}>Trip time · London</Text>
-          <View style={styles.segments} accessibilityRole="radiogroup" accessibilityLabel="Trip time">
+        <View style={styles.panel} {...webKeyProps}>
+          <View
+            style={styles.segments}
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Trip time, London"
+          >
             {MODES.map(({ mode, label }) => {
-              const selected = value.mode === mode;
+              const selected = draft.mode === mode;
               return (
                 <Pressable
                   key={mode}
@@ -130,14 +194,17 @@ export function TimeControlShell({ value, onChange, now, renderField }: ShellPro
               );
             })}
           </View>
-          {value.mode !== "now" && value.hhmm
-            ? renderField({
-                value,
-                hhmm: value.hhmm,
-                isTomorrow: resolved?.isTomorrow ?? false,
+          {draft.mode !== "now" && draft.hhmm ? (
+            <View style={styles.fieldSlot}>
+              {renderField({
+                value: draft,
+                hhmm: draft.hhmm,
+                isTomorrow: draftResolved?.isTomorrow ?? false,
                 now: clock,
-              })
-            : null}
+                onChange: editDraft,
+              })}
+            </View>
+          ) : null}
         </View>
       )}
     </View>
@@ -154,7 +221,7 @@ export const styles = StyleSheet.create({
     gap: 6,
     minHeight: 44,
     paddingHorizontal: 12,
-    borderRadius: 22,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#d0d5dd",
     backgroundColor: "#ffffff",
@@ -162,10 +229,19 @@ export const styles = StyleSheet.create({
   chipActive: { borderColor: "#1570ef", backgroundColor: "#f0f9ff" },
   chipText: { fontSize: 14, fontWeight: "600", color: "#344054" },
   chipTextActive: { color: ACCENT },
-  panel: { marginTop: 6, gap: 8 },
+  noteText: { fontSize: 12, color: "#475467" },
+  panel: {
+    marginTop: 6,
+    gap: 6,
+    padding: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#eaecf0",
+    backgroundColor: "#ffffff",
+  },
   segments: {
     flexDirection: "row",
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#eaecf0",
     backgroundColor: "#f2f4f7",
@@ -176,24 +252,10 @@ export const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 10,
+    borderRadius: 8,
   },
   segmentSelected: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#1570ef" },
   segmentText: { fontSize: 14, fontWeight: "500", color: "#475467" },
   segmentTextSelected: { color: ACCENT, fontWeight: "700" },
-  fieldRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
-  stepBtn: {
-    minHeight: 44,
-    minWidth: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#d0d5dd",
-    backgroundColor: "#ffffff",
-  },
-  stepBtnDisabled: { opacity: 0.4 },
-  timeText: { fontSize: 18, fontWeight: "700", color: "#101828", minWidth: 64, textAlign: "center" },
-  dayText: { fontSize: 13, fontWeight: "600", color: ACCENT },
-  fieldLabel: { fontSize: 13, color: "#475467" },
+  fieldSlot: { minHeight: 44 },
 });
