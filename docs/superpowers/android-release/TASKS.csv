@@ -1,0 +1,94 @@
+id,batch,status,severity,source,area,title,files,owner_action,verify,notes
+T-01,A,done,MEDIUM,TEST-01,ci,Run osm-ingestion tests in backend jest,backend/jest.config.cjs,no,cd backend && npm test,Add src/osm-ingestion/tests to roots; all 7 suites must pass
+T-02,A,done,HIGH,TEST-06,ci,CI runs tsc and expo lint,.github/workflows/ci-test-all-coverage.yml,no,CI workflow green on branch,Add tsc and lint steps after npm ci; depends on T-03 and T-04
+T-03,A,done,MEDIUM,TEST-07,lint,Fix react/no-unescaped-entities in TermsModal (13),src/components/modals/TermsModal.tsx,no,npx expo lint 0 errors in file,Replace literal quotes with entities or expressions; no visual change
+T-04,A,done,MEDIUM,TEST-07,lint,Fix unescaped entities in FamilyPackModal and RefundPolicyModal (3),src/components/modals/FamilyPackModal.tsx; src/components/modals/RefundPolicyModal.tsx,no,npx expo lint 0 errors in file,SubscriptionModal lint is in T-36
+T-05,A,done,HIGH,PLAY-03,manifest,Remove SYSTEM_ALERT_WINDOW from release manifest,android/app/src/main/AndroidManifest.xml,no,grep -c SYSTEM_ALERT_WINDOW on main manifest is 0; tsc still green,No code uses overlays
+T-06,A,done,HIGH,PLAY-04,manifest,Remove READ/WRITE_EXTERNAL_STORAGE and RECORD_AUDIO from release manifest,android/app/src/main/AndroidManifest.xml,no,grep main manifest shows none of these,RECORD_AUDIO is merged from expo-camera; use tools:node=remove on the merged permission. Check no src code uses mic or storage
+T-07,A,done,HIGH,PLAY-02 / SEC-01,secrets,Move release signing passwords out of tracked gradle.properties,android/gradle.properties,yes: rotate passwords and decide history rewrite,grep RELEASE_.*PASSWORD android/gradle.properties returns nothing; local build still signs via ~/.gradle/gradle.properties,Repo fix done; owner must rotate passwords (SEC-01)
+T-08,A,done,MEDIUM,SEC-26,backend,Compare osm-ingestion admin key with timingSafeEqual,backend/src/osm-ingestion/src/server.js,no,cd backend/src/osm-ingestion && npm test,Add a unit test for the admin guard first
+T-09,A,done,LOW,PLAY-20,build,Reject non-https EXPO_PUBLIC_*_URL in aab script,scripts/build-android-aab.sh,no,bash -n scripts/build-android-aab.sh,Fail fast if a release env value is http
+T-10,A,deferred,LOW,PLAY-13,release,check-play-metadata false positives,scripts/check-play-metadata.js,no,node scripts/check-play-metadata.js,Deferred: needs scope rule decided by owner for the word free
+T-11,B,done,HIGH,LOGIC-01,live,Surface live location upload failures with backoff and in-flight guard,src/services/userApi.ts; src/hooks/useLiveTracking.ts,no,npx jest --config jest.frontend.config.cjs src/hooks/__tests__/useLiveTracking,Test first: 3 rejected uploads set error state and delay next tick. 403 or 404 ends the session with UI signal
+T-12,B,done,HIGH,LOGIC-03,live,Calling startTracking twice must not leak intervals or watchers,src/hooks/useLiveTracking.ts,no,fake timers: getTimerCount is 0 after stop,Early return when started or in-flight; clear all handles in one helper
+T-13,B,done,HIGH,LOGIC-02,live,Resumed session without active timers must not show tracking,src/hooks/useLiveTracking.ts,no,test: getMySession returns a session then isTracking is false or uploads resume,Pick one: restart timers or show Resume prompt. Decide in the test
+T-14,B,done,HIGH,LOGIC-04 / SEC-02 area,auth,Single-flight token refresh; keep session on 5xx and network errors,src/services/userApi.ts; src/hooks/useAuth.ts,no,npx jest --config jest.frontend.config.cjs userApi,Two parallel 401s give one refresh call. 503 refresh does not clear session. Only 400 or 401 from refresh clears
+T-15,B,done,HIGH,LOGIC-14,auth,Do not log the user out after a slow profile fetch,src/hooks/useAuth.ts,no,test: getProfile null for all retries keeps isLoggedIn true,Force logout only on explicit 401 or account_disabled
+T-16,B,done,MEDIUM,SEC-10,auth,Clear in-memory access token on logout,src/services/userApi.ts,no,test: clearSession removes globalThis token,One line plus test
+T-17,B,done,MEDIUM,SEC-11,privacy,Clear saved places and per-user keys on logout and account delete,src/services/userApi.ts; src/hooks/useSavedPlaces.ts,no,test: clearSession removes saved places key,Second user on same device must not see old places
+T-18,B,done,MEDIUM,LOGIC-06,nav,Remove navigation GPS watcher attached after stop or unmount,src/hooks/useNavigation.ts,no,test: stop during permission await removes subscription,Generation counter checked after each await
+T-19,B,done,MEDIUM,SEC-28,network,Add AbortController timeout to safety fetch and reverseGeocode,src/services/safety.ts; src/services/openStreetMap.ts,no,test: hung fetch rejects within timeout,Reuse fetchJson pattern
+T-20,B,done,MEDIUM,LOGIC-15,push,Retry push token registration,src/services/userApi.ts; src/hooks/useLiveTracking.ts,no,test: first registration rejects then retry is scheduled,Keep token and re-send on next foreground
+T-21,B,deferred,MEDIUM,LOGIC-12,routes,Missing leg distance must not become 0 m,src/services/safeRoutes.ts,no,test: no legs gives path length or error,Distance fix done; empty-path throw deferred: safeRoutes.time.test.ts:48 fixture
+T-22,B,done,LOW,LOGIC-22,nav,Use one walking speed constant for navigation ETA,src/hooks/useNavigation.ts; src/services/safeRoutes.ts,no,test: navigation ETA equals route ETA,Import WALKING_SPEED_MPS
+T-23,B,done,LOW,LOGIC-18,routes,Route cache key includes maxDistanceKm,src/services/safeRoutes.ts,no,test: different maxDistanceKm hits network twice,
+T-24,B,done,MEDIUM,LOGIC-07,search,Ignore stale autocomplete responses,src/hooks/usePlaceAutocomplete.ts,no,test: out-of-order responses show latest only,Request id ref
+T-25,B,done,MEDIUM,LOGIC-08,search,Ignore stale place-details result on fast reselect,src/hooks/useAutoPlaceSearch.ts,no,test: resolve first lookup after second selection keeps second place,selectionIdRef
+T-26,B,done,MEDIUM,LOGIC-09,live,Drop stale watch-contact poll results,src/hooks/useLiveTracking.ts,no,test: userId switch drops pending result,Also clear data on error
+T-27,B,done,MEDIUM,LOGIC-10,live,Mark friend markers stale and stop reporting zero when backgrounded,src/hooks/useFriendLocations.ts,no,test: failed poll flags markers stale,
+T-28,B,done,MEDIUM,LOGIC-13,time,Re-resolve trip time on resume and past due,src/hooks/useSafeRoutes.ts; src/utils/tripTime.ts,no,fake timers: 09:00 at 09:01 rolls to tomorrow,
+T-29,B,done,MEDIUM,LOGIC-16,location,Reject stale cached origin older than 10 min,src/services/location.ts; src/hooks/useCurrentLocation.ts,no,test: 2-day-old cache is not ready,
+T-30,B,done,MEDIUM,LOGIC-11,limits,Fail closed when a feature key is missing from snapshot,src/services/userApi.ts,no,test: missing route_search rehydrates,Fail-closed with rehydrate_required; H-7 rehydrate guard skipped; callers ignore allowed flag
+T-31,B,done,LOW,LOGIC-20,time,DST fall-back ambiguous time resolves to later instant,src/utils/tripTime.ts,no,test: londonWallToInstant on 2026-10-25 01:30,Not reproduced: londonWallToInstant already correct; pinned regression test
+T-32,B,done,LOW,LOGIC-21,share,Share link refreshes token and throws on empty token,src/services/shareRoute.ts,no,test: response without token throws,
+T-33,C,done,HIGH,UX-02,copy,Destination out of range shows the user's real limit,app/index.tsx,no,test: free user sees 1 km or 3 km text not 6.2 mi,Remove hard-coded 6.2 mi (lines 2187 2458 2867 approx)
+T-34,C,done,HIGH,UX-01,copy,Search-around message uses SEARCH_AROUND_MAX_MILES,app/index.tsx,no,test: text contains 10 miles,Line ~2740
+T-35,C,done,MEDIUM,UX-03,copy,Remove hard-coded 3 mi hint,app/index.tsx,no,test: hint no longer says 3 mi,Lines 2264 2535 2944 approx
+T-36,C,done,HIGH,UX-04,tier,Subscription modal maps free pro and premium explicitly; fix lint in same file,src/components/modals/SubscriptionModal.tsx,no,test: premium user sees Premium badge and no Guarded upgrade,
+T-37,C,done,MEDIUM,UX-05,copy,Limit modal names the target plan the user can buy,src/components/modals/LimitReachedModal.tsx,owner confirms plan names,test: text names Guarded,
+T-38,C,done,HIGH,UX-07,routes,Disable Start Navigation and selection while route list updates,src/components/routes/RouteList.tsx; app/index.tsx,no,test: Start disabled when updatingLabel set,
+T-39,C,done,HIGH,UX-08,location,Android denied location shows message and Open settings,src/components/search/MobileWebSearchBar.tsx; src/hooks/useHomeScreen.ts; app/index.tsx,no,test: denied state shows Open settings,Use Linking.openSettings
+T-40,C,done,MEDIUM,UX-09,location,Native location help is persistent and says app not browser,app/index.tsx,no,test: native help text has no browser wording,
+T-41,C,done,HIGH,UX-14,onboarding,Welcome step 1 can be skipped and back closes it,src/components/modals/WelcomeModal.tsx,no,test: skip button present and onRequestClose set,
+T-42,C,done,LOW,UX-17,modals,Pass onRequestClose to every modal,src/components/modals/DownloadAppModal.tsx; src/components/modals/OnboardingModal.tsx,no,test: back closes,
+T-43,C,done,MEDIUM,UX-12,copy,Web Start Navigation label matches outcome,app/index.tsx,no,test: web label is Get the app to navigate,
+T-44,C,done,LOW,UX-13,copy,One label for Clear via point and remove decorative emoji in warnings,app/index.tsx,no,test: label text,
+T-45,C,done,MEDIUM,UX-11,search,Search error and empty states under destination field,src/components/search/MobileWebSearchBar.tsx,no,test: error shows retry text,
+T-46,C,deferred,MEDIUM,UX-32,offline,Offline message when routes fail without network,app/index.tsx,no,test: offline text shown,Use NetInfo if installed or navigator.onLine on web; check dependency first
+T-47,C,done,LOW,UX-35,routes,Remove leftover /modal template route,app/modal.tsx,no,test: route removed or redirects,
+T-48,C,done,MEDIUM,UX-29 / UX-26 / UX-27,a11y,48dp hit areas and labels on icon buttons in search and AI modal,src/components/search/MobileWebSearchBar.tsx; src/components/modals/AIExplanationModal.tsx,no,test: accessibilityLabel present,Keep visual size
+T-49,C,deferred,MEDIUM,UX-16,onboarding,Disclaimer decline option,src/components/modals/DisclaimerModal.tsx,yes: product decision,,Owner decides what decline does
+T-50,C,deferred,MEDIUM,UX-30 / UX-24 / UX-25,a11y,Raise text minimum to 12px across screens,many,no,,Batch after owner review of visual design
+T-51,D,done,HIGH,SEC-03,backend,Require Play Integrity header or auth on integrity verify,backend/src/gateway/routes/integrityVerify.js; backend/src/shared/middleware/integrityCheck.js,yes: confirm GOOGLE_APPLICATION_CREDENTIALS_JSON and attestation scope,cd backend && npm test,Add requireAuth to verify route; test 401 without token
+T-52,D,done,MEDIUM,SEC-05,backend,Account deletion stops on table delete failure and keeps auth user,backend/src/user/routes/auth.js,no,test: failing table delete returns 500 and deleteUser not called,
+T-53,D,done,LOW,SEC-17,backend,Map Supabase errors to fixed messages,backend/src/user/routes/auth.js,no,test: raw message not returned,
+T-54,D,done,LOW,SEC-18,backend,Do not log email body when Resend key missing,backend/src/shared/email.js,yes: confirm RESEND_API_KEY set in production,test: body not logged,Log recipient and subject only
+T-55,D,done,LOW,SEC-20,backend,Escape name in gift email,backend/src/shared/email.js,no,test: html-escaped name,
+T-56,D,done,LOW,SEC-19,backend,Allowlist family return_url,backend/src/user/routes/family.js,no,test: non-allowlisted url rejected,Guard test only; original code never echoed return_url
+T-57,D,blocked,MEDIUM,SEC-09,backend,Require auth on explain-route,backend/src/gateway/routes/explain.js,yes: confirm spend cap,test: unauthenticated 401,Blocked: client does not send bearer token to /api/explain-route (src/services/openai.ts:85-89); needs frontend change first
+T-58,T,done,HIGH,TEST-03,tests,Unit tests for subscription plans and entitlement tables,backend/tests/unit/subscription/plans.test.js (new),no,cd backend && npm test,Tests only; report bugs; do not fix production code
+T-59,T,done,HIGH,TEST-04,tests,Integration tests for gateway places nearby staticmap and integrityVerify,backend/tests/integration/gateway/*.test.js (new),no,cd backend && npm test,Mock upstream fetch; tests only
+T-60,T,done,LOW,TEST-11,tests,Remove wall-clock timing assertion,backend/tests/unit/safety/scoring/roadProximity.test.js,no,cd backend && npm test,Removed flaky wall-clock assertion per TEST-11; title shortened to match
+T-61,T,todo,MEDIUM,TEST-05,tests,Widen frontend coverage scope,jest.frontend.config.cjs,no,npm run test:frontend:coverage,Deferred until batch B lands; then set thresholds from measured baseline
+T-62,X,owner,BLOCKER,PLAY-01,billing,Android paid subscriptions must use Play Billing or be hidden,src/components/modals/SubscriptionModal.tsx; src/components/modals/FamilyPackModal.tsx; src/components/ui/ProfileMenu.tsx,yes: product decision,,Recommended first release: hide purchase on Android (Option B)
+T-63,X,owner,HIGH,PLAY-05,location,Navigation must work without background location,app/index.tsx; src/hooks/useLiveTracking.ts,yes: product decision,,Background location only for Safety Circle sharing
+T-64,X,owner,HIGH,PLAY-06 / PLAY-07 / PLAY-08,privacy,Privacy policy matches background location push tokens and usage events,src/components/modals/PrivacyPolicyModal.tsx; app/privacy.tsx,yes: legal wording,,
+T-65,X,owner,MEDIUM,PLAY-10 / SEC-04,maps,Restrict Maps key in Google Cloud and rotate if unrestricted,app.json; android/app/src/main/AndroidManifest.xml,yes: GCP console,,
+T-66,X,owner,MEDIUM,SEC-07,links,Publish assetlinks.json and use verified App Links for reset,app/_layout.tsx; public/,yes: Netlify domain,,
+T-67,X,owner,MEDIUM,SEC-08,ota,Enable EAS Update code signing,app.json,yes: Expo signing certificate,,
+T-68,X,owner,LOW,SEC-12 / PLAY-15,contact,Replace personal email in eas.json and privacy page,eas.json,yes: project mailbox,,
+T-69,X,owner,LOW,SEC-23,db,Confirm RLS on all Supabase tables and version the schema,backend,yes: Supabase dashboard,,
+T-70,X,owner,MEDIUM,SEC-09 / SEC-18,ops,OpenAI spend cap and RESEND_API_KEY set in production,backend,yes: cloud consoles,,
+T-71,X,deferred,LOW,SEC-06,shares,Revoke route share link,backend/src/user/routes/shares.js,yes: default expiry choice,,DELETE route still to do
+T-72,X,deferred,LOW,SEC-21 / SEC-22,product,Report moderation and username lookup privacy,backend,yes: product decision,,
+T-73,X,deferred,LOW,SEC-02,auth,Store session tokens in expo-secure-store and disable Android backup,src/services/userApi.ts; android/app/src/main/AndroidManifest.xml,yes: users may need to sign in again,,Largest auth change; planned after batch B
+T-74,X,deferred,LOW,PLAY-17,manifest,allowBackup false,android/app/src/main/AndroidManifest.xml,no,,Ship with T-73
+T-75,X,deferred,LOW,PLAY-18,build,Enable minify and shrink in release,android/gradle.properties,yes: test release build on device,,
+T-76,X,deferred,LOW,PLAY-19,build,Guard versionCode bump on direct eas build,scripts/,no,,
+T-77,X,deferred,LOW,SEC-14 / SEC-15,webview,Sandbox map iframe and restrict WebView origins,src/components/maps/RouteMap.web.tsx; RouteMap.native.tsx,no,,Needs device test of map features
+T-78,X,deferred,LOW,LOGIC-17 / LOGIC-24 / LOGIC-25 / LOGIC-26 / LOGIC-27 / LOGIC-28 / LOGIC-29,dormant,Fix or delete dormant safety modules,src/hooks/useSegmentSafety.ts and others,yes: delete dead code?,,Dormant; no user impact today
+T-79,X,deferred,LOW,UX-18 / UX-19 / UX-21,copy,Single risk vocabulary and confidence display,src/components/safety/SafetyPanel.tsx; src/utils/colorCode.ts,yes: label set,,
+T-80,X,deferred,LOW,SEC-27 / PLAY-18 build guard,config,Throw in release when env URL missing,src/config/env.ts,no,,
+T-81,X,deferred,LOW,SEC-16 / SEC-24 / SEC-25 / SEC-29 / SEC-30,backend,Remaining low-severity backend hardening,backend,no,,
+T-82,R,todo,HIGH,release,aab,Fast-forward main to android-release-readiness,git refs,no,git rev-parse main equals branch HEAD,Use git push . HEAD:main (ff only)
+T-83,R,todo,HIGH,release,aab,Build signed AAB with upload keystore,android/,no,bundle exists under android/app/build/outputs/bundle/release,Needs T-07 applied locally and gradle/hermes toolchain
+T-84,D2,done,HIGH,TEST-03 (found by T-58),subscription,tierAtLeast fails open for unknown required tier,backend/src/user/lib/subscriptionConfig.js,no,cd backend && npx jest --config ./jest.config.cjs tests/unit/subscription/subscriptionConfig.test.js,Test subscriptionConfig.test.js:117 expects false for tierAtLeast free premium. Unknown tier must deny. Check requireTier callers
+T-85,D2,done,MEDIUM,TEST-03 (found by T-58),subscription,getPlan returns prototype members for constructor and __proto__,backend/src/subscription/lib/plans.js,no,cd backend && npx jest --config ./jest.config.cjs tests/unit/subscription/plans.test.js,Use Object.hasOwn check; plans.test.js:97
+T-86,D2,done,HIGH,TEST-03 (found by T-58),subscription,getTierByPriceId(null) matches pro when price env unset,backend/src/subscription/lib/plans.js,no,cd backend && npx jest --config ./jest.config.cjs tests/unit/subscription/plans.test.js,Return null for null or empty price id; plans.test.js:126
+T-87,X,owner,MEDIUM,TEST-03 (found by T-58),product,premium tier referenced but not defined,backend/src/user/routes/subscriptions.js; backend/src/user/routes/contacts.js; backend/src/user/routes/auth.js,yes: is premium a real tier,,Checkout accepts premium but config has no premium; premium users get free limits
+T-88,A2,done,MEDIUM,TEST-01 (found by batch A),ci,osm-ingestion suites fail to load flatbush ESM,backend/jest.config.cjs; backend/src/osm-ingestion/package.json,no,cd backend && npx jest --config ./jest.config.cjs,Add transformIgnorePatterns or moduleNameMapper for flatbush; fix package.json mapper path; 4 suites must pass
+T-89,R,blocked-owner,HIGH,PLAY-02 (found by batch A),signing,Release signing needs passwords outside repo,android/app/build.gradle,yes: owner supplies values locally,grep RELEASE_.*PASSWORD android/gradle.properties returns 0; AAB build signs,Set in ~/.gradle/gradle.properties on this machine only
+T-90,C2,done,MEDIUM,UX (found by batch C),onboarding,Welcome skip must persist so wizard does not reappear,src/components/modals/WelcomeModal.tsx,no,test: skip calls setOnboardingAccepted,Batch C skip only closes; wizard can reappear until profile complete
+T-91,C2,done,LOW,UX-12 (found by batch C),copy,Android download banner still says full navigation,src/components/ui/AndroidDownloadBanner.tsx,no,test: copy matches outcome,Line 24
+T-92,C2,done,MEDIUM,UX-04 (found by batch C),tier,Gift and end-date blocks still check pro only,src/components/modals/SubscriptionModal.tsx,no,test: premium gift block renders,Lines about 266 and 290
+T-93,C2,done,LOW,UX (found by batch C),copy,Route cap silent,src/components/routes/RouteList.tsx,no,test: more routes note shown,Covered by UX-40 scope
