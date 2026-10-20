@@ -25,7 +25,7 @@
   },
   "jest": {
     "moduleNameMapper": {
-      "^flatbush$": "<rootDir>/node_modules/flatbush/flatbush.js"
+      "^flatbush$": "<rootDir>/../../node_modules/flatbush/flatbush.js"
     }
   }
 }

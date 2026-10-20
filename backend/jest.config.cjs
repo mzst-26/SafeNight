@@ -1,8 +1,13 @@
 module.exports = {
   testEnvironment: 'node',
-  roots: ['<rootDir>/tests'],
+  roots: ['<rootDir>/tests', '<rootDir>/src/osm-ingestion/tests'],
   testMatch: ['**/*.test.js'],
   testPathIgnorePatterns: ['/node_modules/', '/coverage/'],
+  // flatbush 4.x is ESM-only ("type": "module", exports -> index.js), which Jest's CJS
+  // runtime cannot load. Map the bare import to its UMD build, which ships in the package.
+  moduleNameMapper: {
+    '^flatbush$': '<rootDir>/node_modules/flatbush/flatbush.js',
+  },
   setupFilesAfterEnv: ['<rootDir>/tests/setup/jest.setup.js'],
   clearMocks: true,
   restoreMocks: true,
