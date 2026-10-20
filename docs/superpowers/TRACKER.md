@@ -109,7 +109,13 @@ Rule: merge only when each applicable gate has ≥2 independent approvals in the
 Fix round 3 done: FX-B (waypoint/area/A*/crime key), FX-L (ramp, filters, route badges, a11y), FX-W (web), FX-N (native). Brain fixes: ramp re-chosen (#26998E..#370412, search by OKLCH lightness, CVD >=10.2), backend ramp synced and test reads frontend source; MAX_SEARCH_BBOX_KM2 400 -> 900 (premium 20 km trips); known pre-existing HTTP flakiness on main under load (6 unrelated failures seen on main too).
 Owner-visible blockers: VIS needs permission to restart :8084 dev server from the worktree.
 
-## Final gate round 2 (HEAD after 7c1563d + coverage config)
+## FINAL STATE (HEAD c7d5b46)
+
+Gates: R1 correctness APPROVE (round 3) | R2 performance PASS | R3 security APPROVE (round 3) | R4 quality APPROVE with tracked follow-ups | R5 tests PASS (94% mutants killed) | R6/R7 UX+parity: round-3 majors fixed and unit-tested, NOT visually verified in a browser.
+Tests: backend 1333, frontend 562, tsc clean.
+Open for owner: (1) visual check on :8084 (needs the dev server restarted from this worktree), (2) merge decision, (3) follow-ups F23 (computeSafeRoutes 679 lines), F27 (SafetyPanel inside card Pressable), server-side tier limits/unauthenticated service, disk-cache cap, multi-month crime history.
+
+## Final gate round 2 (superseded, HEAD after 7c1563d + coverage config)
 
 v1 removed, graph extracted to services/graph/* (17 files, golden-snapshot proven identical), ranking exponent 0.5 + cap 2.0x, request/cache/security fixes, shared inline map modules, UX fixes. Backend 1298 tests x3 green, frontend 468 green, tsc clean.
 
@@ -133,12 +139,12 @@ v1 removed, graph extracted to services/graph/* (17 files, golden-snapshot prove
 
 | # | From | Task | Finding | Status |
 |---|------|------|---------|--------|
-| F21 | Gate2 R1 | MAJOR | same-node origin/dest (>10 m) returned 3 identical 0 m routes: 400 SAME_LOCATION after snap + empty-route duplicate + cap-base robustness | BE-F running |
+| F21 | Gate2 R1 | MAJOR | same-node origin/dest (>10 m) returned 3 identical 0 m routes: 400 SAME_LOCATION after snap + empty-route duplicate + cap-base robustness | DONE (R1 round 3 approved) |
 | F22 | Gate2 R3 | APPROVED | minors: disk cache cap (pre-existing), NaN env queue cap (BE-F), '0x10' number parsing cosmetic, legend dash sample via innerHTML (constants only) | tracked |
 | F23 | Gate2 R4 | MAJOR (follow-up, pre-existing) | computeSafeRoutes in routes/safeRoutes.js is 679 lines/complexity ~88 (667 lines on main). Not refactored here: SSE/stream path has ~53% coverage, so a blind rewrite is riskier than leaving it. FOLLOW-UP: add characterization tests for computeSafeRoutes then split into stages (request resolution, data fetch, graph+candidates, light verification, response assembly). Also: routeAggregate.js 391 lines (move buildReason to scoring/reason.js), routeLayers.ts 551 lines, positional-arg sprawl (buildGraph 8, prepareContext 9, findKSafestRoutes 8) | tracked follow-up |
-| F24 | Gate2 R4 | MEDIUM | config comment fixes, edgeConfidences removal, breakdown args, crime status single source, residual v1 gates, debugLog dup, test renames | BE-F running |
-| F25 | Gate2 R5 | CHANGES | mutation 35/51 (68.6%): survivors in cache key (safetyLevel missing!), edgeBuilder dead-end/crime default/traffic, lighting density, activity filters/night discount, outage TTL/budget boundaries, same-location boundary, crime cap +1 etc. | THARD running, then re-run mutation set |
-| F26 | Gate2 R6/R7 | MAJOR | legend header 44px, crime-unavailable note visible when legend collapsed, screen-space merge of crime badges + pill separation, native no-lines fallback, parity minors | FX3 running |
+| F24 | Gate2 R4 | MEDIUM | config comment fixes, edgeConfidences removal, breakdown args, crime status single source, residual v1 gates, debugLog dup, test renames | DONE |
+| F25 | Gate2 R5 | CHANGES | mutation 35/51 (68.6%): survivors in cache key (safetyLevel missing!), edgeBuilder dead-end/crime default/traffic, lighting density, activity filters/night discount, outage TTL/budget boundaries, same-location boundary, crime cap +1 etc. | DONE: 48/51 killed (94%); 3 survivors proven equivalent |
+| F26 | Gate2 R6/R7 | MAJOR | legend header 44px, crime-unavailable note visible when legend collapsed, screen-space merge of crime badges + pill separation, native no-lines fallback, parity minors | DONE (+ pill/badge obstacle and exhaustive separation after round 3) |
 | F27 | Gate2 R6 | MAJOR (follow-up, pre-existing structure) | SafetyPanel renders inside RouteCard's outer Pressable so screen readers may not reach the breakdown: needs on-device check and layout change | tracked follow-up |
 | F13 | Final R1 | policy/handler | MAJOR: area check runs before out-of-range check => far trips get AREA_TOO_LARGE instead of DESTINATION_OUT_OF_RANGE (client upsell path broken). Fix: order | done (BE2): distance check runs first in GET and stream, area check after it; far trips return DESTINATION_OUT_OF_RANGE |
 | F14 | Final R1 | safetyGraph | MAJOR: Math.max(...indexes) RangeError >125k crimes; use loop | fixed (BE1): crimesToWeightedCounts uses a loop, 200k-row tests |
