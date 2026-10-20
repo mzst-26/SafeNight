@@ -121,6 +121,14 @@ Owner-visible blockers: VIS needs permission to restart :8084 dev server from th
 
 | # | From | Task | Finding | Status |
 |---|------|------|---------|--------|
+| F13 | Final R1 | policy/handler | MAJOR: area check runs before out-of-range check => far trips get AREA_TOO_LARGE instead of DESTINATION_OUT_OF_RANGE (client upsell path broken). Fix: order | open (BE2) |
+| F14 | Final R1 | safetyGraph | MAJOR: Math.max(...indexes) RangeError >125k crimes; use loop | open (BE1) |
+| F15 | Final R1 | ranking | MAJOR: pure exposure ranks a 22/100 short route over 70/100 route: LENGTH_EXPOSURE_EXPONENT=0.5 | BE3 running |
+| F16 | Final R1 | misc | minor: origin==dest 400; departure_hour floor; crimeStatus in cache key + fail-closed defaults; reason wording single alternative (BE3); zero-length edge disconnect; shared A* budget (return found routes) | open (BE1/BE2) |
+| F17 | Final R3 | cacheStore | MAJOR(pre-existing): crime cache maxEntries not enforced (evict oldest); minor: aStarDistance cancel, POI_CAP NaN guard, route cache key precision 1e-5, straight-line check ordering | open (BE2/BE1) |
+| F18 | Final R4 | structure | MAJOR: delete v1 + flag; extract buildGraphV2 into stage modules; constants into config; web/native shared inline modules (FX2-R); duplicate debugLog/STATUS consts; __resetForTests; TRACKER statuses | open (BE1, FX2-R) |
+| F19 | Final R6 | UX | MAJOR: text AA, single encoding, 44px targets, crime clutter cap 12, discrete legend swatches, confidence tier, callout on path | FX2-L/FX2-R running |
+| F20 | Final R5 | tests | frontend survivors T07, LY21, LY22, BD07, N07; backend mutation results pending (agent still running background batch); frontend coverage config measures only 5 files | open |
 | F12 | EV | lightingInference/config | Backtest (Plymouth, 15,478 tagged ways, 5-fold spatial): inference does NOT beat road-class baseline (Brier .205 vs .121; AUC .785 vs .82). Observed lit rate: residential .97, primary/secondary/tertiary .98, service .68, footway .54, cycleway .81, steps .55, path .19. Priors too low; PATH bucket wrongly includes footway/cycleway/steps (sidewalks); ABSENCE rule points the wrong way (no lamp within 30 m => still 82% lit, lamps sparsely mapped); lampCount30m counts neighbouring lit=yes vertices as lamps. Plan LI: split PATH, raise priors conservatively (labelled set is biased toward tagged ways), disable absence penalty (factor 1.0), separate lit-vertex evidence; re-run EV; keep ordering property | open (LI after CAL) |
 | F8 | I1 | safetyGraph | activity safety must not drop to 0 when activity data exists but none nearby: ACTIVITY_FLOOR=0.3 in config: activity = floor + (1-floor)*(1-exp(-x)) | open (P1) |
 | F9 | I1 | safetyGraph | hazard rule: with proper units 40 mph roads w/o sidewalk tag become hazards (sidewalk tag absent on 95% of ways). Set HAZARD_SPEED_KMH=80 (50 mph) in config; absent sidewalk is unknown | open (P1) |
