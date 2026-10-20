@@ -27,7 +27,9 @@ function resolveFactor(factors, name) {
   if (supplied) assertNonNegative(`factors.${name}.n`, factor.n);
 
   if (!supplied || factor.safety === null || factor.safety === undefined) {
-    return { safety: PRIOR_SAFETY[name], n: 0, observed: false };
+    // A caller may supply a context-specific prior (activity: the hour-dependent floor); it carries no evidence.
+    if (supplied && factor.prior !== undefined) assertInRange(`factors.${name}.prior`, factor.prior, 0, 1);
+    return { safety: supplied && factor.prior !== undefined ? factor.prior : PRIOR_SAFETY[name], n: 0, observed: false };
   }
   assertInRange(`factors.${name}.safety`, factor.safety, 0, 1);
   return { safety: factor.safety, n: factor.n, observed: true };

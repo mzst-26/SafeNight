@@ -78,6 +78,17 @@ const CRIME = Object.freeze({
   RATE_SCALE: 4,
   // Severity for a category missing from the table. Middling, so unrecognised data is neither ignored nor alarming.
   SEVERITY_FALLBACK: 0.4,
+  // Non-violent crime is divided by (1 + FOOTFALL_K * P)^FOOTFALL_BETA where P is presence: busy places record more
+  // petty crime because more people (and shops) are there, not because walking is more dangerous. Violent crime,
+  // robbery, sexual offences, theft from the person and weapons are never discounted.
+  FOOTFALL_K: 2,
+  FOOTFALL_BETA: 0.5,
+  // Guardian bonus: crime risk multiplied by (1 - g), g = min(GUARDIAN_MAX, CCTV * n_cctv_80m + VENUE * n_open_80m).
+  GUARDIAN_CCTV: 0.03,
+  GUARDIAN_VENUE: 0.02,
+  GUARDIAN_MAX: 0.15,
+  // Pedestrian-relevance fallback for a category missing from the table (services/crimeSeverity.js).
+  RELEVANCE_FALLBACK: 0.4,
 });
 
 // Darkness: a smoothstep over solar elevation in degrees, 0 in daylight and 1 at full night.
@@ -166,6 +177,10 @@ const LIGHTING = Object.freeze({
     CROSSING_NEAR_M: 15,
     // Bearing difference (degrees) above which a path near a barrier road counts as crossing rather than running beside it.
     CROSSING_MIN_ANGLE_DEG: 60,
+    // A way tagged bridge=yes within BRIDGE_NEAR_M of a barrier road at more than BRIDGE_MIN_ANGLE_DEG is crossing it
+    // (the road runs below). Looser than the untagged test because the tag says the way passes over something.
+    BRIDGE_NEAR_M: 25,
+    BRIDGE_MIN_ANGLE_DEG: 30,
   }),
 
   // Tag-based priors by road class and speed, used when there is no explicit lit tag. Road-class priors are the
@@ -212,10 +227,103 @@ const LIGHTING = Object.freeze({
   NAMED_MAXSPEED_KMH: Object.freeze({ 'gb:urban': 48 }),
 });
 
+
+// ── Presence, remoteness and crime vs footfall (spec section 12) ─────────────
+
+// Presence index P(hour, x) in [0, 1]: how likely a passer-by or open premises is near a point at this hour.
+// P = clamp01(B(class) * (0.35 + 0.65 * L) * H(hour, type) + LATE). Replaces the old global night discount.
+const PRESENCE = Object.freeze({
+  // B: base footfall by settlement class (population bands in the gazetteer): a metropolis street stays populated
+  // at 23:00, a village street does not. Ratios roughly follow ordinary night-time pedestrian counts.
+  CLASS_BASE: Object.freeze({
+    metropolis: 1.0, city: 0.7, largeTown: 0.5, town: 0.35, village: 0.15, rural: 0.08,
+  }),
+  // L = log10(1 + venues) / log10(1 + VENUE_SATURATION): food and drink venues within 1 km, saturating at 200.
+  VENUE_SATURATION: 200,
+  VENUE_RADIUS_M: 1000,
+  // OSM amenity values that count as food and drink venues. Counted whether or not open at the build hour: they
+  // describe what kind of place this is; the hour curve and LATE describe who is there now.
+  VENUE_AMENITIES: Object.freeze(['pub', 'bar', 'restaurant', 'cafe', 'fast_food', 'nightclub', 'biergarten', 'food_court', 'ice_cream']),
+  // Venue counts and settlement class are looked up per cell of this size (degrees, ~550 m) and cached, so the cost
+  // is O(cells + venues), not O(edges * venues).
+  CELL_DEG: 0.005,
+  // Settlement class is looked up per cell of this size (degrees, ~1 km) and cached.
+  SETTLEMENT_CELL_DEG: 0.01,
+  // Class assumed when the gazetteer is unavailable: the calibration scenes and Plymouth are 'city'.
+  DEFAULT_CLASS: 'city',
+  // 0.35 of the base survives with no venues at all (people live and walk there); the other 0.65 scales with L.
+  VENUE_FLOOR: 0.35,
+  VENUE_SPAN: 0.65,
+  // Type derivation. 'park' when remoteness reaches PARK_MIN_REMOTENESS; 'centre' when 40 venues within 1 km or 5
+  // open places within 80 m (CENTRE_*); otherwise 'residential'.
+  PARK_MIN_REMOTENESS: 0.6,
+  CENTRE_MIN_VENUES: 40,
+  CENTRE_MIN_OPEN_PLACES: 5,
+  // H(hour) anchors [hour, value], linearly interpolated and wrapping at midnight.
+  HOUR_CURVE: Object.freeze({
+    // Town centres: busy all day, taper through the evening, thin at 4h, a few early workers by 6h.
+    centre: Object.freeze([[0, 0.8], [2, 0.6], [4, 0.3], [6, 0.5], [8, 1.0], [21, 1.0], [22, 0.9], [23, 0.85]]),
+    // Residential: commute peaks (8h, 17h), quiet midday, empty after 23h.
+    residential: Object.freeze([
+      [0, 0.22], [1, 0.15], [3, 0.1], [5, 0.1], [6, 0.4], [7, 0.8], [8, 1.0], [9, 0.7], [12, 0.6], [15, 0.8],
+      [17, 1.0], [19, 0.9], [20, 0.8], [21, 0.6], [22, 0.5], [23, 0.3],
+    ]),
+    // Parks: moderate by day, almost nobody after dusk (21h on) until the early morning.
+    park: Object.freeze({ DAY: 0.5, NIGHT: 0.05, NIGHT_FROM_HOUR: 21, NIGHT_TO_HOUR: 6 }),
+  }),
+  // LATE: venues open in the late window add up to LATE_MAX (full at LATE_VENUES_FULL venues within 80 m).
+  LATE_MAX: 0.15,
+  LATE_VENUES_FULL: 3,
+  LATE_FROM_HOUR: 22,
+  LATE_TO_HOUR: 5,
+});
+
+// Remoteness R0 in [0, 0.8] (the three terms sum to 0.8; the rest is reserved for building/land-use data that is not
+// ingested yet). Per edge midpoint, from the spatial grids; O(1) per edge.
+const REMOTENESS = Object.freeze({
+  // Distance (m) to the nearest non-path road, ramp 25 -> 150: a path within 25 m of a street is overlooked by it.
+  ROAD_WEIGHT: 0.40, ROAD_NEAR_M: 25, ROAD_FAR_M: 150,
+  // Non-path road segments with midpoints within 100 m, ramp 0 -> 10 (a built-up area has many).
+  WAYS_WEIGHT: 0.30, WAYS_RADIUS_M: 100, WAYS_FULL: 10,
+  // Open places within 100 m, ramp 0 -> 10.
+  PLACES_WEIGHT: 0.10, PLACES_RADIUS_M: 100, PLACES_FULL: 10,
+  // Hazard H = R * (1 - P) * darkness; lit reduces it H_eff = H * (1 - LIT_RELIEF * lightingEffective); the edge's
+  // safety is multiplied by (1 - HAZARD_STRENGTH * H_eff). Darkness gates it: an empty path by day is fine.
+  // Cell size (degrees, ~110 m) of the grids behind the three queries, which reach 100 to 150 m: 5 x 5 cells per lookup
+  // instead of the 11 x 11 the shared 55 m grids need. A speed choice only; results are exact.
+  GRID_CELL_DEG: 0.001,
+  LIT_RELIEF: 0.35,
+  HAZARD_STRENGTH: 0.4,
+  // Remoteness below FREE counts as none: R0 is never 0 in sparsely mapped suburbs (a street with no cafe within
+  // 100 m already scores 0.1 on the places term, and a 100 m grid has only ~8 segment midpoints within 100 m), and
+  // a street the walker is on is not remote. Between FREE and MAX (the largest R0, the sum of the three weights) the
+  // effective remoteness rises linearly from 0 to MAX, so a path far from every road is unchanged at 0.8.
+  FREE: 0.3,
+  MAX: 0.8,
+});
+
+// Weak lit tag (lightingStage): lit=yes on a crossing structure or isolated path, with no mapped lamp within
+// LAMP_NEAR_PATH_M while the surrounding area has mapped lamps (so lamp mapping is dense enough for absence to mean
+// something), is weak evidence: a mapper tagged the whole way but nothing near it is lit (A38 footbridge).
+const WEAK_LIT = Object.freeze({ pLit: 0.7, n: 6 });
+
 // Floor for the activity factor: a street with no open places, cameras or transit nearby is
 // quiet, not hostile, so activity safety never drops below this. Equal to PRIOR_SAFETY.activity so
 // that having activity data that shows nothing nearby is never worse than having no data at all.
 const ACTIVITY_FLOOR = 0.4;
+
+// Night-time floor for a low-presence street (rural or deserted residential): an empty night street is worse than an
+// empty day street. The floor runs from ACTIVITY_FLOOR_NIGHT at presence 0 to ACTIVITY_FLOOR at presence
+// ACTIVITY_FLOOR_FULL_PRESENCE (0.10, what a Plymouth residential street with two pubs has at 23:00), and applies to
+// daytime unconditionally (by darkness). The unknown-data prior takes the same floor, so data showing nothing nearby
+// is never worse than no data at all.
+const ACTIVITY_FLOOR_NIGHT = 0.25;
+const ACTIVITY_FLOOR_FULL_PRESENCE = 0.1;
+
+// Open places count with weight min(1, PLACE_PRESENCE_BASE + PLACE_PRESENCE_SLOPE * P) in the activity load (replaces the old
+// global night discount, 0.4 from 22:00 to 06:00). 0.25 + 1.5 * 0.10 = 0.40 reproduces the old late-night weight for the Plymouth suburb.
+const PLACE_PRESENCE_BASE = 0.25;
+const PLACE_PRESENCE_SLOPE = 1.5;
 
 // Roads at or above this speed (km/h, 50 mph) with no sidewalk are treated as walking hazards.
 // Set well above urban limits because 95% of ways carry no sidewalk tag at all.
@@ -254,12 +362,18 @@ const ROAD_TYPE_SCORES = Object.freeze({
   residential: 0.50,
   living_street: 0.55,
   service: 0.40,
-  pedestrian: 0.60,
-  cycleway: 0.35,
-  footway: 0.25,
-  path: 0.15,
-  steps: 0.10,
-  track: 0.10,
+  // Pedestrian classes (road CLASS only; lighting, isolation and remoteness carry the rest). Raised from the v1 legacy
+  // values (footway 0.25, cycleway 0.35, path 0.15, steps 0.10, track 0.10), which treated any footway as dangerous
+  // even by day: a lit park path in daylight scored 48 (Moderate). A footway is where pedestrians are meant to be, so
+  // it is no worse than a residential street (0.50) on class alone (0.70 puts a lit park path at 60+ by day, the target); it stays below the roads that have traffic watching
+  // them (secondary 0.85). A park path at night is penalised by darkness, the isolated-path penalty and remoteness.
+  pedestrian: 0.72,
+  cycleway: 0.66,
+  footway: 0.70,
+  // Unsurfaced or informal ways: still walkable but less used and less overlooked.
+  path: 0.45,
+  steps: 0.40,
+  track: 0.30,
 });
 
 // Score for a walkable class that has no entry above (cannot happen today: the table defines the walkable set).
@@ -320,14 +434,11 @@ const GRAPH = Object.freeze({
   PLACE_RADIUS_M: 80,
   TRANSIT_RADIUS_M: 150,
 
-  // Activity load = PLACE_WEIGHT * open places * night discount + CCTV_WEIGHT * cameras + TRANSIT_WEIGHT * stops,
+  // Activity load = PLACE_WEIGHT * open places * presence weight + CCTV_WEIGHT * cameras + TRANSIT_WEIGHT * stops,
   // turned into a safety by a saturating curve above ACTIVITY_FLOOR. A camera counts about 2.7 open places.
   PLACE_WEIGHT: 0.15,
   CCTV_WEIGHT: 0.4,
   TRANSIT_WEIGHT: 0.1,
-
-  // Open places count for less late at night, because many are closing: 0.4 from 22:00 to 06:00, 0.7 from 18:00.
-  NIGHT_DISCOUNT: Object.freeze({ LATE: 0.4, EVENING: 0.7, DAY: 1.0, LATE_FROM_HOUR: 22, LATE_TO_HOUR: 6, EVENING_FROM_HOUR: 18 }),
 });
 
 // Place opening heuristic when opening_hours is missing or unparseable. Hours are London wall-clock hours.
@@ -393,9 +504,24 @@ const AVOID = Object.freeze({
   DUPLICATE_OVERLAP: 0.98,
 });
 
+// Settlement class of a point (spec section 12, scoring/settlements.js). Class thresholds are on the
+// population of the covering settlement. Radius of influence: clamp(PER_SQRT_THOUSAND * sqrt(pop / 1000), MIN, MAX) km.
+// MAX also bounds the lookup window, so a large city still covers its suburbs (London reaches Brixton, ~5 km away).
+const SETTLEMENT = Object.freeze({
+  CLASS_MIN_POPULATION: Object.freeze({ metropolis: 1000000, city: 100000, largeTown: 30000, town: 5000 }),
+  RADIUS_KM: Object.freeze({ PER_SQRT_THOUSAND: 0.6, MIN: 0.8, MAX: 12 }),
+});
+
 module.exports = Object.freeze({
   AVOID,
   ACTIVITY_FLOOR,
+  ACTIVITY_FLOOR_NIGHT,
+  ACTIVITY_FLOOR_FULL_PRESENCE,
+  PLACE_PRESENCE_BASE,
+  PLACE_PRESENCE_SLOPE,
+  PRESENCE,
+  REMOTENESS,
+  WEAK_LIT,
   HAZARD_SPEED_KMH,
   MAX_LENGTH_RATIO,
   LENGTH_EXPOSURE_EXPONENT,
@@ -420,4 +546,5 @@ module.exports = Object.freeze({
   OPENING_HOURS,
   CRIME_STATUS,
   SEARCH,
+  SETTLEMENT,
 });

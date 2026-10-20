@@ -1,4 +1,5 @@
 const { STATUS_UNAVAILABLE } = require("../scoring/crimeRisk");
+const { cacheTimePart } = require("./safeRoutesTime");
 
 // Total size of cached route responses (estimated as their JSON length). Oldest entries go first.
 const MAX_ROUTE_CACHE_BYTES = 64 * 1024 * 1024;
@@ -76,13 +77,14 @@ function createSafeRoutesOrchestrator({
 
   // Standard and extra results differ, so the safety level is part of the key.
   // The response echoes maxDistanceKm in its meta, so it is part of the key too.
-  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel = "extra", maxDistanceKm = null) {
+  function getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, timePart, allowHazards, safetyLevel = "extra", maxDistanceKm = null) {
     const r = (v) => Math.round(v * KEY_COORDINATE_SCALE) / KEY_COORDINATE_SCALE;
     const base = `${r(oLat)},${r(oLng)}->${r(dLat)},${r(dLng)}`;
     const routeKey = wpLat != null && wpLng != null
       ? `${base}@${r(wpLat)},${r(wpLng)}`
       : base;
-    const dhPart = departureHour != null ? `h${departureHour}` : '';
+    // timePart is the mode plus the 15-minute bucket of the mid-walk instant (see safeRoutesTime.cacheTimePart).
+    const dhPart = timePart ? `@${timePart}` : '';
     const hazardPart = allowHazards ? 'H' : '';
     const maxPart = maxDistanceKm != null ? `m${maxDistanceKm}` : '';
 
@@ -120,6 +122,8 @@ function createSafeRoutesOrchestrator({
     wpLat,
     wpLng,
     departureHour = null,
+    leaveAtMs = null,
+    arriveByMs = null,
     allowHazards = false,
     responsePolicy,
     onProgress,
@@ -127,6 +131,9 @@ function createSafeRoutesOrchestrator({
     safetyLevel = "extra",
   }) {
     cancelToken?.throwIfCancelled?.();
+    // One clock reading shared by the key and the computation, so both agree on the bucket.
+    const nowMs = Date.now();
+    const timeRequest = { leaveAtMs, arriveByMs, departureHour, nowMs };
     const cacheKey = getCacheKey(
       oLat,
       oLng,
@@ -135,7 +142,7 @@ function createSafeRoutesOrchestrator({
       wpLat,
       wpLng,
       responsePolicy,
-      departureHour,
+      cacheTimePart({ ...timeRequest, straightLineDist }),
       allowHazards,
       safetyLevel,
       maxDistanceKm,
@@ -223,6 +230,7 @@ function createSafeRoutesOrchestrator({
               emitInflightProgress(inflightEntry, phase, message, pct),
             responsePolicy,
             safetyLevel,
+            timeRequest,
           ),
         onQueueUpdate: ({
           queuePosition,
@@ -298,12 +306,16 @@ function createSafeRoutesOrchestrator({
     wpLat,
     wpLng,
     responsePolicy,
-    departureHour,
+    departureHour = null,
+    leaveAtMs = null,
+    arriveByMs = null,
+    straightLineDist = 0,
     allowHazards,
     safetyLevel = "extra",
     maxDistanceKm = null,
   }) {
-    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, departureHour, allowHazards, safetyLevel, maxDistanceKm);
+    const timePart = cacheTimePart({ leaveAtMs, arriveByMs, departureHour, straightLineDist, nowMs: Date.now() });
+    const key = getCacheKey(oLat, oLng, dLat, dLng, wpLat, wpLng, responsePolicy, timePart, allowHazards, safetyLevel, maxDistanceKm);
     return inflight.has(key);
   }
 

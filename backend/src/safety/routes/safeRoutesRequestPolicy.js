@@ -3,6 +3,7 @@ const {
   validateLongitude,
 } = require('../../shared/validation/validate');
 const { bboxFromPoints } = require('../services/geo');
+const { parseTimeParams } = require('./safeRoutesTime');
 
 const RESPONSE_VERBOSITY_FULL = 'full';
 const RESPONSE_VERBOSITY_COMPACT = 'compact';
@@ -149,7 +150,7 @@ function isWithinMaxDistance(straightLineKm, maxDistanceKm) {
   return straightLineKm <= maxDistanceKm;
 }
 
-function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
+function parseRouteRequest(req, defaultMaxDistanceKm, haversine, nowMs = Date.now()) {
   const oLat = checkCoordinate(req.query.origin_lat, validateLatitude, 'latitude');
   const oLng = checkCoordinate(req.query.origin_lng, validateLongitude, 'longitude');
   if (!oLat.valid) return { ok: false, error: oLat.error };
@@ -228,6 +229,10 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
     if (areaRefusal) return areaRefusal;
   }
 
+  // leave_at / arrive_by: explicit-offset ISO-8601, validated against the [now-5min, now+24h] horizon.
+  const timeParams = parseTimeParams(req.query, nowMs);
+  if (!timeParams.ok) return timeParams;
+
   // Fractional hours are floored first (23.7 is hour 23); anything still outside 0-23 is ignored.
   let departureHour = null;
   if (req.query.departure_hour != null && !isBlankOrRepeated(req.query.departure_hour)) {
@@ -252,6 +257,8 @@ function parseRouteRequest(req, defaultMaxDistanceKm, haversine) {
       straightLineKm,
       maxDistanceKm,
       departureHour,
+      leaveAtMs: timeParams.value.leaveAtMs,
+      arriveByMs: timeParams.value.arriveByMs,
       allowHazards,
       responsePolicy: parseResponsePolicy(req.query),
     },

@@ -18,7 +18,7 @@ const { RISK_POOR_THRESHOLD } = require("../scoring/config");
 const { normalizeCrimeStatus } = require("../services/graph/clock");
 const { normalizeResponsePolicy, buildRouteVertices, limitRoutePois } = require("./safeRoutesPoiLimiter");
 
-const WALKING_SPEED_MPS = 1.35;
+const { WALKING_SPEED_MPS, buildTimeline } = require("./safeRoutesTime");
 
 // Scoring output: score, segment colour, reason and crime markers follow the definitions below.
 
@@ -235,7 +235,12 @@ function collectLightNodes(lightElements) {
   return lightNodes;
 }
 
-function collectOpenPlaceNodes(placeElements, enableOpeningHoursParse, openPlacesOnly = true) {
+/**
+ * @param {{atMs: number, londonHour: number}} [clock] The chosen instant and its London hour, so "open"
+ *   matches the time the routes were scored at. Omitted: the current time.
+ */
+function collectOpenPlaceNodes(placeElements, enableOpeningHoursParse, openPlacesOnly = true, clock = null) {
+  const at = clock ? new Date(clock.atMs) : new Date();
   const placeNodes = [];
   for (const el of placeElements || []) {
     const lat = el.lat || el.center?.lat;
@@ -260,13 +265,13 @@ function collectOpenPlaceNodes(placeElements, enableOpeningHoursParse, openPlace
     let nextChange = null;
 
     if (enableOpeningHoursParse && hoursRaw) {
-      const parsed = checkOpenNow(hoursRaw);
+      const parsed = checkOpenNow(hoursRaw, at);
       open = parsed.open;
       nextChange = parsed.nextChange;
     }
 
     if (open === null) {
-      const heuristic = heuristicOpen(amenity);
+      const heuristic = heuristicOpen(amenity, clock ? clock.londonHour : undefined);
       open = heuristic.open;
       nextChange = heuristic.nextChange;
     }
@@ -478,6 +483,16 @@ function formatRoute({ route, breakdown }, idx, candidates, ctx) {
     worstStretch: formatWorstStretch(breakdown.worstStretch),
     dataQuality: { crime: ctx.crimeStatus, lighting: lightingQuality },
   };
+  if (ctx.trip) {
+    safetyScoring.timeline = buildTimeline({
+      lat: ctx.oLat,
+      lng: ctx.oLng,
+      destLat: ctx.dLat,
+      destLng: ctx.dLng,
+      t0Ms: ctx.trip.t0Ms,
+      durationSec,
+    });
+  }
   const routeStats = buildRouteStats(route, walk, crimeCount);
 
   const fullRoutePayload = buildFullRoutePayload({
@@ -536,6 +551,7 @@ function formatRoute({ route, breakdown }, idx, candidates, ctx) {
  * @param {Array|null} [args.edgeConfidences] Per-edge light confidence, used for light-uncertainty spans.
  * @param {number} [args.straightLineDist] Straight-line metres, for the detour ratio.
  * @param {Array<object>} [args.verificationFootprints]
+ * @param {object} [args.trip] resolveTripTime result: adds safety.timeline and sets the instant for "open" places.
  * @param {string} [args.crimeStatus] 'ok' or 'unavailable'; anything else, including a missing value, is reported as unavailable (normalizeCrimeStatus).
  * @returns {Array<object>} One payload per route.
  */
@@ -558,6 +574,7 @@ function buildRouteResponses({
   straightLineDist = 0,
   verificationFootprints = [],
   crimeStatus,
+  trip = null,
 }) {
   const policy = normalizeResponsePolicy(responsePolicy);
   const prepared = rawRoutes.map((route, index) => ({
@@ -582,8 +599,11 @@ function buildRouteResponses({
     straightLineDist,
     verificationFootprints,
     crimeStatus: normalizeCrimeStatus(crimeStatus),
+    trip,
     lightNodes: collectLightNodes(allData?.lights?.elements),
-    placeNodes: collectOpenPlaceNodes(allData?.places?.elements, enableOpeningHoursParse, policy.openPlacesOnly),
+    placeNodes: collectOpenPlaceNodes(allData?.places?.elements, enableOpeningHoursParse, policy.openPlacesOnly, trip
+      ? { atMs: trip.midMs, londonHour: trip.londonHour(trip.midMs) }
+      : null),
   };
   return ordered.map((entry, idx) => formatRoute(entry, idx, candidates, ctx));
 }

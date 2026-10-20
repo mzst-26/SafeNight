@@ -69,4 +69,48 @@ describe('safe-routes GET and stream hand the same options to the orchestrator',
     expect(mockResolveCalls[0].departureHour).toBe(2);
     expect(mockResolveCalls[0].allowHazards).toBe(true);
   });
+
+  describe('leave_at / arrive_by', () => {
+    const inHours = (h) => new Date(Date.now() + h * 3_600_000).toISOString();
+    const { departure_hour: _ignored, ...BASE_QUERY } = QUERY;
+
+    test('both endpoints hand leave_at to the orchestrator as epoch ms', async () => {
+      const leave = inHours(2);
+      await request(buildApp()).get('/api/safe-routes').query({ ...BASE_QUERY, leave_at: leave });
+      await request(buildApp()).get('/api/safe-routes/stream').query({ ...BASE_QUERY, leave_at: leave });
+
+      expect(mockResolveCalls).toHaveLength(2);
+      for (const call of mockResolveCalls) {
+        expect(call.leaveAtMs).toBe(Date.parse(leave));
+        expect(call.arriveByMs).toBeNull();
+      }
+    });
+
+    test('both endpoints hand arrive_by through', async () => {
+      const arrive = inHours(3);
+      await request(buildApp()).get('/api/safe-routes').query({ ...BASE_QUERY, arrive_by: arrive });
+      await request(buildApp()).get('/api/safe-routes/stream').query({ ...BASE_QUERY, arrive_by: arrive });
+
+      for (const call of mockResolveCalls) {
+        expect(call.arriveByMs).toBe(Date.parse(arrive));
+        expect(call.leaveAtMs).toBeNull();
+      }
+    });
+
+    test.each([
+      ['no offset', { leave_at: '2026-10-21T17:10:00' }, 'INVALID_TIME'],
+      ['both params', { leave_at: new Date(Date.now() + 3_600_000).toISOString(), arrive_by: new Date(Date.now() + 7_200_000).toISOString() }, 'INVALID_TIME'],
+      ['too far ahead', { leave_at: new Date(Date.now() + 48 * 3_600_000).toISOString() }, 'TIME_OUT_OF_RANGE'],
+    ])('%s: GET answers 400 and the stream emits the same code', async (_name, extra, code) => {
+      const res = await request(buildApp()).get('/api/safe-routes').query({ ...BASE_QUERY, ...extra });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe(code);
+      expect(typeof res.body.message).toBe('string');
+
+      const stream = await request(buildApp()).get('/api/safe-routes/stream').query({ ...BASE_QUERY, ...extra });
+      expect(stream.text).toContain('event: error');
+      expect(stream.text).toContain(`"error":"${code}"`);
+      expect(mockResolveCalls).toHaveLength(0);
+    });
+  });
 });

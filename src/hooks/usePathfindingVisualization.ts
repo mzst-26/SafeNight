@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { env } from '@/src/config/env';
 import type { LatLng } from '@/src/types/geo';
+import { appendTimeQuery, type TimeParams } from '@/src/utils/tripTime';
 
 const BACKEND_BASE = env.safetyApiUrl;
 const AUTH_TOKEN_STORAGE_KEY = 'safenight_access_token';
@@ -119,6 +120,20 @@ const EMPTY_STATE: PathfindingVisualizationState = {
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
+export function buildStreamUrl(
+  base: string,
+  origin: LatLng,
+  destination: LatLng,
+  timeParams?: TimeParams,
+): string {
+  return appendTimeQuery(
+    `${base}/api/safe-routes/stream?` +
+      `origin_lat=${origin.latitude}&origin_lng=${origin.longitude}` +
+      `&dest_lat=${destination.latitude}&dest_lng=${destination.longitude}`,
+    timeParams,
+  );
+}
+
 export function usePathfindingVisualization(
   origin: LatLng | null,
   destination: LatLng | null,
@@ -126,6 +141,7 @@ export function usePathfindingVisualization(
   searchId: string | null,
   searchClientId: string | null,
   searchSeq: number | null,
+  timeParams?: TimeParams,
 ) {
   const [state, setState] = useState<PathfindingVisualizationState>(EMPTY_STATE);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
@@ -168,10 +184,7 @@ export function usePathfindingVisualization(
 
     setState({ ...EMPTY_STATE, active: true });
 
-    const url =
-      `${BACKEND_BASE}/api/safe-routes/stream?` +
-      `origin_lat=${origin.latitude}&origin_lng=${origin.longitude}` +
-      `&dest_lat=${destination.latitude}&dest_lng=${destination.longitude}`;
+    const url = buildStreamUrl(BACKEND_BASE, origin, destination, timeParams);
 
     console.log('[viz] Opening SSE stream:', url);
 
@@ -320,7 +333,7 @@ export function usePathfindingVisualization(
       disposed = true;
       stop();
     };
-  }, [isSearching, origin?.latitude, origin?.longitude, destination?.latitude, destination?.longitude, searchId, searchClientId, searchSeq]);
+  }, [isSearching, origin?.latitude, origin?.longitude, destination?.latitude, destination?.longitude, searchId, searchClientId, searchSeq, timeParams?.leave_at, timeParams?.arrive_by]);
 
   return { ...state, reset };
 }

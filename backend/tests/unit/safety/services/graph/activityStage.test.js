@@ -8,14 +8,6 @@ const NOW = new Date('2026-10-19T11:00:00Z');
 const noTick = () => {};
 const sourcesFor = (cctv, places, transit, hour = 12) => activity.collectActivitySources(cctv, places, transit, { hour, now: NOW }, noTick);
 
-describe('graph/activityStage nightDiscountFor', () => {
-  test.each([
-    [0, 0.4], [5, 0.4], [6, 1.0], [12, 1.0], [17, 1.0], [18, 0.7], [21, 0.7], [22, 0.4], [23, 0.4], [24, 0.4],
-  ])('hour %i -> %f', (hour, expected) => {
-    expect(activity.nightDiscountFor(hour)).toBe(expected);
-  });
-});
-
 describe('graph/activityStage pointOf', () => {
   test('reads a node, a way centre, and returns null without coordinates', () => {
     expect(activity.pointOf({ lat: 1, lon: 2 })).toEqual({ lat: 1, lng: 2 });
@@ -36,7 +28,7 @@ describe('graph/activityStage collectActivitySources', () => {
     expect(s.cctvNodes).toEqual([{ lat: LAT, lng: LNG }]);
     expect(s.transitNodes).toEqual([{ lat: LAT, lng: LNG }]);
     // At 05:00 the pub is closed and the hospital open.
-    expect(activity.activityAt(s, LAT, LNG, 5).activity.safety).not.toBeNull();
+    expect(activity.activityAt(s, LAT, LNG, 5, { darkness: 1 }).activity.safety).not.toBeNull();
     expect(s.activityAvailable).toBe(true);
   });
 
@@ -44,8 +36,9 @@ describe('graph/activityStage collectActivitySources', () => {
     const s = sourcesFor(null, null, null);
     expect(s.activityAvailable).toBe(false);
     expect(s.cctvNodes).toEqual([]);
-    expect(activity.activityAt(s, LAT, LNG, 12)).toMatchObject({
-      cctvCount: 0, transitCount: 0, cctvScore: 0, placeScore: 0, activity: { safety: null, n: 0 }, activitySafety: null,
+    expect(activity.activityAt(s, LAT, LNG, 12, { darkness: 0 })).toMatchObject({
+      cctvCount: 0, transitCount: 0, cctvScore: 0, placeScore: 0, activity: { safety: null, n: 0, prior: ACTIVITY_FLOOR },
+      activitySafety: null,
     });
   });
 
@@ -68,28 +61,31 @@ describe('graph/activityStage activityAt', () => {
 
   test('nothing nearby but data present gives exactly the floor', () => {
     const s = sourcesFor({ elements: [{ type: 'node', lat: LAT + 0.01, lon: LNG }] }, null, null);
-    const a = activity.activityAt(s, LAT, LNG, 12);
+    const a = activity.activityAt(s, LAT, LNG, 12, { darkness: 0 });
     expect(a.activitySafety).toBeCloseTo(ACTIVITY_FLOOR, 12);
     expect(a.activity.n).toBe(8);
     expect(a.cctvCount).toBe(0);
   });
 
   test('a camera on the spot: load 0.4, score min(1, 0.4), safety from the saturating curve', () => {
-    const a = activity.activityAt(sourcesFor(cctv, null, null), LAT, LNG, 12);
+    const a = activity.activityAt(sourcesFor(cctv, null, null), LAT, LNG, 12, { darkness: 0 });
     expect(a.cctvCount).toBe(1);
     expect(a.cctvScore).toBeCloseTo(0.4, 12);
     expect(a.activitySafety).toBeCloseTo(ACTIVITY_FLOOR + (1 - ACTIVITY_FLOOR) * (1 - Math.exp(-0.4)), 12);
   });
 
-  test('an open place counts 0.15 by day and 0.15 x 0.4 at night', () => {
+  test('an open place counts 0.15 times a presence weight that is lower at 23:00 than at midday', () => {
     const places = { elements: [{ lat: LAT, lon: LNG, tags: { amenity: 'hospital' } }] };
-    expect(activity.activityAt(sourcesFor(null, places, null, 12), LAT, LNG, 12).placeScore).toBeCloseTo(0.15, 12);
-    expect(activity.activityAt(sourcesFor(null, places, null, 23), LAT, LNG, 23).placeScore).toBeCloseTo(0.06, 12);
+    const day = activity.activityAt(sourcesFor(null, places, null, 12), LAT, LNG, 12, { darkness: 0 });
+    const night = activity.activityAt(sourcesFor(null, places, null, 23), LAT, LNG, 23, { darkness: 1 });
+    expect(day.placeScore).toBeCloseTo(0.15 * activity.placeWeightFor(day.presence, 0), 12);
+    expect(night.placeScore).toBeCloseTo(0.15 * activity.placeWeightFor(night.presence), 12);
+    expect(night.placeScore).toBeLessThan(day.placeScore);
   });
 
   test('transit within 150 m adds 0.1 to the load but is not part of the CCTV or place scores', () => {
     const transit = { elements: [{ type: 'node', lat: LAT + 0.001, lon: LNG }] }; // ~111 m
-    const a = activity.activityAt(sourcesFor(null, null, transit), LAT, LNG, 12);
+    const a = activity.activityAt(sourcesFor(null, null, transit), LAT, LNG, 12, { darkness: 0 });
     expect(a.transitCount).toBe(1);
     expect(a.cctvScore).toBe(0);
     expect(a.activitySafety).toBeCloseTo(ACTIVITY_FLOOR + (1 - ACTIVITY_FLOOR) * (1 - Math.exp(-0.1)), 12);

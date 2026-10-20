@@ -5,7 +5,7 @@
 const { buildSpatialGrid, countNearby } = require('../geo');
 const { scoreFromCache } = require('../lightsCacheClient');
 const {
-  inferLighting, effectiveLit, SIDEWALK_LIKE_HIGHWAYS,
+  inferLighting, isWeakLitTag, effectiveLit, SIDEWALK_LIKE_HIGHWAYS,
 } = require('../../scoring/lightingInference');
 const {
   buildRoadProximityIndex, isNearRoad, classifyWayContext, ROAD_HIGHWAYS,
@@ -98,6 +98,7 @@ function createWayContextGetter(segments, barrierSegments, roadIndex) {
   let byWay = null;
   let barrierIndex = null;
   const cache = new Map();
+  const bridgeWays = new Set();
   const keyOf = (segment) => (segment.wayId === undefined ? `segment:${segment.idx}` : segment.wayId);
   return (segment) => {
     const key = keyOf(segment);
@@ -107,12 +108,15 @@ function createWayContextGetter(segments, barrierSegments, roadIndex) {
       for (const p of segments) {
         if (!SIDEWALK_LIKE_HIGHWAYS.has(p.highway)) continue;
         const k = keyOf(p);
+        if (p.tags?.bridge === 'yes') bridgeWays.add(k);
         if (!byWay.has(k)) byWay.set(k, []);
         byWay.get(k).push({ a: p.nA, b: p.nB });
       }
     }
     if (!barrierIndex) barrierIndex = buildRoadProximityIndex(barrierSegments);
-    const context = classifyWayContext(byWay.get(key) || [{ a: segment.nA, b: segment.nB }], roadIndex(), barrierIndex);
+    const context = classifyWayContext(
+      byWay.get(key) || [{ a: segment.nA, b: segment.nB }], roadIndex(), barrierIndex, { bridge: bridgeWays.has(key) },
+    );
     cache.set(key, context);
     return context;
   };
@@ -172,8 +176,14 @@ function lightingAt(segment, sources, context, cache) {
   const areaWayKm = area.wayKm;
   const areaLampDensityPerKm = areaWayKm > 0 ? area.lamps / areaWayKm : 0;
 
+  // Weak lit tag (spec section 12): lit=yes on a crossing structure or isolated path with no lamp near it, in an area
+  // where lamps are mapped densely, is plausible but unconfirmed.
+  const weakLitTag = isWeakLitTag({
+    tags, crossing, nearRoad, lampCountNearPath, areaLampDensityPerKm, areaWayKm,
+  });
+
   const inferred = inferLighting({
-    tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour, crossing,
+    tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour, crossing, weakLitTag,
   });
   const lighting = applyLightsCache(inferred, cache);
   const lightingSafety = effectiveLit(lighting);

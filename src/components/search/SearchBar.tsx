@@ -25,6 +25,8 @@ import type { SafetyLevel } from "@/src/services/safeRoutes";
 import type { LatLng, PlaceDetails, PlacePrediction } from "@/src/types/geo";
 import { SafetyLevelToggle } from "./SafetyLevelToggle";
 import { SavedPlaces } from "./SavedPlaces";
+import type { TripTimeState } from "@/src/utils/tripTime";
+import { TimeControl } from "./TimeControl";
 
 const CATEGORY_CHIP_DEFINITIONS: Array<{
   key: string;
@@ -88,6 +90,9 @@ export interface SearchBarProps {
   selectedDestinationCandidateId?: string | null;
   onSelectDestinationCandidate?: (placeId: string, panToCandidate?: boolean) => void;
   onFindSafeRoutes?: () => boolean;
+  /** Leave-at / arrive-by selection (rendered when both props are given). */
+  tripTime?: TripTimeState;
+  onTripTimeChange?: (next: TripTimeState) => void;
   /** If provided, tapping any input fires this instead of allowing typing (web guest mode) */
   onGuestTap?: () => void;
   /** When true, renders inline (no absolute positioning) — used inside WebSidebar */
@@ -138,6 +143,8 @@ export function SearchBar({
   hidePredictionsDropdown = false,
   safetyLevel = 'extra',
   onSafetyLevelChange,
+  tripTime,
+  onTripTimeChange,
 }: SearchBarProps) {
   const originInputRef = useRef<TextInput>(null);
   const destInputRef = useRef<TextInput>(null);
@@ -627,6 +634,10 @@ export function SearchBar({
               </View>
             </Pressable>
           </View>
+
+          {tripTime && onTripTimeChange && (
+            <TimeControl value={tripTime} onChange={onTripTimeChange} />
+          )}
         </View>
 
         {/* Predictions Dropdown */}

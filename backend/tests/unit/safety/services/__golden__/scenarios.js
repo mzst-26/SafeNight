@@ -15,7 +15,13 @@ const graphApi = require(path.join(SRC, 'services/safetyGraph'));
 const { buildRouteResponses } = require(path.join(SRC, 'routes/safeRoutesResponseFormatter'));
 const fixtures = require(path.resolve(__dirname, '../../scoring/fixtures/calibrationScenes'));
 
-const { buildGraph, findKSafestRoutes, routeSafetyBreakdown } = graphApi;
+const { findKSafestRoutes, routeSafetyBreakdown } = graphApi;
+
+// The settlement class is injected (Plymouth and London scenes are 'city'), so the snapshot never depends on the
+// shipped gazetteer file. Scenarios may override it through options.settlementClassAt.
+const buildGraph = (road, light, cctv, places, transit, crimes, bbox, options = {}) => graphApi.buildGraph(
+  road, light, cctv, places, transit, crimes, bbox, { settlementClassAt: fixtures.CITY, ...options },
+);
 
 // Compact snapshots keep hashes of the big arrays plus the per-edge risks. Set DETAIL (GOLDEN_DETAIL=1) to
 // include every edge and the whole formatter payload, for diffing a failing refactor against a saved baseline.
@@ -209,7 +215,7 @@ async function calibrationScenarios() {
   const build = (scene, options) => buildGraph(scene.roadData, scene.lightData, scene.cctvData, scene.placeData,
     scene.transitData, scene.crimes, scene.bbox, { level: 'extra', crimeStatus: 'ok', ...options });
   for (const letter of Object.keys(fixtures.ARCHETYPES)) {
-    const graph = await build(fixtures.ARCHETYPES[letter](), fixtures.NIGHT);
+    const graph = await build(fixtures.ARCHETYPES[letter](), { ...fixtures.NIGHT, ...(fixtures.ARCHETYPE_OPTIONS[letter] || {}) });
     const target = graph.edges.find((e) => e.roadName === 'target');
     out.archetypes[letter] = { summary: graphSummary(graph), target: norm(target), score: Math.round(100 * (1 - target.risk)) };
   }

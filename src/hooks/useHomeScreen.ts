@@ -41,6 +41,7 @@ import {
   type RouteComparison,
 } from "@/src/utils/routeComparison";
 import { buildRouteBadges } from "@/src/utils/routeBadges";
+import { NOW_STATE, toTimeParams, type TripTimeState } from "@/src/utils/tripTime";
 
 const FAKE_PROGRESS_MESSAGES = [
   "Preparing route analysis…",
@@ -316,6 +317,11 @@ export function useHomeScreen() {
     [selectDestinationCandidate],
   );
 
+  // ── Trip time (leave now / leave at / arrive by) ──
+  // Resolved to ISO params when the user changes it, so rollover is decided at choice time.
+  const [tripTime, setTripTime] = useState<TripTimeState>(NOW_STATE);
+  const timeParams = useMemo(() => toTimeParams(tripTime, new Date()), [tripTime]);
+
   // ── Safe routes ──
   const {
     status: safeRoutesStatus,
@@ -331,6 +337,7 @@ export function useHomeScreen() {
     subscriptionTier,
     routeDistanceKm,
     viaPinLocation,
+    timeParams,
   );
 
   // Clear via-pin whenever the destination changes so stale waypoints don't carry over
@@ -396,9 +403,11 @@ export function useHomeScreen() {
       oLng: effectiveOrigin.longitude,
       dLat: routingDestination.latitude,
       dLng: routingDestination.longitude,
+      ...timeParams,
     });
   }, [
     directionsStatus,
+    timeParams,
     effectiveOrigin?.latitude,
     effectiveOrigin?.longitude,
     routingDestination?.latitude,
@@ -901,6 +910,8 @@ export function useHomeScreen() {
     handleMapMarkerSelect,
 
     // Routing
+    tripTime,
+    setTripTime,
     routes,
     safeRoutes: safeRoutes as SafeRoute[],
     selectedRouteId,

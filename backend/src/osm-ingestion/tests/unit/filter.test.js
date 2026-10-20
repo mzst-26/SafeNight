@@ -34,6 +34,14 @@ describe('filter', () => {
     });
   });
 
+  test('filterWayTags keeps bridge, layer and tunnel (crossing structures)', () => {
+    expect(filterWayTags({
+      highway: 'footway', bridge: 'yes', layer: '1', tunnel: 'no', bicycle: 'yes',
+    })).toEqual({
+      highway: 'footway', bridge: 'yes', layer: '1', tunnel: 'no',
+    });
+  });
+
   test('shouldKeepNode keeps street lamps', () => {
     expect(shouldKeepNode({ highway: 'street_lamp' })).toBe(true);
     expect(shouldKeepNode({ man_made: 'surveillance' })).toBe(true);

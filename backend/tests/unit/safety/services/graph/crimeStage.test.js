@@ -105,3 +105,46 @@ describe('graph/crimeStage buildCrimeModel and crimeFactorAt', () => {
     }
   });
 });
+
+describe('graph/crimeStage footfall pools and guardian bonus', () => {
+  const segments = [{ dist: 1000, midLat: 51.5, midLng: -0.1 }, { dist: 1000, midLat: 51.495, midLng: -0.105 }];
+  const modelFor = (category, n = 20) => crime.buildCrimeModel(
+    Array.from({ length: n }, () => ({ lat: 51.5, lng: -0.1, category, month: '2026-08' })), BBOX, segments, 2, noTick,
+  );
+
+  test('cells split relevance-weighted counts into violent and non-violent pools', () => {
+    const mixed = crime.buildCrimeModel([
+      { lat: 51.5, lng: -0.1, category: 'violent-crime', month: '2026-08' },
+      { lat: 51.5, lng: -0.1, category: 'anti-social-behaviour', month: '2026-08' },
+    ], BBOX, segments, 2, noTick);
+    const cell = mixed.cells.get(mixed.cellKeyOf(51.5, -0.1));
+    expect(cell.violent).toBeCloseTo(1.0, 12);
+    expect(cell.nonViolent).toBeCloseTo(0.2, 12);
+    expect(cell.weightedCount).toBeCloseTo(1.2, 12);
+  });
+
+  test('presence lowers the safety cost of non-violent crime but not violent crime', () => {
+    const petty = modelFor('anti-social-behaviour');
+    const violent = modelFor('violent-crime');
+    const pettyQuiet = crime.crimeFactorAt(petty, 51.5, -0.1, 'ok', { presence: 0 });
+    const pettyBusy = crime.crimeFactorAt(petty, 51.5, -0.1, 'ok', { presence: 0.8 });
+    expect(pettyBusy.safety).toBeGreaterThan(pettyQuiet.safety);
+    const violentQuiet = crime.crimeFactorAt(violent, 51.5, -0.1, 'ok', { presence: 0 });
+    const violentBusy = crime.crimeFactorAt(violent, 51.5, -0.1, 'ok', { presence: 0.8 });
+    expect(violentBusy.safety).toBe(violentQuiet.safety);
+  });
+
+  test('guardian bonus multiplies risk by (1 - g) for any crime, capped at 15%', () => {
+    const violent = modelFor('violent-crime');
+    const bare = crime.crimeFactorAt(violent, 51.5, -0.1, 'ok');
+    const guarded = crime.crimeFactorAt(violent, 51.5, -0.1, 'ok', { cctvCount: 1, openVenues: 2 });
+    expect(1 - guarded.safety).toBeCloseTo((1 - bare.safety) * (1 - 0.07), 12);
+    const heavy = crime.crimeFactorAt(violent, 51.5, -0.1, 'ok', { cctvCount: 9, openVenues: 99 });
+    expect(1 - heavy.safety).toBeCloseTo((1 - bare.safety) * 0.85, 12);
+  });
+
+  test('the area prior uses the undiscounted pedestrian-relevance total', () => {
+    const model = modelFor('violent-crime', 4);
+    expect(model.priorRate).toBeCloseTo(4 / 2, 12);
+  });
+});

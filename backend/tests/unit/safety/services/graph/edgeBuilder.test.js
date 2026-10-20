@@ -22,8 +22,22 @@ describe('graph/edgeBuilder roadFactorOf', () => {
   test('is the class score minus the surface penalty, clamped to [0, 1]', () => {
     expect(builder.roadFactorOf('residential', {})).toEqual({ roadSafety: 0.5, surfacePenalty: 0 });
     expect(builder.roadFactorOf('residential', { surface: 'gravel' })).toEqual({ roadSafety: 0.46, surfacePenalty: 0.04 });
-    expect(builder.roadFactorOf('steps', { surface: 'mud' }).roadSafety).toBe(0);
+    expect(builder.roadFactorOf('steps', { surface: 'mud' }).roadSafety).toBeCloseTo(0.28, 12);
+    expect(builder.roadFactorOf('steps', { surface: 'mud' }).roadSafety).toBeCloseTo(0.4 - 0.12, 12);
+    expect(builder.roadFactorOf('track', { surface: 'mud' }).roadSafety).toBeCloseTo(0.18, 12);
     expect(builder.roadFactorOf('primary', { surface: 'asphalt' }).roadSafety).toBe(0.95);
+  });
+
+  test('pedestrian classes are scored as class only: footway-like ways are not worse than a residential street', () => {
+    const score = (h) => builder.roadFactorOf(h, {}).roadSafety;
+    expect(score('footway')).toBe(0.7);
+    expect(score('pedestrian')).toBe(0.72);
+    expect(score('cycleway')).toBe(0.66);
+    expect(score('path')).toBe(0.45);
+    expect(score('footway')).toBeGreaterThan(score('residential'));
+    expect(score('path')).toBeLessThan(score('footway'));
+    expect(score('steps')).toBeLessThan(score('path'));
+    expect(score('track')).toBeLessThan(score('steps'));
   });
 
   test('an inherited property name is not a surface penalty, and an unknown class uses the fallback', () => {

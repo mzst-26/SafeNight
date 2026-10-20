@@ -10,6 +10,7 @@ import { riskToColor } from "@/src/components/maps/routeLayers";
 import type { RouteComparison } from "@/src/utils/routeComparison";
 import { isV2SafeRoute, type RouteSafety, type SafeRoute } from "@/src/services/safeRoutes";
 import { formatDistance, formatDuration } from "@/src/utils/format";
+import { formatTimelineSummary } from "@/src/utils/tripTime";
 
 const METRES_PER_MILE = 1609.344;
 
@@ -117,6 +118,7 @@ export function RouteCard({
   const [expanded, setExpanded] = useState(false);
 
   const isV2 = isV2SafeRoute(route);
+  const timelineText = formatTimelineSummary(safety.timeline);
   const reason = isBest && typeof safety.reason === "string" && safety.reason.trim() !== "" ? safety.reason : null;
   const deltaLine =
     isV2 && !isBest && comparison && recommendedComparison
@@ -199,6 +201,11 @@ export function RouteCard({
           </Text>
         </Text>
       </View>
+
+      {/* ── Timeline (time-aware backend only) ───────────────── */}
+      {timelineText !== null && (
+        <Text style={styles.timelineLine}>{timelineText}</Text>
+      )}
 
       {/* ── Delta vs recommended route (other v2 routes only) ── */}
       {deltaLine !== null && <Text style={styles.deltaLine}>{deltaLine}</Text>}
@@ -296,6 +303,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: SECONDARY_TEXT_COLOR,
     marginBottom: 6,
+  },
+  timelineLine: {
+    fontSize: 13,
+    color: SECONDARY_TEXT_COLOR,
+    marginTop: 2,
   },
   deltaLine: {
     fontSize: 12,

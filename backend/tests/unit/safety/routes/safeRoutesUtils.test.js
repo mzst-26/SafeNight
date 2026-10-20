@@ -46,33 +46,25 @@ describe('safeRoutesUtils', () => {
   });
 
   test('heuristicOpen marks evening places as open in evening window', () => {
-    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(18);
-
-    const result = heuristicOpen('pub');
+    const result = heuristicOpen('pub', 18);
 
     expect(result).toEqual({ open: true, nextChange: 'closes at 23:00' });
   });
 
   test('heuristicOpen marks evening places as closed outside evening window', () => {
-    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(3);
-
-    const result = heuristicOpen('bar');
+    const result = heuristicOpen('bar', 3);
 
     expect(result).toEqual({ open: false, nextChange: 'opens at 10:00' });
   });
 
   test('heuristicOpen marks daytime generic places as open', () => {
-    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(10);
-
-    const result = heuristicOpen('library');
+    const result = heuristicOpen('library', 10);
 
     expect(result).toEqual({ open: true, nextChange: 'closes at 20:00' });
   });
 
   test('heuristicOpen marks nighttime generic places as closed', () => {
-    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(22);
-
-    const result = heuristicOpen('library');
+    const result = heuristicOpen('library', 22);
 
     expect(result).toEqual({ open: false, nextChange: 'opens at 07:00' });
   });
@@ -115,5 +107,26 @@ describe('safeRoutesUtils', () => {
     const result = segmentColor(0.1);
 
     expect(result).toBe('#F44336');
+  });
+});
+
+describe('open-now uses the chosen time, not the server clock', () => {
+  test('a pub is open at 11:00 and closed at 03:00', () => {
+    expect(heuristicOpen('pub', 11).open).toBe(true);
+    expect(heuristicOpen('pub', 3).open).toBe(false);
+    expect(heuristicOpen('pub', 3).nextChange).toBe('opens at 10:00');
+  });
+  test('the hour argument beats the server clock', () => {
+    jest.spyOn(Date.prototype, 'getHours').mockReturnValue(3);
+    expect(heuristicOpen('pub', 12).open).toBe(true);
+  });
+  test('checkOpenNow evaluates the given instant and reports London times', () => {
+    // 2026-10-20 is a Tuesday. 17:00 BST = 16:00Z.
+    const open = checkOpenNow('Mo-Su 10:00-22:00', new Date('2026-10-20T16:00:00Z'));
+    const closed = checkOpenNow('Mo-Su 10:00-22:00', new Date('2026-10-20T02:00:00Z'));
+    expect(open.open).toBe(true);
+    expect(open.nextChange).toBe('closes at 22:00');
+    expect(closed.open).toBe(false);
+    expect(closed.nextChange).toBe('opens at 10:00');
   });
 });

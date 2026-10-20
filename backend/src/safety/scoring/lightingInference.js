@@ -12,7 +12,7 @@
  * All functions are pure and never mutate their inputs.
  */
 
-const { LIGHTING } = require('./config');
+const { LIGHTING, WEAK_LIT } = require('./config');
 const { assertNonNegative, assertNonNegativeInteger, assertInRange } = require('./validation');
 const { evidenceStrength } = require('./evidence');
 
@@ -159,12 +159,15 @@ function assertOptionalBoolean(value, name) {
  *   used only for footway-like classes. Omit when unknown.
  * @param {boolean} [input.crossing=false] - a footway-like way that crosses a motorway/trunk (footbridge, underpass,
  *   ramp): takes the crossing-structure prior and counts as an isolated path. Explicit tags and lamps still win.
+ * @param {boolean} [input.weakLitTag=false] - the caller judges a lit=yes tag weak evidence (crossing structure or
+ *   isolated path, no lamp within LAMP_NEAR_PATH_M, lamps mapped in the area): pLit 0.7, n 6, source 'weak-tag'.
  * @param {boolean} [input.litNeighbour=false] - a vertex of a lit=yes way lies within LAMP_RADIUS_M. Not a lamp.
- * @returns {{pLit: number, n: number, source: 'tag'|'lamp'|'neighbour-lit'|'absence'|'prior'}}
+ * @returns {{pLit: number, n: number, source: 'tag'|'weak-tag'|'lamp'|'neighbour-lit'|'absence'|'prior'}}
  * @throws {TypeError} when any input is malformed
  */
 function inferLighting({
   tags, lampCount30m, areaLampDensityPerKm, areaWayKm, nearRoad, litNeighbour = false, crossing = false,
+  weakLitTag = false,
 }) {
   assertTags(tags);
   assertNonNegativeInteger('lampCount30m', lampCount30m);
@@ -173,8 +176,14 @@ function inferLighting({
   assertOptionalBoolean(nearRoad, 'nearRoad');
   assertOptionalBoolean(litNeighbour, 'litNeighbour');
   assertOptionalBoolean(crossing, 'crossing');
+  assertOptionalBoolean(weakLitTag, 'weakLitTag');
 
   const normalised = normaliseTags(tags);
+  if (weakLitTag && normalised.lit === 'yes' && lampCount30m === 0) {
+    // A lit=yes tag on a crossing structure or isolated path with no lamp near it, in an area where lamps are mapped:
+    // plausible but unconfirmed (config WEAK_LIT).
+    return { ...WEAK_LIT, source: 'weak-tag' };
+  }
   if (hasOwn(LIGHTING.EXPLICIT, normalised.lit)) {
     return { ...LIGHTING.EXPLICIT[normalised.lit], source: 'tag' };
   }
@@ -212,6 +221,26 @@ function inferLighting({
 }
 
 /**
+ * Should a lit=yes tag be treated as weak evidence? Yes when the way is a crossing structure or an isolated path, no
+ * mapped lamp lies within LAMP_NEAR_PATH_M, and the surrounding area has mapped lamps (the same density test as the
+ * absence rule: only where lamps are mapped does a missing lamp mean anything). Used by the graph builder and the eval
+ * replica so the two cannot drift apart.
+ * @param {{tags: object, crossing?: boolean, nearRoad?: boolean, lampCountNearPath: number,
+ *   areaLampDensityPerKm: number, areaWayKm: number}} input
+ * @returns {boolean}
+ */
+function isWeakLitTag({
+  tags, crossing = false, nearRoad, lampCountNearPath, areaLampDensityPerKm, areaWayKm,
+}) {
+  const { highway, lit } = normaliseTags(tags);
+  if (lit !== 'yes' || lampCountNearPath !== 0) return false;
+  const isolated = crossing || nearRoad === false || PATH_HIGHWAYS.has(highway);
+  return isolated
+    && areaLampDensityPerKm > LIGHTING.ABSENCE.MIN_LAMP_DENSITY_PER_KM
+    && areaWayKm >= LIGHTING.ABSENCE.MIN_AREA_WAY_KM;
+}
+
+/**
  * Shrink an estimate towards 0.5 in proportion to how little evidence it has.
  * @param {{pLit: number, n: number}} estimate
  * @returns {number} effective P(lit) in [0, 1]
@@ -235,6 +264,7 @@ function lightingCertainty({ n }) {
 
 module.exports = {
   inferLighting,
+  isWeakLitTag,
   effectiveLit,
   lightingCertainty,
   parseMaxspeedKmh,

@@ -3,7 +3,7 @@
   "nightOk": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "7e669bde38c500d433c63f8bfbc8fa131193a540e91699eaa03ccd28fa06a997",
+    "edgesHash": "e8c4aa88f544ad417811f7f655f8805f301700d17e3ed555a3204da95a97fdc6",
     "firstEdges": [
      {
       "cause": "road",
@@ -32,10 +32,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.432378168123,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.46023503101,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.567621831877,
+      "safetyScore": 0.53976496899,
       "start": {
        "lat": 51.5,
        "lng": -0.1
@@ -72,10 +74,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.383145566569,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.413418590629,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.616854433431,
+      "safetyScore": 0.586581409371,
       "start": {
        "lat": 51.5,
        "lng": -0.0984
@@ -112,10 +116,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.432378168123,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.46023503101,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.567621831877,
+      "safetyScore": 0.53976496899,
       "start": {
        "lat": 51.5,
        "lng": -0.0968
@@ -141,21 +147,21 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.432378168123,
-    0.383145566569,
-    0.432378168123,
-    0.459166501201,
-    0.412257382034,
-    0.459166501201,
-    0.819946785181,
-    0.819946785181,
-    0.819946785181
+    0.46023503101,
+    0.413418590629,
+    0.46023503101,
+    0.486313732331,
+    0.441759224524,
+    0.486313732331,
+    0.864387460107,
+    0.864387460107,
+    0.864387460107
    ]
   },
   "nightDown": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "23431f2d85151d8a74563a43685c6d78c713a4ffb8dea3e47ed2486ab15f0d6b",
+    "edgesHash": "e20d5d1d2f1cb712fe321409c599a1b175f15d58166656c1e38e355525a474a7",
     "firstEdges": [
      {
       "cause": "road",
@@ -184,10 +190,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.500048380438,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.524584229721,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.499951619562,
+      "safetyScore": 0.475415770279,
       "start": {
        "lat": 51.5,
        "lng": -0.1
@@ -224,10 +232,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.456685145446,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.483349108243,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.543314854554,
+      "safetyScore": 0.516650891757,
       "start": {
        "lat": 51.5,
        "lng": -0.0984
@@ -264,10 +274,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.500048380438,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.524584229721,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.499951619562,
+      "safetyScore": 0.475415770279,
       "start": {
        "lat": 51.5,
        "lng": -0.0968
@@ -293,21 +305,21 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.500048380438,
-    0.456685145446,
-    0.500048380438,
-    0.523684058335,
-    0.482370860616,
-    0.523684058335,
-    0.841044835074,
-    0.841044835074,
-    0.841044835074
+    0.524584229721,
+    0.483349108243,
+    0.524584229721,
+    0.547592819512,
+    0.508353344907,
+    0.547592819512,
+    0.880278096304,
+    0.880278096304,
+    0.880278096304
    ]
   },
   "day": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "278a6684b5d15dcddca2be736a04c3fa2517bc1ffc1fe9b75f9a41c55b74357a",
+    "edgesHash": "8740241c08790aeb47ac44257f53c51eed76c0ef0402105539a4b792ac03cdcd",
     "firstEdges": [
      {
       "cause": "road",
@@ -336,6 +348,8 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
+      "presence": 0.147,
+      "remoteness": 0.37,
       "risk": 0.505890647068,
       "roadName": "",
       "roadScore": 0.5,
@@ -376,6 +390,8 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
+      "presence": 0.147,
+      "remoteness": 0.37,
       "risk": 0.445381003619,
       "roadName": "",
       "roadScore": 0.5,
@@ -416,6 +432,8 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
+      "presence": 0.147,
+      "remoteness": 0.37,
       "risk": 0.505890647068,
       "roadName": "",
       "roadScore": 0.5,
@@ -451,15 +469,15 @@
     0.505890647068,
     0.445381003619,
     0.505890647068,
-    0.738900615782,
-    0.738900615782,
-    0.738900615782
+    0.671748961335,
+    0.671748961335,
+    0.671748961335
    ]
   },
   "standardLevel": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "9a2419982d6d4d1891abbf633afe35999e9c6d4517d3653cc8775dbd0d8df907",
+    "edgesHash": "1487f1525aa95b5c1a3151ae7410aa00e622c6e1a6a79996c21778f51b2725d4",
     "firstEdges": [
      {
       "cause": "road",
@@ -488,10 +506,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.339852170149,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.358970517006,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.660147829851,
+      "safetyScore": 0.641029482994,
       "start": {
        "lat": 51.5,
        "lng": -0.1
@@ -499,7 +519,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 2,
-      "trafficScore": 0.45
+      "trafficScore": 0.430125
      },
      {
       "cause": "road",
@@ -528,10 +548,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.267520120946,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.288733254974,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.732479879054,
+      "safetyScore": 0.711266745026,
       "start": {
        "lat": 51.5,
        "lng": -0.0984
@@ -539,7 +561,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 3,
-      "trafficScore": 0.45
+      "trafficScore": 0.430125
      },
      {
       "cause": "road",
@@ -568,10 +590,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.339852170149,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.358970517006,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.660147829851,
+      "safetyScore": 0.641029482994,
       "start": {
        "lat": 51.5,
        "lng": -0.0968
@@ -579,7 +603,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.45
+      "trafficScore": 0.430125
      }
     ],
     "weights": {
@@ -597,27 +621,27 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.339852170149,
-    0.267520120946,
-    0.339852170149,
-    0.378171787885,
-    0.310038398966,
-    0.378171787885,
-    0.842886182105,
-    0.842886182105,
-    0.842886182105
+    0.358970517006,
+    0.288733254974,
+    0.358970517006,
+    0.396890742747,
+    0.330808379831,
+    0.396890742747,
+    0.866442283241,
+    0.866442283241,
+    0.866442283241
    ]
   },
   "crimes": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "321536db95b08f3fd57d6d561820754d31854f413cc9711b150d2b846e850fd8",
+    "edgesHash": "def75f64f8c8fc39b21b00451bf89417dd0ad36ab36b0ec1cc0ff011a83edccc",
     "firstEdges": [
      {
       "cause": "crime",
       "cctvScore": 0,
       "certainty": 0.393814886484,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.526570657764,
       "distance": 110.752750969735,
       "end": {
        "lat": 51.5,
@@ -640,10 +664,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.526721039153,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.53803797768,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.473278960847,
+      "safetyScore": 0.46196202232,
       "start": {
        "lat": 51.5,
        "lng": -0.1
@@ -657,7 +683,7 @@
       "cause": "crime",
       "cctvScore": 0,
       "certainty": 0.393814886484,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.526570657764,
       "distance": 110.752750969734,
       "end": {
        "lat": 51.5,
@@ -680,10 +706,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.485671253548,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.497969765182,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.514328746452,
+      "safetyScore": 0.502030234818,
       "start": {
        "lat": 51.5,
        "lng": -0.0984
@@ -697,7 +725,7 @@
       "cause": "crime",
       "cctvScore": 0,
       "certainty": 0.393814886484,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.526570657764,
       "distance": 110.752750969735,
       "end": {
        "lat": 51.5,
@@ -720,10 +748,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.526721039153,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.53803797768,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.473278960847,
+      "safetyScore": 0.46196202232,
       "start": {
        "lat": 51.5,
        "lng": -0.0968
@@ -749,27 +779,27 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.526721039153,
-    0.485671253548,
-    0.526721039153,
-    0.549056956713,
-    0.509944473846,
-    0.549056956713,
-    0.842969865733,
-    0.842969865733,
-    0.842969865733
+    0.53803797768,
+    0.497969765182,
+    0.53803797768,
+    0.560357635854,
+    0.522225315839,
+    0.560357635854,
+    0.879388921323,
+    0.879388921323,
+    0.879388921323
    ]
   },
   "activityNight": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "ffd88d2d291c17e89f1fdc57d07d29b263adff31540d1b3bcd54ee53769c2acd",
+    "edgesHash": "d48251f10c6d4f5ff77a8a4d39fbea4793d3f573f5831bcfa1bb77ef5fc57c86",
     "firstEdges": [
      {
-      "cause": "crime",
+      "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.527148219817,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.536727255809,
       "distance": 110.752750969735,
       "end": {
        "lat": 51.5,
@@ -791,11 +821,13 @@
       "nearbyTransitCount": 0,
       "pLit": 0.9,
       "penalty": 0,
-      "placeScore": 0.06,
-      "risk": 0.501577039313,
+      "placeScore": 0.069301654033,
+      "presence": 0.141340684589,
+      "remoteness": 0.36,
+      "risk": 0.496561682259,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.498422960687,
+      "safetyScore": 0.503438317741,
       "start": {
        "lat": 51.5,
        "lng": -0.1
@@ -803,13 +835,13 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 2,
-      "trafficScore": 0.467470639925
+      "trafficScore": 0.470086445766
      },
      {
-      "cause": "crime",
+      "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.527148219817,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.526766848017,
       "distance": 110.752750969734,
       "end": {
        "lat": 51.5,
@@ -832,10 +864,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.467343154545,
+      "presence": 0.091340684589,
+      "remoteness": 0.37,
+      "risk": 0.47222325995,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.532656845455,
+      "safetyScore": 0.52777674005,
       "start": {
        "lat": 51.5,
        "lng": -0.0984
@@ -843,13 +877,13 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 3,
-      "trafficScore": 0.45
+      "trafficScore": 0.443505513442
      },
      {
-      "cause": "crime",
+      "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.527148219817,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.526766848017,
       "distance": 110.752750969735,
       "end": {
        "lat": 51.5,
@@ -872,10 +906,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.509855748791,
+      "presence": 0.091340684589,
+      "remoteness": 0.37,
+      "risk": 0.514346361519,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.490144251209,
+      "safetyScore": 0.485653638481,
       "start": {
        "lat": 51.5,
        "lng": -0.0968
@@ -883,7 +919,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.45
+      "trafficScore": 0.443505513442
      }
     ],
     "weights": {
@@ -901,27 +937,27 @@
     "transitNodesHash": "448527899b972b53aef8ab1354237a7087d32b294e9a89b2df95cd880bce54d7"
    },
    "risks": [
-    0.501577039313,
-    0.467343154545,
-    0.509855748791,
-    0.519996335995,
-    0.478363284186,
-    0.519996335995,
-    0.837414569294,
-    0.837414569294,
-    0.837414569294
+    0.496561682259,
+    0.47222325995,
+    0.514346361519,
+    0.524280460512,
+    0.483018991654,
+    0.524280460512,
+    0.874541678617,
+    0.874541678617,
+    0.874541678617
    ]
   },
   "activityNoon": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "2cd54d3843d24af2e6ae9946f901d9f03ef6cd73751b0b69efac34d202d0f956",
+    "edgesHash": "c5af422c79c33cf768d231a2cb41696627ab70e5a428099b426a624b63616f82",
     "firstEdges": [
      {
       "cause": "crime",
       "cctvScore": 0,
       "certainty": 0.454372527523,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.53709562236,
       "distance": 110.752750969735,
       "end": {
        "lat": 51.5,
@@ -944,10 +980,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0.15,
-      "risk": 0.574640391772,
+      "presence": 0.182681369179,
+      "remoteness": 0.36,
+      "risk": 0.555885013864,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.425359608228,
+      "safetyScore": 0.444114986136,
       "start": {
        "lat": 51.5,
        "lng": -0.1
@@ -958,10 +996,10 @@
       "trafficScore": 0.491787607072
      },
      {
-      "cause": "crime",
+      "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.454372527523,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.527648594245,
       "distance": 110.752750969734,
       "end": {
        "lat": 51.5,
@@ -984,10 +1022,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.547062893117,
+      "presence": 0.182681369179,
+      "remoteness": 0.37,
+      "risk": 0.529996490371,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.452937106883,
+      "safetyScore": 0.470003509629,
       "start": {
        "lat": 51.5,
        "lng": -0.0984
@@ -998,10 +1038,10 @@
       "trafficScore": 0.45
      },
      {
-      "cause": "crime",
+      "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.454372527523,
-      "crimeScore": 0.474332379157,
+      "crimeScore": 0.527648594245,
       "distance": 110.752750969735,
       "end": {
        "lat": 51.5,
@@ -1024,10 +1064,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.59647891208,
+      "presence": 0.182681369179,
+      "remoteness": 0.37,
+      "risk": 0.58127447575,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.40352108792,
+      "safetyScore": 0.41872552425,
       "start": {
        "lat": 51.5,
        "lng": -0.0968
@@ -1053,21 +1095,21 @@
     "transitNodesHash": "448527899b972b53aef8ab1354237a7087d32b294e9a89b2df95cd880bce54d7"
    },
    "risks": [
-    0.574640391772,
-    0.547062893117,
-    0.59647891208,
-    0.581241965379,
-    0.509539329916,
-    0.581241965379,
-    0.773005595209,
-    0.773005595209,
-    0.773005595209
+    0.555885013864,
+    0.529996490371,
+    0.58127447575,
+    0.565463409895,
+    0.487913451392,
+    0.565463409895,
+    0.7067566092,
+    0.7067566092,
+    0.7067566092
    ]
   },
   "cacheUnlit": {
    "summary": {
     "edgeCount": 9,
-    "edgesHash": "6d32f8779d974c72e676b15de9cfdd8abb60c867e09a15cfbe570330e2317741",
+    "edgesHash": "5577891ad1936ef227536acf65022214ddad278838a63d0b2b9c5aed0d60f64a",
     "firstEdges": [
      {
       "cause": "road",
@@ -1096,10 +1138,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.432378168123,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.46023503101,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.567621831877,
+      "safetyScore": 0.53976496899,
       "start": {
        "lat": 51.5,
        "lng": -0.1
@@ -1136,10 +1180,12 @@
       "pLit": 0.05,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.690296530851,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.708986159289,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.309703469149,
+      "safetyScore": 0.291013840711,
       "start": {
        "lat": 51.5,
        "lng": -0.0984
@@ -1176,10 +1222,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.432378168123,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.46023503101,
       "roadName": "",
       "roadScore": 0.5,
-      "safetyScore": 0.567621831877,
+      "safetyScore": 0.53976496899,
       "start": {
        "lat": 51.5,
        "lng": -0.0968
@@ -1205,21 +1253,21 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.432378168123,
-    0.690296530851,
-    0.432378168123,
-    0.459166501201,
-    0.364888160457,
-    0.459166501201,
-    0.819946785181,
-    0.819946785181,
-    0.819946785181
+    0.46023503101,
+    0.708986159289,
+    0.46023503101,
+    0.486313732331,
+    0.395470474662,
+    0.486313732331,
+    0.864387460107,
+    0.864387460107,
+    0.864387460107
    ]
   },
   "routes": {
    "list": [
     {
-     "avgSafety": 0.463729202409,
+     "avgSafety": 0.452119201733,
      "certainty": 0.313814886484,
      "edges": [
       3,
@@ -1227,18 +1275,18 @@
       5
      ],
      "excluded": false,
-     "exposure": 0.309106218584,
+     "exposure": 0.315798217147,
      "lengthM": 332.236381425467,
-     "m3": 0.536647800342,
-     "mean": 0.536019462424,
+     "m3": 0.548231701894,
+     "mean": 0.547646862516,
      "path": [
       11,
       12,
       13,
       14
      ],
-     "routeRisk": 0.536270797591,
-     "score": 46,
+     "routeRisk": 0.547880798267,
+     "score": 45,
      "totalDist": 332.236381425467,
      "worstStretch": null
     }
@@ -1247,24 +1295,24 @@
     {
      "cctv": 0,
      "certainty": 0.313814886484,
-     "crime": 0.474332379157,
+     "crime": 0.526570657764,
      "lighting": 0.785,
-     "m3": 0.536647800342,
+     "m3": 0.548231701894,
      "mainRoadRatio": 0,
-     "mean": 0.536019462424,
+     "mean": 0.547646862516,
      "openPlaces": 0,
-     "overall": 0.463729202409,
+     "overall": 0.452119201733,
      "riskVector": {
-      "max": 0.549056956713,
-      "mean": 0.536019462424,
-      "p95": 0.549056956713,
+      "max": 0.560357635854,
+      "mean": 0.547646862516,
+      "p95": 0.560357635854,
       "uncertainty": 0.686185113516
      },
      "roadType": 0.5,
      "roadTypes": {
       "residential": 100
      },
-     "routeRisk": 0.536270797591,
+     "routeRisk": 0.547880798267,
      "traffic": 0.5,
      "worstStretch": null
     }
@@ -1316,7 +1364,7 @@
   "sidewalk": {
    "summary": {
     "edgeCount": 2,
-    "edgesHash": "a7dd6c37f50dfa7ab145931813cd9e3ce74e37ef9fc93c40aed5c1af8f10d7bc",
+    "edgesHash": "4655eb4da46222b1e870cbaa29223728e70d17dc61441cb2540626f14c198c3e",
     "firstEdges": [
      {
       "cause": "road",
@@ -1345,10 +1393,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.460137615549,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.487236101426,
       "roadName": "main",
       "roadScore": 0.5,
-      "safetyScore": 0.539862384451,
+      "safetyScore": 0.512763898574,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -1359,7 +1409,7 @@
       "trafficScore": 0.5
      },
      {
-      "cause": "road",
+      "cause": "lighting",
       "cctvScore": 0,
       "certainty": 0.30913385917,
       "crimeScore": 0.979378356632,
@@ -1385,10 +1435,12 @@
       "pLit": 0.72,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.535532718907,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.486096121509,
       "roadName": "walk",
-      "roadScore": 0.25,
-      "safetyScore": 0.464467281093,
+      "roadScore": 0.7,
+      "safetyScore": 0.513903878491,
       "start": {
        "lat": 50.374589831117,
        "lng": -4.1385
@@ -1396,7 +1448,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      }
     ],
     "weights": {
@@ -1414,14 +1466,14 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.460137615549,
-    0.535532718907
+    0.487236101426,
+    0.486096121509
    ]
   },
   "sidewalkLamp": {
    "summary": {
     "edgeCount": 2,
-    "edgesHash": "a7dd6c37f50dfa7ab145931813cd9e3ce74e37ef9fc93c40aed5c1af8f10d7bc",
+    "edgesHash": "4655eb4da46222b1e870cbaa29223728e70d17dc61441cb2540626f14c198c3e",
     "firstEdges": [
      {
       "cause": "road",
@@ -1450,10 +1502,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.460137615549,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.487236101426,
       "roadName": "main",
       "roadScore": 0.5,
-      "safetyScore": 0.539862384451,
+      "safetyScore": 0.512763898574,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -1464,7 +1518,7 @@
       "trafficScore": 0.5
      },
      {
-      "cause": "road",
+      "cause": "lighting",
       "cctvScore": 0,
       "certainty": 0.30913385917,
       "crimeScore": 0.979378356632,
@@ -1490,10 +1544,12 @@
       "pLit": 0.72,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.535532718907,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.486096121509,
       "roadName": "walk",
-      "roadScore": 0.25,
-      "safetyScore": 0.464467281093,
+      "roadScore": 0.7,
+      "safetyScore": 0.513903878491,
       "start": {
        "lat": 50.374589831117,
        "lng": -4.1385
@@ -1501,7 +1557,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      }
     ],
     "weights": {
@@ -1519,14 +1575,14 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.460137615549,
-    0.535532718907
+    0.487236101426,
+    0.486096121509
    ]
   },
   "isolated": {
    "summary": {
     "edgeCount": 2,
-    "edgesHash": "c489965751cf8fa4f8285d8ac0cb515cd629db18a416df9fdcab9e4b3976cfba",
+    "edgesHash": "5ddf70a1840d26a79b01db628bf0a2443531fcdccbe05f51eb42e6f6b24b9740",
     "firstEdges": [
      {
       "cause": "road",
@@ -1555,10 +1611,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.460137629596,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.487236114768,
       "roadName": "main",
       "roadScore": 0.5,
-      "safetyScore": 0.539862370404,
+      "safetyScore": 0.512763885232,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -1595,10 +1653,12 @@
       "pLit": 0.33,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.700442352304,
+      "presence": 0.01225,
+      "remoteness": 0.609640464663,
+      "risk": 0.732174311396,
       "roadName": "park",
-      "roadScore": 0.25,
-      "safetyScore": 0.299557647696,
+      "roadScore": 0.7,
+      "safetyScore": 0.267825688604,
       "start": {
        "lat": 50.375398311175,
        "lng": -4.1385
@@ -1606,7 +1666,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      }
     ],
     "weights": {
@@ -1624,14 +1684,14 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.460137629596,
-    0.700442352304
+    0.487236114768,
+    0.732174311396
    ]
   },
   "isolatedLamp": {
    "summary": {
     "edgeCount": 2,
-    "edgesHash": "311922de6ca55df7d1b41a712104890395dde585069616b0f4ecf19119cbd1a9",
+    "edgesHash": "e03ac64c2ffc8fd7d6114236728c71f03b9990951f8b7c730093a0827e8bbd6a",
     "firstEdges": [
      {
       "cause": "road",
@@ -1660,10 +1720,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.460137629596,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.487236114768,
       "roadName": "main",
       "roadScore": 0.5,
-      "safetyScore": 0.539862370404,
+      "safetyScore": 0.512763885232,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -1674,7 +1736,7 @@
       "trafficScore": 0.5
      },
      {
-      "cause": "lighting",
+      "cause": "isolation",
       "cctvScore": 0,
       "certainty": 0.35713379105,
       "crimeScore": 0.979378327678,
@@ -1700,10 +1762,12 @@
       "pLit": 0.198,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.645786425709,
+      "presence": 0.01225,
+      "remoteness": 0.609640464663,
+      "risk": 0.686742698196,
       "roadName": "park",
-      "roadScore": 0.25,
-      "safetyScore": 0.354213574291,
+      "roadScore": 0.7,
+      "safetyScore": 0.313257301804,
       "start": {
        "lat": 50.375398311175,
        "lng": -4.1385
@@ -1711,7 +1775,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      }
     ],
     "weights": {
@@ -1729,14 +1793,14 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.460137629596,
-    0.645786425709
+    0.487236114768,
+    0.686742698196
    ]
   },
   "boundary": {
    "summary": {
     "edgeCount": 3,
-    "edgesHash": "36c9dd357b81ae833759682412175043285cd9b95a615e7db00fba098d135d28",
+    "edgesHash": "04ba0e8149128672aec96b485ece83570f430d8e8db1d92dd16057d7c95d051a",
     "firstEdges": [
      {
       "cause": "road",
@@ -1765,10 +1829,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.45938470645,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.48652098473,
       "roadName": "main",
       "roadScore": 0.5,
-      "safetyScore": 0.54061529355,
+      "safetyScore": 0.51347901527,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -1779,7 +1845,7 @@
       "trafficScore": 0.5
      },
      {
-      "cause": "road",
+      "cause": "lighting",
       "cctvScore": 0,
       "certainty": 0.312768080996,
       "crimeScore": 0.980948072662,
@@ -1805,10 +1871,12 @@
       "pLit": 0.72,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.51080772519,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.489901509314,
       "roadName": "near",
-      "roadScore": 0.35,
-      "safetyScore": 0.48919227481,
+      "roadScore": 0.66,
+      "safetyScore": 0.510098490686,
       "start": {
        "lat": 50.374679662235,
        "lng": -4.1385
@@ -1816,7 +1884,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.35
+      "trafficScore": 0.66
      },
      {
       "cause": "isolation",
@@ -1845,10 +1913,12 @@
       "pLit": 0.33,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.738546367297,
+      "presence": 0.0735,
+      "remoteness": 0.385892139399,
+      "risk": 0.698742151522,
       "roadName": "far",
-      "roadScore": 0.1,
-      "safetyScore": 0.261453632703,
+      "roadScore": 0.4,
+      "safetyScore": 0.301257848478,
       "start": {
        "lat": 50.374230506647,
        "lng": -4.1385
@@ -1856,7 +1926,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 6,
-      "trafficScore": 0.1
+      "trafficScore": 0.4
      }
     ],
     "weights": {
@@ -1874,15 +1944,15 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.45938470645,
-    0.51080772519,
-    0.738546367297
+    0.48652098473,
+    0.489901509314,
+    0.698742151522
    ]
   },
   "footwayOnly": {
    "summary": {
     "edgeCount": 3,
-    "edgesHash": "1bf4533dd39aeacfe6eb673e832d0c94dd21ed15136f562f44c78830e2c3914f",
+    "edgesHash": "47890d236e260f654e6fc9f79fae199f2ef9f10f84d1e851b1b2aaf8ee27de58",
     "firstEdges": [
      {
       "cause": "isolation",
@@ -1911,10 +1981,12 @@
       "pLit": 0.33,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.700024574418,
+      "presence": 0.01225,
+      "remoteness": 0.8,
+      "risk": 0.765625138565,
       "roadName": "a",
-      "roadScore": 0.25,
-      "safetyScore": 0.299975425582,
+      "roadScore": 0.7,
+      "safetyScore": 0.234374861435,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -1922,10 +1994,10 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 2,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      },
      {
-      "cause": "lighting",
+      "cause": "isolation",
       "cctvScore": 0,
       "certainty": 0.312768059725,
       "crimeScore": 0.980948063326,
@@ -1951,10 +2023,12 @@
       "pLit": 0.12,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.761781340259,
+      "presence": 0.01225,
+      "remoteness": 0.8,
+      "risk": 0.81645918554,
       "roadName": "b",
-      "roadScore": 0.15,
-      "safetyScore": 0.238218659741,
+      "roadScore": 0.45,
+      "safetyScore": 0.18354081446,
       "start": {
        "lat": 50.374571864894,
        "lng": -4.1385
@@ -1962,7 +2036,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.15
+      "trafficScore": 0.45
      },
      {
       "cause": "isolation",
@@ -1991,10 +2065,12 @@
       "pLit": 0.33,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.700024574418,
+      "presence": 0.01225,
+      "remoteness": 0.8,
+      "risk": 0.765625138565,
       "roadName": "c",
-      "roadScore": 0.25,
-      "safetyScore": 0.299975425582,
+      "roadScore": 0.7,
+      "safetyScore": 0.234374861435,
       "start": {
        "lat": 50.374643729788,
        "lng": -4.1385
@@ -2002,7 +2078,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 6,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      }
     ],
     "weights": {
@@ -2020,15 +2096,15 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.700024574418,
-    0.761781340259,
-    0.700024574418
+    0.765625138565,
+    0.81645918554,
+    0.765625138565
    ]
   },
   "classes": {
    "summary": {
     "edgeCount": 16,
-    "edgesHash": "8e3cf56858c989b3835092783af52037264c2abfbaf1f0186aa7379ae6d496d3",
+    "edgesHash": "e4c3146692aae6f524b6c992fc1282efe5331db9ca36d34862f565bbf7e1757b",
     "firstEdges": [
      {
       "cause": "isolation",
@@ -2057,10 +2133,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.399867716971,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.429692636954,
       "roadName": "r0",
       "roadScore": 0.9,
-      "safetyScore": 0.600132283029,
+      "safetyScore": 0.570307363046,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -2097,10 +2175,12 @@
       "pLit": 0.33,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.70044236183,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.670013008088,
       "roadName": "f0",
-      "roadScore": 0.25,
-      "safetyScore": 0.29955763817,
+      "roadScore": 0.7,
+      "safetyScore": 0.329986991912,
       "start": {
        "lat": 50.374589831117,
        "lng": -4.1385
@@ -2108,7 +2188,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      },
      {
       "cause": "isolation",
@@ -2137,10 +2217,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.394980804382,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.425048590448,
       "roadName": "r1",
       "roadScore": 0.95,
-      "safetyScore": 0.605019195618,
+      "safetyScore": 0.574951409552,
       "start": {
        "lat": 50.37629662235,
        "lng": -4.1385
@@ -2166,28 +2248,28 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.399867716971,
-    0.70044236183,
-    0.394980804382,
-    0.535532745762,
-    0.404164739673,
-    0.534885162687,
-    0.42243147537,
-    0.534885162687,
-    0.476491670628,
-    0.534885162687,
-    0.460137958941,
-    0.535533014342,
-    0.452364371463,
-    0.535533014342,
-    0.518841431015,
-    0.53631641177
+    0.429692636954,
+    0.670013008088,
+    0.425048590448,
+    0.486096151222,
+    0.433776109474,
+    0.485379641217,
+    0.451299375176,
+    0.485379641217,
+    0.503662989383,
+    0.485379641217,
+    0.487236427582,
+    0.486096448389,
+    0.479853036673,
+    0.486096448389,
+    0.544328089976,
+    0.486963228447
    ]
   },
   "trail": {
    "summary": {
     "edgeCount": 2,
-    "edgesHash": "4947515222babbef6a24848594d56613fd4ae194bf6cc03e34287b58f03f9974",
+    "edgesHash": "264d4a17371daa9137c0df32697fa952771a8fbc3932026fb9f4c7bc23cea5a9",
     "firstEdges": [
      {
       "cause": "road",
@@ -2216,10 +2298,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.460137615549,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.487236101426,
       "roadName": "main",
       "roadScore": 0.5,
-      "safetyScore": 0.539862384451,
+      "safetyScore": 0.512763898574,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -2256,10 +2340,12 @@
       "pLit": 0.12,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.762113102874,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.735850807016,
       "roadName": "trail",
-      "roadScore": 0.15,
-      "safetyScore": 0.237886897126,
+      "roadScore": 0.45,
+      "safetyScore": 0.264149192984,
       "start": {
        "lat": 50.374589831117,
        "lng": -4.1385
@@ -2267,7 +2353,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.15
+      "trafficScore": 0.45
      }
     ],
     "weights": {
@@ -2285,17 +2371,17 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.460137615549,
-    0.762113102874
+    0.487236101426,
+    0.735850807016
    ]
   },
   "absence": {
    "summary": {
     "edgeCount": 3,
-    "edgesHash": "8ed5d88d92fb5617f35f6d45a4e1f658bbd12a0fa1afa9fe727607e719f48c5e",
+    "edgesHash": "4908be8edd2f5319096bd691d61ece9a4ff75b55367adadad2fc4664471ac99b",
     "firstEdges": [
      {
-      "cause": "lighting",
+      "cause": "isolation",
       "cctvScore": 0,
       "certainty": 0.360767962126,
       "crimeScore": 0.980948020488,
@@ -2321,10 +2407,12 @@
       "pLit": 0.198,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.730930256568,
+      "presence": 0.01225,
+      "remoteness": 0.8,
+      "risk": 0.793985188565,
       "roadName": "park",
-      "roadScore": 0.25,
-      "safetyScore": 0.269069743432,
+      "roadScore": 0.7,
+      "safetyScore": 0.206014811435,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -2332,10 +2420,10 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 2,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      },
      {
-      "cause": "lighting",
+      "cause": "isolation",
       "cctvScore": 0,
       "certainty": 0.360767962126,
       "crimeScore": 0.980948020488,
@@ -2361,10 +2449,12 @@
       "pLit": 0.198,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.730930256568,
+      "presence": 0.01225,
+      "remoteness": 0.8,
+      "risk": 0.793985188565,
       "roadName": "park2",
-      "roadScore": 0.25,
-      "safetyScore": 0.269069743432,
+      "roadScore": 0.7,
+      "safetyScore": 0.206014811435,
       "start": {
        "lat": 50.375038986705,
        "lng": -4.1385
@@ -2372,10 +2462,10 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 4,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      },
      {
-      "cause": "lighting",
+      "cause": "isolation",
       "cctvScore": 0,
       "certainty": 0.360767962126,
       "crimeScore": 0.980948020488,
@@ -2401,10 +2491,12 @@
       "pLit": 0.198,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.645296997579,
+      "presence": 0.01225,
+      "remoteness": 0.8,
+      "risk": 0.728419586584,
       "roadName": "park3",
-      "roadScore": 0.25,
-      "safetyScore": 0.354703002421,
+      "roadScore": 0.7,
+      "safetyScore": 0.271580413416,
       "start": {
        "lat": 50.37557797341,
        "lng": -4.1385
@@ -2412,7 +2504,7 @@
       "surfacePenalty": 0,
       "surfaceType": "paved",
       "to": 6,
-      "trafficScore": 0.25
+      "trafficScore": 0.7
      }
     ],
     "weights": {
@@ -2430,15 +2522,15 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.730930256568,
-    0.730930256568,
-    0.645296997579
+    0.793985188565,
+    0.793985188565,
+    0.728419586584
    ]
   },
   "absenceRoad": {
    "summary": {
     "edgeCount": 3,
-    "edgesHash": "f5e95d7211e3047818514d030ebaef31b542bb19d700c851d5d1f28d0f0f19e8",
+    "edgesHash": "d508538721500ba10c6af91555c83c8158a10bb6ecbea717ef09667bf92926cf",
     "firstEdges": [
      {
       "cause": "road",
@@ -2467,10 +2559,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.459384731194,
+      "presence": 0.0735,
+      "remoteness": 0.34,
+      "risk": 0.479690838487,
       "roadName": "res",
       "roadScore": 0.5,
-      "safetyScore": 0.540615268806,
+      "safetyScore": 0.520309161513,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -2507,10 +2601,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.459384731194,
+      "presence": 0.0735,
+      "remoteness": 0.31,
+      "risk": 0.472860668743,
       "roadName": "res2",
       "roadScore": 0.5,
-      "safetyScore": 0.540615268806,
+      "safetyScore": 0.527139331257,
       "start": {
        "lat": 50.375038986705,
        "lng": -4.1385
@@ -2547,10 +2643,12 @@
       "pLit": 0.88,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.459384731194,
+      "presence": 0.0735,
+      "remoteness": 0.34,
+      "risk": 0.479690838487,
       "roadName": "res3",
       "roadScore": 0.5,
-      "safetyScore": 0.540615268806,
+      "safetyScore": 0.520309161513,
       "start": {
        "lat": 50.37557797341,
        "lng": -4.1385
@@ -2576,15 +2674,15 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.459384731194,
-    0.459384731194,
-    0.459384731194
+    0.479690838487,
+    0.472860668743,
+    0.479690838487
    ]
   },
   "neighbour": {
    "summary": {
     "edgeCount": 2,
-    "edgesHash": "76285b7737669f3341db4fceb3c55811fa574b2d0a9c5dc19022e4a0a9379acf",
+    "edgesHash": "9548f93de9451bd760314ee2614b357d08ff5cf83891ea7cf3ec63256d9e6247",
     "firstEdges": [
      {
       "cause": "road",
@@ -2613,10 +2711,12 @@
       "pLit": 0.85,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.468245013185,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.49482307107,
       "roadName": "lane",
       "roadScore": 0.4,
-      "safetyScore": 0.531754986815,
+      "safetyScore": 0.50517692893,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -2653,10 +2753,12 @@
       "pLit": 0.95,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.416604892905,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.444696909711,
       "roadName": "litnext",
       "roadScore": 0.5,
-      "safetyScore": 0.583395107095,
+      "safetyScore": 0.555303090289,
       "start": {
        "lat": 50.374679662235,
        "lng": -4.137091474025
@@ -2682,14 +2784,14 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.468245013185,
-    0.416604892905
+    0.49482307107,
+    0.444696909711
    ]
   },
   "lamp": {
    "summary": {
     "edgeCount": 1,
-    "edgesHash": "23d54a37492b145e7a93a3ddfe1bc079920103711fcc724e0f837d9bc574b2b9",
+    "edgesHash": "d989e73cbc8add808e91f061b2a60a95ae37b24c4c06a92d7bf77935a869de8f",
     "firstEdges": [
      {
       "cause": "road",
@@ -2718,10 +2820,12 @@
       "pLit": 0.85,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.462638022065,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.48938165503,
       "roadName": "lane",
       "roadScore": 0.4,
-      "safetyScore": 0.537361977935,
+      "safetyScore": 0.51061834497,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -2747,13 +2851,13 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.462638022065
+    0.48938165503
    ]
   },
   "farNeighbour": {
    "summary": {
     "edgeCount": 2,
-    "edgesHash": "d48b6200a714c4f9ba587df38e9197ef1df0fd185220c35e9122cce9479d02fc",
+    "edgesHash": "37f66cdc343a81421cbc9b756e81a9f562105897401dcde22519091afe61ddde",
     "firstEdges": [
      {
       "cause": "lighting",
@@ -2782,10 +2886,12 @@
       "pLit": 0.62,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.518028214033,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.543557948574,
       "roadName": "lane",
       "roadScore": 0.4,
-      "safetyScore": 0.481971785967,
+      "safetyScore": 0.456442051426,
       "start": {
        "lat": 50.3745,
        "lng": -4.1385
@@ -2822,10 +2928,12 @@
       "pLit": 0.95,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.416604904456,
+      "presence": 0.0735,
+      "remoteness": 0.37,
+      "risk": 0.444696920707,
       "roadName": "litnext",
       "roadScore": 0.5,
-      "safetyScore": 0.583395095544,
+      "safetyScore": 0.555303079293,
       "start": {
        "lat": 50.375308480057,
        "lng": -4.137091474025
@@ -2851,8 +2959,8 @@
     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
    },
    "risks": [
-    0.518028214033,
-    0.416604904456
+    0.543557948574,
+    0.444696920707
    ]
   }
  },
@@ -2861,13 +2969,13 @@
    "A": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "3c793aa2018f7b4a937d0b59d668cd19acb48ede704a03f59de16122de459960",
+     "edgesHash": "0cdd430d176e13e6c978047cca72bda6193e9dde03786483d987d2d9441674bd",
      "firstEdges": [
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.577978787675,
-       "crimeScore": 0.98982017826,
+       "crimeScore": 0.99022737113,
        "distance": 149.831467810689,
        "end": {
         "lat": 50.3755,
@@ -2889,11 +2997,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.317032059394,
+       "placeScore": 0.165799567228,
+       "presence": 0.201776816061,
+       "remoteness": 0.17,
+       "risk": 0.310143315696,
        "roadName": "target",
        "roadScore": 0.5,
-       "safetyScore": 0.682967940606,
+       "safetyScore": 0.689856684304,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -2901,7 +3011,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.495835191891
       },
       {
        "cause": "activity",
@@ -2930,6 +3040,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.101776816061,
+       "remoteness": 0.13,
        "risk": 0.390929156952,
        "roadName": "stubW",
        "roadScore": 0.5,
@@ -2970,6 +3082,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.101776816061,
+       "remoteness": 0.13,
        "risk": 0.390929156952,
        "roadName": "stubE",
        "roadScore": 0.5,
@@ -3002,7 +3116,7 @@
      "cause": "activity",
      "cctvScore": 0,
      "certainty": 0.577978787675,
-     "crimeScore": 0.98982017826,
+     "crimeScore": 0.99022737113,
      "distance": 149.831467810689,
      "end": {
       "lat": 50.3755,
@@ -3024,11 +3138,13 @@
      "nearbyTransitCount": 0,
      "pLit": 0.95,
      "penalty": 0,
-     "placeScore": 0.12,
-     "risk": 0.317032059394,
+     "placeScore": 0.165799567228,
+     "presence": 0.201776816061,
+     "remoteness": 0.17,
+     "risk": 0.310143315696,
      "roadName": "target",
      "roadScore": 0.5,
-     "safetyScore": 0.682967940606,
+     "safetyScore": 0.689856684304,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -3036,20 +3152,20 @@
      "surfacePenalty": 0,
      "surfaceType": "paved",
      "to": 2,
-     "trafficScore": 0.483923868985
+     "trafficScore": 0.495835191891
     },
-    "score": 68
+    "score": 69
    },
    "B": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "8872dd6b7ecb03a923c88113902b99965292e2d4e41750c7048f314ce983cbd2",
+     "edgesHash": "dde36bfca235c4b937ccf67dd94b87a3ff8fc33dbe5ee90d9ee394d7d4691794",
      "firstEdges": [
       {
        "cause": "activity",
        "cctvScore": 0.4,
        "certainty": 0.577978787675,
-       "crimeScore": 0.974744419511,
+       "crimeScore": 0.985144201136,
        "distance": 149.831467810689,
        "end": {
         "lat": 50.3755,
@@ -3071,11 +3187,13 @@
        "nearbyTransitCount": 1,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.18,
-       "risk": 0.202361826719,
+       "placeScore": 0.287447424196,
+       "presence": 0.259181369179,
+       "remoteness": 0.16,
+       "risk": 0.193249642402,
        "roadName": "target",
        "roadScore": 0.85,
-       "safetyScore": 0.797638173281,
+       "safetyScore": 0.806750357598,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -3083,13 +3201,13 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.77301490229
+       "trafficScore": 0.788498575501
       },
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.577978787675,
-       "crimeScore": 0.974744419511,
+       "crimeScore": 0.982962445212,
        "distance": 119.865174248513,
        "end": {
         "lat": 50.3755,
@@ -3112,10 +3230,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.32522568668,
+       "presence": 0.109181369179,
+       "remoteness": 0.13,
+       "risk": 0.323807913425,
        "roadName": "stubW",
        "roadScore": 0.85,
-       "safetyScore": 0.67477431332,
+       "safetyScore": 0.676192086575,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -3129,7 +3249,7 @@
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.577978787675,
-       "crimeScore": 0.974744419511,
+       "crimeScore": 0.982962445212,
        "distance": 119.865174248513,
        "end": {
         "lat": 50.3755,
@@ -3152,10 +3272,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.32522568668,
+       "presence": 0.109181369179,
+       "remoteness": 0.13,
+       "risk": 0.323807913425,
        "roadName": "stubE",
        "roadScore": 0.85,
-       "safetyScore": 0.67477431332,
+       "safetyScore": 0.676192086575,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -3184,7 +3306,7 @@
      "cause": "activity",
      "cctvScore": 0.4,
      "certainty": 0.577978787675,
-     "crimeScore": 0.974744419511,
+     "crimeScore": 0.985144201136,
      "distance": 149.831467810689,
      "end": {
       "lat": 50.3755,
@@ -3206,11 +3328,13 @@
      "nearbyTransitCount": 1,
      "pLit": 0.95,
      "penalty": 0,
-     "placeScore": 0.18,
-     "risk": 0.202361826719,
+     "placeScore": 0.287447424196,
+     "presence": 0.259181369179,
+     "remoteness": 0.16,
+     "risk": 0.193249642402,
      "roadName": "target",
      "roadScore": 0.85,
-     "safetyScore": 0.797638173281,
+     "safetyScore": 0.806750357598,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -3218,14 +3342,14 @@
      "surfacePenalty": 0,
      "surfaceType": "paved",
      "to": 2,
-     "trafficScore": 0.77301490229
+     "trafficScore": 0.788498575501
     },
-    "score": 80
+    "score": 81
    },
    "C": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "6c474b03e5dbfe978f5397d0754c23d11ef2a8a16131ddcdb23a140df49d75f6",
+     "edgesHash": "49d3eb9a7a17ba3aa84a3fff87fa736537a2be970d4e3730030b5c7cf260a083",
      "firstEdges": [
       {
        "cause": "road",
@@ -3254,10 +3378,12 @@
        "pLit": 0.9,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.397658415346,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.410136332413,
        "roadName": "target",
        "roadScore": 0.5,
-       "safetyScore": 0.602341584654,
+       "safetyScore": 0.589863667587,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -3294,10 +3420,12 @@
        "pLit": 0.9,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.445732712343,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.457214737534,
        "roadName": "stubW",
        "roadScore": 0.5,
-       "safetyScore": 0.554267287657,
+       "safetyScore": 0.542785262466,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -3334,10 +3462,12 @@
        "pLit": 0.9,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.445732712343,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.457214737534,
        "roadName": "stubE",
        "roadScore": 0.5,
-       "safetyScore": 0.554267287657,
+       "safetyScore": 0.542785262466,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -3389,10 +3519,12 @@
      "pLit": 0.9,
      "penalty": 0,
      "placeScore": 0,
-     "risk": 0.397658415346,
+     "presence": 0.0735,
+     "remoteness": 0.19,
+     "risk": 0.410136332413,
      "roadName": "target",
      "roadScore": 0.5,
-     "safetyScore": 0.602341584654,
+     "safetyScore": 0.589863667587,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -3402,12 +3534,12 @@
      "to": 2,
      "trafficScore": 0.5
     },
-    "score": 60
+    "score": 59
    },
    "D": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "78dec7b23b2bb00307b6e2403ec0c4ca98b588d9f01a5e2519afea01cbe15019",
+     "edgesHash": "93120e7d48297de960175e159b4767d3da6aea3000acebbf040cdc6c2e60fcae",
      "firstEdges": [
       {
        "cause": "road",
@@ -3436,10 +3568,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.423724003325,
+       "presence": 0.0735,
+       "remoteness": 0.300617338139,
+       "risk": 0.341575909552,
        "roadName": "target",
-       "roadScore": 0.25,
-       "safetyScore": 0.576275996675,
+       "roadScore": 0.7,
+       "safetyScore": 0.658424090448,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -3447,10 +3581,10 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       },
       {
-       "cause": "road",
+       "cause": "isolation",
        "cctvScore": 0,
        "certainty": 0.444645454341,
        "crimeScore": 0.98982017826,
@@ -3476,10 +3610,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.469717944508,
+       "presence": 0.0735,
+       "remoteness": 0.239820232332,
+       "risk": 0.393976541756,
        "roadName": "stubW",
-       "roadScore": 0.25,
-       "safetyScore": 0.530282055492,
+       "roadScore": 0.7,
+       "safetyScore": 0.606023458244,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -3487,10 +3623,10 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 1,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       },
       {
-       "cause": "road",
+       "cause": "isolation",
        "cctvScore": 0,
        "certainty": 0.444645454341,
        "crimeScore": 0.98982017826,
@@ -3516,10 +3652,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.469717944508,
+       "presence": 0.0735,
+       "remoteness": 0.239820232332,
+       "risk": 0.393976541756,
        "roadName": "stubE",
-       "roadScore": 0.25,
-       "safetyScore": 0.530282055492,
+       "roadScore": 0.7,
+       "safetyScore": 0.606023458244,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -3527,7 +3665,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 4,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       }
      ],
      "weights": {
@@ -3571,10 +3709,12 @@
      "pLit": 0.95,
      "penalty": 0,
      "placeScore": 0,
-     "risk": 0.423724003325,
+     "presence": 0.0735,
+     "remoteness": 0.300617338139,
+     "risk": 0.341575909552,
      "roadName": "target",
-     "roadScore": 0.25,
-     "safetyScore": 0.576275996675,
+     "roadScore": 0.7,
+     "safetyScore": 0.658424090448,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -3582,14 +3722,14 @@
      "surfacePenalty": 0,
      "surfaceType": "paved",
      "to": 2,
-     "trafficScore": 0.25
+     "trafficScore": 0.7
     },
-    "score": 58
+    "score": 66
    },
    "E": {
     "summary": {
      "edgeCount": 404,
-     "edgesHash": "9a4a95c095e8236d21cfa01c2f643d536a277549c2abf4cef10d369cc835f395",
+     "edgesHash": "29d089048621ec96351facfd59adf9af0121b858f911b67bbb3c204d6c9efc8c",
      "firstEdges": [
       {
        "cause": "lighting",
@@ -3618,10 +3758,12 @@
        "pLit": 0.198,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.72897544386,
+       "presence": 0.0735,
+       "remoteness": 0.270617338139,
+       "risk": 0.690264384623,
        "roadName": "target",
-       "roadScore": 0.25,
-       "safetyScore": 0.27102455614,
+       "roadScore": 0.7,
+       "safetyScore": 0.309735615377,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -3629,7 +3771,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       },
       {
        "cause": "isolation",
@@ -3658,10 +3800,12 @@
        "pLit": 0.33,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.697825527959,
+       "presence": 0.0735,
+       "remoteness": 0.239820232332,
+       "risk": 0.654665254759,
        "roadName": "stubW",
-       "roadScore": 0.25,
-       "safetyScore": 0.302174472041,
+       "roadScore": 0.7,
+       "safetyScore": 0.345334745241,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -3669,7 +3813,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 1,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       },
       {
        "cause": "isolation",
@@ -3698,10 +3842,12 @@
        "pLit": 0.33,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.697825527959,
+       "presence": 0.0735,
+       "remoteness": 0.239820232332,
+       "risk": 0.654665254759,
        "roadName": "stubE",
-       "roadScore": 0.25,
-       "safetyScore": 0.302174472041,
+       "roadScore": 0.7,
+       "safetyScore": 0.345334745241,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -3709,7 +3855,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 4,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       }
      ],
      "weights": {
@@ -3753,10 +3899,12 @@
      "pLit": 0.198,
      "penalty": 0,
      "placeScore": 0,
-     "risk": 0.72897544386,
+     "presence": 0.0735,
+     "remoteness": 0.270617338139,
+     "risk": 0.690264384623,
      "roadName": "target",
-     "roadScore": 0.25,
-     "safetyScore": 0.27102455614,
+     "roadScore": 0.7,
+     "safetyScore": 0.309735615377,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -3764,14 +3912,14 @@
      "surfacePenalty": 0,
      "surfaceType": "paved",
      "to": 2,
-     "trafficScore": 0.25
+     "trafficScore": 0.7
     },
-    "score": 27
+    "score": 31
    },
    "F": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "7b4af6e84835edf94a577cd7db903e989866de6f0460881f3d5b223ed213aa0c",
+     "edgesHash": "c344e2d241bdb6b67d7016979775f1c8242add5d0344e02e9c456cfde3c6af42",
      "firstEdges": [
       {
        "cause": "lighting",
@@ -3800,10 +3948,12 @@
        "pLit": 0.05,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.688196567936,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.694655788859,
        "roadName": "target",
        "roadScore": 0.5,
-       "safetyScore": 0.311803432064,
+       "safetyScore": 0.305344211141,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -3840,10 +3990,12 @@
        "pLit": 0.05,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.713082332392,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.719026027719,
        "roadName": "stubW",
        "roadScore": 0.5,
-       "safetyScore": 0.286917667608,
+       "safetyScore": 0.280973972281,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -3880,10 +4032,12 @@
        "pLit": 0.05,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.713082332392,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.719026027719,
        "roadName": "stubE",
        "roadScore": 0.5,
-       "safetyScore": 0.286917667608,
+       "safetyScore": 0.280973972281,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -3935,10 +4089,12 @@
      "pLit": 0.05,
      "penalty": 0,
      "placeScore": 0,
-     "risk": 0.688196567936,
+     "presence": 0.0735,
+     "remoteness": 0.19,
+     "risk": 0.694655788859,
      "roadName": "target",
      "roadScore": 0.5,
-     "safetyScore": 0.311803432064,
+     "safetyScore": 0.305344211141,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -3953,13 +4109,13 @@
    "G": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "ae8326d433b617fc821f079b14d926763c5e3de23412d693bcc2e926b462a474",
+     "edgesHash": "2cad225bdce50ae93e14fe6edb836b0c52bfb2edd16d55c5f97cf6958c3cfac9",
      "firstEdges": [
       {
        "cause": "crime",
        "cctvScore": 0,
        "certainty": 0.577978787675,
-       "crimeScore": 0.325082992881,
+       "crimeScore": 0.352079673166,
        "distance": 149.831467810689,
        "end": {
         "lat": 50.3755,
@@ -3981,11 +4137,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.482977070097,
+       "placeScore": 0.165799567228,
+       "presence": 0.201776816061,
+       "remoteness": 0.17,
+       "risk": 0.467296704922,
        "roadName": "target",
        "roadScore": 0.5,
-       "safetyScore": 0.517022929903,
+       "safetyScore": 0.532703295078,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -3993,7 +4151,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.495835191891
       },
       {
        "cause": "crime",
@@ -4022,6 +4180,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.101776816061,
+       "remoteness": 0.13,
        "risk": 0.538918925665,
        "roadName": "stubW",
        "roadScore": 0.5,
@@ -4062,6 +4222,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.101776816061,
+       "remoteness": 0.13,
        "risk": 0.538918925665,
        "roadName": "stubE",
        "roadScore": 0.5,
@@ -4094,7 +4256,7 @@
      "cause": "crime",
      "cctvScore": 0,
      "certainty": 0.577978787675,
-     "crimeScore": 0.325082992881,
+     "crimeScore": 0.352079673166,
      "distance": 149.831467810689,
      "end": {
       "lat": 50.3755,
@@ -4116,11 +4278,13 @@
      "nearbyTransitCount": 0,
      "pLit": 0.95,
      "penalty": 0,
-     "placeScore": 0.12,
-     "risk": 0.482977070097,
+     "placeScore": 0.165799567228,
+     "presence": 0.201776816061,
+     "remoteness": 0.17,
+     "risk": 0.467296704922,
      "roadName": "target",
      "roadScore": 0.5,
-     "safetyScore": 0.517022929903,
+     "safetyScore": 0.532703295078,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -4128,14 +4292,14 @@
      "surfacePenalty": 0,
      "surfaceType": "paved",
      "to": 2,
-     "trafficScore": 0.483923868985
+     "trafficScore": 0.495835191891
     },
-    "score": 52
+    "score": 53
    },
    "H1": {
     "summary": {
      "edgeCount": 402,
-     "edgesHash": "488575e5eade695499b7457515b6f4a42411cae83c3abfca671c8e3ac443d204",
+     "edgesHash": "ac834be07f07460835d0c968dbfa047ae6ba4e84300d2cdbfc966ff9dde0ae4a",
      "firstEdges": [
       {
        "cause": "lighting",
@@ -4164,10 +4328,12 @@
        "pLit": 0.62,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.513913834405,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.523983441114,
        "roadName": "target",
        "roadScore": 0.4,
-       "safetyScore": 0.486086165595,
+       "safetyScore": 0.476016558886,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -4204,10 +4370,12 @@
        "pLit": 0.62,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.513913834405,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.523983441114,
        "roadName": "stubW",
        "roadScore": 0.4,
-       "safetyScore": 0.486086165595,
+       "safetyScore": 0.476016558886,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -4244,10 +4412,12 @@
        "pLit": 0.88,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.456069081597,
+       "presence": 0.0735,
+       "remoteness": 0.28,
+       "risk": 0.467336981843,
        "roadName": "",
        "roadScore": 0.5,
-       "safetyScore": 0.543930918403,
+       "safetyScore": 0.532663018157,
        "start": {
         "lat": 50.366966043838,
         "lng": -4.149742778327
@@ -4299,10 +4469,12 @@
      "pLit": 0.62,
      "penalty": 0,
      "placeScore": 0,
-     "risk": 0.513913834405,
+     "presence": 0.0735,
+     "remoteness": 0.19,
+     "risk": 0.523983441114,
      "roadName": "target",
      "roadScore": 0.4,
-     "safetyScore": 0.486086165595,
+     "safetyScore": 0.476016558886,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -4312,12 +4484,12 @@
      "to": 2,
      "trafficScore": 0.4
     },
-    "score": 49
+    "score": 48
    },
    "H2": {
     "summary": {
      "edgeCount": 402,
-     "edgesHash": "98740d2e3818321403123dde60fc183376505d043a1affcdb2663df3ad17b0bb",
+     "edgesHash": "9594b62390a118f900efebc4b389c93beb3698f278863708091587a21f8dc53f",
      "firstEdges": [
       {
        "cause": "lighting",
@@ -4346,10 +4518,12 @@
        "pLit": 0.05,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.72258061644,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.728327548329,
        "roadName": "target",
        "roadScore": 0.4,
-       "safetyScore": 0.27741938356,
+       "safetyScore": 0.271672451671,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -4386,10 +4560,12 @@
        "pLit": 0.05,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.72258061644,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.728327548329,
        "roadName": "stubW",
        "roadScore": 0.4,
-       "safetyScore": 0.27741938356,
+       "safetyScore": 0.271672451671,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -4426,10 +4602,12 @@
        "pLit": 0.88,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.456069081597,
+       "presence": 0.0735,
+       "remoteness": 0.28,
+       "risk": 0.467336981843,
        "roadName": "",
        "roadScore": 0.5,
-       "safetyScore": 0.543930918403,
+       "safetyScore": 0.532663018157,
        "start": {
         "lat": 50.366966043838,
         "lng": -4.149742778327
@@ -4481,10 +4659,12 @@
      "pLit": 0.05,
      "penalty": 0,
      "placeScore": 0,
-     "risk": 0.72258061644,
+     "presence": 0.0735,
+     "remoteness": 0.19,
+     "risk": 0.728327548329,
      "roadName": "target",
      "roadScore": 0.4,
-     "safetyScore": 0.27741938356,
+     "safetyScore": 0.271672451671,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -4494,12 +4674,12 @@
      "to": 2,
      "trafficScore": 0.4
     },
-    "score": 28
+    "score": 27
    },
    "K": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "84f18066e4e70cc5655650eba0531956ea4d0822d689dac186f8867c32bcfdcf",
+     "edgesHash": "928777a06300de8da04401e985f22be1d80e952e8a99afb87c385f09eb340993",
      "firstEdges": [
       {
        "cause": "road",
@@ -4528,10 +4708,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.320485515258,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.334562121626,
        "roadName": "target",
        "roadScore": 0.75,
-       "safetyScore": 0.679514484742,
+       "safetyScore": 0.665437878374,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -4568,10 +4750,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.37471916272,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.387672282063,
        "roadName": "stubW",
        "roadScore": 0.75,
-       "safetyScore": 0.62528083728,
+       "safetyScore": 0.612327717937,
        "start": {
         "lat": 50.3755,
         "lng": -4.144390266799
@@ -4608,10 +4792,12 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.37471916272,
+       "presence": 0.0735,
+       "remoteness": 0.13,
+       "risk": 0.387672282063,
        "roadName": "stubE",
        "roadScore": 0.75,
-       "safetyScore": 0.62528083728,
+       "safetyScore": 0.612327717937,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -4663,10 +4849,12 @@
      "pLit": 0.95,
      "penalty": 0,
      "placeScore": 0,
-     "risk": 0.320485515258,
+     "presence": 0.0735,
+     "remoteness": 0.19,
+     "risk": 0.334562121626,
      "roadName": "target",
      "roadScore": 0.75,
-     "safetyScore": 0.679514484742,
+     "safetyScore": 0.665437878374,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -4676,17 +4864,397 @@
      "to": 2,
      "trafficScore": 0.75
     },
-    "score": 68
+    "score": 67
    },
-   "A_day": {
+   "P": {
+    "summary": {
+     "edgeCount": 363,
+     "edgesHash": "101407427bd7c8e13c28c75a5d571ad9154ae7dd12ba29b068d26949baf48087",
+     "firstEdges": [
+      {
+       "cause": "isolation",
+       "cctvScore": 0,
+       "certainty": 0.44241199122,
+       "crimeScore": 0.988667909906,
+       "distance": 149.831467810689,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "from": 1,
+       "hasSidewalk": false,
+       "highway": "footway",
+       "idx": 0,
+       "isDeadEnd": false,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 149.831467810689,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.01225,
+       "remoteness": 0.799726982538,
+       "risk": 0.511907658828,
+       "roadName": "target",
+       "roadScore": 0.7,
+       "safetyScore": 0.488092341172,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 2,
+       "trafficScore": 0.7
+      },
+      {
+       "cause": "isolation",
+       "cctvScore": 0,
+       "certainty": 0.44241199122,
+       "crimeScore": 0.988667909906,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "from": 3,
+       "hasSidewalk": false,
+       "highway": "footway",
+       "idx": 1,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.01225,
+       "remoteness": 0.799460696995,
+       "risk": 0.550798589887,
+       "roadName": "stubW",
+       "roadScore": 0.7,
+       "safetyScore": 0.449201410113,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.144390266799
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 1,
+       "trafficScore": 0.7
+      },
+      {
+       "cause": "isolation",
+       "cctvScore": 0,
+       "certainty": 0.44241199122,
+       "crimeScore": 0.988667909906,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.138896899703
+       },
+       "from": 2,
+       "hasSidewalk": false,
+       "highway": "footway",
+       "idx": 2,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.01225,
+       "remoteness": 0.799460696995,
+       "risk": 0.550798589887,
+       "roadName": "stubE",
+       "roadScore": 0.7,
+       "safetyScore": 0.449201410113,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 4,
+       "trafficScore": 0.7
+      }
+     ],
+     "weights": {
+      "activity": 0.2,
+      "crime": 0.25,
+      "isolation": 0.12,
+      "lighting": 0.28,
+      "road": 0.15
+     },
+     "darkness": 1,
+     "osmNodesHash": "2c447c542876a5f7a555c9de158b91d1ffc0abbb29804ab0ac4f966edea7bffe",
+     "adjacencyHash": "2f2fa00c9fbd03d162b9031e5da419cacb146aefc35be29346bf18aeac6badde",
+     "nodeDegreeHash": "c51c40af57f704b4e625316c174df37fdb80d1a3058ea838b1df7212a68ea498",
+     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "target": {
+     "cause": "isolation",
+     "cctvScore": 0,
+     "certainty": 0.44241199122,
+     "crimeScore": 0.988667909906,
+     "distance": 149.831467810689,
+     "end": {
+      "lat": 50.3755,
+      "lng": -4.140587166502
+     },
+     "from": 1,
+     "hasSidewalk": false,
+     "highway": "footway",
+     "idx": 0,
+     "isDeadEnd": false,
+     "isLit": true,
+     "isTunnel": false,
+     "lengthM": 149.831467810689,
+     "lightScore": 0.928571428571,
+     "litEstimate": "lit",
+     "litTag": "yes",
+     "maxspeed": "",
+     "nearbyCctvCount": 0,
+     "nearbyTransitCount": 0,
+     "pLit": 0.95,
+     "penalty": 0,
+     "placeScore": 0,
+     "presence": 0.01225,
+     "remoteness": 0.799726982538,
+     "risk": 0.511907658828,
+     "roadName": "target",
+     "roadScore": 0.7,
+     "safetyScore": 0.488092341172,
+     "start": {
+      "lat": 50.3755,
+      "lng": -4.1427
+     },
+     "surfacePenalty": 0,
+     "surfaceType": "paved",
+     "to": 2,
+     "trafficScore": 0.7
+    },
+    "score": 49
+   },
+   "Q": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "c5672c1a19bb43940cc00a0251a737a90154ff9728753c79637c79d0cfe31f76",
+     "edgesHash": "85c5ac0a3f0a62781116930c7925dc74688c6741a9c67f4ca5213b137eecffcf",
      "firstEdges": [
+      {
+       "cause": "road",
+       "cctvScore": 0.8,
+       "certainty": 0.577978787675,
+       "crimeScore": 0.991347151521,
+       "distance": 149.831467810689,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "from": 1,
+       "hasSidewalk": true,
+       "highway": "secondary",
+       "idx": 0,
+       "isDeadEnd": false,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 149.831467810689,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 2,
+       "nearbyTransitCount": 1,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 1,
+       "presence": 0.518485291015,
+       "remoteness": 0.11,
+       "risk": 0.151824643837,
+       "roadName": "target",
+       "roadScore": 0.85,
+       "safetyScore": 0.848175356163,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 2,
+       "trafficScore": 0.888263071524
+      },
       {
        "cause": "activity",
        "cctvScore": 0,
-       "certainty": 0.478674242141,
+       "certainty": 0.577978787675,
+       "crimeScore": 0.98982017826,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "from": 3,
+       "hasSidewalk": true,
+       "highway": "secondary",
+       "idx": 1,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 1,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.130053632123,
+       "remoteness": 0.13,
+       "risk": 0.322631606495,
+       "roadName": "stubW",
+       "roadScore": 0.85,
+       "safetyScore": 0.677368393505,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.144390266799
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 1,
+       "trafficScore": 0.653548774589
+      },
+      {
+       "cause": "activity",
+       "cctvScore": 0,
+       "certainty": 0.577978787675,
+       "crimeScore": 0.98982017826,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.138896899703
+       },
+       "from": 2,
+       "hasSidewalk": true,
+       "highway": "secondary",
+       "idx": 2,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 1,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.130053632123,
+       "remoteness": 0.13,
+       "risk": 0.322631606495,
+       "roadName": "stubE",
+       "roadScore": 0.85,
+       "safetyScore": 0.677368393505,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 4,
+       "trafficScore": 0.653548774589
+      }
+     ],
+     "weights": {
+      "activity": 0.2,
+      "crime": 0.25,
+      "isolation": 0.12,
+      "lighting": 0.28,
+      "road": 0.15
+     },
+     "darkness": 1,
+     "osmNodesHash": "cb991dc946bb03a8699242403b230669034d80e492790216408305b3ca4f0957",
+     "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
+     "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
+     "cctvNodesHash": "846edb239581b051c43ea48c038c24d25d9a80939363fba50e5994d56f79b58d",
+     "transitNodesHash": "7e98cddc562607c850963b7907d316df54d05340054550560c2fd54697edf3d8"
+    },
+    "target": {
+     "cause": "road",
+     "cctvScore": 0.8,
+     "certainty": 0.577978787675,
+     "crimeScore": 0.991347151521,
+     "distance": 149.831467810689,
+     "end": {
+      "lat": 50.3755,
+      "lng": -4.140587166502
+     },
+     "from": 1,
+     "hasSidewalk": true,
+     "highway": "secondary",
+     "idx": 0,
+     "isDeadEnd": false,
+     "isLit": true,
+     "isTunnel": false,
+     "lengthM": 149.831467810689,
+     "lightScore": 0.928571428571,
+     "litEstimate": "lit",
+     "litTag": "yes",
+     "maxspeed": "30 mph",
+     "nearbyCctvCount": 2,
+     "nearbyTransitCount": 1,
+     "pLit": 0.95,
+     "penalty": 0,
+     "placeScore": 1,
+     "presence": 0.518485291015,
+     "remoteness": 0.11,
+     "risk": 0.151824643837,
+     "roadName": "target",
+     "roadScore": 0.85,
+     "safetyScore": 0.848175356163,
+     "start": {
+      "lat": 50.3755,
+      "lng": -4.1427
+     },
+     "surfacePenalty": 0,
+     "surfaceType": "paved",
+     "to": 2,
+     "trafficScore": 0.888263071524
+    },
+    "score": 85
+   },
+   "T": {
+    "summary": {
+     "edgeCount": 403,
+     "edgesHash": "94c44f17421c4f299e243526acd7870b72450a04f051175066cf3db710ad88ce",
+     "firstEdges": [
+      {
+       "cause": "road",
+       "cctvScore": 0,
+       "certainty": 0.444645454341,
        "crimeScore": 0.98982017826,
        "distance": 149.831467810689,
        "end": {
@@ -4709,11 +5277,393 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.3,
-       "risk": 0.355307030896,
+       "placeScore": 0,
+       "presence": 0.03675,
+       "remoteness": 0.19,
+       "risk": 0.394284635469,
        "roadName": "target",
        "roadScore": 0.5,
-       "safetyScore": 0.644692969104,
+       "safetyScore": 0.605715364531,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 2,
+       "trafficScore": 0.5
+      },
+      {
+       "cause": "road",
+       "cctvScore": 0,
+       "certainty": 0.444645454341,
+       "crimeScore": 0.98982017826,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "from": 3,
+       "hasSidewalk": true,
+       "highway": "residential",
+       "idx": 1,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.03675,
+       "remoteness": 0.13,
+       "risk": 0.442628201765,
+       "roadName": "stubW",
+       "roadScore": 0.5,
+       "safetyScore": 0.557371798235,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.144390266799
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 1,
+       "trafficScore": 0.5
+      },
+      {
+       "cause": "road",
+       "cctvScore": 0,
+       "certainty": 0.444645454341,
+       "crimeScore": 0.98982017826,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.138896899703
+       },
+       "from": 2,
+       "hasSidewalk": true,
+       "highway": "residential",
+       "idx": 2,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.03675,
+       "remoteness": 0.13,
+       "risk": 0.442628201765,
+       "roadName": "stubE",
+       "roadScore": 0.5,
+       "safetyScore": 0.557371798235,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 4,
+       "trafficScore": 0.5
+      }
+     ],
+     "weights": {
+      "activity": 0.2,
+      "crime": 0.25,
+      "isolation": 0.12,
+      "lighting": 0.28,
+      "road": 0.15
+     },
+     "darkness": 1,
+     "osmNodesHash": "cb991dc946bb03a8699242403b230669034d80e492790216408305b3ca4f0957",
+     "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
+     "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
+     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "target": {
+     "cause": "road",
+     "cctvScore": 0,
+     "certainty": 0.444645454341,
+     "crimeScore": 0.98982017826,
+     "distance": 149.831467810689,
+     "end": {
+      "lat": 50.3755,
+      "lng": -4.140587166502
+     },
+     "from": 1,
+     "hasSidewalk": true,
+     "highway": "residential",
+     "idx": 0,
+     "isDeadEnd": false,
+     "isLit": true,
+     "isTunnel": false,
+     "lengthM": 149.831467810689,
+     "lightScore": 0.928571428571,
+     "litEstimate": "lit",
+     "litTag": "yes",
+     "maxspeed": "30 mph",
+     "nearbyCctvCount": 0,
+     "nearbyTransitCount": 0,
+     "pLit": 0.95,
+     "penalty": 0,
+     "placeScore": 0,
+     "presence": 0.03675,
+     "remoteness": 0.19,
+     "risk": 0.394284635469,
+     "roadName": "target",
+     "roadScore": 0.5,
+     "safetyScore": 0.605715364531,
+     "start": {
+      "lat": 50.3755,
+      "lng": -4.1427
+     },
+     "surfacePenalty": 0,
+     "surfaceType": "paved",
+     "to": 2,
+     "trafficScore": 0.5
+    },
+    "score": 61
+   },
+   "M": {
+    "summary": {
+     "edgeCount": 403,
+     "edgesHash": "4034b1eef2aea96b1427b4db162607b78a7589d5b40a7f988e1659d668d098ce",
+     "firstEdges": [
+      {
+       "cause": "road",
+       "cctvScore": 0,
+       "certainty": 0.444645454341,
+       "crimeScore": 0.98982017826,
+       "distance": 149.831467810689,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "from": 1,
+       "hasSidewalk": true,
+       "highway": "residential",
+       "idx": 0,
+       "isDeadEnd": false,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 149.831467810689,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.105,
+       "remoteness": 0.19,
+       "risk": 0.360581746604,
+       "roadName": "target",
+       "roadScore": 0.5,
+       "safetyScore": 0.639418253396,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 2,
+       "trafficScore": 0.5
+      },
+      {
+       "cause": "road",
+       "cctvScore": 0,
+       "certainty": 0.444645454341,
+       "crimeScore": 0.98982017826,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.1427
+       },
+       "from": 3,
+       "hasSidewalk": true,
+       "highway": "residential",
+       "idx": 1,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.105,
+       "remoteness": 0.13,
+       "risk": 0.411615219641,
+       "roadName": "stubW",
+       "roadScore": 0.5,
+       "safetyScore": 0.588384780359,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.144390266799
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 1,
+       "trafficScore": 0.5
+      },
+      {
+       "cause": "road",
+       "cctvScore": 0,
+       "certainty": 0.444645454341,
+       "crimeScore": 0.98982017826,
+       "distance": 119.865174248513,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.138896899703
+       },
+       "from": 2,
+       "hasSidewalk": true,
+       "highway": "residential",
+       "idx": 2,
+       "isDeadEnd": true,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 119.865174248513,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0,
+       "presence": 0.105,
+       "remoteness": 0.13,
+       "risk": 0.411615219641,
+       "roadName": "stubE",
+       "roadScore": 0.5,
+       "safetyScore": 0.588384780359,
+       "start": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "surfacePenalty": 0,
+       "surfaceType": "paved",
+       "to": 4,
+       "trafficScore": 0.5
+      }
+     ],
+     "weights": {
+      "activity": 0.2,
+      "crime": 0.25,
+      "isolation": 0.12,
+      "lighting": 0.28,
+      "road": 0.15
+     },
+     "darkness": 1,
+     "osmNodesHash": "cb991dc946bb03a8699242403b230669034d80e492790216408305b3ca4f0957",
+     "adjacencyHash": "93f77215ed2232a376f996035c63f42a5d75597d1a3f65f55c939498c6eca051",
+     "nodeDegreeHash": "1df7bf9e425dbce5b56391bed8a5ca5e809c4b08074c840b1c093e6b071411de",
+     "cctvNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+     "transitNodesHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "target": {
+     "cause": "road",
+     "cctvScore": 0,
+     "certainty": 0.444645454341,
+     "crimeScore": 0.98982017826,
+     "distance": 149.831467810689,
+     "end": {
+      "lat": 50.3755,
+      "lng": -4.140587166502
+     },
+     "from": 1,
+     "hasSidewalk": true,
+     "highway": "residential",
+     "idx": 0,
+     "isDeadEnd": false,
+     "isLit": true,
+     "isTunnel": false,
+     "lengthM": 149.831467810689,
+     "lightScore": 0.928571428571,
+     "litEstimate": "lit",
+     "litTag": "yes",
+     "maxspeed": "30 mph",
+     "nearbyCctvCount": 0,
+     "nearbyTransitCount": 0,
+     "pLit": 0.95,
+     "penalty": 0,
+     "placeScore": 0,
+     "presence": 0.105,
+     "remoteness": 0.19,
+     "risk": 0.360581746604,
+     "roadName": "target",
+     "roadScore": 0.5,
+     "safetyScore": 0.639418253396,
+     "start": {
+      "lat": 50.3755,
+      "lng": -4.1427
+     },
+     "surfacePenalty": 0,
+     "surfaceType": "paved",
+     "to": 2,
+     "trafficScore": 0.5
+    },
+    "score": 64
+   },
+   "A_day": {
+    "summary": {
+     "edgeCount": 403,
+     "edgesHash": "d71cad3e8f364bc0b0bf8267459a23f1b201ab477155df30043c32bbfb7a5dad",
+     "firstEdges": [
+      {
+       "cause": "activity",
+       "cctvScore": 0,
+       "certainty": 0.478674242141,
+       "crimeScore": 0.99022737113,
+       "distance": 149.831467810689,
+       "end": {
+        "lat": 50.3755,
+        "lng": -4.140587166502
+       },
+       "from": 1,
+       "hasSidewalk": true,
+       "highway": "residential",
+       "idx": 0,
+       "isDeadEnd": false,
+       "isLit": true,
+       "isTunnel": false,
+       "lengthM": 149.831467810689,
+       "lightScore": 0.928571428571,
+       "litEstimate": "lit",
+       "litTag": "yes",
+       "maxspeed": "30 mph",
+       "nearbyCctvCount": 0,
+       "nearbyTransitCount": 0,
+       "pLit": 0.95,
+       "penalty": 0,
+       "placeScore": 0.3,
+       "presence": 0.203553632123,
+       "remoteness": 0.17,
+       "risk": 0.355214954989,
+       "roadName": "target",
+       "roadScore": 0.5,
+       "safetyScore": 0.644785045011,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -4750,6 +5700,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.203553632123,
+       "remoteness": 0.13,
        "risk": 0.475722160571,
        "roadName": "stubW",
        "roadScore": 0.5,
@@ -4790,6 +5742,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.203553632123,
+       "remoteness": 0.13,
        "risk": 0.475722160571,
        "roadName": "stubE",
        "roadScore": 0.5,
@@ -4822,7 +5776,7 @@
      "cause": "activity",
      "cctvScore": 0,
      "certainty": 0.478674242141,
-     "crimeScore": 0.98982017826,
+     "crimeScore": 0.99022737113,
      "distance": 149.831467810689,
      "end": {
       "lat": 50.3755,
@@ -4845,10 +5799,12 @@
      "pLit": 0.95,
      "penalty": 0,
      "placeScore": 0.3,
-     "risk": 0.355307030896,
+     "presence": 0.203553632123,
+     "remoteness": 0.17,
+     "risk": 0.355214954989,
      "roadName": "target",
      "roadScore": 0.5,
-     "safetyScore": 0.644692969104,
+     "safetyScore": 0.644785045011,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -4862,7 +5818,7 @@
    "A_down": {
     "summary": {
      "edgeCount": 403,
-     "edgesHash": "74263b1708fef0f417abd4302d458bc9b11d305eaa69ec466be7356f8dc97b0a",
+     "edgesHash": "d2d4d7ae1ba27f6e8ec2362f716be992260f87b66325bf4c8ac33dcff7f86332",
      "firstEdges": [
       {
        "cause": "activity",
@@ -4890,11 +5846,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.402310467494,
+       "placeScore": 0.165799567228,
+       "presence": 0.201776816061,
+       "remoteness": 0.17,
+       "risk": 0.396343956436,
        "roadName": "target",
        "roadScore": 0.5,
-       "safetyScore": 0.597689532506,
+       "safetyScore": 0.603656043564,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -4902,7 +5860,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.495835191891
       },
       {
        "cause": "activity",
@@ -4931,6 +5889,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.101776816061,
+       "remoteness": 0.13,
        "risk": 0.466980445493,
        "roadName": "stubW",
        "roadScore": 0.5,
@@ -4971,6 +5931,8 @@
        "pLit": 0.95,
        "penalty": 0,
        "placeScore": 0,
+       "presence": 0.101776816061,
+       "remoteness": 0.13,
        "risk": 0.466980445493,
        "roadName": "stubE",
        "roadScore": 0.5,
@@ -5025,11 +5987,13 @@
      "nearbyTransitCount": 0,
      "pLit": 0.95,
      "penalty": 0,
-     "placeScore": 0.12,
-     "risk": 0.402310467494,
+     "placeScore": 0.165799567228,
+     "presence": 0.201776816061,
+     "remoteness": 0.17,
+     "risk": 0.396343956436,
      "roadName": "target",
      "roadScore": 0.5,
-     "safetyScore": 0.597689532506,
+     "safetyScore": 0.603656043564,
      "start": {
       "lat": 50.3755,
       "lng": -4.1427
@@ -5037,7 +6001,7 @@
      "surfacePenalty": 0,
      "surfaceType": "paved",
      "to": 2,
-     "trafficScore": 0.483923868985
+     "trafficScore": 0.495835191891
     }
    }
   },
@@ -5045,13 +6009,13 @@
    "allA": {
     "summary": {
      "edgeCount": 887,
-     "edgesHash": "d59f10ec6d41ae33d36dae1cf77413856ff9251f35bc5c08fd2b1aa9272ac2c4",
+     "edgesHash": "cd1b4ffdf91cd99a2a5d685e353628589ffb2b8a4c5783d2dc77daa6d6cd11ba",
      "firstEdges": [
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.578213831406,
-       "crimeScore": 0.989942894616,
+       "crimeScore": 0.990345178832,
        "distance": 149.831467810689,
        "end": {
         "lat": 50.3755,
@@ -5073,11 +6037,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.371484229443,
+       "placeScore": 0.183641618228,
+       "presence": 0.241425818285,
+       "remoteness": 0.17,
+       "risk": 0.36284089497,
        "roadName": "seg0",
        "roadScore": 0.5,
-       "safetyScore": 0.628515770557,
+       "safetyScore": 0.63715910503,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -5085,13 +6051,13 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.500329797634
       },
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.578213831406,
-       "crimeScore": 0.989942894616,
+       "crimeScore": 0.990345178832,
        "distance": 149.831467810626,
        "end": {
         "lat": 50.3755,
@@ -5113,11 +6079,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.316970000488,
+       "placeScore": 0.184440721279,
+       "presence": 0.243201602842,
+       "remoteness": 0.17,
+       "risk": 0.307466694936,
        "roadName": "seg1",
        "roadScore": 0.5,
-       "safetyScore": 0.683029999512,
+       "safetyScore": 0.692533305064,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -5125,13 +6093,13 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 3,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.50052923016
       },
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.578213831406,
-       "crimeScore": 0.989942894616,
+       "crimeScore": 0.990345178832,
        "distance": 149.831467810689,
        "end": {
         "lat": 50.3755,
@@ -5153,11 +6121,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.316970000488,
+       "placeScore": 0.184440721279,
+       "presence": 0.243201602842,
+       "remoteness": 0.17,
+       "risk": 0.307466694936,
        "roadName": "seg2",
        "roadScore": 0.5,
-       "safetyScore": 0.683029999512,
+       "safetyScore": 0.692533305064,
        "start": {
         "lat": 50.3755,
         "lng": -4.138474333004
@@ -5165,7 +6135,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 4,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.50052923016
       }
      ],
      "weights": {
@@ -5185,32 +6155,32 @@
     "breakdown": {
      "cctv": 0,
      "certainty": 0.578213831406,
-     "crime": 0.989942894616,
+     "crime": 0.990345178832,
      "lighting": 0.928571428571,
-     "m3": 0.316970000488,
+     "m3": 0.307466694936,
      "mainRoadRatio": 0,
-     "mean": 0.316970000488,
-     "openPlaces": 0.12,
-     "overall": 0.683029999512,
+     "mean": 0.307466694936,
+     "openPlaces": 0.184440721279,
+     "overall": 0.692533305064,
      "riskVector": {
-      "max": 0.316970000488,
-      "mean": 0.316970000488,
-      "p95": 0.316970000488,
+      "max": 0.307466694936,
+      "mean": 0.307466694936,
+      "p95": 0.307466694936,
       "uncertainty": 0.421786168594
      },
      "roadType": 0.5,
      "roadTypes": {
       "residential": 100
      },
-     "routeRisk": 0.316970000488,
-     "traffic": 0.483923868985,
+     "routeRisk": 0.307466694936,
+     "traffic": 0.50052923016,
      "worstStretch": null
     }
    },
    "allC": {
     "summary": {
      "edgeCount": 887,
-     "edgesHash": "5e5ad649c4287efb41d9809a567279484edbb7d2bd2352cd6427ed01c27ff96c",
+     "edgesHash": "1b1a27ed0ec16c248496b0a6449b445413921afecda3be467a38f0dde9a6cd15",
      "firstEdges": [
       {
        "cause": "road",
@@ -5239,10 +6209,12 @@
        "pLit": 0.9,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.445680314536,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.457163425183,
        "roadName": "seg0",
        "roadScore": 0.5,
-       "safetyScore": 0.554319685464,
+       "safetyScore": 0.542836574817,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -5279,10 +6251,12 @@
        "pLit": 0.9,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.397601472822,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.410080569492,
        "roadName": "seg1",
        "roadScore": 0.5,
-       "safetyScore": 0.602398527178,
+       "safetyScore": 0.589919430508,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -5319,10 +6293,12 @@
        "pLit": 0.9,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.397601472822,
+       "presence": 0.0735,
+       "remoteness": 0.19,
+       "risk": 0.410080569492,
        "roadName": "seg2",
        "roadScore": 0.5,
-       "safetyScore": 0.602398527178,
+       "safetyScore": 0.589919430508,
        "start": {
         "lat": 50.3755,
         "lng": -4.138474333004
@@ -5352,22 +6328,22 @@
      "certainty": 0.351547164739,
      "crime": 0.989942894616,
      "lighting": 0.82,
-     "m3": 0.397601472822,
+     "m3": 0.410080569492,
      "mainRoadRatio": 0,
-     "mean": 0.397601472822,
+     "mean": 0.410080569492,
      "openPlaces": 0,
-     "overall": 0.602398527178,
+     "overall": 0.589919430508,
      "riskVector": {
-      "max": 0.397601472822,
-      "mean": 0.397601472822,
-      "p95": 0.397601472822,
+      "max": 0.410080569492,
+      "mean": 0.410080569492,
+      "p95": 0.410080569492,
       "uncertainty": 0.648452835261
      },
      "roadType": 0.5,
      "roadTypes": {
       "residential": 100
      },
-     "routeRisk": 0.397601472822,
+     "routeRisk": 0.410080569492,
      "traffic": 0.5,
      "worstStretch": null
     }
@@ -5375,7 +6351,7 @@
    "allE": {
     "summary": {
      "edgeCount": 887,
-     "edgesHash": "5085017b197b016a07a84770089d0a448b7262134c506aa02b112fcf77c09968",
+     "edgesHash": "a31d36788b7d7b26424d9218f05bfaf1f05bb1bc3274ba3ad75488e93a438779",
      "firstEdges": [
       {
        "cause": "lighting",
@@ -5404,10 +6380,12 @@
        "pLit": 0.198,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.728949951856,
+       "presence": 0.0735,
+       "remoteness": 0.300617338139,
+       "risk": 0.690339072795,
        "roadName": "seg0",
-       "roadScore": 0.25,
-       "safetyScore": 0.271050048144,
+       "roadScore": 0.7,
+       "safetyScore": 0.309660927205,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -5415,7 +6393,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       },
       {
        "cause": "lighting",
@@ -5444,10 +6422,12 @@
        "pLit": 0.198,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.728949951856,
+       "presence": 0.0735,
+       "remoteness": 0.300617338139,
+       "risk": 0.690339072795,
        "roadName": "seg1",
-       "roadScore": 0.25,
-       "safetyScore": 0.271050048144,
+       "roadScore": 0.7,
+       "safetyScore": 0.309660927205,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -5455,7 +6435,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 3,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       },
       {
        "cause": "lighting",
@@ -5484,10 +6464,12 @@
        "pLit": 0.198,
        "penalty": 0,
        "placeScore": 0,
-       "risk": 0.728949951856,
+       "presence": 0.0735,
+       "remoteness": 0.300617338139,
+       "risk": 0.690339072795,
        "roadName": "seg2",
-       "roadScore": 0.25,
-       "safetyScore": 0.271050048144,
+       "roadScore": 0.7,
+       "safetyScore": 0.309660927205,
        "start": {
         "lat": 50.3755,
         "lng": -4.138474333004
@@ -5495,7 +6477,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 4,
-       "trafficScore": 0.25
+       "trafficScore": 0.7
       }
      ],
      "weights": {
@@ -5517,23 +6499,23 @@
      "certainty": 0.379547164739,
      "crime": 0.989942894616,
      "lighting": 0.241142857143,
-     "m3": 0.728949951856,
+     "m3": 0.690339072795,
      "mainRoadRatio": 0,
-     "mean": 0.728949951856,
+     "mean": 0.690339072795,
      "openPlaces": 0,
-     "overall": 0.271050048144,
+     "overall": 0.309660927205,
      "riskVector": {
-      "max": 0.728949951856,
-      "mean": 0.728949951856,
-      "p95": 0.728949951856,
+      "max": 0.690339072795,
+      "mean": 0.690339072795,
+      "p95": 0.690339072795,
       "uncertainty": 0.620452835261
      },
-     "roadType": 0.25,
+     "roadType": 0.7,
      "roadTypes": {
       "footway": 100
      },
-     "routeRisk": 0.728949951856,
-     "traffic": 0.25,
+     "routeRisk": 0.690339072795,
+     "traffic": 0.7,
      "worstStretch": {
       "cause": "lighting",
       "end": {
@@ -5551,13 +6533,13 @@
    "mixedAE": {
     "summary": {
      "edgeCount": 887,
-     "edgesHash": "9ea622784f3201fee0d699548d5f33db80ec5e6a725b7070d8cae3b1fd75deed",
+     "edgesHash": "401762745c23bad1bb34ee17c6d0bc9dceaeb96aa469217626c9237b3a5e1464",
      "firstEdges": [
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.578213831406,
-       "crimeScore": 0.989942894616,
+       "crimeScore": 0.990345178832,
        "distance": 149.831467810689,
        "end": {
         "lat": 50.3755,
@@ -5579,11 +6561,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.371484229443,
+       "placeScore": 0.181856183358,
+       "presence": 0.23745818524,
+       "remoteness": 0.17,
+       "risk": 0.363068181484,
        "roadName": "seg0",
        "roadScore": 0.5,
-       "safetyScore": 0.628515770557,
+       "safetyScore": 0.636931818516,
        "start": {
         "lat": 50.3755,
         "lng": -4.1427
@@ -5591,13 +6575,13 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 2,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.499883629565
       },
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.578213831406,
-       "crimeScore": 0.989942894616,
+       "crimeScore": 0.990345178832,
        "distance": 149.831467810626,
        "end": {
         "lat": 50.3755,
@@ -5619,11 +6603,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.316970000488,
+       "placeScore": 0.182783270034,
+       "presence": 0.239518377854,
+       "remoteness": 0.17,
+       "risk": 0.307695633939,
        "roadName": "seg1",
        "roadScore": 0.5,
-       "safetyScore": 0.683029999512,
+       "safetyScore": 0.692304366061,
        "start": {
         "lat": 50.3755,
         "lng": -4.140587166502
@@ -5631,13 +6617,13 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 3,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.500115401667
       },
       {
        "cause": "activity",
        "cctvScore": 0,
        "certainty": 0.578213831406,
-       "crimeScore": 0.989942894616,
+       "crimeScore": 0.990345178832,
        "distance": 149.831467810689,
        "end": {
         "lat": 50.3755,
@@ -5659,11 +6645,13 @@
        "nearbyTransitCount": 0,
        "pLit": 0.95,
        "penalty": 0,
-       "placeScore": 0.12,
-       "risk": 0.316970000488,
+       "placeScore": 0.182783270034,
+       "presence": 0.239518377854,
+       "remoteness": 0.17,
+       "risk": 0.307695633939,
        "roadName": "seg2",
        "roadScore": 0.5,
-       "safetyScore": 0.683029999512,
+       "safetyScore": 0.692304366061,
        "start": {
         "lat": 50.3755,
         "lng": -4.138474333004
@@ -5671,7 +6659,7 @@
        "surfacePenalty": 0,
        "surfaceType": "paved",
        "to": 4,
-       "trafficScore": 0.483923868985
+       "trafficScore": 0.500115401667
       }
      ],
      "weights": {
@@ -5691,26 +6679,26 @@
     "breakdown": {
      "cctv": 0,
      "certainty": 0.565147164739,
-     "crime": 0.989942894616,
+     "crime": 0.990264721989,
      "lighting": 0.791085714286,
-     "m3": 0.463995776153,
+     "m3": 0.438169775472,
      "mainRoadRatio": 0,
-     "mean": 0.397426823204,
-     "openPlaces": 0.096,
-     "overall": 0.575945595616,
+     "mean": 0.380650384629,
+     "openPlaces": 0.146226616027,
+     "overall": 0.596341859033,
      "riskVector": {
-      "max": 0.719254114069,
-      "mean": 0.397426823204,
-      "p95": 0.719254114069,
+      "max": 0.672469387393,
+      "mean": 0.380650384629,
+      "p95": 0.672469387393,
       "uncertainty": 0.434852835261
      },
-     "roadType": 0.45,
+     "roadType": 0.54,
      "roadTypes": {
       "footway": 20,
       "residential": 80
      },
-     "routeRisk": 0.424054404384,
-     "traffic": 0.452139095188,
+     "routeRisk": 0.403658140967,
+     "traffic": 0.510092321333,
      "worstStretch": {
       "cause": "lighting",
       "end": {
@@ -5731,13 +6719,13 @@
   "nightOk": {
    "summary": {
     "edgeCount": 180,
-    "edgesHash": "8fcf119f586ba848f4354fb447405536646348e21e49fffef6dda5be02de4c42",
+    "edgesHash": "feceebc693d1a93aff94816374b91ce337b8d6b8ba7460823a2501a7b9172fca",
     "firstEdges": [
      {
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.490240121171,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -5760,10 +6748,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.42466351768,
+      "presence": 0.119617500651,
+      "remoteness": 0.28,
+      "risk": 0.409837320215,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.57533648232,
+      "safetyScore": 0.590162679785,
       "start": {
        "lat": 50.372,
        "lng": -4.145
@@ -5777,7 +6767,7 @@
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.490240121171,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098596,
       "end": {
        "lat": 50.372,
@@ -5800,10 +6790,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.42466351768,
+      "presence": 0.119617500651,
+      "remoteness": 0.25,
+      "risk": 0.409837320215,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.57533648232,
+      "safetyScore": 0.590162679785,
       "start": {
        "lat": 50.372,
        "lng": -4.14372
@@ -5817,7 +6809,7 @@
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.550240121171,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -5840,10 +6832,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.40712458491,
+      "presence": 0.119617500651,
+      "remoteness": 0.22,
+      "risk": 0.391846415967,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.59287541509,
+      "safetyScore": 0.608153584033,
       "start": {
        "lat": 50.372,
        "lng": -4.14244
@@ -5869,192 +6863,192 @@
     "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
-    0.42466351768,
-    0.42466351768,
-    0.40712458491,
-    0.42466351768,
-    0.409103123937,
-    0.413753088397,
-    0.401062307159,
-    0.371848987831,
-    0.394473270279,
-    0.441636904952,
-    0.419556189104,
-    0.441636904952,
-    0.441636904952,
-    0.441636904952,
-    0.431050810863,
-    0.418734482108,
-    0.363615183446,
-    0.357788781553,
-    0.333990363114,
-    0.351528740124,
-    0.351528740124,
-    0.351528740124,
-    0.297265823707,
-    0.356619172853,
-    0.356619172853,
-    0.302782214751,
-    0.356619172853,
-    0.629648471508,
-    0.738406169565,
-    0.496271764557,
-    0.730851493084,
-    0.454120685815,
-    0.641027789892,
-    0.646990249234,
-    0.491788773564,
-    0.749425294028,
-    0.385758081282,
-    0.385758081282,
-    0.399912376802,
-    0.409879716764,
-    0.409879716764,
-    0.404623002956,
-    0.414512100324,
-    0.395874966206,
-    0.395874966206,
-    0.399685752626,
-    0.4056216285,
-    0.4056216285,
-    0.39767305163,
-    0.4056216285,
-    0.402218509551,
-    0.419912586822,
-    0.419912586822,
-    0.419912586822,
-    0.42315764021,
-    0.432738880818,
-    0.42315764021,
-    0.42315764021,
-    0.432738880818,
-    0.414754007264,
-    0.446380272889,
-    0.446380272889,
-    0.437029440209,
-    0.330061801745,
-    0.330061801745,
-    0.256876355207,
-    0.256876355207,
-    0.341189346318,
-    0.357016702606,
-    0.339626751533,
-    0.357016702606,
-    0.357016702606,
-    0.743413614616,
-    0.632415484685,
-    0.638520992759,
-    0.445418602359,
-    0.638520992759,
-    0.48703207314,
-    0.48703207314,
-    0.747080485214,
-    0.647210087069,
-    0.390344424237,
-    0.40047068605,
-    0.40047068605,
-    0.40047068605,
-    0.40047068605,
-    0.399048697237,
-    0.399048697237,
-    0.399048697237,
-    0.41487385941,
-    0.434609467649,
-    0.434609467649,
-    0.419318069358,
-    0.396354745273,
-    0.396354745273,
-    0.415897626871,
-    0.415897626871,
-    0.425599454905,
-    0.415897626871,
-    0.67157516915,
-    0.709204251656,
-    0.788717580165,
-    0.487925902593,
-    0.493947175794,
-    0.793779278621,
-    0.50606977306,
-    0.699579179057,
-    0.699579179057,
-    0.376998271074,
-    0.358006279822,
-    0.376998271074,
-    0.347162779194,
-    0.366475551884,
-    0.356378807081,
-    0.36706923126,
-    0.336755343564,
-    0.36706923126,
-    0.702441126769,
-    0.702441126769,
-    0.702441126769,
-    0.702441126769,
-    0.697415252329,
-    0.692590762703,
-    0.657555247194,
-    0.659008736242,
-    0.697696770988,
-    0.434609467649,
-    0.434609467649,
-    0.363069049816,
-    0.387298598072,
-    0.425059821912,
-    0.415897626871,
-    0.425599454905,
-    0.37753464356,
-    0.402881301176,
-    0.50067107554,
-    0.791524879603,
-    0.684870982992,
-    0.704292608783,
-    0.704292608783,
-    0.695165013922,
-    0.50606977306,
-    0.50606977306,
-    0.696578967763,
-    0.365183938913,
-    0.365183938913,
-    0.381900879322,
-    0.371460966917,
-    0.363050252311,
-    0.371853736998,
-    0.382287125568,
-    0.36558063147,
-    0.36558063147,
-    0.669621519501,
-    0.662653552801,
-    0.680073194585,
-    0.704776933335,
-    0.699790511493,
-    0.699976003815,
-    0.704959344666,
-    0.696979755489,
-    0.696979755489,
-    0.356923795018,
-    0.34747716769,
-    0.392122777187,
-    0.421205444853,
-    0.421205444853,
-    0.43941253459,
-    0.43941253459,
-    0.417231395135,
-    0.424251038739,
-    0.758719672642,
-    0.699697857217,
-    0.711490896086,
-    0.711490896086,
-    0.517640567217,
-    0.795336919161,
-    0.711670565958,
-    0.51794001792,
-    0.51794001792
+    0.409837320215,
+    0.409837320215,
+    0.391846415967,
+    0.409837320215,
+    0.393875941175,
+    0.395506251515,
+    0.382420471837,
+    0.352297892841,
+    0.372878564573,
+    0.427248105078,
+    0.404598377767,
+    0.427248105078,
+    0.427248105078,
+    0.427248105078,
+    0.413342362694,
+    0.40064269027,
+    0.341068664911,
+    0.334301551144,
+    0.316827553708,
+    0.334817887875,
+    0.334817887875,
+    0.334817887875,
+    0.277698638851,
+    0.336594052424,
+    0.336594052424,
+    0.279576246728,
+    0.336632441823,
+    0.549721903419,
+    0.677547825885,
+    0.3800451245,
+    0.668080101562,
+    0.339073734189,
+    0.560900953228,
+    0.5632711284,
+    0.367505216334,
+    0.693620873973,
+    0.366709163595,
+    0.366709163595,
+    0.380824431488,
+    0.394672546497,
+    0.394672546497,
+    0.382423461432,
+    0.396288887561,
+    0.367401533665,
+    0.367401533665,
+    0.384888061749,
+    0.387589947892,
+    0.387589947892,
+    0.382825747859,
+    0.387589947892,
+    0.378300445278,
+    0.396702487054,
+    0.396702487054,
+    0.396702487054,
+    0.405657950295,
+    0.418755946506,
+    0.405657950295,
+    0.405657950295,
+    0.418755946506,
+    0.391337505593,
+    0.427653496612,
+    0.427653496612,
+    0.414504209421,
+    0.309737859627,
+    0.309737859627,
+    0.236323934196,
+    0.236323934196,
+    0.324949724417,
+    0.335267108488,
+    0.317288923819,
+    0.335267108488,
+    0.335267108488,
+    0.688241371514,
+    0.553375974427,
+    0.5556015432,
+    0.317200930009,
+    0.565969843409,
+    0.375303767772,
+    0.363715059077,
+    0.686278868331,
+    0.572609410417,
+    0.371849278467,
+    0.38569234371,
+    0.38569234371,
+    0.38569234371,
+    0.38569234371,
+    0.378720880056,
+    0.378720880056,
+    0.378720880056,
+    0.397382003501,
+    0.420039573447,
+    0.420039573447,
+    0.404354121768,
+    0.380799041749,
+    0.380799041749,
+    0.39817768964,
+    0.39817768964,
+    0.411440534402,
+    0.39817768964,
+    0.602759059079,
+    0.648272707063,
+    0.747348229554,
+    0.377426850968,
+    0.384783756377,
+    0.750841334988,
+    0.403226818671,
+    0.640991631157,
+    0.640991631157,
+    0.360943758736,
+    0.341462351253,
+    0.360943758736,
+    0.326396943192,
+    0.346324028084,
+    0.336853245015,
+    0.351467546137,
+    0.316634463695,
+    0.351467546137,
+    0.694773150293,
+    0.694773150293,
+    0.694773150293,
+    0.694773150293,
+    0.68779045606,
+    0.683264876283,
+    0.647189172805,
+    0.649578009521,
+    0.690245024251,
+    0.420039573447,
+    0.420039573447,
+    0.345334113814,
+    0.370238318385,
+    0.406771781542,
+    0.39817768964,
+    0.411440534402,
+    0.361253030526,
+    0.388162380277,
+    0.396044777527,
+    0.74784229082,
+    0.62675452901,
+    0.646119564526,
+    0.640226219206,
+    0.626290519466,
+    0.403226818671,
+    0.413400029339,
+    0.641738631363,
+    0.345425395393,
+    0.345425395393,
+    0.362662647771,
+    0.348024928182,
+    0.343225298153,
+    0.346720736175,
+    0.361392330393,
+    0.344120721358,
+    0.344120721358,
+    0.658625310545,
+    0.650701683859,
+    0.669424855755,
+    0.695588164858,
+    0.688596741765,
+    0.68797162874,
+    0.694979280599,
+    0.686729773329,
+    0.686729773329,
+    0.332402016582,
+    0.323002400143,
+    0.371925353789,
+    0.394213332403,
+    0.393925880526,
+    0.420450067152,
+    0.420450067152,
+    0.397518627056,
+    0.404775717574,
+    0.714425439196,
+    0.644730150837,
+    0.668621255713,
+    0.666726954122,
+    0.425883588676,
+    0.756942484958,
+    0.660285342257,
+    0.436569856704,
+    0.436569856704
    ]
   },
   "nightDown": {
    "summary": {
     "edgeCount": 180,
-    "edgesHash": "af6c21dd5e49987c71df2e301f66a27ce81032781d6c702d0fea5ce118c80011",
+    "edgesHash": "9be2784e8dcb826d0191ca7671dcdbed92a5f9567adff3c9da47ac0459b421a3",
     "firstEdges": [
      {
       "cause": "activity",
@@ -6083,6 +7077,8 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
+      "presence": 0.119617500651,
+      "remoteness": 0.28,
       "risk": 0.453979223651,
       "roadName": "Row 0",
       "roadScore": 0.5,
@@ -6123,6 +7119,8 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
+      "presence": 0.119617500651,
+      "remoteness": 0.25,
       "risk": 0.453979223651,
       "roadName": "Row 0",
       "roadScore": 0.5,
@@ -6163,6 +7161,8 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
+      "presence": 0.119617500651,
+      "remoteness": 0.22,
       "risk": 0.437247907923,
       "roadName": "Row 0",
       "roadScore": 0.5,
@@ -6200,7 +7200,7 @@
     0.439211694504,
     0.427072028494,
     0.399043066197,
-    0.420769129914,
+    0.419329965423,
     0.47011533214,
     0.449056398731,
     0.47011533214,
@@ -6209,7 +7209,7 @@
     0.455784215787,
     0.444003303466,
     0.391280155389,
-    0.385600272541,
+    0.38480133305,
     0.367777117403,
     0.384425770298,
     0.384425770298,
@@ -6219,44 +7219,44 @@
     0.384425770298,
     0.332915618589,
     0.384425770298,
-    0.648494074431,
-    0.751717559086,
-    0.521873017015,
-    0.744547307731,
-    0.481864205338,
-    0.656594008017,
-    0.662297915471,
-    0.513797283441,
-    0.760291039119,
-    0.41691865259,
-    0.41691865259,
-    0.430354898883,
+    0.584150175562,
+    0.702733282566,
+    0.426336511394,
+    0.693504261763,
+    0.389658905567,
+    0.593418952778,
+    0.594820282447,
+    0.414310186482,
+    0.716295906857,
+    0.415034715755,
+    0.415034715755,
+    0.428072866981,
     0.43981659441,
     0.43981659441,
-    0.430354898883,
+    0.428072866981,
     0.43981659441,
-    0.421984947903,
-    0.421984947903,
+    0.415252773828,
+    0.415252773828,
     0.439211694504,
-    0.444756739933,
-    0.444756739933,
+    0.442532402657,
+    0.442532402657,
     0.437247907923,
-    0.444756739933,
-    0.427742826374,
-    0.444756739933,
-    0.444756739933,
-    0.444756739933,
-    0.461165392992,
+    0.442532402657,
+    0.425450330356,
+    0.442532402657,
+    0.442532402657,
+    0.442532402657,
+    0.459006789749,
     0.47011533214,
-    0.461165392992,
-    0.461165392992,
+    0.459006789749,
+    0.459006789749,
     0.47011533214,
-    0.439750766762,
+    0.437506375262,
     0.47011533214,
     0.47011533214,
-    0.461165392992,
-    0.374028504193,
-    0.374028504193,
+    0.459006789749,
+    0.371520825429,
+    0.371520825429,
     0.305646071962,
     0.305646071962,
     0.384425770298,
@@ -6264,16 +7264,16 @@
     0.367777117403,
     0.384425770298,
     0.384425770298,
-    0.760291039119,
-    0.656594008017,
-    0.662297915471,
-    0.481864205338,
-    0.662297915471,
-    0.508941724905,
-    0.508941724905,
-    0.757897138692,
-    0.662297915471,
-    0.430354898883,
+    0.716190999904,
+    0.593416487837,
+    0.594820282447,
+    0.378333375619,
+    0.604273566736,
+    0.421552122748,
+    0.410821364983,
+    0.709521576982,
+    0.604273566736,
+    0.428072866981,
     0.43981659441,
     0.43981659441,
     0.43981659441,
@@ -6281,67 +7281,67 @@
     0.424666026651,
     0.424666026651,
     0.424666026651,
-    0.43981659441,
+    0.44194711329,
     0.463446318169,
     0.463446318169,
     0.448934833481,
     0.427034134424,
     0.427034134424,
-    0.45438373702,
-    0.45438373702,
+    0.452197966063,
+    0.452197966063,
     0.463446318169,
-    0.45438373702,
-    0.688325958582,
-    0.724001601696,
-    0.799468837504,
-    0.513951321306,
-    0.519666572084,
-    0.807343812261,
-    0.538529543666,
-    0.71933989129,
-    0.71933989129,
+    0.452197966063,
+    0.632490287842,
+    0.674557138428,
+    0.766665988904,
+    0.426015964282,
+    0.431785981555,
+    0.772829909801,
+    0.455858197863,
+    0.6731772696,
+    0.6731772696,
     0.40874271292,
     0.390625247843,
     0.40874271292,
-    0.380332693103,
-    0.398756168562,
-    0.398756168562,
+    0.377850269292,
+    0.396347550282,
+    0.396347550282,
     0.40874271292,
-    0.380332693103,
+    0.377850269292,
     0.40874271292,
     0.717536326567,
     0.717536326567,
     0.717536326567,
     0.717536326567,
-    0.712765415382,
-    0.712765415382,
-    0.6800292106,
+    0.71161473668,
+    0.71161473668,
+    0.679691467213,
     0.681387310071,
     0.717536326567,
     0.463446318169,
     0.463446318169,
     0.395440135864,
     0.418548464722,
-    0.45438373702,
-    0.45438373702,
+    0.452197966063,
+    0.452197966063,
     0.463446318169,
     0.418548464722,
     0.442122341573,
-    0.526048739438,
-    0.802133285499,
-    0.700906548846,
-    0.71933989129,
-    0.71933989129,
-    0.715216075695,
-    0.538529543666,
-    0.538529543666,
-    0.716537024214,
+    0.44114148694,
+    0.766685929437,
+    0.655344115514,
+    0.6731772696,
+    0.667734529579,
+    0.660286597777,
+    0.455858197863,
+    0.465134199801,
+    0.673355661044,
     0.392751729429,
     0.392751729429,
     0.40874271292,
-    0.398756168562,
+    0.396347550282,
     0.390625247843,
-    0.398756168562,
+    0.396347550282,
     0.40874271292,
     0.392751729429,
     0.392751729429,
@@ -6349,41 +7349,41 @@
     0.677233497464,
     0.693900271046,
     0.717536326567,
-    0.712765415382,
-    0.712765415382,
+    0.71161473668,
+    0.71161473668,
     0.717536326567,
     0.709896891016,
     0.709896891016,
-    0.384879655538,
+    0.384412179517,
     0.375843692753,
     0.418548464722,
-    0.446366848319,
-    0.446366848319,
+    0.440159730585,
+    0.43991865162,
     0.463446318169,
     0.463446318169,
     0.442122341573,
     0.448934833481,
-    0.769208630445,
-    0.712719947859,
-    0.724001601696,
-    0.724001601696,
-    0.538529543666,
-    0.804089781221,
-    0.724001601696,
-    0.538529543666,
-    0.538529543666
+    0.735590802975,
+    0.671023572379,
+    0.692542158543,
+    0.690784598989,
+    0.467325579477,
+    0.775392177952,
+    0.685453837514,
+    0.478282477858,
+    0.478282477858
    ]
   },
   "noon": {
    "summary": {
     "edgeCount": 180,
-    "edgesHash": "25547cf06d19a793f5e4db117f13e842be9915e1360d8d38f93f89b2d4f601c6",
+    "edgesHash": "e3279dd710265c7e834f2b02e157ca31cdbcd1ac5ec1d0d36b83a8ff67ab1d49",
     "firstEdges": [
      {
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.486444612738,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.790848690272,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -6406,10 +7406,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.474336934361,
+      "presence": 0.239235001302,
+      "remoteness": 0.28,
+      "risk": 0.45452745428,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.525663065639,
+      "safetyScore": 0.54547254572,
       "start": {
        "lat": 50.372,
        "lng": -4.145
@@ -6423,7 +7425,7 @@
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.486444612738,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.790848690272,
       "distance": 90.777824098596,
       "end": {
        "lat": 50.372,
@@ -6446,10 +7448,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.474336934361,
+      "presence": 0.239235001302,
+      "remoteness": 0.25,
+      "risk": 0.45452745428,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.525663065639,
+      "safetyScore": 0.54547254572,
       "start": {
        "lat": 50.372,
        "lng": -4.14372
@@ -6463,7 +7467,7 @@
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.486444612738,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.795031716467,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -6486,10 +7490,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0.15,
-      "risk": 0.445888102621,
+      "presence": 0.239235001302,
+      "remoteness": 0.21,
+      "risk": 0.423952344287,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.554111897379,
+      "safetyScore": 0.576047655713,
       "start": {
        "lat": 50.372,
        "lng": -4.14244
@@ -6515,198 +7521,198 @@
     "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
-    0.474336934361,
-    0.474336934361,
-    0.445888102621,
-    0.445888102621,
-    0.454487909481,
-    0.460441728285,
-    0.44415139754,
-    0.430411509871,
-    0.424322310227,
-    0.483389461935,
-    0.483389461935,
-    0.483389461935,
-    0.434043531708,
-    0.455430552068,
-    0.446696368515,
-    0.453723755062,
-    0.380475487507,
-    0.399197289656,
-    0.406405238615,
-    0.428003801492,
-    0.428003801492,
-    0.397047425306,
-    0.344349662482,
-    0.380206690627,
-    0.403628160067,
-    0.36744278405,
-    0.434246672698,
-    0.534704700864,
-    0.708393806118,
-    0.57030294274,
-    0.701046808936,
-    0.507459977255,
-    0.53439662389,
-    0.53439662389,
-    0.53439662389,
-    0.72807569156,
-    0.456644380624,
-    0.456644380624,
-    0.471058199777,
-    0.471058199777,
-    0.471058199777,
-    0.4768311674,
-    0.503691341601,
-    0.456284619082,
-    0.456284619082,
-    0.442375763447,
-    0.43358501285,
-    0.43358501285,
-    0.462665501359,
-    0.43358501285,
-    0.452411700681,
-    0.452411700681,
-    0.452411700681,
-    0.452411700681,
-    0.421477453866,
-    0.421477453866,
-    0.44333933577,
-    0.44333933577,
-    0.471919024544,
-    0.461841806204,
-    0.489471553873,
-    0.489471553873,
-    0.440706576728,
-    0.359454225655,
-    0.340373837261,
-    0.308853775082,
-    0.308853775082,
-    0.415303621958,
-    0.434737952678,
-    0.41339367119,
-    0.434737952678,
-    0.40414602807,
-    0.718970882584,
-    0.536990766375,
-    0.560762267842,
-    0.508897281578,
-    0.560762267842,
-    0.559327467705,
-    0.559327467705,
-    0.732528416656,
-    0.552380419725,
-    0.459313968184,
-    0.487073498373,
-    0.487073498373,
-    0.487073498373,
-    0.487073498373,
-    0.485397988822,
-    0.485397988822,
-    0.485397988822,
-    0.504122318311,
-    0.474336934361,
-    0.474336934361,
-    0.454487909481,
-    0.454487909481,
-    0.454487909481,
-    0.43358501285,
-    0.411340046835,
-    0.462665501359,
-    0.43358501285,
-    0.590951888849,
-    0.590951888849,
-    0.731154764431,
-    0.542651678933,
-    0.557064308392,
-    0.746210692883,
-    0.541930453759,
-    0.559240517802,
-    0.559240517802,
-    0.412892463288,
-    0.412892463288,
-    0.412892463288,
-    0.381118263012,
-    0.381118263012,
-    0.342531903694,
-    0.36737707174,
-    0.36737707174,
-    0.399856762803,
-    0.445888102621,
-    0.445888102621,
-    0.474336934361,
-    0.474336934361,
-    0.445888102621,
-    0.43358501285,
-    0.355930843168,
-    0.364838360215,
-    0.462665501359,
-    0.445888102621,
-    0.445888102621,
-    0.397458991325,
-    0.397458991325,
-    0.424126319113,
-    0.43358501285,
-    0.462665501359,
-    0.399217294726,
-    0.462665501359,
-    0.575506241882,
-    0.731154764431,
-    0.542651678933,
-    0.568814246605,
-    0.568814246605,
-    0.541930453759,
-    0.581869687842,
-    0.581869687842,
-    0.566081097181,
-    0.397373054098,
-    0.397373054098,
-    0.387872851566,
-    0.387872851566,
-    0.419300262405,
-    0.388404400916,
-    0.419804521314,
-    0.397896353812,
-    0.397896353812,
-    0.392138576817,
-    0.374259864163,
-    0.40403523418,
-    0.451935781291,
-    0.451935781291,
-    0.452411700681,
-    0.480525602339,
-    0.460910261415,
-    0.460910261415,
-    0.367497607425,
-    0.358548365878,
-    0.418681511877,
-    0.430411509871,
-    0.430411509871,
-    0.480525602339,
-    0.452411700681,
-    0.452411700681,
-    0.43748975896,
-    0.72810075962,
-    0.561898589603,
-    0.595416314804,
-    0.595416314804,
-    0.595416314804,
-    0.741367704063,
-    0.573890626588,
-    0.573890626588,
-    0.573890626588
+    0.45452745428,
+    0.45452745428,
+    0.423952344287,
+    0.423952344287,
+    0.433930423903,
+    0.435972297728,
+    0.418943186506,
+    0.404580183143,
+    0.397146746571,
+    0.463921124073,
+    0.463921124073,
+    0.463921124073,
+    0.410565845957,
+    0.43387255293,
+    0.420507061123,
+    0.428949658655,
+    0.348709296673,
+    0.369054889142,
+    0.384035769709,
+    0.406448268982,
+    0.406448268982,
+    0.373178199563,
+    0.316531235195,
+    0.349646327554,
+    0.375400321775,
+    0.336877079011,
+    0.408662505785,
+    0.377025747295,
+    0.608862452909,
+    0.425740342936,
+    0.598643712896,
+    0.338745861599,
+    0.370784621808,
+    0.370784621808,
+    0.370784621808,
+    0.633257925488,
+    0.435134433604,
+    0.435134433604,
+    0.450118856014,
+    0.450118856014,
+    0.450118856014,
+    0.452068218821,
+    0.481183318114,
+    0.42947545674,
+    0.42947545674,
+    0.422179632593,
+    0.412295160235,
+    0.412295160235,
+    0.443204227735,
+    0.412295160235,
+    0.424335886808,
+    0.424335886808,
+    0.424335886808,
+    0.424335886808,
+    0.398942563151,
+    0.398942563151,
+    0.422416119106,
+    0.422416119106,
+    0.45279289662,
+    0.434249490405,
+    0.464265741206,
+    0.464265741206,
+    0.41097169932,
+    0.334503376082,
+    0.313781284142,
+    0.280990503828,
+    0.280990503828,
+    0.39412698761,
+    0.406829832414,
+    0.384431740968,
+    0.406829832414,
+    0.37359554839,
+    0.624459876388,
+    0.381279255233,
+    0.413819537309,
+    0.343305753259,
+    0.413819537309,
+    0.404439413015,
+    0.404439413015,
+    0.638517217426,
+    0.393955426686,
+    0.43899119038,
+    0.468496237797,
+    0.468496237797,
+    0.468496237797,
+    0.468496237797,
+    0.459991056083,
+    0.459991056083,
+    0.459991056083,
+    0.479639843249,
+    0.45452745428,
+    0.45452745428,
+    0.433930423903,
+    0.433930423903,
+    0.433930423903,
+    0.412295160235,
+    0.388410278926,
+    0.443204227735,
+    0.412295160235,
+    0.466370185162,
+    0.466370185162,
+    0.648630917739,
+    0.401175418547,
+    0.421102229573,
+    0.669383300641,
+    0.401688476946,
+    0.425054794629,
+    0.425054794629,
+    0.390767463808,
+    0.390767463808,
+    0.390767463808,
+    0.356618445766,
+    0.356618445766,
+    0.316921887631,
+    0.343598659783,
+    0.343598659783,
+    0.378120671444,
+    0.423952344287,
+    0.423952344287,
+    0.45452745428,
+    0.45452745428,
+    0.423952344287,
+    0.412295160235,
+    0.329090333535,
+    0.339232084116,
+    0.443204227735,
+    0.423952344287,
+    0.423952344287,
+    0.37189392672,
+    0.37189392672,
+    0.400237235642,
+    0.412295160235,
+    0.443204227735,
+    0.376225235182,
+    0.443204227735,
+    0.446220336021,
+    0.648630917739,
+    0.401720015945,
+    0.436458890061,
+    0.436458890061,
+    0.401688476946,
+    0.455292796699,
+    0.455292796699,
+    0.434724665634,
+    0.370043405054,
+    0.370043405054,
+    0.358899273334,
+    0.358899273334,
+    0.39296503107,
+    0.357046820364,
+    0.391159107611,
+    0.368169289968,
+    0.368169289968,
+    0.362766193581,
+    0.342174966525,
+    0.37406291638,
+    0.425994469003,
+    0.425994469003,
+    0.424335886808,
+    0.454878110113,
+    0.434294320492,
+    0.434294320492,
+    0.33389998454,
+    0.32384716967,
+    0.390664306611,
+    0.402396891061,
+    0.402326613185,
+    0.454878110113,
+    0.424335886808,
+    0.424335886808,
+    0.408648870927,
+    0.642035082206,
+    0.423224076909,
+    0.468360884056,
+    0.468360884056,
+    0.46829504528,
+    0.658179572254,
+    0.436834105507,
+    0.436834105507,
+    0.436834105507
    ]
   },
   "standard": {
    "summary": {
     "edgeCount": 180,
-    "edgesHash": "733b3336347c7e1f682389cc556e66e4843286ae16f2800b46a01d149d2f68ee",
+    "edgesHash": "8a479faf21f860bcbaf27ded39f82df80b586503574e887fcc3f2f6fbfaa1432",
     "firstEdges": [
      {
       "cause": "road",
       "cctvScore": 0,
       "certainty": 0.446133484798,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -6729,10 +7735,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.357449070352,
+      "presence": 0.119617500651,
+      "remoteness": 0.28,
+      "risk": 0.33668496358,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.642550929648,
+      "safetyScore": 0.66331503642,
       "start": {
        "lat": 50.372,
        "lng": -4.145
@@ -6746,7 +7754,7 @@
       "cause": "road",
       "cctvScore": 0,
       "certainty": 0.446133484798,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098596,
       "end": {
        "lat": 50.372,
@@ -6769,10 +7777,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.357449070352,
+      "presence": 0.119617500651,
+      "remoteness": 0.25,
+      "risk": 0.33668496358,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.642550929648,
+      "safetyScore": 0.66331503642,
       "start": {
        "lat": 50.372,
        "lng": -4.14372
@@ -6786,7 +7796,7 @@
       "cause": "road",
       "cctvScore": 0,
       "certainty": 0.521133484798,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -6809,10 +7819,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.332747786973,
+      "presence": 0.119617500651,
+      "remoteness": 0.22,
+      "risk": 0.311185455403,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.667252213027,
+      "safetyScore": 0.688814544597,
       "start": {
        "lat": 50.372,
        "lng": -4.14244
@@ -6838,198 +7850,198 @@
     "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
-    0.357449070352,
-    0.357449070352,
-    0.332747786973,
-    0.357449070352,
-    0.357449070352,
-    0.363771098673,
-    0.363771098673,
-    0.339299482932,
-    0.363771098673,
-    0.381106266105,
-    0.350200576194,
-    0.381106266105,
-    0.381106266105,
-    0.381106266105,
-    0.38719977483,
-    0.38719977483,
-    0.38719977483,
-    0.35658221647,
-    0.253587694053,
-    0.253587694053,
-    0.253587694053,
-    0.253587694053,
-    0.253587694053,
-    0.260908597253,
-    0.260908597253,
-    0.260908597253,
-    0.260908597253,
-    0.647575367786,
-    0.775140233244,
-    0.455717388763,
-    0.775140233244,
-    0.455717388763,
-    0.651039527979,
-    0.651039527979,
-    0.461062754896,
-    0.77735049377,
-    0.336576192595,
-    0.336576192595,
-    0.336576192595,
-    0.336576192595,
-    0.336576192595,
-    0.34308313445,
-    0.34308313445,
-    0.34308313445,
-    0.34308313445,
-    0.344625624609,
-    0.344625624609,
-    0.344625624609,
-    0.319426644168,
-    0.344625624609,
-    0.339813636493,
-    0.364270820155,
-    0.364270820155,
-    0.364270820155,
-    0.368756450744,
-    0.368756450744,
-    0.368756450744,
-    0.368756450744,
-    0.368756450744,
-    0.357083390684,
-    0.387682614342,
-    0.387682614342,
-    0.387682614342,
-    0.238683332307,
-    0.238683332307,
-    0.238683332307,
-    0.238683332307,
-    0.238683332307,
-    0.261480866846,
-    0.261480866846,
-    0.261480866846,
-    0.261480866846,
-    0.770651935143,
-    0.640540819853,
-    0.640540819853,
-    0.44485162207,
-    0.640540819853,
-    0.461482546604,
-    0.461482546604,
-    0.777524611246,
-    0.651312423787,
-    0.323328945279,
-    0.323328945279,
-    0.323328945279,
-    0.323328945279,
-    0.323328945279,
-    0.343591777286,
-    0.343591777286,
-    0.343591777286,
-    0.343591777286,
-    0.371354417667,
-    0.371354417667,
-    0.371354417667,
-    0.339961749803,
-    0.339961749803,
-    0.358810007465,
-    0.358810007465,
-    0.358810007465,
-    0.358810007465,
-    0.68120229641,
-    0.72613768146,
-    0.825265854196,
-    0.479314755463,
-    0.479314755463,
-    0.821778085147,
-    0.468920073968,
-    0.720671271253,
-    0.720671271253,
-    0.290231487148,
-    0.262946189811,
-    0.290231487148,
-    0.262946189811,
-    0.290231487148,
-    0.276066574152,
-    0.276066574152,
-    0.248231515406,
-    0.276066574152,
-    0.718108807697,
-    0.718108807697,
-    0.718108807697,
-    0.718108807697,
-    0.718108807697,
-    0.71248000406,
-    0.71248000406,
-    0.71248000406,
-    0.71248000406,
-    0.371354417667,
-    0.371354417667,
-    0.339961749803,
-    0.371354417667,
-    0.371354417667,
-    0.358810007465,
-    0.358810007465,
-    0.358810007465,
-    0.326785099499,
-    0.479314755463,
-    0.825265854196,
-    0.72613768146,
-    0.72613768146,
-    0.72613768146,
-    0.720671271253,
-    0.468920073968,
-    0.468920073968,
-    0.720671271253,
-    0.297214866103,
-    0.297214866103,
-    0.297214866103,
-    0.297214866103,
-    0.270183262054,
-    0.297766863706,
-    0.297766863706,
-    0.297766863706,
-    0.297766863706,
-    0.720873630993,
-    0.720873630993,
-    0.720873630993,
-    0.720873630993,
-    0.720873630993,
-    0.721089755187,
-    0.721089755187,
-    0.721089755187,
-    0.721089755187,
-    0.377543941217,
-    0.377543941217,
-    0.377543941217,
-    0.377543941217,
-    0.377543941217,
-    0.378034388784,
-    0.378034388784,
-    0.346953016132,
-    0.378034388784,
-    0.79859812213,
-    0.728829612885,
-    0.728829612885,
-    0.728829612885,
-    0.484428373306,
-    0.827118707908,
-    0.729041674902,
-    0.484829964949,
-    0.484829964949
+    0.33668496358,
+    0.33668496358,
+    0.311185455403,
+    0.33668496358,
+    0.33668496358,
+    0.338922385891,
+    0.338922385891,
+    0.313495000694,
+    0.337342439319,
+    0.361106644319,
+    0.329202233504,
+    0.361106644319,
+    0.361106644319,
+    0.361106644319,
+    0.363266098198,
+    0.363266098198,
+    0.359941962784,
+    0.328127032778,
+    0.229467295028,
+    0.229467295028,
+    0.229467295028,
+    0.229467295028,
+    0.227518675949,
+    0.232042461263,
+    0.232042461263,
+    0.230032119405,
+    0.232098010236,
+    0.549934024243,
+    0.71055910954,
+    0.294447734641,
+    0.707777670601,
+    0.305549711932,
+    0.551398566157,
+    0.544689424101,
+    0.295090038276,
+    0.713822095788,
+    0.313533160845,
+    0.313533160845,
+    0.313533160845,
+    0.315137576391,
+    0.315137576391,
+    0.315752188499,
+    0.317426427438,
+    0.314155339455,
+    0.314155339455,
+    0.324370135077,
+    0.32307090518,
+    0.32307090518,
+    0.29839233614,
+    0.32307090518,
+    0.310087921499,
+    0.335646320379,
+    0.335646320379,
+    0.335646320379,
+    0.347995374164,
+    0.349246766532,
+    0.347995374164,
+    0.347995374164,
+    0.349246766532,
+    0.328135267926,
+    0.361683696736,
+    0.361683696736,
+    0.36011225982,
+    0.213644258786,
+    0.213644258786,
+    0.212273487638,
+    0.212273487638,
+    0.215153511227,
+    0.230123439238,
+    0.230123439238,
+    0.230123439238,
+    0.230123439238,
+    0.707629969126,
+    0.541765954455,
+    0.534669621258,
+    0.280023031453,
+    0.545526286012,
+    0.307900052427,
+    0.295060940766,
+    0.708771572283,
+    0.554204553377,
+    0.301073795736,
+    0.302415244682,
+    0.302415244682,
+    0.302415244682,
+    0.302415244682,
+    0.315720768397,
+    0.315720768397,
+    0.315720768397,
+    0.318323255025,
+    0.351039663784,
+    0.351039663784,
+    0.351039663784,
+    0.318632538267,
+    0.318632538267,
+    0.337721800619,
+    0.337721800619,
+    0.338992911054,
+    0.337721800619,
+    0.595621827145,
+    0.652620007178,
+    0.781478803487,
+    0.341801748963,
+    0.337990813221,
+    0.77424326139,
+    0.327272001642,
+    0.651296258756,
+    0.651296258756,
+    0.267295236488,
+    0.239128211647,
+    0.267295236488,
+    0.237345730255,
+    0.265578741506,
+    0.252257004437,
+    0.253692147442,
+    0.223506473705,
+    0.253692147442,
+    0.708999461582,
+    0.708999461582,
+    0.708999461582,
+    0.708999461582,
+    0.708317739572,
+    0.703023709954,
+    0.701953126813,
+    0.702506022464,
+    0.703593696497,
+    0.351039663784,
+    0.351039663784,
+    0.316909411361,
+    0.349398492053,
+    0.349519355446,
+    0.337721800619,
+    0.338992911054,
+    0.337777672692,
+    0.305978217383,
+    0.339538066155,
+    0.778358897132,
+    0.659660529333,
+    0.657509863045,
+    0.651806205979,
+    0.644846614335,
+    0.327272001642,
+    0.338740016399,
+    0.654215256713,
+    0.269766716697,
+    0.269766716697,
+    0.269766716697,
+    0.267975576451,
+    0.241679359658,
+    0.266147940288,
+    0.267950134868,
+    0.267950134868,
+    0.267950134868,
+    0.709212774004,
+    0.708457881471,
+    0.709212774004,
+    0.709972002729,
+    0.709260612505,
+    0.708531473307,
+    0.709247261989,
+    0.709247261989,
+    0.709247261989,
+    0.348353586858,
+    0.348224593639,
+    0.351585171299,
+    0.350169287474,
+    0.350133652022,
+    0.351625808759,
+    0.351625808759,
+    0.319224725014,
+    0.351625808759,
+    0.75018954856,
+    0.6639828217,
+    0.672944872225,
+    0.671075286261,
+    0.355625933881,
+    0.785019682998,
+    0.664546967871,
+    0.367306302717,
+    0.367306302717
    ]
   },
   "cached": {
    "summary": {
     "edgeCount": 180,
-    "edgesHash": "ee07c94fae8ef0ee6c8914f69e03f27e62b5b73c674182cf65096d6742936e79",
+    "edgesHash": "70c31e400d59b756261e0a075f950b619495901bd2a998ecddfc47a58b177cee",
     "firstEdges": [
      {
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.490240121171,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -7052,10 +8064,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.42466351768,
+      "presence": 0.119617500651,
+      "remoteness": 0.28,
+      "risk": 0.409837320215,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.57533648232,
+      "safetyScore": 0.590162679785,
       "start": {
        "lat": 50.372,
        "lng": -4.145
@@ -7069,7 +8083,7 @@
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.490240121171,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098596,
       "end": {
        "lat": 50.372,
@@ -7092,10 +8106,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.42466351768,
+      "presence": 0.119617500651,
+      "remoteness": 0.25,
+      "risk": 0.409837320215,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.57533648232,
+      "safetyScore": 0.590162679785,
       "start": {
        "lat": 50.372,
        "lng": -4.14372
@@ -7109,7 +8125,7 @@
       "cause": "activity",
       "cctvScore": 0,
       "certainty": 0.550240121171,
-      "crimeScore": 0.710926906807,
+      "crimeScore": 0.78708976795,
       "distance": 90.777824098659,
       "end": {
        "lat": 50.372,
@@ -7132,10 +8148,12 @@
       "pLit": 0.9,
       "penalty": 0,
       "placeScore": 0,
-      "risk": 0.40712458491,
+      "presence": 0.119617500651,
+      "remoteness": 0.22,
+      "risk": 0.391846415967,
       "roadName": "Row 0",
       "roadScore": 0.5,
-      "safetyScore": 0.59287541509,
+      "safetyScore": 0.608153584033,
       "start": {
        "lat": 50.372,
        "lng": -4.14244
@@ -7161,193 +8179,193 @@
     "transitNodesHash": "e2ca00a79ac512fbd3358e253bff1a758e143a6d942088c813b4b82e631bc297"
    },
    "risks": [
-    0.42466351768,
-    0.42466351768,
-    0.40712458491,
-    0.42466351768,
-    0.409103123937,
-    0.413753088397,
-    0.401062307159,
-    0.371848987831,
-    0.394473270279,
-    0.441636904952,
-    0.706139590408,
-    0.441636904952,
-    0.441636904952,
-    0.441636904952,
-    0.431050810863,
-    0.418734482108,
-    0.363615183446,
-    0.357788781553,
-    0.333990363114,
-    0.351528740124,
-    0.351528740124,
-    0.351528740124,
-    0.297265823707,
-    0.356619172853,
-    0.356619172853,
-    0.302782214751,
-    0.356619172853,
-    0.629648471508,
-    0.738406169565,
-    0.496271764557,
-    0.626880891284,
-    0.454120685815,
-    0.641027789892,
-    0.646990249234,
-    0.491788773564,
-    0.749425294028,
-    0.385758081282,
-    0.385758081282,
-    0.399912376802,
-    0.409879716764,
-    0.409879716764,
-    0.404623002956,
-    0.414512100324,
-    0.395874966206,
-    0.395874966206,
-    0.399685752626,
-    0.4056216285,
-    0.4056216285,
-    0.39767305163,
-    0.4056216285,
-    0.402218509551,
-    0.419912586822,
-    0.419912586822,
-    0.419912586822,
-    0.42315764021,
-    0.432738880818,
-    0.42315764021,
-    0.42315764021,
-    0.432738880818,
-    0.414754007264,
-    0.446380272889,
-    0.446380272889,
-    0.437029440209,
-    0.330061801745,
-    0.330061801745,
-    0.256876355207,
-    0.256876355207,
-    0.341189346318,
-    0.357016702606,
-    0.339626751533,
-    0.357016702606,
-    0.357016702606,
-    0.743413614616,
-    0.632415484685,
-    0.638520992759,
-    0.445418602359,
-    0.638520992759,
-    0.48703207314,
-    0.48703207314,
-    0.747080485214,
-    0.647210087069,
-    0.390344424237,
-    0.40047068605,
-    0.40047068605,
-    0.40047068605,
-    0.40047068605,
-    0.399048697237,
-    0.399048697237,
-    0.399048697237,
-    0.41487385941,
-    0.434609467649,
-    0.434609467649,
-    0.419318069358,
-    0.396354745273,
-    0.396354745273,
-    0.415897626871,
-    0.415897626871,
-    0.425599454905,
-    0.415897626871,
-    0.67157516915,
-    0.709204251656,
-    0.788717580165,
-    0.487925902593,
-    0.493947175794,
-    0.793779278621,
-    0.50606977306,
-    0.699579179057,
-    0.699579179057,
-    0.376998271074,
-    0.358006279822,
-    0.376998271074,
-    0.347162779194,
-    0.366475551884,
-    0.356378807081,
-    0.36706923126,
-    0.336755343564,
-    0.36706923126,
-    0.702441126769,
-    0.702441126769,
-    0.702441126769,
-    0.702441126769,
-    0.697415252329,
-    0.692590762703,
-    0.657555247194,
-    0.659008736242,
-    0.697696770988,
-    0.434609467649,
-    0.434609467649,
-    0.363069049816,
-    0.387298598072,
-    0.425059821912,
-    0.415897626871,
-    0.425599454905,
-    0.37753464356,
-    0.402881301176,
-    0.50067107554,
-    0.791524879603,
-    0.684870982992,
-    0.704292608783,
-    0.704292608783,
-    0.695165013922,
-    0.50606977306,
-    0.50606977306,
-    0.696578967763,
-    0.365183938913,
-    0.365183938913,
-    0.381900879322,
-    0.371460966917,
-    0.363050252311,
-    0.371853736998,
-    0.382287125568,
-    0.36558063147,
-    0.36558063147,
-    0.669621519501,
-    0.662653552801,
-    0.680073194585,
-    0.704776933335,
-    0.699790511493,
-    0.699976003815,
-    0.704959344666,
-    0.696979755489,
-    0.696979755489,
-    0.356923795018,
-    0.34747716769,
-    0.392122777187,
-    0.421205444853,
-    0.421205444853,
-    0.43941253459,
-    0.43941253459,
-    0.417231395135,
-    0.424251038739,
-    0.758719672642,
-    0.699697857217,
-    0.711490896086,
-    0.711490896086,
-    0.517640567217,
-    0.795336919161,
-    0.711670565958,
-    0.51794001792,
-    0.51794001792
+    0.409837320215,
+    0.409837320215,
+    0.391846415967,
+    0.409837320215,
+    0.393875941175,
+    0.395506251515,
+    0.382420471837,
+    0.352297892841,
+    0.372878564573,
+    0.427248105078,
+    0.698566921902,
+    0.427248105078,
+    0.427248105078,
+    0.427248105078,
+    0.413342362694,
+    0.40064269027,
+    0.341068664911,
+    0.334301551144,
+    0.316827553708,
+    0.334817887875,
+    0.334817887875,
+    0.334817887875,
+    0.277698638851,
+    0.336594052424,
+    0.336594052424,
+    0.279576246728,
+    0.336632441823,
+    0.549721903419,
+    0.677547825885,
+    0.3800451245,
+    0.53986125322,
+    0.339073734189,
+    0.560900953228,
+    0.5632711284,
+    0.367505216334,
+    0.693620873973,
+    0.366709163595,
+    0.366709163595,
+    0.380824431488,
+    0.394672546497,
+    0.394672546497,
+    0.382423461432,
+    0.396288887561,
+    0.367401533665,
+    0.367401533665,
+    0.384888061749,
+    0.387589947892,
+    0.387589947892,
+    0.382825747859,
+    0.387589947892,
+    0.378300445278,
+    0.396702487054,
+    0.396702487054,
+    0.396702487054,
+    0.405657950295,
+    0.418755946506,
+    0.405657950295,
+    0.405657950295,
+    0.418755946506,
+    0.391337505593,
+    0.427653496612,
+    0.427653496612,
+    0.414504209421,
+    0.309737859627,
+    0.309737859627,
+    0.236323934196,
+    0.236323934196,
+    0.324949724417,
+    0.335267108488,
+    0.317288923819,
+    0.335267108488,
+    0.335267108488,
+    0.688241371514,
+    0.553375974427,
+    0.5556015432,
+    0.317200930009,
+    0.565969843409,
+    0.375303767772,
+    0.363715059077,
+    0.686278868331,
+    0.572609410417,
+    0.371849278467,
+    0.38569234371,
+    0.38569234371,
+    0.38569234371,
+    0.38569234371,
+    0.378720880056,
+    0.378720880056,
+    0.378720880056,
+    0.397382003501,
+    0.420039573447,
+    0.420039573447,
+    0.404354121768,
+    0.380799041749,
+    0.380799041749,
+    0.39817768964,
+    0.39817768964,
+    0.411440534402,
+    0.39817768964,
+    0.602759059079,
+    0.648272707063,
+    0.747348229554,
+    0.377426850968,
+    0.384783756377,
+    0.750841334988,
+    0.403226818671,
+    0.640991631157,
+    0.640991631157,
+    0.360943758736,
+    0.341462351253,
+    0.360943758736,
+    0.326396943192,
+    0.346324028084,
+    0.336853245015,
+    0.351467546137,
+    0.316634463695,
+    0.351467546137,
+    0.694773150293,
+    0.694773150293,
+    0.694773150293,
+    0.694773150293,
+    0.68779045606,
+    0.683264876283,
+    0.647189172805,
+    0.649578009521,
+    0.690245024251,
+    0.420039573447,
+    0.420039573447,
+    0.345334113814,
+    0.370238318385,
+    0.406771781542,
+    0.39817768964,
+    0.411440534402,
+    0.361253030526,
+    0.388162380277,
+    0.396044777527,
+    0.74784229082,
+    0.62675452901,
+    0.646119564526,
+    0.640226219206,
+    0.626290519466,
+    0.403226818671,
+    0.413400029339,
+    0.641738631363,
+    0.345425395393,
+    0.345425395393,
+    0.362662647771,
+    0.348024928182,
+    0.343225298153,
+    0.346720736175,
+    0.361392330393,
+    0.344120721358,
+    0.344120721358,
+    0.658625310545,
+    0.650701683859,
+    0.669424855755,
+    0.695588164858,
+    0.688596741765,
+    0.68797162874,
+    0.694979280599,
+    0.686729773329,
+    0.686729773329,
+    0.332402016582,
+    0.323002400143,
+    0.371925353789,
+    0.394213332403,
+    0.393925880526,
+    0.420450067152,
+    0.420450067152,
+    0.397518627056,
+    0.404775717574,
+    0.714425439196,
+    0.644730150837,
+    0.668621255713,
+    0.666726954122,
+    0.425883588676,
+    0.756942484958,
+    0.660285342257,
+    0.436569856704,
+    0.436569856704
    ]
   },
   "routes": {
    "count": 5,
    "list": [
     {
-     "avgSafety": 0.623060281385,
+     "avgSafety": 0.64114166251,
      "certainty": 0.537799132495,
      "edges": [
       90,
@@ -7370,10 +8388,10 @@
       89
      ],
      "excluded": false,
-     "exposure": 0.479396254545,
+     "exposure": 0.456400146786,
      "lengthM": 1617.504394390458,
-     "m3": 0.381486510429,
-     "mean": 0.373908524072,
+     "m3": 0.363906522658,
+     "mean": 0.355492880711,
      "path": [
       1,
       11,
@@ -7395,13 +8413,13 @@
       99,
       100
      ],
-     "routeRisk": 0.376939718615,
-     "score": 62,
+     "routeRisk": 0.35885833749,
+     "score": 64,
      "totalDist": 1617.504394390458,
      "worstStretch": null
     },
     {
-     "avgSafety": 0.606576180368,
+     "avgSafety": 0.623497042274,
      "certainty": 0.534335737191,
      "edges": [
       90,
@@ -7424,10 +8442,10 @@
       89
      ],
      "excluded": false,
-     "exposure": 0.500363764119,
+     "exposure": 0.478843495816,
      "lengthM": 1617.522762263366,
-     "m3": 0.394815050169,
-     "mean": 0.392496332607,
+     "m3": 0.377996793435,
+     "mean": 0.375507067253,
      "path": [
       1,
       11,
@@ -7449,13 +8467,13 @@
       99,
       100
      ],
-     "routeRisk": 0.393423819632,
-     "score": 61,
+     "routeRisk": 0.376502957726,
+     "score": 62,
      "totalDist": 1617.522762263366,
      "worstStretch": null
     },
     {
-     "avgSafety": 0.587745769058,
+     "avgSafety": 0.614568249865,
      "certainty": 0.515777049676,
      "edges": [
       0,
@@ -7478,10 +8496,10 @@
       179
      ],
      "excluded": false,
-     "exposure": 0.524322060169,
+     "exposure": 0.490208114599,
      "lengthM": 1617.580928887115,
-     "m3": 0.417041273128,
-     "mean": 0.409062869484,
+     "m3": 0.388917284142,
+     "mean": 0.383108060797,
      "path": [
       1,
       2,
@@ -7503,67 +8521,13 @@
       90,
       100
      ],
-     "routeRisk": 0.412254230942,
-     "score": 59,
+     "routeRisk": 0.385431750135,
+     "score": 61,
      "totalDist": 1617.580928887115,
      "worstStretch": null
     },
     {
-     "avgSafety": 0.585406709812,
-     "certainty": 0.523216285696,
-     "edges": [
-      90,
-      91,
-      92,
-      93,
-      36,
-      103,
-      46,
-      47,
-      48,
-      131,
-      58,
-      141,
-      68,
-      69,
-      70,
-      169,
-      170,
-      89
-     ],
-     "excluded": false,
-     "exposure": 0.527286993418,
-     "lengthM": 1617.519701611864,
-     "m3": 0.417005235864,
-     "mean": 0.412985326404,
-     "path": [
-      1,
-      11,
-      21,
-      31,
-      41,
-      42,
-      52,
-      53,
-      54,
-      55,
-      65,
-      66,
-      76,
-      77,
-      78,
-      79,
-      89,
-      99,
-      100
-     ],
-     "routeRisk": 0.414593290188,
-     "score": 59,
-     "totalDist": 1617.519701611864,
-     "worstStretch": null
-    },
-    {
-     "avgSafety": 0.55602614991,
+     "avgSafety": 0.586376470214,
      "certainty": 0.487572818497,
      "edges": [
       0,
@@ -7586,10 +8550,10 @@
       179
      ],
      "excluded": false,
-     "exposure": 0.564664656927,
+     "exposure": 0.526063840237,
      "lengthM": 1617.582459584483,
-     "m3": 0.451309251962,
-     "mean": 0.439083582176,
+     "m3": 0.418707709607,
+     "mean": 0.410234076572,
      "path": [
       1,
       2,
@@ -7611,8 +8575,8 @@
       90,
       100
      ],
-     "routeRisk": 0.44397385009,
-     "score": 56,
+     "routeRisk": 0.413623529786,
+     "score": 59,
      "totalDist": 1617.582459584483,
      "worstStretch": {
       "cause": "lighting",
@@ -7626,11 +8590,76 @@
        "lng": -4.14372
       }
      }
+    },
+    {
+     "avgSafety": 0.585391958174,
+     "certainty": 0.525193809548,
+     "edges": [
+      90,
+      91,
+      92,
+      93,
+      36,
+      103,
+      46,
+      47,
+      48,
+      131,
+      58,
+      141,
+      142,
+      77,
+      78,
+      161,
+      88,
+      89
+     ],
+     "excluded": false,
+     "exposure": 0.527304756767,
+     "lengthM": 1617.513578592355,
+     "m3": 0.422722058759,
+     "mean": 0.409198697204,
+     "path": [
+      1,
+      11,
+      21,
+      31,
+      41,
+      42,
+      52,
+      53,
+      54,
+      55,
+      65,
+      66,
+      76,
+      86,
+      87,
+      88,
+      98,
+      99,
+      100
+     ],
+     "routeRisk": 0.414608041826,
+     "score": 59,
+     "totalDist": 1617.513578592355,
+     "worstStretch": {
+      "cause": "lighting",
+      "end": {
+       "lat": 50.3792,
+       "lng": -4.13604
+      },
+      "lengthM": 88.95594131544,
+      "start": {
+       "lat": 50.3784,
+       "lng": -4.13604
+      }
+     }
     }
    ],
    "hazards": [
     {
-     "avgSafety": 0.635323673597,
+     "avgSafety": 0.653716904144,
      "certainty": 0.536737010043,
      "edges": [
       90,
@@ -7653,10 +8682,10 @@
       89
      ],
      "excluded": false,
-     "exposure": 0.463800848459,
+     "exposure": 0.44040806062,
      "lengthM": 1617.513578326912,
-     "m3": 0.36820393299,
-     "mean": 0.362324588678,
+     "m3": 0.35016616303,
+     "mean": 0.343694384407,
      "path": [
       1,
       11,
@@ -7678,13 +8707,13 @@
       99,
       100
      ],
-     "routeRisk": 0.364676326403,
-     "score": 64,
+     "routeRisk": 0.346283095856,
+     "score": 65,
      "totalDist": 1617.513578326912,
      "worstStretch": null
     },
     {
-     "avgSafety": 0.613521517785,
+     "avgSafety": 0.641140674384,
      "certainty": 0.537056009665,
      "edges": [
       0,
@@ -7707,10 +8736,10 @@
       179
      ],
      "excluded": false,
-     "exposure": 0.491536136013,
+     "exposure": 0.456409177748,
      "lengthM": 1617.559499371747,
-     "m3": 0.391403083465,
-     "mean": 0.383195414715,
+     "m3": 0.36160516557,
+     "mean": 0.357028765647,
      "path": [
       1,
       2,
@@ -7732,13 +8761,13 @@
       90,
       100
      ],
-     "routeRisk": 0.386478482215,
-     "score": 61,
+     "routeRisk": 0.358859325616,
+     "score": 64,
      "totalDist": 1617.559499371747,
      "worstStretch": null
     },
     {
-     "avgSafety": 0.585152781557,
+     "avgSafety": 0.603660783448,
      "certainty": 0.496209160753,
      "edges": [
       90,
@@ -7761,10 +8790,10 @@
       89
      ],
      "excluded": false,
-     "exposure": 0.52761893086,
+     "exposure": 0.504079729592,
      "lengthM": 1617.574806150749,
-     "m3": 0.416665797115,
-     "mean": 0.413634832662,
+     "m3": 0.398437533039,
+     "mean": 0.394940338894,
      "path": [
       1,
       11,
@@ -7786,57 +8815,15 @@
       99,
       100
      ],
-     "routeRisk": 0.414847218443,
-     "score": 59,
+     "routeRisk": 0.396339216552,
+     "score": 60,
      "totalDist": 1617.574806150749,
      "worstStretch": null
     }
    ],
    "mid": [
     {
-     "avgSafety": 0.627012279417,
-     "certainty": 0.541633961575,
-     "edges": [
-      19,
-      20,
-      21,
-      128,
-      129,
-      130,
-      131,
-      132,
-      67,
-      68,
-      69,
-      70
-     ],
-     "excluded": false,
-     "exposure": 0.387651152009,
-     "lengthM": 1080.17243242505,
-     "m3": 0.374567135032,
-     "mean": 0.371934777617,
-     "path": [
-      22,
-      23,
-      24,
-      25,
-      35,
-      45,
-      55,
-      65,
-      75,
-      76,
-      77,
-      78,
-      79
-     ],
-     "routeRisk": 0.372987720583,
-     "score": 63,
-     "totalDist": 1080.17243242505,
-     "worstStretch": null
-    },
-    {
-     "avgSafety": 0.624660563413,
+     "avgSafety": 0.645054628544,
      "certainty": 0.53462041993,
      "edges": [
       19,
@@ -7853,10 +8840,10 @@
       168
      ],
      "excluded": false,
-     "exposure": 0.390100850013,
+     "exposure": 0.368904723607,
      "lengthM": 1080.203046372367,
-     "m3": 0.378816439887,
-     "mean": 0.373021434388,
+     "m3": 0.35847435217,
+     "mean": 0.352592717646,
      "path": [
       22,
       23,
@@ -7872,13 +8859,55 @@
       69,
       79
      ],
-     "routeRisk": 0.375339436587,
-     "score": 62,
+     "routeRisk": 0.354945371456,
+     "score": 65,
      "totalDist": 1080.203046372367,
      "worstStretch": null
     },
     {
-     "avgSafety": 0.644262469071,
+     "avgSafety": 0.644994243192,
+     "certainty": 0.541633961575,
+     "edges": [
+      19,
+      20,
+      21,
+      128,
+      129,
+      130,
+      131,
+      132,
+      67,
+      68,
+      69,
+      70
+     ],
+     "excluded": false,
+     "exposure": 0.368962255329,
+     "lengthM": 1080.17243242505,
+     "m3": 0.35677249325,
+     "mean": 0.353827932514,
+     "path": [
+      22,
+      23,
+      24,
+      25,
+      35,
+      45,
+      55,
+      65,
+      75,
+      76,
+      77,
+      78,
+      79
+     ],
+     "routeRisk": 0.355005756808,
+     "score": 64,
+     "totalDist": 1080.17243242505,
+     "worstStretch": null
+    },
+    {
+     "avgSafety": 0.662706003991,
      "certainty": 0.552561202571,
      "edges": [
       18,
@@ -7897,10 +8926,10 @@
       70
      ],
      "excluded": false,
-     "exposure": 0.399582305389,
+     "exposure": 0.378865598373,
      "lengthM": 1261.691344133341,
-     "m3": 0.359954570471,
-     "mean": 0.352926171234,
+     "m3": 0.341997862221,
+     "mean": 0.3341580852,
      "path": [
       22,
       21,
@@ -7918,13 +8947,13 @@
       78,
       79
      ],
-     "routeRisk": 0.355737530929,
-     "score": 64,
+     "routeRisk": 0.337293996009,
+     "score": 66,
      "totalDist": 1261.691344133341,
      "worstStretch": null
     },
     {
-     "avgSafety": 0.531166744156,
+     "avgSafety": 0.567482036737,
      "certainty": 0.506047722222,
      "edges": [
       101,
@@ -7941,10 +8970,10 @@
       168
      ],
      "excluded": false,
-     "exposure": 0.487264360076,
+     "exposure": 0.449521415052,
      "lengthM": 1080.170902099305,
-     "m3": 0.484728475756,
-     "mean": 0.45823644257,
+     "m3": 0.448426767199,
+     "mean": 0.421912093972,
      "path": [
       22,
       32,
@@ -7960,8 +8989,8 @@
       69,
       79
      ],
-     "routeRisk": 0.468833255844,
-     "score": 53,
+     "routeRisk": 0.432517963263,
+     "score": 57,
      "totalDist": 1080.170902099305,
      "worstStretch": {
       "cause": "lighting",
@@ -7981,17 +9010,17 @@
     {
      "cctv": 0.089784841048,
      "certainty": 0.537799132495,
-     "crime": 0.722451704021,
+     "crime": 0.808795092842,
      "lighting": 0.866913284982,
-     "m3": 0.381486510429,
+     "m3": 0.363906522658,
      "mainRoadRatio": 0.448924205242,
-     "mean": 0.373908524072,
-     "openPlaces": 0.01333335857,
-     "overall": 0.623060281385,
+     "mean": 0.355492880711,
+     "openPlaces": 0.016814240191,
+     "overall": 0.64114166251,
      "riskVector": {
-      "max": 0.434609467649,
-      "mean": 0.373908524072,
-      "p95": 0.434609467649,
+      "max": 0.420039573447,
+      "mean": 0.355492880711,
+      "p95": 0.420039573447,
       "uncertainty": 0.462200867505
      },
      "roadType": 0.606619688019,
@@ -8000,24 +9029,24 @@
       "service": 6,
       "tertiary": 45
      },
-     "routeRisk": 0.376939718615,
-     "traffic": 0.53361521237,
+     "routeRisk": 0.35885833749,
+     "traffic": 0.534591001326,
      "worstStretch": null
     },
     {
      "cctv": 0.065994205503,
      "certainty": 0.534335737191,
-     "crime": 0.719322212292,
+     "crime": 0.802408397729,
      "lighting": 0.863779260383,
-     "m3": 0.394815050169,
+     "m3": 0.377996793435,
      "mainRoadRatio": 0.224478480169,
-     "mean": 0.392496332607,
-     "openPlaces": 0.00659942055,
-     "overall": 0.606576180368,
+     "mean": 0.375507067253,
+     "openPlaces": 0.008322302417,
+     "overall": 0.623497042274,
      "riskVector": {
-      "max": 0.434609467649,
-      "mean": 0.392496332607,
-      "p95": 0.434609467649,
+      "max": 0.420039573447,
+      "mean": 0.375507067253,
+      "p95": 0.420039573447,
       "uncertainty": 0.465664262809
      },
      "roadType": 0.528063122186,
@@ -8026,87 +9055,60 @@
       "service": 28,
       "tertiary": 22
      },
-     "routeRisk": 0.393423819632,
-     "traffic": 0.488678905917,
+     "routeRisk": 0.376502957726,
+     "traffic": 0.48916187813,
      "worstStretch": null
     },
     {
      "cctv": 0.066891359101,
      "certainty": 0.515777049676,
-     "crime": 0.698585331441,
+     "crime": 0.787894959525,
      "lighting": 0.838888913688,
-     "m3": 0.417041273128,
+     "m3": 0.388917284142,
      "mainRoadRatio": 0.280583278739,
-     "mean": 0.409062869484,
-     "openPlaces": 0.013198366483,
-     "overall": 0.587745769058,
+     "mean": 0.383108060797,
+     "openPlaces": 0.019002569731,
+     "overall": 0.614568249865,
      "riskVector": {
-      "max": 0.51794001792,
-      "mean": 0.409062869484,
-      "p95": 0.51794001792,
+      "max": 0.436569856704,
+      "mean": 0.383108060797,
+      "p95": 0.436569856704,
       "uncertainty": 0.484222950324
      },
-     "roadType": 0.531650584109,
+     "roadType": 0.564646500317,
      "roadTypes": {
       "path": 11,
       "residential": 61,
       "tertiary": 28
      },
-     "routeRisk": 0.412254230942,
-     "traffic": 0.486096010991,
-     "worstStretch": null
-    },
-    {
-     "cctv": 0,
-     "certainty": 0.523216285696,
-     "crime": 0.719799025142,
-     "lighting": 0.843192873533,
-     "m3": 0.417005235864,
-     "mainRoadRatio": 0.168344983836,
-     "mean": 0.412985326404,
-     "openPlaces": 0.01670052953,
-     "overall": 0.585406709812,
-     "riskVector": {
-      "max": 0.50606977306,
-      "mean": 0.412985326404,
-      "p95": 0.50606977306,
-      "uncertainty": 0.476783714304
-     },
-     "roadType": 0.490121822051,
-     "roadTypes": {
-      "path": 11,
-      "residential": 61,
-      "service": 11,
-      "tertiary": 17
-     },
-     "routeRisk": 0.414593290188,
-     "traffic": 0.459223296013,
+     "routeRisk": 0.385431750135,
+     "traffic": 0.504098271525,
      "worstStretch": null
     },
     {
      "cctv": 0.121885194447,
      "certainty": 0.487572818497,
-     "crime": 0.697494282486,
+     "crime": 0.78865624979,
      "lighting": 0.770172629808,
-     "m3": 0.451309251962,
+     "m3": 0.418707709607,
      "mainRoadRatio": 0.056112817497,
-     "mean": 0.439083582176,
-     "openPlaces": 0.013198353994,
-     "overall": 0.55602614991,
+     "mean": 0.410234076572,
+     "openPlaces": 0.019002551749,
+     "overall": 0.586376470214,
      "riskVector": {
-      "max": 0.67157516915,
-      "mean": 0.439083582176,
-      "p95": 0.67157516915,
+      "max": 0.602759059079,
+      "mean": 0.410234076572,
+      "p95": 0.602759059079,
       "uncertainty": 0.512427181503
      },
-     "roadType": 0.440572226999,
+     "roadType": 0.490066054476,
      "roadTypes": {
       "path": 16,
       "residential": 78,
       "tertiary": 6
      },
-     "routeRisk": 0.44397385009,
-     "traffic": 0.457771277389,
+     "routeRisk": 0.413623529786,
+     "traffic": 0.484022492133,
      "worstStretch": {
       "cause": "lighting",
       "end": {
@@ -8119,10 +9121,48 @@
        "lng": -4.14372
       }
      }
+    },
+    {
+     "cctv": 0,
+     "certainty": 0.525193809548,
+     "crime": 0.807936321089,
+     "lighting": 0.789718513063,
+     "m3": 0.422722058759,
+     "mainRoadRatio": 0,
+     "mean": 0.409198697204,
+     "openPlaces": 0.021060543473,
+     "overall": 0.585391958174,
+     "riskVector": {
+      "max": 0.686729773329,
+      "mean": 0.409198697204,
+      "p95": 0.686729773329,
+      "uncertainty": 0.474806190452
+     },
+     "roadType": 0.488383556864,
+     "roadTypes": {
+      "footway": 11,
+      "path": 16,
+      "residential": 55,
+      "service": 17
+     },
+     "routeRisk": 0.414608041826,
+     "traffic": 0.462733936268,
+     "worstStretch": {
+      "cause": "lighting",
+      "end": {
+       "lat": 50.3792,
+       "lng": -4.13604
+      },
+      "lengthM": 88.95594131544,
+      "start": {
+       "lat": 50.3784,
+       "lng": -4.13604
+      }
+     }
     }
    ],
    "aStar": {
-    "avgSafety": 0.626091475928,
+    "avgSafety": 0.644507119289,
     "edges": [
      90,
      91,
@@ -8279,16 +9319,16 @@
    "capped": null
   },
   "formatter": {
-   "fullHash": "977e553ac1d844bcee5eca14d538e9770c668bcdde32950d03da4655e7b6b3d7",
-   "compactHash": "1a23ada703cbb9c6c8160ea3fa950db0f4dd9f04e9d0c4c7f05c0ba12de585fc",
-   "downHash": "d11000001a2962e92b3fe884e1ed453635d08a0aba4e336dc274292fc892d752",
+   "fullHash": "0c939f20146ca4fff75bb3de7aef38b8a18cfe3f95228166c6d3cb820e001cca",
+   "compactHash": "5e3b02f96134473033a92d1f674fd8aa433ee3fc07c14392bd8b68bb9af1f669",
+   "downHash": "027a23abeeea28b51e5cb63a8fee69760c500a57ca7d3d657fbc17be5af13d88",
    "fullSafety": [
     {
      "breakdown": {
       "cctv": 9,
-      "crime": 72,
+      "crime": 81,
       "lighting": 87,
-      "openPlaces": 1,
+      "openPlaces": 2,
       "roadType": 61,
       "traffic": 53
      },
@@ -8304,9 +9344,9 @@
      "reason": "Safest and shortest",
      "riskVector": {
       "detourRatio": 1.41,
-      "max": 0.43,
-      "mean": 0.37,
-      "p95": 0.43,
+      "max": 0.42,
+      "mean": 0.36,
+      "p95": 0.42,
       "uncertainty": 0.46
      },
      "roadTypes": {
@@ -8314,13 +9354,13 @@
       "service": 6,
       "tertiary": 45
      },
-     "score": 62,
+     "score": 64,
      "worstStretch": null
     },
     {
      "breakdown": {
       "cctv": 7,
-      "crime": 72,
+      "crime": 80,
       "lighting": 86,
       "openPlaces": 1,
       "roadType": 53,
@@ -8335,12 +9375,12 @@
      },
      "label": "Safe",
      "mainRoadRatio": 22,
-     "reason": "Route 2: about the same length as Route 1, Route 1 scores 1 higher",
+     "reason": "Route 2: about the same length as Route 1, Route 1 scores 2 higher",
      "riskVector": {
       "detourRatio": 1.41,
-      "max": 0.43,
-      "mean": 0.39,
-      "p95": 0.43,
+      "max": 0.42,
+      "mean": 0.38,
+      "p95": 0.42,
       "uncertainty": 0.47
      },
      "roadTypes": {
@@ -8348,17 +9388,17 @@
       "service": 28,
       "tertiary": 22
      },
-     "score": 61,
+     "score": 62,
      "worstStretch": null
     },
     {
      "breakdown": {
       "cctv": 7,
-      "crime": 70,
+      "crime": 79,
       "lighting": 84,
-      "openPlaces": 1,
-      "roadType": 53,
-      "traffic": 49
+      "openPlaces": 2,
+      "roadType": 56,
+      "traffic": 50
      },
      "caution": null,
      "certainty": 0.52,
@@ -8372,9 +9412,9 @@
      "reason": "Route 3: about the same length as Route 1, Route 1 scores 3 higher",
      "riskVector": {
       "detourRatio": 1.41,
-      "max": 0.52,
-      "mean": 0.41,
-      "p95": 0.52,
+      "max": 0.44,
+      "mean": 0.38,
+      "p95": 0.44,
       "uncertainty": 0.48
      },
      "roadTypes": {
@@ -8382,52 +9422,17 @@
       "residential": 61,
       "tertiary": 28
      },
-     "score": 59,
-     "worstStretch": null
-    },
-    {
-     "breakdown": {
-      "cctv": 0,
-      "crime": 72,
-      "lighting": 84,
-      "openPlaces": 2,
-      "roadType": 49,
-      "traffic": 46
-     },
-     "caution": null,
-     "certainty": 0.52,
-     "color": "#558B2F",
-     "dataQuality": {
-      "crime": "ok",
-      "lighting": "mixed"
-     },
-     "label": "Safe",
-     "mainRoadRatio": 17,
-     "reason": "Route 4: about the same length as Route 1, Route 1 scores 3 higher",
-     "riskVector": {
-      "detourRatio": 1.41,
-      "max": 0.51,
-      "mean": 0.41,
-      "p95": 0.51,
-      "uncertainty": 0.48
-     },
-     "roadTypes": {
-      "path": 11,
-      "residential": 61,
-      "service": 11,
-      "tertiary": 17
-     },
-     "score": 59,
+     "score": 61,
      "worstStretch": null
     },
     {
      "breakdown": {
       "cctv": 12,
-      "crime": 70,
+      "crime": 79,
       "lighting": 77,
-      "openPlaces": 1,
-      "roadType": 44,
-      "traffic": 46
+      "openPlaces": 2,
+      "roadType": 49,
+      "traffic": 48
      },
      "caution": "Includes unverified or high-risk segments",
      "certainty": 0.49,
@@ -8438,12 +9443,12 @@
      },
      "label": "Safe",
      "mainRoadRatio": 6,
-     "reason": "Route 5: about the same length as Route 1, Route 1 scores 6 higher",
+     "reason": "Route 4: about the same length as Route 1, Route 1 scores 5 higher",
      "riskVector": {
       "detourRatio": 1.41,
-      "max": 0.67,
-      "mean": 0.44,
-      "p95": 0.67,
+      "max": 0.6,
+      "mean": 0.41,
+      "p95": 0.6,
       "uncertainty": 0.51
      },
      "roadTypes": {
@@ -8451,7 +9456,7 @@
       "residential": 78,
       "tertiary": 6
      },
-     "score": 56,
+     "score": 59,
      "worstStretch": {
       "cause": "lighting",
       "end": {
@@ -8464,15 +9469,61 @@
        "lng": -4.14372
       }
      }
+    },
+    {
+     "breakdown": {
+      "cctv": 0,
+      "crime": 81,
+      "lighting": 79,
+      "openPlaces": 2,
+      "roadType": 49,
+      "traffic": 46
+     },
+     "caution": "Includes unverified or high-risk segments",
+     "certainty": 0.53,
+     "color": "#558B2F",
+     "dataQuality": {
+      "crime": "ok",
+      "lighting": "mixed"
+     },
+     "label": "Safe",
+     "mainRoadRatio": 0,
+     "reason": "Route 5: about the same length as Route 1, Route 1 scores 5 higher",
+     "riskVector": {
+      "detourRatio": 1.41,
+      "max": 0.69,
+      "mean": 0.41,
+      "p95": 0.69,
+      "uncertainty": 0.47
+     },
+     "roadTypes": {
+      "footway": 11,
+      "path": 16,
+      "residential": 55,
+      "service": 17
+     },
+     "score": 59,
+     "worstStretch": {
+      "cause": "lighting",
+      "end": {
+       "lat": 50.3792,
+       "lng": -4.13604
+      },
+      "lengthM": 89,
+      "start": {
+       "lat": 50.3784,
+       "lng": -4.13604
+      }
+     }
     }
    ],
    "compactSafety": [
     {
      "breakdown": {
       "cctv": 9,
-      "crime": 72,
+      "crime": 81,
       "lighting": 87,
-      "openPlaces": 1,
+      "openPlaces": 2,
       "roadType": 61,
       "traffic": 53
      },
@@ -8484,13 +9535,13 @@
      },
      "label": "Safe",
      "reason": "Safest and shortest",
-     "score": 62,
+     "score": 64,
      "worstStretch": null
     },
     {
      "breakdown": {
       "cctv": 7,
-      "crime": 72,
+      "crime": 80,
       "lighting": 86,
       "openPlaces": 1,
       "roadType": 53,
@@ -8503,18 +9554,18 @@
       "lighting": "mixed"
      },
      "label": "Safe",
-     "reason": "Route 2: about the same length as Route 1, Route 1 scores 1 higher",
-     "score": 61,
+     "reason": "Route 2: about the same length as Route 1, Route 1 scores 2 higher",
+     "score": 62,
      "worstStretch": null
     },
     {
      "breakdown": {
       "cctv": 7,
-      "crime": 70,
+      "crime": 79,
       "lighting": 84,
-      "openPlaces": 1,
-      "roadType": 53,
-      "traffic": 49
+      "openPlaces": 2,
+      "roadType": 56,
+      "traffic": 50
      },
      "certainty": 0.52,
      "color": "#558B2F",
@@ -8524,37 +9575,17 @@
      },
      "label": "Safe",
      "reason": "Route 3: about the same length as Route 1, Route 1 scores 3 higher",
-     "score": 59,
-     "worstStretch": null
-    },
-    {
-     "breakdown": {
-      "cctv": 0,
-      "crime": 72,
-      "lighting": 84,
-      "openPlaces": 2,
-      "roadType": 49,
-      "traffic": 46
-     },
-     "certainty": 0.52,
-     "color": "#558B2F",
-     "dataQuality": {
-      "crime": "ok",
-      "lighting": "mixed"
-     },
-     "label": "Safe",
-     "reason": "Route 4: about the same length as Route 1, Route 1 scores 3 higher",
-     "score": 59,
+     "score": 61,
      "worstStretch": null
     },
     {
      "breakdown": {
       "cctv": 12,
-      "crime": 70,
+      "crime": 79,
       "lighting": 77,
-      "openPlaces": 1,
-      "roadType": 44,
-      "traffic": 46
+      "openPlaces": 2,
+      "roadType": 49,
+      "traffic": 48
      },
      "certainty": 0.49,
      "color": "#558B2F",
@@ -8563,8 +9594,8 @@
       "lighting": "estimated"
      },
      "label": "Safe",
-     "reason": "Route 5: about the same length as Route 1, Route 1 scores 6 higher",
-     "score": 56,
+     "reason": "Route 4: about the same length as Route 1, Route 1 scores 5 higher",
+     "score": 59,
      "worstStretch": {
       "cause": "lighting",
       "end": {
@@ -8575,6 +9606,37 @@
       "start": {
        "lat": 50.372,
        "lng": -4.14372
+      }
+     }
+    },
+    {
+     "breakdown": {
+      "cctv": 0,
+      "crime": 81,
+      "lighting": 79,
+      "openPlaces": 2,
+      "roadType": 49,
+      "traffic": 46
+     },
+     "certainty": 0.53,
+     "color": "#558B2F",
+     "dataQuality": {
+      "crime": "ok",
+      "lighting": "mixed"
+     },
+     "label": "Safe",
+     "reason": "Route 5: about the same length as Route 1, Route 1 scores 5 higher",
+     "score": 59,
+     "worstStretch": {
+      "cause": "lighting",
+      "end": {
+       "lat": 50.3792,
+       "lng": -4.13604
+      },
+      "lengthM": 89,
+      "start": {
+       "lat": 50.3784,
+       "lng": -4.13604
       }
      }
     }
@@ -8594,11 +9656,11 @@
     },
     {
      "crime": "unavailable",
-     "lighting": "mixed"
+     "lighting": "estimated"
     },
     {
      "crime": "unavailable",
-     "lighting": "estimated"
+     "lighting": "mixed"
     }
    ],
    "segmentColors": [
@@ -8614,9 +9676,9 @@
      "#617933",
      "#617933",
      "#617933",
+     "#617933",
      "#715200",
-     "#715200",
-     "#715200",
+     "#617933",
      "#715200",
      "#715200",
      "#715200",
@@ -8625,7 +9687,7 @@
     [
      "#715200",
      "#715200",
-     "#715200",
+     "#617933",
      "#715200",
      "#715200",
      "#715200",
@@ -8659,22 +9721,22 @@
      "#715200",
      "#715200",
      "#715200",
-     "#693000",
-     "#693000"
+     "#715200",
+     "#715200"
     ],
     [
      "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
      "#693000",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#617933",
+     "#715200",
+     "#715200",
      "#715200",
      "#715200",
      "#715200",
@@ -8683,24 +9745,24 @@
      "#715200"
     ],
     [
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
+     "#715200",
      "#715200",
      "#55120B",
      "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#715200",
-     "#693000",
-     "#693000"
+     "#715200"
     ]
    ],
    "crimeMarkers": [
@@ -8817,57 +9879,6 @@
     ],
     [
      {
-      "count": 1,
-      "kind": "crime",
-      "lat": 50.375645,
-      "lng": -4.142505,
-      "maxSeverity": 1
-     },
-     {
-      "count": 1,
-      "kind": "crime",
-      "lat": 50.3767,
-      "lng": -4.138313,
-      "maxSeverity": 1
-     },
-     {
-      "count": 1,
-      "kind": "crime",
-      "lat": 50.377442,
-      "lng": -4.138825,
-      "maxSeverity": 0.5
-     },
-     {
-      "count": 1,
-      "kind": "crime",
-      "lat": 50.376261,
-      "lng": -4.144023,
-      "maxSeverity": 0.4
-     },
-     {
-      "count": 1,
-      "kind": "crime",
-      "lat": 50.376556,
-      "lng": -4.139974,
-      "maxSeverity": 0.4
-     },
-     {
-      "count": 1,
-      "kind": "crime",
-      "lat": 50.377377,
-      "lng": -4.135886,
-      "maxSeverity": 0.3
-     },
-     {
-      "count": 1,
-      "kind": "crime",
-      "lat": 50.375457,
-      "lng": -4.143505,
-      "maxSeverity": 0.2
-     }
-    ],
-    [
-     {
       "count": 2,
       "kind": "crime",
       "lat": 50.372906,
@@ -8914,6 +9925,64 @@
       "kind": "crime",
       "lat": 50.378394,
       "lng": -4.133849,
+      "maxSeverity": 0.2
+     }
+    ],
+    [
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.375645,
+      "lng": -4.142505,
+      "maxSeverity": 1
+     },
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.3767,
+      "lng": -4.138313,
+      "maxSeverity": 1
+     },
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.377442,
+      "lng": -4.138825,
+      "maxSeverity": 0.5
+     },
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.378361,
+      "lng": -4.138425,
+      "maxSeverity": 0.5
+     },
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.376261,
+      "lng": -4.144023,
+      "maxSeverity": 0.4
+     },
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.376556,
+      "lng": -4.139974,
+      "maxSeverity": 0.4
+     },
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.375457,
+      "lng": -4.143505,
+      "maxSeverity": 0.2
+     },
+     {
+      "count": 1,
+      "kind": "crime",
+      "lat": 50.378039,
+      "lng": -4.136111,
       "maxSeverity": 0.2
      }
     ]
@@ -9015,56 +10084,6 @@
      "unpavedPct": 0
     },
     {
-     "cctvCamerasNearby": 0,
-     "crimeCount": 7,
-     "deadEnds": 0,
-     "roadNameChanges": [
-      {
-       "distance": 0,
-       "name": "Col Road",
-       "segmentIndex": 0
-      },
-      {
-       "distance": 356,
-       "name": "Row 4",
-       "segmentIndex": 4
-      },
-      {
-       "distance": 536,
-       "name": "Row 5",
-       "segmentIndex": 6
-      },
-      {
-       "distance": 808,
-       "name": "Col Road",
-       "segmentIndex": 9
-      },
-      {
-       "distance": 897,
-       "name": "Row 6",
-       "segmentIndex": 10
-      },
-      {
-       "distance": 1077,
-       "name": "Row 7",
-       "segmentIndex": 12
-      },
-      {
-       "distance": 1349,
-       "name": "Col Road",
-       "segmentIndex": 15
-      },
-      {
-       "distance": 1527,
-       "name": "Row 9",
-       "segmentIndex": 17
-      }
-     ],
-     "sidewalkPct": 34,
-     "transitStopsNearby": 6,
-     "unpavedPct": 6
-    },
-    {
      "cctvCamerasNearby": 6,
      "crimeCount": 8,
      "deadEnds": 0,
@@ -9093,6 +10112,51 @@
      "sidewalkPct": 11,
      "transitStopsNearby": 8,
      "unpavedPct": 39
+    },
+    {
+     "cctvCamerasNearby": 0,
+     "crimeCount": 8,
+     "deadEnds": 0,
+     "roadNameChanges": [
+      {
+       "distance": 0,
+       "name": "Col Road",
+       "segmentIndex": 0
+      },
+      {
+       "distance": 356,
+       "name": "Row 4",
+       "segmentIndex": 4
+      },
+      {
+       "distance": 536,
+       "name": "Row 5",
+       "segmentIndex": 6
+      },
+      {
+       "distance": 808,
+       "name": "Col Road",
+       "segmentIndex": 9
+      },
+      {
+       "distance": 897,
+       "name": "Row 6",
+       "segmentIndex": 10
+      },
+      {
+       "distance": 1165,
+       "name": "Row 8",
+       "segmentIndex": 13
+      },
+      {
+       "distance": 1436,
+       "name": "Row 9",
+       "segmentIndex": 16
+      }
+     ],
+     "sidewalkPct": 17,
+     "transitStopsNearby": 8,
+     "unpavedPct": 17
     }
    ]
   }

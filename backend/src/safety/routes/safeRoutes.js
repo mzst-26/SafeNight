@@ -68,6 +68,7 @@ const {
   routeErrorResponse,
 } = require("./safeRoutesResponseFormatter");
 const { buildSafeRoutesMeta } = require("./safeRoutesMetaBuilder");
+const { resolveTripTime, estimateEtaSec, rescoredTrip, WALKING_SPEED_MPS } = require("./safeRoutesTime");
 const { findRouteCandidates } = require("./safeRoutesCandidateFinder");
 const {
   buildGraph,
@@ -196,6 +197,8 @@ router.get("/", async (req, res) => {
       straightLineKm,
       maxDistanceKm,
       departureHour,
+      leaveAtMs,
+      arriveByMs,
       allowHazards,
       responsePolicy,
     } = parsedRequest.value;
@@ -225,6 +228,8 @@ router.get("/", async (req, res) => {
       wpLat,
       wpLng,
       departureHour,
+      leaveAtMs,
+      arriveByMs,
       allowHazards,
       responsePolicy,
       cancelToken,
@@ -425,6 +430,8 @@ router.get("/stream", async (req, res) => {
       straightLineKm,
       maxDistanceKm,
       departureHour,
+      leaveAtMs,
+      arriveByMs,
       allowHazards,
       responsePolicy,
     } = parsedRequest.value;
@@ -455,6 +462,9 @@ router.get("/stream", async (req, res) => {
         wpLng,
         responsePolicy,
         departureHour,
+        leaveAtMs,
+        arriveByMs,
+        straightLineDist,
         allowHazards,
         safetyLevel,
         maxDistanceKm,
@@ -482,6 +492,8 @@ router.get("/stream", async (req, res) => {
       wpLat,
       wpLng,
       departureHour,
+      leaveAtMs,
+      arriveByMs,
       allowHazards,
       responsePolicy,
       onProgress,
@@ -566,8 +578,17 @@ async function computeSafeRoutes(
   onProgress = null,
   responsePolicy = null,
   safetyLevel = SAFETY_LEVEL_EXTRA,
+  timeRequest = null,
 ) {
   cancelToken?.throwIfCancelled?.();
+  // The time the routes are scored at. v1 evaluates the whole graph at the mid-walk instant (t0 + ETA/2).
+  const tripRequest = {
+    leaveAt: timeRequest?.leaveAtMs ?? null,
+    arriveBy: timeRequest?.arriveByMs ?? null,
+    departureHour: timeRequest?.departureHour ?? departureHour,
+    nowMs: timeRequest?.nowMs ?? Date.now(),
+  };
+  let trip = resolveTripTime({ ...tripRequest, etaSec: estimateEtaSec(straightLineDist) });
   const upstreamAbortController = new AbortController();
   const cancelUnsub = cancelToken?.onCancel?.(() => {
     try {
@@ -839,11 +860,12 @@ async function computeSafeRoutes(
         bbox,
         {
           shouldCancel: () => cancelToken?.isCancelled?.() === true,
-          hour: departureHour,
+          // Darkness and place presence are evaluated at the mid-walk instant (documented v1 approximation).
+          hour: trip.londonHour(trip.midMs),
           level: safetyLevel,
           lightsCacheByEdgeIdx: dataset.lightsCacheByEdgeIdx || null,
           // Inputs: the clock for darkness, and whether the crime aggregate is usable.
-          now: new Date(),
+          now: new Date(trip.midMs),
           crimeStatus,
         },
       );
@@ -925,6 +947,20 @@ async function computeSafeRoutes(
       };
     };
 
+    let firstPass = await computeGraphAndCandidates(allData);
+
+    // arrive_by: t0 was derived from an estimated ETA. When the real best route differs by more than 120 s the
+    // graph is rebuilt and re-searched ONCE with t0 = arrive_by - real duration (the graph bakes in the mid-walk
+    // darkness and presence, so it cannot be reused across a time change; only the data fetch is shared).
+    if (firstPass.rawRoutes.length > 0) {
+      const secondTrip = rescoredTrip(tripRequest, trip, firstPass.rawRoutes[0].totalDist / WALKING_SPEED_MPS);
+      if (secondTrip) {
+        debugLog(`[safe-routes] arrive_by re-score: eta ${Math.round(trip.etaSec)}s -> ${Math.round(secondTrip.etaSec)}s`);
+        trip = secondTrip;
+        firstPass = await computeGraphAndCandidates(allData);
+      }
+    }
+
     let {
       osmNodes,
       edges,
@@ -936,7 +972,7 @@ async function computeSafeRoutes(
       rawRoutes,
       graphTime,
       pathfindTime,
-    } = await computeGraphAndCandidates(allData);
+    } = firstPass;
 
     // ── Light confidence scoring & OS NGD gap verification ──────────────
     let edgeConfidences = [];
@@ -1175,6 +1211,7 @@ async function computeSafeRoutes(
       straightLineDist,
       verificationFootprints,
       crimeStatus,
+      trip,
     });
 
     const routeSegmentDebug = rawRoutes.map((route, idx) => {
@@ -1226,6 +1263,7 @@ async function computeSafeRoutes(
         lightVerificationStatus,
         verifiedLightsCount: verifiedLights.length,
         crimeStatus,
+        trip,
       }),
     };
   } finally {

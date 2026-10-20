@@ -54,6 +54,18 @@ describe('classifyWayContext (way level: alongside, crossing or isolated)', () =
     expect(classify(way([0, -40], [0, 40]), street, empty)).toBe('isolated');
   });
 
+  test('bridge=yes plus a barrier road below is an extra crossing signal; without the tag the same way is isolated', () => {
+    const slanting = way([0, 60], [22, 82]);
+    expect(classify(slanting, empty)).toBe('isolated');
+    expect(classifyWayContext(slanting, empty, trunk, { bridge: true })).toBe('crossing');
+    expect(classifyWayContext(slanting, empty, trunk, { bridge: false })).toBe('isolated');
+    expect(classifyWayContext(slanting, empty, trunk, {})).toBe('isolated');
+  });
+
+  test('bridge=yes far from any barrier does not become a crossing', () => {
+    expect(classifyWayContext(way([0, -300], [22, -280]), empty, trunk, { bridge: true })).toBe('isolated');
+  });
+
   test('a short link (under 40 m) ending at a street is still alongside', () => {
     expect(classify(way([0, 2], [0, 30]), street, empty)).toBe('alongside');
   });

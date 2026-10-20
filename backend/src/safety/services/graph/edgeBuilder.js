@@ -7,7 +7,7 @@
  */
 const { edgeRisk } = require('../../scoring/edgeRisk');
 const {
-  PRIOR_SAFETY, GRAPH, ROAD_TYPE_SCORES, ROAD_SCORE_FALLBACK, SURFACE_PENALTIES,
+  PRIOR_SAFETY, GRAPH, PATH_CLASS_HIGHWAYS, ROAD_TYPE_SCORES, ROAD_SCORE_FALLBACK, SURFACE_PENALTIES,
 } = require('../../scoring/config');
 const { cancelCallbackOf, createTicker, clamp01, hasOwnKey } = require('./common');
 const { resolveBuildClock } = require('./clock');
@@ -19,7 +19,12 @@ const {
 } = require('./lightingStage');
 const { collectActivitySources, activityAt } = require('./activityStage');
 const { buildCrimeModel, crimeFactorAt } = require('./crimeStage');
-const { isDeadEnd, isUnlitPath, isolationSafetyOf } = require('./isolationStage');
+const {
+  isDeadEnd, isUnlitPath, isolationSafetyOf, createRemotenessLookup, remotenessMultiplier,
+} = require('./isolationStage');
+
+// Share of safety the remoteness hazard must remove before it is named as the cause of an edge's risk.
+const REMOTENESS_CAUSE_MIN_LOSS = 0.15;
 
 /**
  * Road factor: the class score minus the surface penalty, in [0, 1]. Class only: dead ends and footpath
@@ -46,12 +51,16 @@ function scoreSegment(segment, ctx, cache) {
   const { idx, from, to, nA, nB, dist, highway, tags, midLat, midLng } = segment;
   const light = lightingAt(segment, ctx.lightSources, ctx, cache);
   const { roadSafety, surfacePenalty } = roadFactorOf(highway, tags);
-  const act = activityAt(ctx.activitySources, midLat, midLng, ctx.hour);
+  const remote = ctx.remotenessAt(midLat, midLng, !PATH_CLASS_HIGHWAYS.has(highway));
+  const act = activityAt(ctx.activitySources, midLat, midLng, ctx.hour, { darkness: ctx.darkness, remoteness: remote.remoteness });
   const deadEnd = isDeadEnd(ctx.nodeDegree, from, to);
   const unlitPath = isUnlitPath(highway, tags, light.lampCountNearPath, light.nearRoad);
-  const crimeFactor = crimeFactorAt(ctx.crimeModel, midLat, midLng, ctx.crimeStatus);
+  // Footfall: presence discounts non-violent crime; cameras and open places within 80 m give the guardian bonus.
+  const crimeFactor = crimeFactorAt(ctx.crimeModel, midLat, midLng, ctx.crimeStatus, {
+    presence: act.presence, cctvCount: act.cctvCount, openVenues: act.placesOpen,
+  });
 
-  const { risk, certainty, dominantCause } = edgeRisk({
+  const combined = edgeRisk({
     factors: {
       lighting: { safety: light.lightingSafety, n: light.lighting.n },
       crime: crimeFactor,
@@ -61,6 +70,14 @@ function scoreSegment(segment, ctx, cache) {
     },
     weights: ctx.weights,
   });
+  // Night remoteness hazard (spec section 12): multiplies the combined safety. The isolation factor alone carries
+  // weight 0.12, too little to make a lit but empty park path read Moderate.
+  const hazardFactor = remotenessMultiplier({
+    remoteness: remote.remoteness, presence: act.presence, darkness: ctx.darkness, lightingEffective: light.lightingSafety,
+  });
+  const risk = 1 - (1 - combined.risk) * hazardFactor;
+  const { certainty } = combined;
+  const dominantCause = 1 - hazardFactor >= REMOTENESS_CAUSE_MIN_LOSS ? 'isolation' : combined.dominantCause;
 
   const litTag = tags.lit || null;
   return {
@@ -91,6 +108,8 @@ function scoreSegment(segment, ctx, cache) {
     risk,
     certainty,
     cause: dominantCause,
+    remoteness: remote.remoteness,
+    presence: act.presence,
     litEstimate: light.litEstimate,
     pLit: light.lighting.pLit,
     lengthM: dist,
@@ -108,7 +127,9 @@ function prepareContext(roadData, lightData, cctvData, placeData, transitData, c
   const clock = resolveBuildClock(bbox, options);
   const osmNodes = indexNodes(roadData, tick);
   const lightSources = collectLightSources(lightData, osmNodes, tick);
-  const activitySources = collectActivitySources(cctvData, placeData, transitData, clock, tick);
+  const activitySources = collectActivitySources(
+    cctvData, placeData, transitData, { ...clock, settlementClassAt: options.settlementClassAt }, tick,
+  );
   const nodeGrid = buildNodeGrid(osmNodes, tick);
   const nodeDegree = computeNodeDegree(roadData, osmNodes, tick);
   const segments = collectWalkableSegments(roadData, osmNodes, tick);
@@ -127,6 +148,7 @@ function prepareContext(roadData, lightData, cctvData, placeData, transitData, c
     areaStats,
     crimeModel,
     roadIndex,
+    remotenessAt: createRemotenessLookup(segments, activitySources.openPlaces),
     wayContext: createWayContextGetter(segments, barrierSegments, roadIndex),
   };
 }
@@ -163,6 +185,7 @@ function scoreSegments(ctx, options, tick) {
  * @param {{north: number, south: number, east: number, west: number}} bbox
  * @param {object} [options]
  * @param {number} [options.hour] London local hour 0-24; defaults to the London hour of options.now.
+ * @param {(lat: number, lng: number) => {class: string}} [options.settlementClassAt] Settlement lookup (default: scoring/settlements).
  * @param {Date} [options.now] Instant used for darkness and opening hours; defaults to the current time.
  * @param {string} [options.level] Data level; 'standard' drops the activity factor.
  * @param {'ok'|'unavailable'} [options.crimeStatus] Anything other than 'ok', including a missing value, is treated as unavailable.

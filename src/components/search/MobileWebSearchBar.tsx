@@ -32,6 +32,8 @@ import type { SafetyLevel } from "@/src/services/safeRoutes";
 import type { LatLng, PlaceDetails, PlacePrediction } from "@/src/types/geo";
 import { SafetyLevelToggle } from "./SafetyLevelToggle";
 import { SavedPlaces } from "./SavedPlaces";
+import type { TripTimeState } from "@/src/utils/tripTime";
+import { TimeControl } from "./TimeControl";
 
 const CATEGORY_CHIP_DEFINITIONS: {
   key: string;
@@ -83,6 +85,9 @@ export interface MobileWebSearchBarProps {
   selectedDestinationCandidateId?: string | null;
   onSelectDestinationCandidate?: (placeId: string, panToCandidate?: boolean) => void;
   onFindSafeRoutes?: () => boolean;
+  /** Leave-at / arrive-by selection (rendered when both props are given). */
+  tripTime?: TripTimeState;
+  onTripTimeChange?: (next: TripTimeState) => void;
   /** When true, destination candidate results are rendered in a bottom sheet instead of this dropdown. */
   renderCandidatesInSheet?: boolean;
   onGuestTap?: () => void;
@@ -138,6 +143,8 @@ export function MobileWebSearchBar({
   onSavedPlaceToast,
   safetyLevel = 'extra',
   onSafetyLevelChange,
+  tripTime,
+  onTripTimeChange,
   onExpandedChange,
   onContainerLayout,
   onEffectiveBottomChange,
@@ -909,6 +916,10 @@ export function MobileWebSearchBar({
                 )}
               </Pressable>
             </View>
+
+            {tripTime && onTripTimeChange && (
+              <TimeControl value={tripTime} onChange={onTripTimeChange} />
+            )}
 
             {/* ── Saved places (inside card, below inputs, only when no predictions) ── */}
             {activePredictions.length === 0 &&

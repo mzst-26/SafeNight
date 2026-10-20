@@ -24,6 +24,15 @@ import {
 } from "@/src/types/limitError";
 import type { LayerSegment, RouteLayerInput } from "@/src/components/maps/routeLayers";
 import { decodePolyline } from "@/src/utils/polyline";
+import {
+  appendTimeQuery,
+  timeBucketKey,
+  type RouteTimeline,
+  type TimeParams,
+} from "@/src/utils/tripTime";
+
+/** Walking speed shared with the backend (m/s). */
+export const WALKING_SPEED_MPS = 1.35;
 
 const BACKEND_BASE = env.safetyApiUrl;
 const AUTH_TOKEN_STORAGE_KEY = 'safenight_access_token';
@@ -37,16 +46,17 @@ function nextSearchSeq(): number {
   return requestSeqCounter;
 }
 
-function createSearchId(
+export function createSearchId(
   origin: LatLng,
   destination: LatLng,
   maxDistanceKm: number,
   waypoint?: LatLng | null,
+  timeParams?: TimeParams,
 ): string {
   const r4 = (v: number) => Math.round(v * 10000) / 10000;
   const wpLat = waypoint ? r4(waypoint.latitude) : 'x';
   const wpLng = waypoint ? r4(waypoint.longitude) : 'x';
-  return `${r4(origin.latitude)},${r4(origin.longitude)}->${r4(destination.latitude)},${r4(destination.longitude)}@${wpLat},${wpLng}#${maxDistanceKm}`;
+  return `${r4(origin.latitude)},${r4(origin.longitude)}->${r4(destination.latitude)},${r4(destination.longitude)}@${wpLat},${wpLng}#${maxDistanceKm}~${timeBucketKey(timeParams)}`;
 }
 
 function makeClientId(): string {
@@ -328,7 +338,7 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
       // Absorb the roundabout distance/geometry into the previous step
       const prev = steps[steps.length - 1];
       prev.distanceMeters += Math.round(grp.totalDist);
-      prev.durationSeconds += Math.round(grp.totalDist / 1.4);
+      prev.durationSeconds += Math.round(grp.totalDist / WALKING_SPEED_MPS);
       prev.endLocation = {
         latitude: lastSeg.endCoord.latitude,
         longitude: lastSeg.endCoord.longitude,
@@ -339,7 +349,7 @@ function buildStepsFromSegments(segments: EnrichedSegment[]): NavigationStep[] {
     steps.push({
       instruction,
       distanceMeters: Math.round(grp.totalDist),
-      durationSeconds: Math.round(grp.totalDist / 1.4),
+      durationSeconds: Math.round(grp.totalDist / WALKING_SPEED_MPS),
       startLocation: {
         latitude: firstSeg.startCoord.latitude,
         longitude: firstSeg.startCoord.longitude,
@@ -415,6 +425,8 @@ export interface RouteSafety {
   reason?: string;
   worstStretch?: WorstStretch | null;
   dataQuality?: RouteDataQuality;
+  /** Leave/arrive timeline and darkness label (v2 time-aware backend only). */
+  timeline?: RouteTimeline;
 }
 
 export interface SafeRoute extends DirectionsRoute {
@@ -545,6 +557,13 @@ export interface SafeRoutesResponse {
       pathfindMs: number;
     };
     computeTimeMs: number;
+    /** The instant the backend evaluated (v2 time-aware backend only). */
+    time?: {
+      mode: "now" | "leave_at" | "arrive_by";
+      leaveAtIso: string;
+      arriveByIso: string | null;
+      timezone: string;
+    };
   };
   error?: string;
   message?: string;
@@ -714,15 +733,18 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 5 * 60 * 1000;
 
-function cacheKey(
+export function cacheKey(
   origin: LatLng,
   dest: LatLng,
   waypoint?: LatLng | null,
+  timeParams?: TimeParams,
 ): string {
   const base = `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)}->${dest.latitude.toFixed(4)},${dest.longitude.toFixed(4)}`;
-  return waypoint
+  const withWaypoint = waypoint
     ? `${base}@${waypoint.latitude.toFixed(4)},${waypoint.longitude.toFixed(4)}`
     : base;
+  const bucket = timeBucketKey(timeParams);
+  return bucket === "now" ? withWaypoint : `${withWaypoint}|${bucket}`;
 }
 
 // ── Main function ────────────────────────────────────────────────────────────
@@ -739,10 +761,11 @@ export async function fetchSafeRoutes(
   subscriptionTier: string = "free",
   maxDistanceKmOverride?: number,
   waypoint?: LatLng | null,
+  timeParams?: TimeParams,
 ): Promise<SafeRoutesResponse> {
   await subscriptionApi.ensureFeatureAllowed("route_search");
 
-  const key = cacheKey(origin, destination, waypoint);
+  const key = cacheKey(origin, destination, waypoint, timeParams);
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     console.log("[safeRoutes] 📋 Cache hit");
@@ -755,11 +778,13 @@ export async function fetchSafeRoutes(
   const waypointParam = waypoint
     ? `&waypoint_lat=${waypoint.latitude}&waypoint_lng=${waypoint.longitude}`
     : "";
-  const url =
+  const url = appendTimeQuery(
     `${BACKEND_BASE}/api/safe-routes?` +
-    `origin_lat=${origin.latitude}&origin_lng=${origin.longitude}` +
-    `&dest_lat=${destination.latitude}&dest_lng=${destination.longitude}` +
-    `&max_distance=${maxDistanceKm}${waypointParam}`;
+      `origin_lat=${origin.latitude}&origin_lng=${origin.longitude}` +
+      `&dest_lat=${destination.latitude}&dest_lng=${destination.longitude}` +
+      `&max_distance=${maxDistanceKm}${waypointParam}`,
+    timeParams,
+  );
 
   if (waypoint) {
     console.log(
@@ -775,7 +800,7 @@ export async function fetchSafeRoutes(
       getSearchClientId(),
     ]);
     const searchSeq = nextSearchSeq();
-    const searchId = createSearchId(origin, destination, maxDistanceKm, waypoint);
+    const searchId = createSearchId(origin, destination, maxDistanceKm, waypoint, timeParams);
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Search-Id': searchId,

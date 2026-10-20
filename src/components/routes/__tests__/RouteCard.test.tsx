@@ -378,3 +378,23 @@ describe('RouteCard text contrast (WCAG AA, 4.5:1 against the real background)',
     expect(textContrastProblems(renderer)).toEqual([]);
   });
 });
+
+describe('RouteCard timeline text', () => {
+  const timeline = {
+    leaveAtIso: '2026-10-21T17:10:00+01:00',
+    arriveAtIso: '2026-10-21T17:50:00+01:00',
+    darknessAtStart: false,
+    darknessAtArrival: true,
+    label: 'dark_by_arrival' as const,
+  };
+
+  it('shows the timeline summary when safety.timeline exists', () => {
+    const r = renderCard({ route: makeRoute({ safety: { timeline } }) });
+    expect(textNodes(r)).toContain('Leaves 17:10 · Arrives 17:50 · Dark by arrival');
+  });
+
+  it('renders nothing extra for a v1 route', () => {
+    const r = renderCard({ route: makeRoute() });
+    expect(textNodes(r).some((t) => t.startsWith('Leaves '))).toBe(false);
+  });
+});

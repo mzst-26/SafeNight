@@ -1,4 +1,5 @@
 const { normalizeCrimeStatus } = require('../services/graph/clock');
+const { buildMetaTime } = require('./safeRoutesTime');
 
 function buildSafeRoutesMeta({
   straightLineKm,
@@ -17,6 +18,7 @@ function buildSafeRoutesMeta({
   lightVerificationStatus,
   verifiedLightsCount,
   crimeStatus,
+  trip = null,
 }) {
   const meta = {
     straightLineDistanceKm: Math.round(straightLineKm * 10) / 10,
@@ -73,6 +75,8 @@ function buildSafeRoutesMeta({
   meta.dataQuality.crime = normalizeCrimeStatus(crimeStatus);
   const lighting = responseRoutes[0]?.safety?.dataQuality?.lighting;
   if (lighting) meta.dataQuality.lighting = lighting;
+
+  if (trip) meta.time = buildMetaTime(trip);
 
   return meta;
 }

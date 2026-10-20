@@ -128,6 +128,8 @@ function darknessForHour({ lat, lng, hour, now }) {
 }
 
 module.exports = {
+  londonWallMs,
+  londonWallToInstantMs,
   sunElevationDeg,
   darknessFactor,
   darknessForHour,

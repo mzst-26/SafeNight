@@ -277,3 +277,45 @@ describe('crime status names have one source', () => {
     expect(crimeRiskStatuses.STATUS_UNAVAILABLE).toBe(CRIME_STATUS.UNAVAILABLE);
   });
 });
+
+describe('footfall-aware crime (spec section 12)', () => {
+  const {
+    weightedCrimePools, footfallAdjustedCount, guardianBonus, crimeRisk,
+  } = require('../../../../src/safety/scoring/crimeRisk');
+
+  test('pools split violent from non-violent with pedestrian-relevance weights and recency', () => {
+    const pools = weightedCrimePools([
+      { category: 'violent-crime', monthsAgo: 0 },
+      { category: 'theft-from-the-person', monthsAgo: 0 },
+      { category: 'anti-social-behaviour', monthsAgo: 0 },
+      { category: 'shoplifting', monthsAgo: 4 },
+      null,
+    ]);
+    expect(pools.violent).toBeCloseTo(1.8, 9);
+    expect(pools.nonViolent).toBeCloseTo(0.2 + 0.05 * 0.5, 9);
+    expect(() => weightedCrimePools('x')).toThrow(TypeError);
+  });
+
+  test('presence divides only the non-violent pool by (1 + 2P)^0.5', () => {
+    const pools = { violent: 3, nonViolent: 8 };
+    expect(footfallAdjustedCount(pools, 0)).toBeCloseTo(11, 9);
+    expect(footfallAdjustedCount(pools, 1)).toBeCloseTo(3 + 8 / Math.sqrt(3), 9);
+    expect(footfallAdjustedCount({ violent: 3, nonViolent: 0 }, 1)).toBe(3);
+    expect(footfallAdjustedCount(pools, undefined)).toBeCloseTo(11, 9);
+  });
+
+  test('guardian bonus is 0.03 per camera plus 0.02 per open venue, capped at 0.15', () => {
+    expect(guardianBonus({ cctvCount: 0, openVenues: 0 })).toBe(0);
+    expect(guardianBonus({ cctvCount: 1, openVenues: 2 })).toBeCloseTo(0.07, 9);
+    expect(guardianBonus({ cctvCount: 3, openVenues: 12 })).toBe(0.15);
+  });
+
+  test('crimeRisk multiplies risk by (1 - guardian) and defaults to no change', () => {
+    const args = { weightedCount: 6, exposureKm: 2, priorRate: 1 };
+    const plain = crimeRisk(args);
+    expect(crimeRisk({ ...args, guardian: 0.1 }).risk).toBeCloseTo(plain.risk * 0.9, 12);
+    expect(crimeRisk({ ...args, guardian: 0 }).risk).toBe(plain.risk);
+    expect(() => crimeRisk({ ...args, guardian: -0.1 })).toThrow(TypeError);
+    expect(() => crimeRisk({ ...args, guardian: 1.5 })).toThrow(TypeError);
+  });
+});

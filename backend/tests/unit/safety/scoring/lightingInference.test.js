@@ -590,3 +590,31 @@ describe('crossing structure (footway-like way over a motorway/trunk)', () => {
     expect(() => infer({ highway: 'footway' }, { crossing: 'yes' })).toThrow(TypeError);
   });
 });
+
+
+describe('weak lit tag (spec section 12)', () => {
+  const lit = { highway: 'footway', lit: 'yes' };
+  const input = { tags: lit, lampCount30m: 0, areaLampDensityPerKm: 5, areaWayKm: 2, nearRoad: false };
+
+  test('weakLitTag turns a lit=yes tag into 0.7 / n 6 evidence', () => {
+    expect(inferLighting({ ...input, crossing: true, weakLitTag: true })).toEqual({ pLit: 0.7, n: 6, source: 'weak-tag' });
+  });
+
+  test('without the flag lit=yes is unchanged (0.95 / n 20)', () => {
+    expect(inferLighting({ ...input, crossing: true })).toEqual({ pLit: 0.95, n: 20, source: 'tag' });
+  });
+
+  test('the flag changes nothing for other lit tags', () => {
+    expect(inferLighting({ ...input, tags: { highway: 'footway', lit: 'no' }, weakLitTag: true }).pLit).toBe(0.05);
+    expect(inferLighting({ ...input, tags: { highway: 'footway', lit: 'limited' }, weakLitTag: true }).pLit).toBe(0.5);
+    expect(inferLighting({ ...input, tags: { highway: 'footway' }, weakLitTag: true }).source).not.toBe('weak-tag');
+  });
+
+  test('a mapped lamp within reach restores the strong tag (the flag is for lamp-less ways only)', () => {
+    expect(inferLighting({ ...input, lampCount30m: 2, weakLitTag: true })).toEqual({ pLit: 0.95, n: 20, source: 'tag' });
+  });
+
+  test('rejects a non-boolean flag', () => {
+    expect(() => inferLighting({ ...input, weakLitTag: 'yes' })).toThrow(TypeError);
+  });
+});

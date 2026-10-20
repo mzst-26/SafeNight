@@ -134,3 +134,21 @@ describe('safeRoutesMetaBuilder', () => {
     });
   });
 });
+
+describe('meta.time', () => {
+  const { resolveTripTime } = require('../../../../src/safety/routes/safeRoutesTime');
+  const args = {
+    straightLineKm: 1, maxDistanceKm: 10, responseRoutes: [], roadCount: 1, crimes: [],
+    allData: { lights: { elements: [] }, cctv: { elements: [] }, places: { elements: [] }, transit: { elements: [] } },
+    elapsed: 1, phase1Time: 0, dataTime: 0, graphTime: 0, pathfindTime: 0, recorrectionMs: 0, crimeStatus: 'ok',
+  };
+  test('is included when a trip is given', () => {
+    const trip = resolveTripTime({ leaveAt: Date.parse('2026-10-20T17:10:00Z'), nowMs: Date.parse('2026-10-20T17:00:00Z'), etaSec: 60 });
+    expect(buildSafeRoutesMeta({ ...args, trip }).time).toEqual({
+      mode: 'leave_at', leaveAtIso: '2026-10-20T17:10:00.000Z', arriveByIso: null, timezone: 'Europe/London',
+    });
+  });
+  test('is absent without a trip', () => {
+    expect(buildSafeRoutesMeta(args).time).toBeUndefined();
+  });
+});

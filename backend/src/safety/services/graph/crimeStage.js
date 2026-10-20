@@ -2,7 +2,9 @@
  * Crime factor: crime rows to recency-weighted counts, 500 m cells with road exposure, an area prior, and the
  * per-edge empirical-Bayes risk. An outage leaves the factor unknown, never safe.
  */
-const { crimeRisk, weightedCrimeCount } = require('../../scoring/crimeRisk');
+const {
+  crimeRisk, weightedCrimePools, footfallAdjustedCount, guardianBonus,
+} = require('../../scoring/crimeRisk');
 const { GRAPH, CRIME_STATUS } = require('../../scoring/config');
 
 /** Calendar month index (year * 12 + zero-based month) of a 'YYYY-MM' string, or null if malformed. */
@@ -74,7 +76,9 @@ function buildCrimeModel(crimes, bbox, segments, totalWayKm, tick) {
   const cellAt = (key) => {
     let cell = cells.get(key);
     if (!cell) {
-      cell = { crimes: [], weightedCount: 0, exposureKm: 0 };
+      cell = {
+        crimes: [], violent: 0, nonViolent: 0, weightedCount: 0, exposureKm: 0,
+      };
       cells.set(key, cell);
     }
     return cell;
@@ -84,7 +88,12 @@ function buildCrimeModel(crimes, bbox, segments, totalWayKm, tick) {
   inBbox.forEach((crime, i) => cellAt(cellKeyOf(crime.lat, crime.lng)).crimes.push(weightedRows[i]));
   let totalWeighted = 0;
   for (const cell of cells.values()) {
-    cell.weightedCount = weightedCrimeCount(cell.crimes);
+    // Pedestrian-relevance weights, split into the violent pool (never discounted) and the rest (discounted by
+    // presence per edge in crimeFactorAt). weightedCount is their undiscounted sum.
+    const pools = weightedCrimePools(cell.crimes);
+    cell.violent = pools.violent;
+    cell.nonViolent = pools.nonViolent;
+    cell.weightedCount = pools.violent + pools.nonViolent;
     totalWeighted += cell.weightedCount;
   }
   for (const p of segments) cellAt(cellKeyOf(p.midLat, p.midLng)).exposureKm += p.dist / 1000;
@@ -98,16 +107,20 @@ function buildCrimeModel(crimes, bbox, segments, totalWayKm, tick) {
  * @param {number} midLat
  * @param {number} midLng
  * @param {'ok'|'unavailable'} crimeStatus
+ * @param {{presence?: number, cctvCount?: number, openVenues?: number}} [context] presence at the build hour
+ *   divides the non-violent pool by (1 + 2P)^0.5; cameras and open venues within 80 m give the capped guardian bonus.
+ *   Omitted: no discount, no bonus.
  * @returns {{safety: number|null, n: number}}
  */
-function crimeFactorAt(model, midLat, midLng, crimeStatus) {
+function crimeFactorAt(model, midLat, midLng, crimeStatus, { presence = 0, cctvCount = 0, openVenues = 0 } = {}) {
   if (crimeStatus !== CRIME_STATUS.OK) return { safety: null, n: 0 };
   const cell = model.cells.get(model.cellKeyOf(midLat, midLng));
   const crime = crimeRisk({
-    weightedCount: cell.weightedCount,
+    weightedCount: footfallAdjustedCount({ violent: cell.violent, nonViolent: cell.nonViolent }, presence),
     exposureKm: cell.exposureKm,
     priorRate: model.priorRate,
     status: CRIME_STATUS.OK,
+    guardian: guardianBonus({ cctvCount, openVenues }),
   });
   return { safety: 1 - crime.risk, n: crime.n };
 }

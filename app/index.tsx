@@ -2080,6 +2080,8 @@ export default function HomeScreen() {
                 }
                 onSelectDestinationCandidate={h.selectDestinationCandidate}
                 onFindSafeRoutes={h.activateSelectedDestinationCandidate}
+                tripTime={h.tripTime}
+                onTripTimeChange={h.setTripTime}
                 embedded
                 savedPlaces={savedPlaces}
                 onSelectSavedPlace={handleSelectSavedPlace}
@@ -2315,6 +2317,8 @@ export default function HomeScreen() {
               selectedDestinationCandidateId={h.selectedDestinationCandidateId}
               onSelectDestinationCandidate={h.selectDestinationCandidate}
               onFindSafeRoutes={h.activateSelectedDestinationCandidate}
+              tripTime={h.tripTime}
+              onTripTimeChange={h.setTripTime}
               renderCandidatesInSheet
               hasResults={
                 h.routes.length > 0 ||
@@ -2605,6 +2609,8 @@ export default function HomeScreen() {
             selectedDestinationCandidateId={h.selectedDestinationCandidateId}
             onSelectDestinationCandidate={h.selectDestinationCandidate}
             onFindSafeRoutes={h.activateSelectedDestinationCandidate}
+            tripTime={h.tripTime}
+            onTripTimeChange={h.setTripTime}
             renderCandidatesInSheet
             hasResults={
               h.routes.length > 0 ||

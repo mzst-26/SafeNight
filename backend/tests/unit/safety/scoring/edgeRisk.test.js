@@ -415,3 +415,27 @@ describe('edgeRisk prudent uncertainty load (we price what we do not know)', () 
     expect(r.risk).toBeGreaterThan(0);
   });
 });
+
+describe('edgeRisk per-factor prior override (hour-dependent activity prior)', () => {
+  const full = {
+    lighting: { safety: 0.8, n: 10 }, crime: { safety: 0.8, n: 10 }, road: { safety: 0.8, n: 10 },
+    isolation: { safety: 0.8, n: 10 },
+  };
+
+  test('an unavailable factor with a prior uses it instead of the config prior, with n still 0', () => {
+    const base = edgeRisk({ factors: { ...full, activity: { safety: null, n: 0 } }, weights: WEIGHTS });
+    const lower = edgeRisk({ factors: { ...full, activity: { safety: null, n: 0, prior: 0.25 } }, weights: WEIGHTS });
+    const equal = edgeRisk({ factors: { ...full, activity: { safety: null, n: 0, prior: 0.4 } }, weights: WEIGHTS });
+    expect(lower.risk).toBeGreaterThan(base.risk);
+    expect(equal.risk).toBeCloseTo(base.risk, 12);
+    expect(lower.certainty).toBeCloseTo(base.certainty, 12);
+  });
+
+  test('the prior is ignored when a safety is observed and validated when used', () => {
+    const observed = { safety: 0.5, n: 8, prior: 0.1 };
+    const a = edgeRisk({ factors: { ...full, activity: observed }, weights: WEIGHTS });
+    const b = edgeRisk({ factors: { ...full, activity: { safety: 0.5, n: 8 } }, weights: WEIGHTS });
+    expect(a.risk).toBe(b.risk);
+    expect(() => edgeRisk({ factors: { ...full, activity: { safety: null, n: 0, prior: 2 } }, weights: WEIGHTS })).toThrow(TypeError);
+  });
+});

@@ -11,11 +11,14 @@ const path = require('path');
 const { buildGraph, routeSafetyBreakdown } = require(path.resolve(__dirname, '../../../../src/safety/services/safetyGraph'));
 const { safetyLabel } = require(path.resolve(__dirname, '../../../../src/safety/routes/safeRoutesUtils'));
 const {
-  NIGHT, DAY, ARCHETYPES, RANGES, ROUTES, routeEdgeIdxs,
+  NIGHT, DAY, ARCHETYPES, RANGES, ROUTES, routeEdgeIdxs, CITY, ARCHETYPE_OPTIONS,
 } = require('./fixtures/calibrationScenes');
 
 // crimeStatus is explicit: a missing status is an outage (fail closed), and the archetype ranges assume crime data.
-const OPTIONS = { level: 'extra', crimeStatus: 'ok', ...NIGHT };
+// The settlement class is injected (Plymouth is a city) so the calibration never depends on the shipped gazetteer.
+const OPTIONS = {
+  level: 'extra', crimeStatus: 'ok', settlementClassAt: CITY, ...NIGHT,
+};
 
 async function graphOf(scene, options = OPTIONS) {
   return buildGraph(scene.roadData, scene.lightData, scene.cctvData, scene.placeData,
@@ -35,7 +38,8 @@ function scoreOf(edge) {
 
 /** Scores every archetype once (the graph build is the slow part). */
 const scoreCache = {};
-async function archetypeScore(letter, options = OPTIONS) {
+async function archetypeScore(letter, baseOptions = OPTIONS) {
+  const options = { ...baseOptions, ...(ARCHETYPE_OPTIONS[letter] || {}) };
   const key = `${letter}:${JSON.stringify(options, (k, v) => (k === 'now' ? String(v) : v))}`;
   if (!scoreCache[key]) {
     const graph = await graphOf(ARCHETYPES[letter](), options);
@@ -56,6 +60,10 @@ describe('v2 calibration: single-street archetypes at night', () => {
     H1: 'dead-end service lane, lighting unknown, no places',
     H2: 'dead-end service lane tagged lit=no',
     K: 'tertiary lit=yes with sidewalk, quiet',
+    P: 'lit=yes footway through the middle of a park, 150 m from any street, no places, city class',
+    Q: 'lit secondary high street in a city centre: 8 open places, 2 CCTV, bus stop',
+    T: 'lit residential street, no venue nearby, in a town',
+    M: 'the same street in a metropolis',
   };
 
   test('every archetype scene has a description and a range, and no more', () => {
@@ -110,6 +118,59 @@ describe('v2 calibration: single-street archetypes at night', () => {
     expect(h2.edge.litEstimate).toBe('unlit');
     expect(e.edge.pLit).toBeCloseTo(0.33 * 0.6, 6); // isolated footway prior 0.33 times the absence factor 0.6
     expect(f.edge.litEstimate).toBe('unlit');
+  });
+});
+
+describe('v2 calibration: presence, remoteness and settlement size (spec section 12)', () => {
+  // By day a lit park path is fine: footway-like road-class scores were raised (config ROAD_TYPE_SCORES), and the
+  // remoteness hazard is zero in daylight. Daytime range 60 to 80; at night the same path stays Moderate (range P).
+  test('P: the same lit park path at 14:00 scores 60 to 80 (remoteness is a night hazard only) and above P at night', async () => {
+    const day = await archetypeScore('P', {
+      ...OPTIONS, hour: 14, now: new Date('2026-06-21T13:00:00Z'),
+    });
+    const night = await archetypeScore('P');
+    expect(day.graph.darkness).toBeCloseTo(0, 6);
+    expect(day.score).toBeGreaterThanOrEqual(60);
+    expect(day.score).toBeLessThanOrEqual(80);
+    expect(day.score).toBeGreaterThan(night.score);
+  });
+
+  test('P at night is far below P by day, and below the lit sidewalk D that sits beside streets', async () => {
+    const night = await archetypeScore('P');
+    const d = await archetypeScore('D');
+    expect(night.edge.remoteness).toBeGreaterThanOrEqual(0.75);
+    expect(night.score).toBeLessThan(d.score - 8);
+    expect(night.edge.cause).toBe('isolation');
+  });
+
+  test('Q: a lit city-centre street scores at least 10 points above a quiet lit residential street (A)', async () => {
+    const q = await archetypeScore('Q');
+    const a = await archetypeScore('A');
+    expect(q.score).toBeGreaterThanOrEqual(a.score + 10);
+  });
+
+  test('T and M: the same lit residential street is Safe in a town, and scores below the metropolis one', async () => {
+    const town = await archetypeScore('T');
+    const metropolis = await archetypeScore('M');
+    expect(safetyLabel(town.score).label).toMatch(/Safe/);
+    expect(town.score).toBeGreaterThanOrEqual(60);
+    expect(town.edge.risk).toBeGreaterThan(metropolis.edge.risk);
+    expect(town.edge.presence).toBeLessThan(metropolis.edge.presence);
+  });
+
+  test('a Plymouth-like suburb street (A) stays within 4 points of its pre-presence score (68)', async () => {
+    const a = await archetypeScore('A');
+    expect(Math.abs(a.score - 68)).toBeLessThanOrEqual(4);
+  });
+
+  test('the same street is never safer in a smaller settlement (rural <= village <= town <= city <= metropolis)', async () => {
+    const order = ['rural', 'village', 'town', 'largeTown', 'city', 'metropolis'];
+    const risks = [];
+    for (const klass of order) {
+      const { edge } = await archetypeScore('A', { ...OPTIONS, settlementClassAt: () => ({ class: klass }) });
+      risks.push(edge.risk);
+    }
+    for (let i = 1; i < risks.length; i++) expect(risks[i]).toBeLessThanOrEqual(risks[i - 1] + 1e-12);
   });
 });
 

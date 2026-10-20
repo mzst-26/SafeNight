@@ -46,7 +46,7 @@ function lineAngleDeg(b1, b2) {
  * @param {Array<{aLat: number, aLng: number, bLat: number, bLng: number}>} segments
  * @returns {{grid: Map<string, Array<{lat: number, lng: number}>>, cellSize: number}}
  */
-function buildRoadProximityIndex(segments) {
+function buildRoadProximityIndex(segments, cellDeg = GRID_CELL_DEG) {
   const samples = [];
   for (const { aLat, aLng, bLat, bLng } of segments) {
     const length = fastDistance(aLat, aLng, bLat, bLng);
@@ -58,7 +58,7 @@ function buildRoadProximityIndex(segments) {
       samples.push({ lat: aLat + (bLat - aLat) * t, lng: aLng + (bLng - aLng) * t, bearing, segment });
     }
   }
-  return buildSpatialGrid(samples, 'lat', 'lng', GRID_CELL_DEG);
+  return buildSpatialGrid(samples, 'lat', 'lng', cellDeg);
 }
 
 /** Calls visit(sample, distanceM) for every indexed sample within radiusM of the point. */
@@ -86,6 +86,18 @@ function nearestSample(index, lat, lng, radiusM) {
   forEachSampleWithin(index, lat, lng, radiusM, (sample, d) => {
     if (d < bestDist) { best = sample; bestDist = d; }
   });
+  return best;
+}
+
+/**
+ * Distance in metres to the nearest indexed sample within maxM of the point, or Infinity when none is.
+ * Sampling overstates the distance by under a metre at the radii used for remoteness.
+ * @param {{grid: Map, cellSize: number}} index - from buildRoadProximityIndex
+ * @returns {number}
+ */
+function nearestRoadDistance(index, lat, lng, maxM) {
+  let best = Infinity;
+  forEachSampleWithin(index, lat, lng, maxM, (sample, d) => { if (d < best) best = d; });
   return best;
 }
 
@@ -186,14 +198,20 @@ function pieceCrossesBarrier(piece, barriers, nearM, minAngleDeg) {
  * @param {Array<{a: {lat: number, lng: number}, b: {lat: number, lng: number}}>} segments - the way, in any order
  * @param {{grid: Map, cellSize: number}} roadIndex - qualifying streets (ROAD_HIGHWAYS), from buildRoadProximityIndex
  * @param {{grid: Map, cellSize: number}|null} barrierIndex - motorway/trunk segments, or null when unknown
+ * @param {{bridge?: boolean}} [options] - bridge: the OSM way is tagged bridge=yes (optional; absent changes nothing).
+ *   A bridge within BRIDGE_NEAR_M of a barrier road at more than BRIDGE_MIN_ANGLE_DEG passes over it: crossing.
  * @returns {'alongside'|'crossing'|'isolated'}
  */
-function classifyWayContext(segments, roadIndex, barrierIndex) {
+function classifyWayContext(segments, roadIndex, barrierIndex, { bridge = false } = {}) {
   const { points, pieces, totalM } = samplePath(segments);
   if (points.length === 0) return 'isolated';
   const cfg = LIGHTING.WAY_CONTEXT;
 
   if (barrierIndex && pieces.some((piece) => pieceCrossesBarrier(piece, barrierIndex, cfg.CROSSING_NEAR_M, cfg.CROSSING_MIN_ANGLE_DEG))) {
+    return 'crossing';
+  }
+  if (bridge === true && barrierIndex
+    && pieces.some((piece) => pieceCrossesBarrier(piece, barrierIndex, cfg.BRIDGE_NEAR_M, cfg.BRIDGE_MIN_ANGLE_DEG))) {
     return 'crossing';
   }
 
@@ -207,5 +225,5 @@ function classifyWayContext(segments, roadIndex, barrierIndex) {
 }
 
 module.exports = {
-  buildRoadProximityIndex, isNearRoad, classifyWayContext, ROAD_HIGHWAYS, BARRIER_HIGHWAYS,
+  buildRoadProximityIndex, isNearRoad, nearestRoadDistance, classifyWayContext, ROAD_HIGHWAYS, BARRIER_HIGHWAYS,
 };

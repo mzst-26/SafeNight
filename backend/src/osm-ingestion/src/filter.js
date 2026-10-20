@@ -14,6 +14,8 @@ const { DATA_DIR } = require('./config');
 const WAY_KEEP_TAGS = new Set([
   'highway', 'name', 'lit', 'sidewalk', 'cycleway', 'busway',
   'surface', 'access', 'oneway', 'maxspeed',
+  // Crossing structures: a footbridge or tunnel is not lit by the road it passes over (scoring/roadProximity.js).
+  'bridge', 'layer', 'tunnel',
 ]);
 
 // Highway values we keep

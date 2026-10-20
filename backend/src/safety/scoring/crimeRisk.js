@@ -9,7 +9,7 @@
 
 const { CRIME, CRIME_STATUS } = require('./config');
 const { assertFinite, assertNonNegative } = require('./validation');
-const { severityOf } = require('../services/crimeSeverity');
+const { severityOf, relevanceOf, isViolentCategory } = require('../services/crimeSeverity');
 
 // Same values as config.CRIME_STATUS, which is the single source; kept as names for existing importers.
 const STATUS_OK = CRIME_STATUS.OK;
@@ -57,6 +57,49 @@ function weightedCrimeCount(crimes, { halfLifeMonths = CRIME.HALF_LIFE_MONTHS } 
 }
 
 /**
+ * Recency-weighted crime counts split into the violent pool (never discounted for footfall) and the non-violent
+ * pool, both using pedestrian-relevance weights. Same row handling as weightedCrimeCount.
+ *
+ * @param {Array<{category: string, monthsAgo: number}>} crimes
+ * @param {{halfLifeMonths?: number}} [options]
+ * @returns {{violent: number, nonViolent: number}}
+ * @throws {TypeError} If crimes is not an array.
+ */
+function weightedCrimePools(crimes, { halfLifeMonths = CRIME.HALF_LIFE_MONTHS } = {}) {
+  if (!Array.isArray(crimes)) throw new TypeError('crimes must be an array');
+  const pools = { violent: 0, nonViolent: 0 };
+  for (const crime of crimes) {
+    if (!crime) continue;
+    const usableAge = Number.isFinite(crime.monthsAgo) && crime.monthsAgo >= 0;
+    const weight = relevanceOf(crime.category) * recencyWeight(usableAge ? crime.monthsAgo : 0, halfLifeMonths);
+    if (isViolentCategory(crime.category)) pools.violent += weight;
+    else pools.nonViolent += weight;
+  }
+  return pools;
+}
+
+/**
+ * Weighted count with the non-violent pool divided by (1 + K*P)^BETA, P the presence at the build hour: busy
+ * places record more petty crime because more people are there. The violent pool has no divisor.
+ * @param {{violent: number, nonViolent: number}} pools
+ * @param {number} [presence=0] In [0, 1]; missing or invalid means no discount.
+ * @returns {number}
+ */
+function footfallAdjustedCount({ violent, nonViolent }, presence = 0) {
+  const p = Number.isFinite(presence) ? Math.min(1, Math.max(0, presence)) : 0;
+  return violent + nonViolent / Math.pow(1 + CRIME.FOOTFALL_K * p, CRIME.FOOTFALL_BETA);
+}
+
+/**
+ * Capped guardian bonus g: cameras and open venues within 80 m watch the street.
+ * @param {{cctvCount: number, openVenues: number}} counts
+ * @returns {number} g in [0, GUARDIAN_MAX]
+ */
+function guardianBonus({ cctvCount = 0, openVenues = 0 }) {
+  return Math.min(CRIME.GUARDIAN_MAX, CRIME.GUARDIAN_CCTV * cctvCount + CRIME.GUARDIAN_VENUE * openVenues);
+}
+
+/**
  * Empirical-Bayes crime risk for one cell or segment.
  *
  *   lambda = (weightedCount + k * priorRate) / (exposureKm + k)
@@ -72,6 +115,7 @@ function weightedCrimeCount(crimes, { halfLifeMonths = CRIME.HALF_LIFE_MONTHS } 
  * @param {number} params.priorRate Area mean in weighted crimes per km, >= 0.
  * @param {number} [params.priorStrength=CRIME.PRIOR_STRENGTH] Prior weight k in km-equivalents, > 0.
  * @param {'ok'|'unavailable'} [params.status='ok']
+ * @param {number} [params.guardian=0] Guardian bonus g in [0, 1]: risk is multiplied by (1 - g). Applies to every crime.
  * @returns {{risk: number, lambda: number, n: number, status: string}}
  * @throws {TypeError} On invalid inputs.
  */
@@ -81,6 +125,7 @@ function crimeRisk({
   priorRate,
   priorStrength = CRIME.PRIOR_STRENGTH,
   status = STATUS_OK,
+  guardian = 0,
 }) {
   assertNonNegative('weightedCount', weightedCount);
   assertNonNegative('exposureKm', exposureKm);
@@ -89,6 +134,8 @@ function crimeRisk({
   if (priorStrength <= 0) {
     throw new TypeError('priorStrength must be a finite number > 0');
   }
+  assertFinite('guardian', guardian);
+  if (guardian < 0 || guardian > 1) throw new TypeError('guardian must be in [0, 1]');
   if (!VALID_STATUSES.has(status)) {
     throw new TypeError(`status must be one of: ${[...VALID_STATUSES].join(', ')}`);
   }
@@ -98,7 +145,7 @@ function crimeRisk({
     ? priorRate
     : (weightedCount + priorStrength * priorRate) / (exposureKm + priorStrength);
   const n = unavailable ? 0 : exposureKm / (exposureKm + priorStrength);
-  const risk = -Math.expm1(-lambda / CRIME.RATE_SCALE);
+  const risk = -Math.expm1(-lambda / CRIME.RATE_SCALE) * (1 - guardian);
 
   return { risk, lambda, n, status };
 }
@@ -106,6 +153,9 @@ function crimeRisk({
 module.exports = {
   recencyWeight,
   weightedCrimeCount,
+  weightedCrimePools,
+  footfallAdjustedCount,
+  guardianBonus,
   crimeRisk,
   // Crime data outage states, shared with the crime client and the route cache.
   STATUS_OK,

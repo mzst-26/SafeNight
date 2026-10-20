@@ -10,10 +10,12 @@ const { buildGraph, routeSafetyBreakdown } = require(path.join(__dirname, '..', 
 const { safetyLabel } = require(path.join(__dirname, '..', '..', 'src', 'safety', 'routes', 'safeRoutesUtils'));
 const fixtures = require(path.join(__dirname, '..', '..', 'tests', 'unit', 'safety', 'scoring', 'fixtures', 'calibrationScenes'));
 
-const { NIGHT, ARCHETYPES, ROUTES, routeEdgeIdxs } = fixtures;
+const {
+  NIGHT, ARCHETYPES, ROUTES, routeEdgeIdxs, CITY, ARCHETYPE_OPTIONS = {},
+} = fixtures;
 const RANGES = fixtures.RANGES || {};
 
-async function graphOf(scene, options = { level: 'extra', crimeStatus: 'ok', ...NIGHT }) {
+async function graphOf(scene, options = { level: 'extra', crimeStatus: 'ok', settlementClassAt: CITY, ...NIGHT }) {
   return buildGraph(scene.roadData, scene.lightData, scene.cctvData, scene.placeData,
     scene.transitData, scene.crimes, scene.bbox, options);
 }
@@ -21,12 +23,14 @@ async function graphOf(scene, options = { level: 'extra', crimeStatus: 'ok', ...
 async function main() {
   const rows = [];
   for (const letter of Object.keys(ARCHETYPES)) {
-    const graph = await graphOf(ARCHETYPES[letter]());
+    const graph = await graphOf(ARCHETYPES[letter](), {
+      level: 'extra', crimeStatus: 'ok', settlementClassAt: CITY, ...NIGHT, ...(ARCHETYPE_OPTIONS[letter] || {}),
+    });
     const edge = graph.edges.find((e) => e.roadName === 'target');
     const score = Math.round(100 * (1 - edge.risk));
     const range = RANGES[letter];
     const ok = range ? (score >= range[0] && score <= range[1] ? 'ok' : 'OUT') : '';
-    rows.push(`${letter.padEnd(3)} ${String(score).padStart(3)}  ${range ? `${range[0]}-${range[1]}`.padEnd(7) : ''.padEnd(7)} ${ok.padEnd(3)} pLit=${edge.pLit.toFixed(3)} eff=${edge.lightScore.toFixed(3)} ${edge.litEstimate}`);
+    rows.push(`${letter.padEnd(3)} ${String(score).padStart(3)}  ${range ? `${range[0]}-${range[1]}`.padEnd(7) : ''.padEnd(7)} ${ok.padEnd(3)} rem=${edge.remoteness.toFixed(2)} pres=${edge.presence.toFixed(2)} pLit=${edge.pLit.toFixed(3)} eff=${edge.lightScore.toFixed(3)} ${edge.litEstimate}`);
   }
   console.log('Archetype scores at 23:00');
   console.log(rows.join('\n'));

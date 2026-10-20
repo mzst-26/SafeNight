@@ -19,6 +19,7 @@ import {
 import { AppError } from '@/src/types/errors';
 import type { LatLng } from '@/src/types/geo';
 import { LimitError } from '@/src/types/limitError';
+import { timeBucketKey, type TimeParams } from '@/src/utils/tripTime';
 
 /** Round to 4 decimal places (~11 m) to avoid jitter re-fetches */
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -57,6 +58,7 @@ export function useSafeRoutes(
   subscriptionTier: string = 'free',
   maxDistanceKmOverride?: number,
   waypoint?: LatLng | null,
+  timeParams?: TimeParams,
 ): UseSafeRoutesState {
   const [status, setStatus] = useState<SafeRoutesStatus>('idle');
   const [routes, setRoutes] = useState<SafeRoute[]>([]);
@@ -66,6 +68,13 @@ export function useSafeRoutes(
   const [outOfRangeMessage, setOutOfRangeMessage] = useState('');
   const [meta, setMeta] = useState<SafeRoutesResponse['meta'] | null>(null);
   const cancelRef = useRef(0);
+  // Time lives in a ref so choosing a time never triggers a search by itself; the effect below
+  // re-runs the search only when one is already in flight or shown.
+  const timeRef = useRef<TimeParams | undefined>(timeParams);
+  timeRef.current = timeParams;
+  const timeKey = `${timeParams?.leave_at ?? ''}|${timeParams?.arrive_by ?? ''}`;
+  const statusRef = useRef<SafeRoutesStatus>('idle');
+  statusRef.current = status;
 
   // Stabilise coordinate references so the effect doesn't re-fire on every render
   const oLat = origin ? round4(origin.latitude) : null;
@@ -115,7 +124,7 @@ export function useSafeRoutes(
           `${stableDest.latitude.toFixed(4)},${stableDest.longitude.toFixed(4)}`,
       );
 
-      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint);
+      const result = await fetchSafeRoutes(stableOrigin, stableDest, subscriptionTier, maxDistanceKmOverride, stableWaypoint, timeRef.current);
 
       if (cancelRef.current !== batchId) return; // stale
 
@@ -167,6 +176,18 @@ export function useSafeRoutes(
       cancelRef.current++; // cancel on unmount
     };
   }, [refresh]);
+
+  // Re-run for a changed time (a different 15-minute bucket) only when routes are shown or loading.
+  const lastBucketRef = useRef(timeBucketKey(timeParams));
+  useEffect(() => {
+    const bucket = timeBucketKey(timeRef.current);
+    if (bucket === lastBucketRef.current) return;
+    lastBucketRef.current = bucket;
+    if (statusRef.current === 'ready' || statusRef.current === 'loading') {
+      refresh().catch(() => setStatus('error'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeKey]);
 
   const selectRoute = useCallback(
     (index: number) => {

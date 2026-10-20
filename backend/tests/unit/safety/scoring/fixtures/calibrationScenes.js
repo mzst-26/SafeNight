@@ -17,6 +17,11 @@ const ORIGIN = { lat: 50.3755, lng: -4.1427 }; // Plymouth
 const METRES_PER_DEG_LAT = 111320;
 const METRES_PER_DEG_LNG = 111320 * Math.cos((ORIGIN.lat * Math.PI) / 180);
 
+// Settlement class for the scenes: Plymouth is a city (about 260k). Injected so the calibration never depends on the
+// shipped gazetteer file.
+const settlementOf = (klass) => () => ({ class: klass, population: 0, name: 'synthetic', distanceKm: 0 });
+const CITY = settlementOf('city');
+
 const NIGHT = Object.freeze({ hour: 23, now: new Date('2026-10-19T22:30:00Z') });
 const DAY = Object.freeze({ hour: 12, now: new Date('2026-06-21T11:00:00Z') });
 const CRIME_MONTH = '2026-09';
@@ -35,10 +40,11 @@ function toLatLon([east, north]) {
  * Standard background grid: 20 east-west rows, 100 m apart, 50 m points, spanning east -500 to eastMax
  * (default 500, 1 km long). Route chains pass a larger eastMax so every route segment sits in a mapped area.
  */
-function backgroundWays(eastMax = 500) {
+function backgroundWays(eastMax = 500, minAbsNorth = 0) {
   const ways = [];
   for (let row = 0; row < 20; row++) {
     const north = -950 + row * 100;
+    if (Math.abs(north) < minAbsNorth) continue;
     const points = [];
     for (let east = -500; east <= eastMax; east += 50) points.push([east, north]);
     ways.push({ id: 1000 + row, tags: { highway: 'residential' }, points });
@@ -59,13 +65,14 @@ function backgroundWays(eastMax = 500) {
  * @param {Array<{at: [number, number], category: string, month?: string}>} [spec.crimes]
  * @param {boolean} [spec.background=true] Include the standard background grid.
  * @param {number} [spec.backgroundEastMax=500] East end of the background grid, in metres.
+ * @param {number} [spec.backgroundMinAbsNorth=0] Leave out background rows closer than this to north = 0 (an interior scene).
  * @returns {{roadData, lightData, cctvData, placeData, transitData, crimes, bbox}}
  */
 function buildScene({
   ways = [], lamps = [], places = [], cctv = [], transit = [], crimes = [], background = true,
-  backgroundEastMax = 500,
+  backgroundEastMax = 500, backgroundMinAbsNorth = 0,
 }) {
-  const allWays = background ? [...ways, ...backgroundWays(backgroundEastMax)] : ways;
+  const allWays = background ? [...ways, ...backgroundWays(backgroundEastMax, backgroundMinAbsNorth)] : ways;
   const nodes = new Map();
   let nextId = 1;
   const nodeIdOf = (point) => {
@@ -146,6 +153,12 @@ const TWO_PUBS = [
   { at: [MIDPOINT[0] + 15, -15], tags: { amenity: 'pub' } },
 ];
 
+/** Eight open food and drink venues within 80 m of the target midpoint (a city-centre street). */
+const CENTRE_PLACES = Array.from({ length: 8 }, (_, i) => ({
+  at: [MIDPOINT[0] - 35 + i * 10, i % 2 === 0 ? 12 : -12],
+  tags: { amenity: i % 3 === 0 ? 'restaurant' : i % 3 === 1 ? 'pub' : 'fast_food' },
+}));
+
 /** Archetype scenes, keyed by the spec letter. */
 const ARCHETYPES = {
   A: () => buildScene({ ways: continuedStreet(TAGS.litResidential), places: TWO_PUBS }),
@@ -194,6 +207,29 @@ const ARCHETYPES = {
   H2: () => buildScene({ ways: continuedStreet(TAGS.unlitServiceLane, { eastStub: false }) }),
 
   K: () => buildScene({ ways: continuedStreet(TAGS.litTertiary) }),
+
+  // P: a lit footway through the middle of a park: no street within 150 m (the background rows nearer than that are
+  // left out), no buildings, places or lamps; the path is tagged lit=yes (spec section 12: Moderate at night).
+  P: () => buildScene({ ways: continuedStreet(TAGS.litFootway), backgroundMinAbsNorth: 150 }),
+
+  // Q: a lit secondary high street in a city centre at night: eight open places, two cameras, a bus stop.
+  Q: () => buildScene({
+    ways: continuedStreet(TAGS.litSecondary),
+    places: CENTRE_PLACES,
+    cctv: [[MIDPOINT[0] + 5, 6], [MIDPOINT[0] - 30, -6]],
+    transit: [[MIDPOINT[0] - 10, 8]],
+  }),
+
+  // T: a lit residential street with no venue nearby in a town. M: the same street in a metropolis. Same scene; the
+  // settlement class is injected through ARCHETYPE_OPTIONS.
+  T: () => buildScene({ ways: continuedStreet(TAGS.litResidential) }),
+  M: () => buildScene({ ways: continuedStreet(TAGS.litResidential) }),
+};
+
+/** Build options per archetype beyond NIGHT: the settlement class (default city) and, for P, nothing else. */
+const ARCHETYPE_OPTIONS = {
+  T: { settlementClassAt: settlementOf('town') },
+  M: { settlementClassAt: settlementOf('metropolis') },
 };
 
 /**
@@ -212,6 +248,13 @@ const RANGES = {
   H1: [38, 58],
   H2: [15, 35],
   K: [65, 85],
+  // P: a lit interior park path is Moderate at 23:00 (spec section 12). At 14:00 it must score at least 65 (see the test).
+  P: [40, 58],
+  // Q: a lit city-centre street at 23:00 reads Safe or better.
+  Q: [75, 100],
+  // T: a lit residential street in a town stays Safe; M: the same street in a metropolis (higher: more people about).
+  T: [60, 85],
+  M: [60, 90],
 };
 
 /**
@@ -263,6 +306,9 @@ function routeEdgeIdxs(graph) {
 
 module.exports = {
   ORIGIN,
+  CITY,
+  settlementOf,
+  ARCHETYPE_OPTIONS,
   NIGHT,
   DAY,
   TARGET_LENGTH_M,

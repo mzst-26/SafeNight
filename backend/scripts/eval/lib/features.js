@@ -20,9 +20,9 @@ const path = require('path');
 const SRC = path.join(__dirname, '..', '..', '..', 'src', 'safety', 'services');
 const SCORING = path.join(__dirname, '..', '..', '..', 'src', 'safety', 'scoring');
 const { fastDistance, buildSpatialGrid, countNearby } = require(path.join(SRC, 'geo'));
-const { inferLighting, effectiveLit } = require(path.join(SCORING, 'lightingInference'));
+const { inferLighting, isWeakLitTag, effectiveLit } = require(path.join(SCORING, 'lightingInference'));
 const { buildRoadProximityIndex, isNearRoad, ROAD_HIGHWAYS } = require(path.join(SCORING, 'roadProximity'));
-const { LAMP_RADIUS_M } = require(path.join(SCORING, 'config'));
+const { LAMP_RADIUS_M, LAMP_NEAR_PATH_M } = require(path.join(SCORING, 'config'));
 
 const AREA_CELL_DEG = 0.003; // GRAPH.AREA_CELL_DEG in scoring/config.js
 const MIN_SEGMENT_M = 0.5; // GRAPH.MIN_EDGE_LENGTH_M: safetyGraph raises shorter segments to this
@@ -132,7 +132,10 @@ function lightingFeatures({ anchor, lampIndex, litIndex, areaWayKm, roadIndex })
   const areaLampCount = lampIndex.areaLamps.get(areaKeyOf(midLat, midLng)) || 0;
   const areaLampDensityPerKm = areaWayKm > 0 ? areaLampCount / areaWayKm : 0;
   const nearRoad = roadIndex ? isNearRoad(roadIndex, midLat, midLng) : undefined;
-  return { lampCount30m, litNeighbour, nearRoad, areaLampDensityPerKm, areaWayKm };
+  const lampCountNearPath = countNearby(lampIndex.grid, midLat, midLng, LAMP_NEAR_PATH_M);
+  return {
+    lampCount30m, lampCountNearPath, litNeighbour, nearRoad, areaLampDensityPerKm, areaWayKm,
+  };
 }
 
 /**
@@ -143,7 +146,9 @@ function lightingFeatures({ anchor, lampIndex, litIndex, areaWayKm, roadIndex })
  * @returns {{pLit: number, n: number, source: string, effective: number}}
  */
 function estimateLighting(tags, features) {
-  const estimate = inferLighting({ tags, ...features });
+  const { lampCountNearPath, ...inputs } = features;
+  const weakLitTag = lampCountNearPath !== undefined && isWeakLitTag({ tags, ...inputs, lampCountNearPath });
+  const estimate = inferLighting({ tags, ...inputs, weakLitTag });
   return { ...estimate, effective: effectiveLit(estimate) };
 }
 
