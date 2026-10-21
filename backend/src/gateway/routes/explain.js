@@ -7,7 +7,6 @@
  * Limits to top 3 routes. The comparison is computed in lib/explainFacts.js; the model only phrases it.
  */
 
-const crypto = require('crypto');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { buildComparisonFacts, buildExplainMessages } = require('../lib/explainFacts');
@@ -142,15 +141,11 @@ const evictExpired = () => {
 };
 
 /** Build a stable cache key from route data */
-const buildCacheKey = (routes, bestRouteId, mapImage) =>
-  // The whole sanitised payload, in input order ("Route N" labels follow it), plus the map image,
-  // so an explanation is only reused for exactly the same route data and picture.
-  JSON.stringify([
-    PROMPT_VERSION,
-    routes,
-    bestRouteId,
-    mapImage ? crypto.createHash('sha256').update(mapImage).digest('hex') : null,
-  ]);
+const buildCacheKey = (routes, bestRouteId) =>
+  // The whole sanitised payload, in input order ("Route N" labels follow it), so an explanation
+  // is only reused for exactly the same route data. The map picture is left out on purpose: each
+  // capture differs slightly, and keying on it would make the cache almost never hit.
+  JSON.stringify([PROMPT_VERSION, routes, bestRouteId]);
 
 /**
  * POST /api/explain-route
@@ -205,7 +200,7 @@ router.post('/explain-route', express.json({ limit: '450kb' }), explainLimiter, 
 
     // ── Check cache ──
     evictExpired();
-    const cacheKey = buildCacheKey(routes, bestRouteId, mapImage);
+    const cacheKey = buildCacheKey(routes, bestRouteId);
     const cached = explanationCache.get(cacheKey);
     if (cached) {
       console.log(`[OpenAI] ✅ Cache hit — skipping API call (${Date.now() - requestStartedAt}ms total)`);

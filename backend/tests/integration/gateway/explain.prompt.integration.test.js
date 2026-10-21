@@ -209,12 +209,13 @@ describe('POST /api/explain-route prompt', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('does not reuse a cached explanation for the same route with a different map image', async () => {
+  test('reuses the cached explanation for the same route data even when the map picture differs slightly', async () => {
     const app = loadApp();
     await request(app).post('/api/explain-route').send({ ...body('img5'), mapImage: PNG_URL });
-    await request(app).post('/api/explain-route').send({ ...body('img5'), mapImage: PNG_URL.replace('AAAAA', 'BBBBB') });
+    const again = await request(app).post('/api/explain-route').send({ ...body('img5'), mapImage: PNG_URL.replace('AAAAA', 'BBBBB') });
 
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(again.body.cached).toBe(true);
   });
 
   test('honours OPENROUTER_VISION_MODEL for image requests', async () => {
