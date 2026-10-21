@@ -36,3 +36,32 @@ describe('mapController registry', () => {
     expect(getMapController()).toBe(second);
   });
 });
+
+describe('named map controllers', () => {
+  afterEach(() => {
+    setMapController(null, 'agent');
+    setMapController(null, 'main');
+  });
+
+  test("the 'agent' controller is empty until its map registers", () => {
+    expect(getMapController('agent')).toBeNull();
+  });
+
+  test("'agent' and 'main' do not overwrite each other", () => {
+    const main = makeController();
+    const agent = makeController();
+    setMapController(main);
+    setMapController(agent, 'agent');
+    expect(getMapController()).toBe(main);
+    expect(getMapController('agent')).toBe(agent);
+  });
+
+  test("clearing 'agent' leaves 'main' registered", () => {
+    const main = makeController();
+    setMapController(main);
+    setMapController(makeController(), 'agent');
+    setMapController(null, 'agent');
+    expect(getMapController('agent')).toBeNull();
+    expect(getMapController()).toBe(main);
+  });
+});

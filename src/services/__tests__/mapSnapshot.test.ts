@@ -31,7 +31,7 @@ describe('captureMapSnapshot', () => {
   test('gives up after the timeout so the explanation is never blocked', async () => {
     jest.useFakeTimers();
     setMapSnapshotProvider(() => new Promise(() => {}));
-    const pending = captureMapSnapshot(3000);
+    const pending = captureMapSnapshot('main', 3000);
     jest.advanceTimersByTime(3000);
     await expect(pending).resolves.toBeNull();
   });
@@ -51,5 +51,26 @@ describe('isUsableSnapshot', () => {
 
   test('rejects images over about 300 KB', () => {
     expect(isUsableSnapshot(`data:image/jpeg;base64,${'A'.repeat(400_001)}`)).toBe(false);
+  });
+});
+
+describe('named snapshot providers', () => {
+  afterEach(() => {
+    setMapSnapshotProvider(null, 'agent');
+  });
+
+  test("'agent' and 'main' providers do not overwrite each other", async () => {
+    const AGENT = 'data:image/png;base64,iVBORw0KGgo=';
+    setMapSnapshotProvider(async () => JPEG);
+    setMapSnapshotProvider(async () => AGENT, 'agent');
+    await expect(captureMapSnapshot()).resolves.toBe(JPEG);
+    await expect(captureMapSnapshot('agent')).resolves.toBe(AGENT);
+    setMapSnapshotProvider(null);
+  });
+
+  test("'agent' capture is null when only 'main' is mounted", async () => {
+    setMapSnapshotProvider(async () => JPEG);
+    await expect(captureMapSnapshot('agent')).resolves.toBeNull();
+    setMapSnapshotProvider(null);
   });
 });

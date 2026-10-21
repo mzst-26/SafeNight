@@ -1,9 +1,11 @@
 /**
- * mapController — lets the AI Insights agent move the mounted map.
+ * mapController — lets the AI Insights agent move a mounted map.
  *
- * Same pattern as mapSnapshot: the map (Leaflet iframe on web, MapLibre WebView on native)
- * registers a controller while it is mounted and passes null on unmount. The agent only ever
- * calls these methods; it never supplies coordinates of its own (those come from candidate ids).
+ * Same pattern as mapSnapshot: each map (Leaflet iframe on web, MapLibre WebView on native)
+ * registers a controller under its instance name while it is mounted and passes null on unmount.
+ * 'main' is the walker's map; other names (e.g. 'agent', the AI bubble map) keep their own slot.
+ * The agent only ever calls these methods; it never supplies coordinates of its own (those come
+ * from candidate ids).
  */
 
 export interface MapBounds {
@@ -21,12 +23,13 @@ export interface MapController {
   highlight(routeId: string): boolean;
 }
 
-let controller: MapController | null = null;
+const controllers = new Map<string, MapController>();
 
 /** Called by the map on mount (with its controller) and on unmount (with null). */
-export const setMapController = (next: MapController | null): void => {
-  controller = next;
+export const setMapController = (next: MapController | null, name = 'main'): void => {
+  if (next) controllers.set(name, next);
+  else controllers.delete(name);
 };
 
-/** The mounted map's controller, or null when no map is mounted. */
-export const getMapController = (): MapController | null => controller;
+/** The named map's controller, or null when that map is not mounted. */
+export const getMapController = (name = 'main'): MapController | null => controllers.get(name) ?? null;

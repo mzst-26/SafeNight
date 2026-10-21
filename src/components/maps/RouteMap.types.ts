@@ -35,6 +35,8 @@ export type RouteMapProps = {
   selectedRouteId: string | null;
   /** Toggle for optional map detail overlays (currently road-name labels). */
   showExtraDetail?: boolean;
+  /** Which map this is. 'main' is the walker's map; 'agent' is the AI bubble map. Default 'main'. */
+  instanceId?: string;
   safetyMarkers?: SafetyMarker[];
   routeSegments?: RouteSegment[];
   roadLabels?: RoadLabel[];

@@ -1248,7 +1248,8 @@ export const RouteMap = ({
   onMapCenterChanged,
   onNavigationFollowChange,
   onUserInteraction,
-}: RouteMapProps) => {
+  instanceId = "main",
+}: RouteMapProps & { instanceId?: string }) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // The explanation asks the map for a picture of the route while this map is mounted.
@@ -1264,9 +1265,9 @@ export const RouteMap = ({
       out.height = Math.round(source.height * scale);
       out.getContext("2d")?.drawImage(source, 0, 0, out.width, out.height);
       return out.toDataURL("image/jpeg", 0.7);
-    });
-    return () => setMapSnapshotProvider(null);
-  }, []);
+    }, instanceId);
+    return () => setMapSnapshotProvider(null, instanceId);
+  }, [instanceId]);
 
   // The AI Insights agent moves this map through the functions the Leaflet page defines.
   useEffect(() => {
@@ -1300,9 +1301,9 @@ export const RouteMap = ({
           return false;
         }
       },
-    });
-    return () => setMapController(null);
-  }, []);
+    }, instanceId);
+    return () => setMapController(null, instanceId);
+  }, [instanceId]);
   const readyRef = useRef(false);
   const [hasError, setHasError] = useState(false);
   const prevGeoKeyRef = useRef("");

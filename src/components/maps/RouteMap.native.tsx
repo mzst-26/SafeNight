@@ -1912,7 +1912,8 @@ export const RouteMap = ({
   onNavigationFollowChange,
   onUserInteraction,
   showZoomControls = true,
-}: RouteMapProps) => {
+  instanceId = "main",
+}: RouteMapProps & { instanceId?: string }) => {
   const webViewRef = useRef<WebView>(null);
   const snapshotResolveRef = useRef<((url: string | null) => void) | null>(null);
 
@@ -1928,9 +1929,10 @@ export const RouteMap = ({
           snapshotResolveRef.current = resolve;
           webViewRef.current.injectJavaScript("window.rlSnapshot && window.rlSnapshot(); true;");
         }),
+      instanceId,
     );
-    return () => setMapSnapshotProvider(null);
-  }, []);
+    return () => setMapSnapshotProvider(null, instanceId);
+  }, [instanceId]);
 
   // The AI Insights agent moves this map by running the functions the MapLibre page defines.
   useEffect(() => {
@@ -1960,9 +1962,9 @@ export const RouteMap = ({
         run(`window.agentHighlight(${JSON.stringify(routeId)})`);
         return true;
       },
-    });
-    return () => setMapController(null);
-  }, []);
+    }, instanceId);
+    return () => setMapController(null, instanceId);
+  }, [instanceId]);
   const readyRef = useRef(false);
   const prevGeoKeyRef = useRef("");
   const prevPanKeyRef = useRef(-1);
