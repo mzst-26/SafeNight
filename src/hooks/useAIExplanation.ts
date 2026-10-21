@@ -20,15 +20,24 @@ export interface UseAIExplanationState {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level cache: keyed by a fingerprint of the search (route IDs + best)
-// so only ONE AI call is made per search. Persists across re-renders.
+// Module-level cache. The key is the exact data the model receives, not the route
+// ids: the client names routes safe-route-0, -1, -2 in every search, so ids alone
+// would hand one search's explanation to a different route.
 // ---------------------------------------------------------------------------
+const MAX_CACHED_EXPLANATIONS = 50;
 const explanationCache = new Map<string, string>();
 const inFlightExplanationRequests = new Map<string, Promise<string>>();
 
-/** Build a stable cache key from the set of route IDs + the chosen best */
-const buildCacheKey = (routes: DirectionsRoute[], bestRouteId: string): string =>
-  `${routes.map((r) => r.id).sort().join('|')}__best=${bestRouteId}`;
+const buildCacheKey = (compactRoutes: CompactRouteInfo[], bestRouteId: string): string =>
+  JSON.stringify([compactRoutes, bestRouteId]);
+
+const rememberExplanation = (key: string, text: string) => {
+  explanationCache.set(key, text);
+  // Map keeps insertion order, so the first key is the oldest.
+  while (explanationCache.size > MAX_CACHED_EXPLANATIONS) {
+    explanationCache.delete(explanationCache.keys().next().value as string);
+  }
+};
 
 export const useAIExplanation = (
   safetyResult: SafetyMapResult | null,
@@ -55,21 +64,6 @@ export const useAIExplanation = (
       setStatus('error');
       return;
     }
-
-    // ── Check client-side cache first ──
-    const cacheKey = buildCacheKey(routes, bestRouteId);
-    const cached = explanationCache.get(cacheKey);
-    if (cached) {
-      setExplanation(cached);
-      setStatus('ready');
-      setError(null);
-      activeCacheKeyRef.current = cacheKey;
-      return;
-    }
-
-    setStatus('loading');
-    setError(null);
-    setExplanation(null);
 
     // ── Build compact per-route data: aggregated totals only, top 3 ──
     const compactRoutes: CompactRouteInfo[] = routes.slice(0, 3).map((r) => {
@@ -113,6 +107,21 @@ export const useAIExplanation = (
       };
     });
 
+    // ── Check client-side cache first (keyed by the data sent, so only this exact route hits) ──
+    const cacheKey = buildCacheKey(compactRoutes, bestRouteId);
+    const cached = explanationCache.get(cacheKey);
+    if (cached) {
+      setExplanation(cached);
+      setStatus('ready');
+      setError(null);
+      activeCacheKeyRef.current = cacheKey;
+      return;
+    }
+
+    setStatus('loading');
+    setError(null);
+    setExplanation(null);
+
     const startedAt = Date.now();
     const existingInFlight = inFlightExplanationRequests.get(cacheKey);
     const rawPromise =
@@ -136,7 +145,7 @@ export const useAIExplanation = (
     requestPromise
       .then((text) => {
         // Store in client cache so repeat asks return instantly
-        explanationCache.set(cacheKey, text);
+        rememberExplanation(cacheKey, text);
         activeCacheKeyRef.current = cacheKey;
         console.log(`[AI] ✅ Explanation ready in ${Date.now() - startedAt}ms${existingInFlight ? ' (shared in-flight)' : ''}`);
         setExplanation(text);

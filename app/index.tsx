@@ -1830,7 +1830,9 @@ export default function HomeScreen() {
   });
   const openAIExplanation = () => {
     h.setShowAIModal(true);
-    if (h.ai.status === "idle") h.ai.ask();
+    // ask() is cache-aware: it answers at once for this exact route and asks the model otherwise,
+    // so an explanation from an earlier search is never shown for the current route.
+    h.ai.ask();
   };
 
   const mapFitBottomPadding = useMemo(() => {

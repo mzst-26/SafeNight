@@ -126,4 +126,17 @@ describe('POST /api/explain-route prompt', () => {
     expect(res.status).toBe(500);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  test('does not reuse a cached explanation when a route total differs', async () => {
+    const app = loadApp();
+    const first = body('tot1');
+    const second = body('tot1');
+    first.routes[0].totals = { crimes: 2, lights: 10, cctv: 1, places: 3, busStops: 0, deadEnds: 0 };
+    second.routes[0].totals = { crimes: 9, lights: 10, cctv: 1, places: 3, busStops: 0, deadEnds: 0 };
+
+    await request(app).post('/api/explain-route').send(first);
+    await request(app).post('/api/explain-route').send(second);
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
 });

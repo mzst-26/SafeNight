@@ -120,13 +120,10 @@ const evictExpired = () => {
 };
 
 /** Build a stable cache key from route data */
-const buildCacheKey = (routes, bestRouteId) => {
-  // Order is kept on purpose: "Route N" labels follow the input order.
-  const routePart = routes
-    .map((r) => `${r.routeId}:${r.distanceMeters}:${r.durationSeconds}:${r.score}:${JSON.stringify(r.breakdown ?? null)}`)
-    .join('|');
-  return `${routePart}__best=${bestRouteId}__${PROMPT_VERSION}`;
-};
+const buildCacheKey = (routes, bestRouteId) =>
+  // The whole sanitised payload, in input order ("Route N" labels follow it), so an explanation
+  // is only reused for exactly the same route data.
+  JSON.stringify([PROMPT_VERSION, routes, bestRouteId]);
 
 /**
  * POST /api/explain-route
