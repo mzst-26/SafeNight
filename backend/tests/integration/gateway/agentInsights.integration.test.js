@@ -1,7 +1,7 @@
 const express = require('express');
 const request = require('supertest');
 
-const MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+const MODEL = 'dots-studio/dots-3-note-preview:free';
 const KEY = 'test-key-not-real';
 
 function loadApp() {
@@ -106,7 +106,7 @@ describe('POST /api/agent-insights', () => {
     expect(JSON.stringify(res.body)).not.toContain(KEY);
   });
 
-  test('calls the default model with reasoning disabled and the tool definitions', async () => {
+  test('calls the default vision model (the round has a picture) with reasoning disabled and the tool definitions', async () => {
     global.fetch = jest.fn(async () => finishReply('Stay aware of your surroundings.'));
     const app = loadApp();
 

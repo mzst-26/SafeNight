@@ -16,6 +16,7 @@ const { cleanText } = require('./actions');
 const MAX_MODEL_CALLS = 2;
 const MAX_CHOICES = 3;
 const MAX_MESSAGE_WORDS = 100;
+const MIN_MESSAGE_WORDS = 4;
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_EXPAND_IDS = 3;
 const ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
@@ -129,6 +130,10 @@ const buildAgentMessages = (facts) => {
   const lines = [];
   const decision = facts.decision || {};
   lines.push(`Decision made by the app (do not change it): ${decision.kind || 'keep'} ${decision.label || ''}`.trim() + '.');
+  if (facts.round) {
+    const max = facts.maxRounds || 5;
+    lines.push(`This is round ${facts.round} of ${max}. Look at the map picture. When you are satisfied with the routes, call finish. Map tools are optional.`);
+  }
   if (decision.reasons && decision.reasons.length > 0) lines.push(`Reasons: ${decision.reasons.join(' ')}`);
   lines.push('Routes:');
   for (const route of facts.routes || []) lines.push(lineForRoute(route));
@@ -186,7 +191,8 @@ const CRIME_WORD_RE = /\b(mugg\w*|robb\w*|assault\w*|theft\w*|crime\w*|incident\
 const cleanMessage = (value, factsText) => {
   if (typeof value !== 'string') return null;
   const words = value.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0 || words.length > MAX_MESSAGE_WORDS) return null;
+  // A real message has a sentence or two; a stray token from the model is not used.
+  if (words.length < MIN_MESSAGE_WORDS || words.length > MAX_MESSAGE_WORDS) return null;
   const facts = factsText.toLowerCase();
   for (const match of value.matchAll(CRIME_WORD_RE)) {
     if (!facts.includes(match[1].toLowerCase().slice(0, 5))) return null;
@@ -235,15 +241,24 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
   for (let turn = 0; turn < maxCalls; turn += 1) {
     let reply;
     try {
-      reply = await callModel({ messages, tools });
+      // The last round must end with a message, so only the finish and recommendation tools are offered.
+      const lastRound = facts.round && facts.maxRounds && facts.round >= facts.maxRounds;
+      const offered = lastRound ? tools.filter((t) => ['finish', 'recommend_route'].includes(t.function.name)) : tools;
+      const toolChoice = lastRound ? { type: 'function', function: { name: 'finish' } } : 'auto';
+      reply = await callModel({ messages, tools: offered, toolChoice });
     } catch (error) {
       return FALLBACK(`model call failed (${error && error.message ? error.message : 'unknown error'})`);
     }
 
     const toolCalls = reply && Array.isArray(reply.tool_calls) ? reply.tool_calls : [];
-    if (toolCalls.length === 0) return FALLBACK('reply had no tool call');
+    if (toolCalls.length === 0) {
+      // A text reply after an action is not a failure: keep the actions and let the client ask for the next round.
+      if (rawActions.length > 0) break;
+      return FALLBACK('reply had no tool call');
+    }
 
     const toolResults = [];
+    let retry = false;
     for (const call of toolCalls) {
       const parsed = parseCall(call);
       if (!parsed) return FALLBACK('tool call was malformed');
@@ -255,6 +270,12 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
           .map((m) => textOf(m.content))
           .join('\n');
         const message = cleanMessage(parsed.args.message, factsText);
+        // An unusable message is asked again while calls are left: the model sometimes sends a stray token.
+        if (message === null && turn + 1 < maxCalls) {
+          debugWarn('finish message was empty, too long, or mentioned facts not in the input; asking again');
+          retry = true;
+          break;
+        }
         if (message === null) debugWarn('finish message was empty, too long, or mentioned facts not in the input');
         return { actions: validateActions(rawActions), question: null, message, status: 'done' };
       }
@@ -269,6 +290,7 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
       toolResults.push({ role: 'tool', tool_call_id: parsed.id, content: JSON.stringify({ ok: true }) });
     }
 
+    if (retry) continue;
     messages.push({ role: 'assistant', content: reply.content ?? null, tool_calls: toolCalls }, ...toolResults);
   }
 

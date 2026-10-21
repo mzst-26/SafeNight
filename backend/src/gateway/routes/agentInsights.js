@@ -20,6 +20,14 @@ const { expansionAllowed: corridorExpansionAllowed } = require('../agent/corrido
 const router = express.Router();
 
 const DEFAULT_AGENT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+// The text model cannot read images (OpenRouter answers 404 "No endpoints found that support image input"),
+// so a round with a map picture uses a free vision model that also supports tool calls.
+const DEFAULT_AGENT_VISION_MODEL = 'dots-studio/dots-3-note-preview:free';
+/** The model for one round: the vision model when the round has a picture, else the text model. */
+const chooseAgentModel = ({ snapshot, env = process.env }) =>
+  snapshot
+    ? env.OPENROUTER_AGENT_VISION_MODEL || DEFAULT_AGENT_VISION_MODEL
+    : env.OPENROUTER_AGENT_MODEL || DEFAULT_AGENT_MODEL;
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 /** One model call is capped at this many milliseconds; the loop makes at most 4 calls. */
 // One budget for the whole agent request, shared by its model calls. After it runs out the walker
@@ -179,7 +187,7 @@ const fixedMessage = (decision) => {
 };
 
 /** The model call, through OpenRouter, with reasoning off. It never runs past the request's deadline. */
-const callOpenRouter = ({ apiKey, model, deadline }) => async ({ messages, tools }) => {
+const callOpenRouter = ({ apiKey, model, deadline }) => async ({ messages, tools, toolChoice = 'auto' }) => {
   const budget = remainingBudgetMs(deadline);
   if (budget <= 0) throw new Error('agent time budget used up');
   const controller = new AbortController();
@@ -197,7 +205,7 @@ const callOpenRouter = ({ apiKey, model, deadline }) => async ({ messages, tools
         model,
         messages,
         tools,
-        tool_choice: 'auto',
+        tool_choice: toolChoice,
         max_tokens: 600,
         temperature: 0.2,
         reasoning: { enabled: false },
@@ -276,7 +284,7 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
   if (snapshot !== null && !apiKey) {
     console.error('[Agent Insights] OPENROUTER_API_KEY is not configured; returning the deterministic result');
   } else if (snapshot !== null) {
-    const model = process.env.OPENROUTER_AGENT_MODEL || DEFAULT_AGENT_MODEL;
+    const model = chooseAgentModel({ snapshot });
     try {
       agent = await runAgent({
         facts: {
@@ -284,6 +292,8 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
           snapshot,
           expansionAllowed,
           routeIds,
+          round,
+          maxRounds: MAX_ROUNDS,
         },
         tools: buildToolDefinitions({ routeIds, candidateIds, ringIds, expansionAllowed }),
         callModel: callOpenRouter({ apiKey, model, deadline: started + AGENT_BUDGET_MS }),
@@ -315,3 +325,6 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
 module.exports = router;
 module.exports.remainingBudgetMs = remainingBudgetMs;
 module.exports.AGENT_BUDGET_MS = AGENT_BUDGET_MS;
+module.exports.chooseAgentModel = chooseAgentModel;
+module.exports.DEFAULT_AGENT_MODEL = DEFAULT_AGENT_MODEL;
+module.exports.DEFAULT_AGENT_VISION_MODEL = DEFAULT_AGENT_VISION_MODEL;

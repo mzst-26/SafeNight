@@ -43,7 +43,7 @@ describe('runAgent', () => {
   });
 
   test('a finish call returns status done', async () => {
-    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' })));
 
     expect((await run(callModel)).status).toBe('done');
   });
@@ -54,7 +54,7 @@ describe('runAgent', () => {
       turn += 1;
       return turn === 1
         ? reply(toolCall('recommend_route', { routeId: 'r1' }))
-        : reply(toolCall('finish', { message: 'Done.' }));
+        : reply(toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' }));
     });
 
     const result = await runAgent({ facts, tools: [], callModel, validateActions: (raw) => validateRawActions(raw, { routeIds: ['r1'], candidateIds: [] }) });
@@ -82,7 +82,7 @@ describe('runAgent', () => {
   });
 
   test('a snapshot is sent as an image part next to the text', async () => {
-    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' })));
 
     await runAgent({ facts: { ...facts, snapshot: SNAPSHOT }, tools: [], callModel, validateActions });
 
@@ -96,7 +96,7 @@ describe('runAgent', () => {
   });
 
   test('without a snapshot the user message is text only', async () => {
-    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' })));
 
     await run(callModel);
 
@@ -120,31 +120,31 @@ describe('runAgent', () => {
       if (turn === 1) {
         return reply(toolCall('pan_to', { candidateId: 'p1' }), toolCall('pan_to', { candidateId: 'p9' }));
       }
-      return reply(toolCall('finish', { message: 'Done.' }));
+      return reply(toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' }));
     });
 
     const result = await run(callModel);
 
     expect(result.actions).toEqual([{ type: 'pan_to', candidateId: 'p1' }]);
-    expect(result.message).toBe('Done.');
+    expect(result.message).toBe('Done for now. Stay aware of your surroundings.');
   });
 
   test('a pan_to with a non-string candidate id is dropped, not fatal', async () => {
     const callModel = jest.fn(async () =>
-      reply(toolCall('pan_to', { candidateId: 7 }), toolCall('finish', { message: 'Done.' })),
+      reply(toolCall('pan_to', { candidateId: 7 }), toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' })),
     );
 
     const result = await run(callModel);
 
     expect(result.actions).toEqual([]);
-    expect(result.message).toBe('Done.');
+    expect(result.message).toBe('Done for now. Stay aware of your surroundings.');
   });
 
   test('sends tool results back to the model before the next call', async () => {
     let turn = 0;
     const callModel = jest.fn(async () => {
       turn += 1;
-      return turn === 1 ? reply(toolCall('zoom', { delta: 1 })) : reply(toolCall('finish', { message: 'Done.' }));
+      return turn === 1 ? reply(toolCall('zoom', { delta: 1 })) : reply(toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' }));
     });
 
     await run(callModel);
@@ -165,6 +165,75 @@ describe('runAgent', () => {
     expect(result.question.text).toBe('Which way?');
     expect(result.question.choices).toHaveLength(3);
     expect(result.question.choices.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
+  });
+
+  test('tells the model which round it is and that it may finish once satisfied', async () => {
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Stay aware of your surroundings.' })));
+
+    await runAgent({ facts: { ...facts, round: 2, maxRounds: 5 }, tools: [], callModel, validateActions: (raw) => raw });
+
+    const userText = JSON.stringify(callModel.mock.calls[0][0].messages.find((m) => m.role === 'user').content);
+    expect(userText).toContain('round 2 of 5');
+    expect(userText).toContain('finish');
+  });
+
+  test('a finish with an unusable message is asked again while the round has calls left', async () => {
+    let turn = 0;
+    const callModel = jest.fn(async () => {
+      turn += 1;
+      return turn === 1
+        ? reply(toolCall('finish', { message: '}' }))
+        : reply(toolCall('finish', { message: 'Route 1 is shorter. Stay aware of your surroundings.' }));
+    });
+
+    const result = await run(callModel);
+
+    expect(callModel).toHaveBeenCalledTimes(2);
+    expect(result.message).toBe('Route 1 is shorter. Stay aware of your surroundings.');
+    expect(result.status).toBe('done');
+  });
+
+  test('a finish message of fewer than four words is not used, so the fixed message is shown', async () => {
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: '}' })));
+
+    const result = await run(callModel);
+
+    expect(result.message).toBeNull();
+    expect(result.status).toBe('done');
+  });
+
+  test('on the last round only finish and recommend_route are offered, so the walker gets a message', async () => {
+    const offered = [];
+    const offeredChoice = [];
+    const callModel = jest.fn(async ({ tools, toolChoice }) => {
+      offered.push(tools.map((t) => t.function.name));
+      offeredChoice.push(toolChoice);
+      return reply(toolCall('finish', { message: 'Stay aware of your surroundings.' }));
+    });
+    const allTools = [
+      { type: 'function', function: { name: 'pan_to', parameters: {} } },
+      { type: 'function', function: { name: 'finish', parameters: {} } },
+      { type: 'function', function: { name: 'recommend_route', parameters: {} } },
+    ];
+
+    await runAgent({ facts: { ...facts, round: 5, maxRounds: 5 }, tools: allTools, callModel, validateActions: (raw) => raw });
+
+    expect(offered[0].sort()).toEqual(['finish', 'recommend_route']);
+    expect(offeredChoice[0]).toEqual({ type: 'function', function: { name: 'finish' } });
+  });
+
+  test('a text reply after an action keeps the action and asks for the next round', async () => {
+    let turn = 0;
+    const callModel = jest.fn(async () => {
+      turn += 1;
+      return turn === 1 ? reply(toolCall('zoom', { delta: -1 })) : { role: 'assistant', content: 'Looking at the map now.' };
+    });
+
+    const result = await run(callModel);
+
+    expect(result.status).toBe('continue');
+    expect(result.actions).toEqual([{ type: 'zoom', delta: -1 }]);
+    expect(result.message).toBeNull();
   });
 
   test('falls back when the model replies with text and no tool call', async () => {
@@ -274,7 +343,7 @@ describe('buildToolDefinitions', () => {
   });
 
   test('the system prompt limits talk about darkness, lighting and crime to listed facts', () => {
-    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done for now. Stay aware of your surroundings.' })));
     return run(callModel).then(() => {
       const system = callModel.mock.calls[0][0].messages[0].content;
       expect(system).toMatch(/Only talk about darkness, lighting or crime when they are listed/);
