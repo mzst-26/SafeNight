@@ -21,13 +21,26 @@ const router = express.Router();
 
 const DEFAULT_AGENT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 // The text model cannot read images (OpenRouter answers 404 "No endpoints found that support image input"),
-// so a round with a map picture uses a free vision model that also supports tool calls.
-const DEFAULT_AGENT_VISION_MODEL = 'dots-studio/dots-3-note-preview:free';
+// so a round with a map picture uses a free vision model that also supports tool calls. Chosen by a 3-run test
+// on a valid map picture: nemotron-3.5-super-vl gave a usable finish every time (dots-3-note-preview gave
+// junk in 2 of 3 runs, and minimax did not finish).
+const DEFAULT_AGENT_VISION_MODEL = 'nvidia/nemotron-3.5-super-vl:free';
+// Used when the primary vision model fails (for example a provider 502). Tried in order.
+const DEFAULT_AGENT_VISION_FALLBACKS = [
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  'dots-studio/dots-3-note-preview:free',
+];
 /** The model for one round: the vision model when the round has a picture, else the text model. */
 const chooseAgentModel = ({ snapshot, env = process.env }) =>
   snapshot
     ? env.OPENROUTER_AGENT_VISION_MODEL || DEFAULT_AGENT_VISION_MODEL
     : env.OPENROUTER_AGENT_MODEL || DEFAULT_AGENT_MODEL;
+/** The models to try for one round, in order. */
+const chooseAgentModels = ({ snapshot, env = process.env }) => {
+  const primary = chooseAgentModel({ snapshot, env });
+  if (!snapshot) return [primary];
+  return [primary, ...DEFAULT_AGENT_VISION_FALLBACKS.filter((m) => m !== primary)];
+};
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 /** One model call is capped at this many milliseconds; the loop makes at most 4 calls. */
 // One budget for the whole agent request, shared by its model calls. After it runs out the walker
@@ -36,6 +49,8 @@ const AGENT_BUDGET_MS = 60_000;
 
 /** Milliseconds left for a model call, or 0 when the budget is spent. */
 const remainingBudgetMs = (deadline, now = Date.now()) => Math.max(0, deadline - now);
+/** Longest wait for one model before the next model in the chain is tried. */
+const MODEL_ATTEMPT_MS = 20_000;
 const MAX_ROUTES = 6;
 const MAX_ROUNDS = 5;
 const MAX_SESSION_NUMBER = 999999;
@@ -186,10 +201,8 @@ const fixedMessage = (decision) => {
   return [...decision.reasons, ...switchLine, 'Stay aware of your surroundings.'].join(' ');
 };
 
-/** The model call, through OpenRouter, with reasoning off. It never runs past the request's deadline. */
-const callOpenRouter = ({ apiKey, model, deadline }) => async ({ messages, tools, toolChoice = 'auto' }) => {
-  const budget = remainingBudgetMs(deadline);
-  if (budget <= 0) throw new Error('agent time budget used up');
+/** One call to one model through OpenRouter, with reasoning off. The timer is the time left in the request. */
+const callOneModel = async ({ apiKey, model, messages, tools, toolChoice, budget }) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budget);
   try {
@@ -220,6 +233,26 @@ const callOpenRouter = ({ apiKey, model, deadline }) => async ({ messages, tools
   } finally {
     clearTimeout(timer);
   }
+};
+
+/**
+ * The model call for a round. The models are tried in order: a provider that fails (for example a 502 or 429)
+ * hands the round to the next one. It never runs past the request's deadline.
+ */
+const callOpenRouter = ({ apiKey, models, deadline }) => async ({ messages, tools, toolChoice = 'auto' }) => {
+  let lastError = new Error('no model configured');
+  for (const model of models) {
+    const left = remainingBudgetMs(deadline);
+    if (left <= 0) throw new Error('agent time budget used up');
+    // One hung provider must not use the whole budget: each attempt gets at most MODEL_ATTEMPT_MS.
+    const budget = Math.min(left, MODEL_ATTEMPT_MS);
+    try {
+      return await callOneModel({ apiKey, model, messages, tools, toolChoice, budget });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 };
 
 const NO_AGENT_OUTPUT = Object.freeze({ actions: [], question: null, message: null });
@@ -284,7 +317,7 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
   if (snapshot !== null && !apiKey) {
     console.error('[Agent Insights] OPENROUTER_API_KEY is not configured; returning the deterministic result');
   } else if (snapshot !== null) {
-    const model = chooseAgentModel({ snapshot });
+    const models = chooseAgentModels({ snapshot });
     try {
       agent = await runAgent({
         facts: {
@@ -296,7 +329,7 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
           maxRounds: MAX_ROUNDS,
         },
         tools: buildToolDefinitions({ routeIds, candidateIds, ringIds, expansionAllowed }),
-        callModel: callOpenRouter({ apiKey, model, deadline: started + AGENT_BUDGET_MS }),
+        callModel: callOpenRouter({ apiKey, models, deadline: started + AGENT_BUDGET_MS }),
         validateActions: (raw) => validateActions(raw, { routeIds, candidateIds, ringIds }),
       });
     } catch (error) {
@@ -326,5 +359,7 @@ module.exports = router;
 module.exports.remainingBudgetMs = remainingBudgetMs;
 module.exports.AGENT_BUDGET_MS = AGENT_BUDGET_MS;
 module.exports.chooseAgentModel = chooseAgentModel;
+module.exports.callOpenRouter = callOpenRouter;
+module.exports.chooseAgentModels = chooseAgentModels;
 module.exports.DEFAULT_AGENT_MODEL = DEFAULT_AGENT_MODEL;
 module.exports.DEFAULT_AGENT_VISION_MODEL = DEFAULT_AGENT_VISION_MODEL;

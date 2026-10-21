@@ -1,7 +1,7 @@
 const express = require('express');
 const request = require('supertest');
 
-const MODEL = 'dots-studio/dots-3-note-preview:free';
+const MODEL = 'nvidia/nemotron-3.5-super-vl:free';
 const KEY = 'test-key-not-real';
 
 function loadApp() {
