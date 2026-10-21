@@ -376,6 +376,15 @@ export function SearchBar({
     [destSearch, onClearRoute, scheduleFieldFocus, setManualDest],
   );
 
+  // The saved-places row (with the trip-time row above it) is shown only without route candidates.
+  const savedRowShown = Boolean(
+    destinationCandidates.length === 0 &&
+      savedPlaces &&
+      onSelectSavedPlace &&
+      onSavePlace &&
+      onRemoveSavedPlace,
+  );
+
   return (
     <>
       <ScrollView
@@ -635,9 +644,9 @@ export function SearchBar({
             </Pressable>
           </View>
 
-          {tripTime && onTripTimeChange && (
-            <TimeControl inline value={tripTime} onChange={onTripTimeChange} />
-          )}
+          {tripTime &&
+            onTripTimeChange &&
+            !savedRowShown && <TimeControl inline value={tripTime} onChange={onTripTimeChange} />}
         </View>
 
         {/* Predictions Dropdown */}
@@ -829,6 +838,12 @@ export function SearchBar({
         onSavePlace &&
         onRemoveSavedPlace && (
           <SavedPlaces
+            above={
+              tripTime && onTripTimeChange ? (
+                <TimeControl inline value={tripTime} onChange={onTripTimeChange} />
+              ) : undefined
+            }
+            spread
             places={savedPlaces}
             onSelect={onSelectSavedPlace}
             onSave={onSavePlace}

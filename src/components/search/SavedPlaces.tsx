@@ -9,7 +9,7 @@
  * - "+" pill lets users create a custom label
  */
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Alert,
   type LayoutChangeEvent,
@@ -42,6 +42,10 @@ interface SavedPlacesProps {
     lng: number;
   } | null;
   visible: boolean;
+  /** Rendered above the round row, inside the same container (desktop: the trip-time row). */
+  above?: ReactNode;
+  /** Spread the round buttons across the full width, so they line up with the row above. */
+  spread?: boolean;
 }
 
 export function SavedPlaces({
@@ -53,6 +57,8 @@ export function SavedPlaces({
   onPopupBottomChange,
   currentDestination,
   visible,
+  above,
+  spread = false,
 }: SavedPlacesProps) {
   const [addingCustom, setAddingCustom] = useState(false);
   const [customLabel, setCustomLabel] = useState('');
@@ -185,10 +191,11 @@ export function SavedPlaces({
 
   return (
     <View style={styles.container}>
+      {above}
       <ScrollView
+        contentContainerStyle={spread ? [styles.scrollContent, styles.scrollSpread] : styles.scrollContent}
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="always"
         scrollEventThrottle={16}
         onLayout={(e) => setChipViewportW(e.nativeEvent.layout.width)}
@@ -196,23 +203,7 @@ export function SavedPlaces({
         onScroll={(e) => setChipOffset(e.nativeEvent.contentOffset.x)}
       >
         {/* Saved places — small pills */}
-        {places.map((place) => (
-          <Pressable
-            key={place.id}
-            style={({ pressed }) => [
-              styles.circle,
-              styles.circleSaved,
-              pressed && styles.pillPressed,
-            ]}
-            onPress={() => handleTapSaved(place)}
-            onLongPress={() => handleLongPressSaved(place)}
-            delayLongPress={500}
-            accessibilityRole="button"
-            accessibilityLabel={place.label}
-          >
-            <Ionicons name={place.icon as any} size={18} color={colors.primary} />
-          </Pressable>
-        ))}
+        {/* Saved places live in the list (with a count), not as circles of their own. */}
 
         {/* Empty preset pills */}
         {emptyPresets.map((preset) => (
@@ -235,7 +226,8 @@ export function SavedPlaces({
         <Pressable
           style={({ pressed }) => [
             styles.circle,
-            styles.pillAdd,
+            styles.pillEmpty,
+            styles.pillActionBorder,
             pressed && styles.pillPressed,
           ]}
           onPress={() => {
@@ -246,21 +238,33 @@ export function SavedPlaces({
             setAddingCustom(true);
             setCustomLabel('');
           }}
+          accessibilityRole="button"
+          accessibilityLabel="Save current place"
         >
-          <Ionicons name="add" size={14} color="#1570ef" />
+          <View style={styles.plusBox}>
+            <View style={styles.plusBarH} />
+            <View style={styles.plusBarV} />
+          </View>
         </Pressable>
 
         {/* Saved list: icon only, sitting next to the add button */}
         <Pressable
           style={({ pressed }) => [
-            styles.listIconPill,
+            styles.circle,
+            styles.pillEmpty,
+            styles.pillActionBorder,
             pressed && styles.pillPressed,
           ]}
           onPress={() => setShowListPopup((prev) => !prev)}
           accessibilityRole="button"
           accessibilityLabel="Open saved locations list"
         >
-          <Ionicons name="list-outline" size={15} color="#344054" />
+          <Ionicons name="menu" size={22} color="#344054" />
+          {places.length > 0 && (
+            <View style={styles.countBadge} importantForAccessibility="no">
+              <Text style={styles.countText}>{places.length}</Text>
+            </View>
+          )}
         </Pressable>
       </ScrollView>
 
@@ -400,6 +404,11 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   // Fills the viewport and centres the chips when they all fit; scrolls when they don't.
+  scrollSpread: {
+    flexGrow: 1,
+    gap: 0,
+    justifyContent: 'space-between',
+  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -423,17 +432,6 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.32)',
   },
-  listIconPill: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.95)',
-    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
-  } as any,
 
   // ── Round glass button (icon only), the same style as the map and list buttons ──
   circle: {
@@ -469,12 +467,51 @@ const styles = StyleSheet.create({
     borderColor: colors.glassBorder,
     boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.9), ${colors.glassShadow}`,
   } as any,
-  pillAdd: {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: 10,
-    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
-  } as any,
+  // Count of saved places, on the top-right of the list button.
+  // Add button: a plain plus drawn with thick bars (18px across, 4px stroke).
+  plusBox: { width: 18, height: 18 },
+  plusBarH: {
+    position: 'absolute',
+    left: 0,
+    top: 7,
+    width: 18,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.textSecondary,
+  },
+  plusBarV: {
+    position: 'absolute',
+    left: 7,
+    top: 0,
+    width: 4,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: colors.textSecondary,
+  },
+  // Add and list buttons: a thin dark rim, so they read as actions.
+  pillActionBorder: {
+    borderWidth: 1,
+    borderColor: 'rgba(16, 24, 40, 0.45)',
+  },
+  countBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+  },
+  countText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
   pillList: {
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
     borderColor: 'rgba(255, 255, 255, 0.95)',

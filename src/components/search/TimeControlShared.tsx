@@ -8,8 +8,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
+  Animated,
   AccessibilityInfo,
+  Modal,
   findNodeHandle,
+  Easing,
   Platform,
   Pressable,
   StyleSheet,
@@ -40,6 +43,53 @@ export interface TimeControlProps {
 }
 
 const ACCENT = "#1849A9";
+
+/** Where the desktop time row sits on screen, for placing its popup. */
+type Anchor = { x: number; y: number; w: number; h: number };
+
+/**
+ * Desktop: the time row opens as a popup. It is a Modal, so it is drawn above the whole screen
+ * (the sidebar's own stacking would hide it behind the items below). It fades and slides in,
+ * sits just under the mode buttons, and closes when the screen outside it is tapped.
+ */
+function InlinePopup({
+  visible,
+  anchor,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  anchor: Anchor;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!visible) return;
+    anim.setValue(0);
+    Animated.timing(anim, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [visible, anim]);
+  return (
+    <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close time options" />
+      <Animated.View
+        style={[
+          styles.popup,
+          {
+            left: anchor.x,
+            top: anchor.y + anchor.h + 6,
+            width: anchor.w,
+            opacity: anim,
+            transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-6, 0] }) }],
+          },
+        ]}
+      >
+        {children}
+      </Animated.View>
+    </Modal>
+  );
+}
+
 /** Pause after the last time edit before the search is triggered. */
 const COMMIT_DELAY_MS = 700;
 
@@ -66,6 +116,14 @@ interface ShellProps extends TimeControlProps {
 
 export function TimeControlShell({ value, onChange, now, renderField, compact = false, inline = false }: ShellProps) {
   const [open, setOpen] = useState(false);
+  // Desktop (inline): the time stepper row shows only while a time is being chosen.
+  const [fieldOpen, setFieldOpen] = useState(false);
+  const wrapRef = useRef<View>(null);
+  const [anchor, setAnchor] = useState<Anchor>({ x: 0, y: 0, w: 0, h: 0 });
+  useEffect(() => {
+    if (!inline || !fieldOpen) return;
+    wrapRef.current?.measureInWindow?.((x, y, w, h) => setAnchor({ x, y, w, h }));
+  }, [inline, fieldOpen]);
   const [draft, setDraft] = useState<TripTimeState>(value);
   const clock = now ?? (() => new Date());
   const current = clock();
@@ -103,7 +161,8 @@ export function TimeControlShell({ value, onChange, now, renderField, compact = 
   };
 
   // Commit only when the trip time really changed, and only after the user pauses.
-  const editDraft = (next: TripTimeState) => {
+  // closeAfterCommit: false for a mode switch, so the desktop time row stays open until a time is chosen.
+  const editDraft = (next: TripTimeState, closeAfterCommit = true) => {
     setDraft(next);
     cancelCommit();
     commitTimer.current = setTimeout(() => {
@@ -111,8 +170,12 @@ export function TimeControlShell({ value, onChange, now, renderField, compact = 
       const committed = valueRef.current;
       if (next.mode !== committed.mode || next.hhmm !== committed.hhmm) {
         onChangeRef.current(next);
-        // A time is chosen: fold the control back to its single chip.
-        closePanel();
+        // A time is chosen: fold the control back (the chip, or on desktop the single row).
+        if (inline) {
+          if (closeAfterCommit) setFieldOpen(false);
+        } else {
+          closePanel();
+        }
       }
     }, COMMIT_DELAY_MS);
   };
@@ -146,7 +209,12 @@ export function TimeControlShell({ value, onChange, now, renderField, compact = 
     Platform.OS === "web" ? { onKeyDown: onPanelKeyDown } : {};
 
   const pickMode = (mode: TripTimeMode) => {
-    if (mode === draft.mode) return;
+    if (mode === draft.mode) {
+      // Inline: pressing the selected Leave at / Arrive by button reopens the time row.
+      if (inline && mode !== "now") setFieldOpen((v) => !v);
+      return;
+    }
+    if (inline && mode !== "now") setFieldOpen(true);
     if (mode === "now") {
       // Leave now commits immediately.
       cancelCommit();
@@ -160,13 +228,14 @@ export function TimeControlShell({ value, onChange, now, renderField, compact = 
       draft.mode !== "now" && draft.hhmm
         ? { mode, hhmm: draft.hhmm }
         : defaultTimeState(mode, clock()),
+      false,
     );
   };
 
   const note = value.mode !== "now" ? timeZoneNote() : null;
 
   return (
-    <View style={[styles.wrap, compact && styles.wrapCompact]}>
+    <View ref={wrapRef} style={[styles.wrap, compact && styles.wrapCompact, inline && styles.wrapInline]}>
       {!inline && (
       <View style={styles.chipRow}>
         <Pressable
@@ -203,7 +272,7 @@ export function TimeControlShell({ value, onChange, now, renderField, compact = 
           {...webKeyProps}
         >
           <View
-            style={styles.segments}
+            style={[styles.segments, inline && styles.segmentsSlim]}
             accessibilityRole="radiogroup"
             accessibilityLabel="Trip time, London"
           >
@@ -214,28 +283,40 @@ export function TimeControlShell({ value, onChange, now, renderField, compact = 
                   key={mode}
                   hitSlop={{ top: 8, bottom: 8 }}
                   onPress={() => pickMode(mode)}
-                  style={[styles.segment, selected && styles.segmentSelected]}
+                  style={[styles.segment, inline && styles.segmentSlim, selected && (inline ? styles.segmentSelectedGlass : styles.segmentSelected)]}
                   accessibilityRole="radio"
                   accessibilityLabel={label}
                   accessibilityState={{ selected }}
                 >
-                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                  <Text style={[styles.segmentText, inline && styles.segmentTextSlim, selected && (inline ? styles.segmentTextSelectedGlass : styles.segmentTextSelected)]}>
                     {inline && mode === "leave_at" && draft.mode === "leave_at" && draft.hhmm ? draft.hhmm : label}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-          {draft.mode !== "now" && draft.hhmm ? (
-            <View style={styles.fieldSlot}>
-              {renderField({
-                value: draft,
-                hhmm: draft.hhmm,
-                isTomorrow: draftResolved?.isTomorrow ?? false,
-                now: clock,
-                onChange: editDraft,
-              })}
-            </View>
+          {draft.mode !== "now" && draft.hhmm && (!inline || fieldOpen) ? (
+            inline ? (
+              <InlinePopup visible anchor={anchor} onClose={() => setFieldOpen(false)}>
+                {renderField({
+                  value: draft,
+                  hhmm: draft.hhmm,
+                  isTomorrow: draftResolved?.isTomorrow ?? false,
+                  now: clock,
+                  onChange: editDraft,
+                })}
+              </InlinePopup>
+            ) : (
+              <View style={styles.fieldSlot}>
+                {renderField({
+                  value: draft,
+                  hhmm: draft.hhmm,
+                  isTomorrow: draftResolved?.isTomorrow ?? false,
+                  now: clock,
+                  onChange: editDraft,
+                })}
+              </View>
+            )
           ) : null}
         </View>
       )}
@@ -245,6 +326,19 @@ export function TimeControlShell({ value, onChange, now, renderField, compact = 
 
 export const styles = StyleSheet.create({
   wrap: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+  // Desktop: the popup is positioned against this wrap, so it floats over the items below.
+  wrapInline: { position: "relative", paddingTop: spacing.md },
+  popup: {
+    position: "absolute",
+    zIndex: 60,
+    elevation: 12,
+    padding: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.16)",
+  } as any,
   wrapCompact: { paddingHorizontal: 0, paddingVertical: 0, position: "relative", zIndex: 1000 },
   panelCompact: {
     position: "absolute",
@@ -255,11 +349,14 @@ export const styles = StyleSheet.create({
     zIndex: 1000,
   } as any,
   // Desktop sidebar: the options sit in the card, slim and without extra padding.
+  // Desktop: no outer container. The mode track is the only container, so its height is the circle size.
   panelSlim: {
     marginTop: 0,
-    padding: 4,
-    borderRadius: 10,
-    gap: 4,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    gap: 0,
   },
   // Centred on the row so the trip-time control sits on the panel's axis.
   chipRow: {
@@ -308,6 +405,24 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 6,
   },
+  // Desktop sidebar: a thinner row with smaller text.
+  // Same height as the round place buttons beside it (40px).
+  segmentsSlim: {
+    height: 40,
+    borderRadius: 999,
+    borderWidth: 0,
+    padding: 3,
+    backgroundColor: "rgba(15, 23, 42, 0.06)",
+  },
+  segmentSlim: { height: 34, minHeight: 34, borderRadius: 999 },
+  segmentTextSlim: { fontSize: 11, fontWeight: "600" },
+  // Selected: a white glass pill with a soft lift, in the accent colour. No outline.
+  segmentSelectedGlass: {
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    borderWidth: 0,
+    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.12)",
+  } as any,
+  segmentTextSelectedGlass: { color: colors.primaryStrong, fontWeight: "700" },
   segmentSelected: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary },
   segmentText: { ...type.label, fontWeight: "500", color: colors.textSecondary },
   segmentTextSelected: { color: ACCENT, fontWeight: "700" },
