@@ -167,6 +167,22 @@ describe('runAgent', () => {
     expect(result.question.choices.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
   });
 
+  test('tells the model what its last round did, so it does not repeat the same actions', async () => {
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Route 1 is the one. Stay aware of your surroundings.' })));
+
+    await runAgent({
+      facts: { ...facts, round: 2, maxRounds: 5, results: [{ type: 'fit_route', ok: true }, { type: 'show_findings', ok: false }] },
+      tools: [],
+      callModel,
+      validateActions: (raw) => raw,
+    });
+
+    const userText = JSON.stringify(callModel.mock.calls[0][0].messages.find((m) => m.role === 'user').content);
+    expect(userText).toContain('fit_route (ok)');
+    expect(userText).toContain('show_findings (failed)');
+    expect(userText).toContain('Do not repeat');
+  });
+
   test('tells the model which round it is and that it may finish once satisfied', async () => {
     const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Stay aware of your surroundings.' })));
 

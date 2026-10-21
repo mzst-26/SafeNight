@@ -327,6 +327,7 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
           routeIds,
           round,
           maxRounds: MAX_ROUNDS,
+          results,
         },
         tools: buildToolDefinitions({ routeIds, candidateIds, ringIds, expansionAllowed }),
         callModel: callOpenRouter({ apiKey, models, deadline: started + AGENT_BUDGET_MS }),

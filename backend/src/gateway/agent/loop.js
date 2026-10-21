@@ -134,6 +134,11 @@ const buildAgentMessages = (facts) => {
     const max = facts.maxRounds || 5;
     lines.push(`This is round ${facts.round} of ${max}. Look at the map picture. When you are satisfied with the routes, call finish. Map tools are optional.`);
   }
+  // What the last round did (the app's results). Shown so the model does not repeat the same map actions.
+  if (facts.results && facts.results.length > 0) {
+    const done = facts.results.map((r) => `${r.type} (${r.ok ? 'ok' : 'failed'})`).join(', ');
+    lines.push(`Your last round did: ${done}. Do not repeat an action you already did; call finish if you have seen what you need.`);
+  }
   if (decision.reasons && decision.reasons.length > 0) lines.push(`Reasons: ${decision.reasons.join(' ')}`);
   lines.push('Routes:');
   for (const route of facts.routes || []) lines.push(lineForRoute(route));
