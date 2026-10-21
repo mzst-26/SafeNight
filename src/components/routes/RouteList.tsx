@@ -4,8 +4,10 @@
 import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { RouteCard } from '@/src/components/routes/RouteCard';
+import { AIInsightsButton } from '@/src/components/ui/AIInsightsButton';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { RouteComparison } from '@/src/utils/routeComparison';
+import { insightsToneFor } from '@/src/utils/insightsTone';
 
 const MAX_VISIBLE_ROUTES = 5;
 
@@ -23,7 +25,7 @@ interface RouteListProps {
   updatingLabel?: string | null;
   /** Hide the safety score, chips and details on every card (during navigation). Default false. */
   hideSafety?: boolean;
-  /** Desktop web: opens the route explanation from a circle on the recommended card. */
+  /** Desktop web: a bar above the recommended card opens AI Insights / Rethink. */
   onExplainRoute?: () => void;
 }
 
@@ -42,6 +44,10 @@ export function RouteList({
   const recommendedId = routes.find((r) => r.isSafest)?.id;
   const recommendedComparison =
     routeComparison?.find((c) => c.routeId === recommendedId) ?? null;
+  // The colour follows the walk's start time; without one, the current time.
+  const insightsTone = insightsToneFor(
+    routes.find((r) => r.isSafest)?.safety?.timeline?.leaveAtIso,
+  );
 
   return (
     <View
@@ -63,6 +69,9 @@ export function RouteList({
         </Text>
       ) : (
         <>
+          {onExplainRoute && !hideSafety && recommendedId ? (
+            <AIInsightsButton tone={insightsTone} onPress={onExplainRoute} />
+          ) : null}
           {routes.slice(0, MAX_VISIBLE_ROUTES).map((route, index) => (
             <RouteCard
               key={route.id}
@@ -74,7 +83,6 @@ export function RouteList({
               comparison={routeComparison?.find((c) => c.routeId === route.id) ?? null}
               recommendedComparison={recommendedComparison}
               hideSafety={hideSafety}
-              onExplain={route.isSafest && onExplainRoute ? onExplainRoute : undefined}
             />
           ))}
           {hiddenCount > 0 ? (
