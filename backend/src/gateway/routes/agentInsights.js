@@ -15,6 +15,7 @@ const { sanitizeRoute } = require('./explain');
 const { analyseRoutes, decide, routeLabel } = require('../agent/analysis');
 const { validateActions, validateCandidates, routeBoundsReason, cleanText } = require('../agent/actions');
 const { runAgent, buildToolDefinitions } = require('../agent/loop');
+const { expansionAllowed: corridorExpansionAllowed } = require('../agent/corridor');
 
 const router = express.Router();
 
@@ -35,6 +36,10 @@ const MAX_RESULT_TYPE_CHARS = 64;
 const MAX_SNAPSHOT_CHARS = 400000;
 const SNAPSHOT_RE = /^data:image\/(jpeg|png);base64,/;
 const ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+const MAX_PATH_POINTS = 2000;
+const TRIP_TONES = ['morning', 'afternoon', 'evening', 'late'];
+const RING_ID_RE = /^r[1-8]$/;
+const MAX_RING_IDS = 8;
 
 // ─── Per-IP limit: each request can cost up to 4 paid model calls ───────────────
 const AGENT_WINDOW_MS = 15 * 60 * 1000;
@@ -64,8 +69,6 @@ const isPoint = (value) =>
   value.lat <= 90 &&
   value.lng >= -180 &&
   value.lng <= 180;
-/** Route start and end are optional, but when sent they must be valid points (contract H4). */
-const optionalPointOk = (value) => value === undefined || value === null || isPoint(value);
 const isInteger = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 /** The picture the walker's map shows, as a jpeg or png data URL. Its content is never echoed or logged. */
 const snapshotOk = (value) =>
@@ -84,8 +87,33 @@ const cleanResults = (value) => {
 };
 
 /**
+ * The route's path points, cleaned: at most MAX_PATH_POINTS finite {lat, lng}. Missing means none. Returns the list, or null.
+ * The points feed the corridor gate only. They are never sent to the model or logged.
+ */
+const cleanPath = (value) => {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_PATH_POINTS) return null;
+  const cleaned = [];
+  for (const point of value) {
+    if (!isPoint(point)) return null;
+    cleaned.push({ lat: point.lat, lng: point.lng });
+  }
+  return cleaned;
+};
+
+/** Ring ids the client offered (r1..r8). Only ids are kept: the model names a ring point by id, never by coordinates. */
+const ringIdsFrom = (candidates) => {
+  const ids = [];
+  for (const c of candidates) {
+    if (c && typeof c === 'object' && c.kind === 'ring' && RING_ID_RE.test(c.id) && !ids.includes(c.id)) ids.push(c.id);
+  }
+  return ids.slice(0, MAX_RING_IDS);
+};
+
+/**
  * Validates the body and returns the sanitised parts, or { error } when it is not acceptable.
  * Route fields are sanitised by explain.js sanitizeRoute, the same as /explain-route.
+ * Route start and end are not read here: they are not part of the agent request.
  */
 const parseRequest = (body) => {
   if (!isObject(body)) return { error: 'Missing required fields: routes, bestRouteId' };
@@ -109,8 +137,10 @@ const parseRequest = (body) => {
 
   const routes = rawRoutes.map((r) => sanitizeRoute(r));
   if (routes.some((r) => r === null)) return { error: 'Invalid routes' };
-  if (rawRoutes.some((r) => !optionalPointOk(r.start))) return { error: 'Invalid route start' };
-  if (rawRoutes.some((r) => !optionalPointOk(r.end))) return { error: 'Invalid route end' };
+  const paths = rawRoutes.map((r) => cleanPath(r.path));
+  if (paths.some((p) => p === null)) {
+    return { error: `route path must be an array of at most ${MAX_PATH_POINTS} points, each a finite lat/lng` };
+  }
   if (!routes.some((r) => r.routeId === bestRouteId)) {
     return { error: 'bestRouteId must match one of the routes' };
   }
@@ -123,12 +153,18 @@ const parseRequest = (body) => {
   if (trip !== undefined && trip !== null && !(isObject(trip) && (trip.leaveAtIso === undefined || typeof trip.leaveAtIso === 'string'))) {
     return { error: 'Invalid trip' };
   }
+  const tone = trip ? trip.tone : undefined;
+  if (tone !== undefined && tone !== null && !TRIP_TONES.includes(tone)) {
+    return { error: `trip.tone must be one of ${TRIP_TONES.join(', ')}` };
+  }
 
   return {
     round,
     results,
     snapshot: snapshot || null,
     routes,
+    paths,
+    tone: tone || null,
     rawRoutes,
     bestRouteId,
     candidatePoints: candidatePoints || [],
@@ -202,7 +238,7 @@ const buildFacts = ({ routes, analysis, decision, candidates, answer }) => ({
 /**
  * POST /api/agent-insights
  *
- * Body: { bestRouteId, routes (max 3), candidatePoints?, trip?, answer? }
+ * Body: { sessionNumber, round, results?, snapshot?, bestRouteId, routes (max 6, with path?), candidatePoints?, trip?, answer? }
  * Returns: { analysis, decision, message, actions, question? }
  */
 router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, async (req, res) => {
@@ -210,7 +246,7 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
   const parsed = parseRequest(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
 
-  const { round, results, snapshot, routes, rawRoutes, bestRouteId, candidatePoints, answer } = parsed;
+  const { round, results, snapshot, routes, paths, tone, rawRoutes, bestRouteId, candidatePoints, answer } = parsed;
   const analysis = analyseRoutes(routes);
   const boundsReason = routeBoundsReason(rawRoutes);
   if (boundsReason) analysis.boundsReason = boundsReason;
@@ -219,16 +255,26 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
   const routeIds = routes.map((r) => r.routeId);
   const candidateIds = candidates.map((c) => c.id);
 
-  // Expansion is switched on by B1 (corridor gate). Off until then.
-  const expansionAllowed = false;
+  // Expansion (contract v3, B1 gate): the app decides, from the recommended route's corridor, the trip tone and darkness.
+  const routesWithPaths = routes.map((r, i) => ({ ...r, path: paths[i] }));
+  const recommended = routesWithPaths.find((r) => r.routeId === decision.routeId);
+  const expansionAllowed = corridorExpansionAllowed({
+    routes: routesWithPaths,
+    recommendedRouteId: decision.routeId,
+    darknessAtStart: recommended ? recommended.darknessAtStart : undefined,
+    tone,
+  });
+  const ringIds = expansionAllowed ? ringIdsFrom(candidatePoints) : [];
+
   let agent = NO_AGENT_OUTPUT;
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[Agent Insights] request: ${routes.length} routes, ${candidates.length} candidates, key ${apiKey ? 'set' : 'MISSING'}`);
   }
-  if (!apiKey) {
+  // The model reads the walker's map picture. Without one there is nothing for it to read: no model call.
+  if (snapshot !== null && !apiKey) {
     console.error('[Agent Insights] OPENROUTER_API_KEY is not configured; returning the deterministic result');
-  } else {
+  } else if (snapshot !== null) {
     const model = process.env.OPENROUTER_AGENT_MODEL || DEFAULT_AGENT_MODEL;
     try {
       agent = await runAgent({
@@ -238,9 +284,9 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
           expansionAllowed,
           routeIds,
         },
-        tools: buildToolDefinitions({ routeIds, candidateIds }),
+        tools: buildToolDefinitions({ routeIds, candidateIds, ringIds, expansionAllowed }),
         callModel: callOpenRouter({ apiKey, model, deadline: started + AGENT_BUDGET_MS }),
-        validateActions: (raw) => validateActions(raw, { routeIds, candidateIds }),
+        validateActions: (raw) => validateActions(raw, { routeIds, candidateIds, ringIds }),
       });
     } catch (error) {
       console.error(`[Agent Insights] agent failed after ${Date.now() - started}ms:`, error.message);

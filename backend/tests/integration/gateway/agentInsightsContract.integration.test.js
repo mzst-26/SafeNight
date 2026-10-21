@@ -37,6 +37,7 @@ function body(overrides = {}) {
     bestRouteId: 'r1',
     routes: [route(1), route(2)],
     candidatePoints: [],
+    snapshot: JPEG_URL,
     ...overrides,
   };
 }
@@ -190,7 +191,7 @@ describe('POST /api/agent-insights contract v3 (A1)', () => {
   });
 
   describe('agent facts (interface to A2)', () => {
-    test('passes snapshot null, expansionAllowed false and the route ids when no snapshot is sent', async () => {
+    test('passes the route ids and the snapshot to the agent', async () => {
       const { app, runAgent } = loadApp();
       runAgent.mockResolvedValue({ actions: [], question: null, message: null });
 
@@ -198,9 +199,22 @@ describe('POST /api/agent-insights contract v3 (A1)', () => {
 
       expect(res.status).toBe(200);
       const { facts } = runAgent.mock.calls[0][0];
-      expect(facts.snapshot).toBeNull();
+      expect(facts.snapshot).toBe(JPEG_URL);
       expect(facts.expansionAllowed).toBe(false);
       expect(facts.routeIds).toEqual(['r1', 'r2', 'r3']);
+    });
+
+    test('makes no model call without a snapshot and returns the fixed message with status done', async () => {
+      const { app, runAgent } = loadApp();
+
+      const res = await request(app).post('/api/agent-insights').send(body({ snapshot: undefined }));
+
+      expect(res.status).toBe(200);
+      expect(runAgent).not.toHaveBeenCalled();
+      expect(res.body.status).toBe('done');
+      expect(res.body.actions).toEqual([]);
+      expect(typeof res.body.message).toBe('string');
+      expect(res.body.message.length).toBeGreaterThan(0);
     });
 
     test('does not log the session number or the snapshot', async () => {
@@ -217,6 +231,146 @@ describe('POST /api/agent-insights contract v3 (A1)', () => {
       expect(logged).not.toContain('424242');
       expect(logged).not.toContain('BBBB');
       expect(runAgent).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('trip tone, route path and ring points (A1b)', () => {
+    const shared = [
+      { lat: 51.5, lng: -0.1 },
+      { lat: 51.51, lng: -0.1 },
+    ];
+    const far = [
+      { lat: 52.0, lng: -0.1 },
+      { lat: 52.01, lng: -0.1 },
+    ];
+    const lit = (i, path, extra = {}) => ({ ...route(i), path, ...extra });
+    const expansionBody = (tone, otherPath = shared) => ({
+      bestRouteId: 'r1',
+      routes: [
+        lit(1, shared, { worstStretch: { lengthM: 200, cause: 'lighting' } }),
+        lit(2, otherPath),
+      ],
+      candidatePoints: [
+        { id: 'p1', label: 'Midpoint', lat: 51.505, lng: -0.1, kind: 'stretch_midpoint' },
+        { id: 'r1', label: 'Ring 1', lat: 51.6, lng: -0.1, kind: 'ring' },
+        { id: 'r2', label: 'Ring 2', lat: 51.7, lng: -0.1, kind: 'ring' },
+      ],
+      ...(tone === undefined ? {} : { trip: { tone } }),
+    });
+    const toolNames = (runAgent) => runAgent.mock.calls[0][0].tools.map((t) => t.function.name);
+    const expandTool = (runAgent) =>
+      runAgent.mock.calls[0][0].tools.find((t) => t.function.name === 'expand_search');
+
+    test.each(['morning', 'afternoon', 'evening', 'late'])('accepts trip tone %s', async (tone) => {
+      const { app, runAgent } = loadApp();
+      runAgent.mockResolvedValue({ actions: [], question: null, message: null });
+
+      const res = await request(app).post('/api/agent-insights').send(body({ trip: { tone } }));
+
+      expect(res.status).toBe(200);
+    });
+
+    test.each([
+      ['an unknown word', 'noon'],
+      ['upper case', 'LATE'],
+      ['a number', 3],
+    ])('returns 400 for a trip tone that is %s and never runs the agent', async (_label, tone) => {
+      const { app, runAgent } = loadApp();
+
+      const res = await request(app).post('/api/agent-insights').send(body({ trip: { tone } }));
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/trip/);
+      expect(runAgent).not.toHaveBeenCalled();
+    });
+
+    test('returns 400 when a route path has more than 2000 points', async () => {
+      const { app, runAgent } = loadApp();
+      const path = Array.from({ length: 2001 }, (_, i) => ({ lat: 51.5 + i * 1e-5, lng: -0.1 }));
+      const payload = body({ routes: [lit(1, path), route(2)] });
+
+      const res = await request(app).post('/api/agent-insights').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/path/);
+      expect(runAgent).not.toHaveBeenCalled();
+    });
+
+    test('returns 400 when a route path point is not a finite coordinate', async () => {
+      const { app, runAgent } = loadApp();
+      const payload = body({ routes: [lit(1, [{ lat: 51.5, lng: -0.1 }, { lat: 'north', lng: -0.1 }]), route(2)] });
+
+      const res = await request(app).post('/api/agent-insights').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/path/);
+      expect(runAgent).not.toHaveBeenCalled();
+    });
+
+    test('never sends route path points to the model', async () => {
+      const { app, runAgent } = loadApp();
+      runAgent.mockResolvedValue({ actions: [], question: null, message: null });
+      const path = [
+        { lat: 51.123457, lng: -0.654321 },
+        { lat: 51.123999, lng: -0.654999 },
+      ];
+
+      const res = await request(app).post('/api/agent-insights').send(body({ routes: [lit(1, path), route(2)] }));
+
+      expect(res.status).toBe(200);
+      const sent = JSON.stringify(runAgent.mock.calls[0][0]);
+      expect(sent).not.toContain('51.123457');
+      expect(sent).not.toContain('-0.654321');
+    });
+
+    test('does not validate route start or end and never sends them to the model', async () => {
+      const { app, runAgent } = loadApp();
+      runAgent.mockResolvedValue({ actions: [], question: null, message: null });
+      const payload = body();
+      payload.routes[0].start = { lat: 'north', lng: 50.987654 };
+      payload.routes[0].end = { lat: 300, lng: 200 };
+
+      const res = await request(app).post('/api/agent-insights').send(payload);
+
+      expect(res.status).toBe(200);
+      expect(runAgent).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(runAgent.mock.calls[0][0])).not.toContain('50.987654');
+    });
+
+    test('offers expand_search with the ring ids when the trip is late and the corridor gate passes', async () => {
+      const { app, runAgent } = loadApp();
+      runAgent.mockResolvedValue({ actions: [], question: null, message: null });
+
+      const res = await request(app).post('/api/agent-insights').send(body(expansionBody('late')));
+
+      expect(res.status).toBe(200);
+      expect(res.body.expansionAllowed).toBe(true);
+      expect(runAgent.mock.calls[0][0].facts.expansionAllowed).toBe(true);
+      expect(toolNames(runAgent)).toContain('expand_search');
+      const ringEnum = JSON.stringify(expandTool(runAgent));
+      expect(ringEnum).toContain('"r1"');
+      expect(ringEnum).toContain('"r2"');
+      expect(ringEnum).not.toContain('"p1"');
+    });
+
+    test('does not offer expand_search in the morning when the route is not dark', async () => {
+      const { app, runAgent } = loadApp();
+      runAgent.mockResolvedValue({ actions: [], question: null, message: null });
+
+      const res = await request(app).post('/api/agent-insights').send(body(expansionBody('morning')));
+
+      expect(res.body.expansionAllowed).toBe(false);
+      expect(toolNames(runAgent)).not.toContain('expand_search');
+    });
+
+    test('does not offer expand_search when the other route is outside the corridor', async () => {
+      const { app, runAgent } = loadApp();
+      runAgent.mockResolvedValue({ actions: [], question: null, message: null });
+
+      const res = await request(app).post('/api/agent-insights').send(body(expansionBody('late', far)));
+
+      expect(res.body.expansionAllowed).toBe(false);
+      expect(toolNames(runAgent)).not.toContain('expand_search');
     });
   });
 

@@ -45,6 +45,7 @@ function body(overrides = {}) {
   return {
     sessionNumber: 1,
     round: 1,
+    snapshot: 'data:image/jpeg;base64,AAAA',
     bestRouteId: 'r1',
     routes: [
       {
@@ -197,20 +198,31 @@ describe('POST /api/agent-insights', () => {
     expect(res.body.decision.reasons.join(' ')).toMatch(/much longer/);
   });
 
-  test('returns 400 when a route start or end is not a finite coordinate', async () => {
+  test('does not reject a route start or end, and never sends them to the model', async () => {
+    global.fetch = jest.fn(async () => finishReply('Stay aware of your surroundings.'));
+    const app = loadApp();
+    const odd = body();
+    odd.routes[0].start = { lat: 'north', lng: 50.987654 };
+    odd.routes[0].end = { lat: 51.5, lng: 200 };
+
+    const res = await request(app).post('/api/agent-insights').send(odd);
+
+    expect(res.status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][1].body).not.toContain('50.987654');
+  });
+
+  test('makes no model call without a snapshot and returns the deterministic message', async () => {
     global.fetch = jest.fn(async () => finishReply('x'));
     const app = loadApp();
-    const badStart = body();
-    badStart.routes[0].start = { lat: 'north', lng: -0.1 };
-    const badEnd = body();
-    badEnd.routes[0].end = { lat: 51.5, lng: 200 };
 
-    const resStart = await request(app).post('/api/agent-insights').send(badStart);
-    const resEnd = await request(app).post('/api/agent-insights').send(badEnd);
+    const res = await request(app).post('/api/agent-insights').send(body({ snapshot: undefined }));
 
-    expect(resStart.status).toBe(400);
-    expect(resEnd.status).toBe(400);
+    expect(res.status).toBe(200);
     expect(global.fetch).not.toHaveBeenCalled();
+    expect(res.body.status).toBe('done');
+    expect(res.body.decision).toEqual(expect.objectContaining({ kind: 'switch', routeId: 'r2' }));
+    expect(res.body.message).toContain('200 m');
   });
 
   test('accepts route start and end points and reports no bounds problem', async () => {
