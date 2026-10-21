@@ -1,4 +1,4 @@
-const { buildComparisonFacts } = require('../../../src/gateway/lib/explainFacts');
+const { buildComparisonFacts, buildExplainMessages } = require('../../../src/gateway/lib/explainFacts');
 
 const route = (routeId, overrides = {}) => ({
   routeId,
@@ -90,109 +90,110 @@ describe('buildComparisonFacts', () => {
   });
 });
 
-describe('buildExplainMessages', () => {
-  const { buildExplainMessages } = require('../../../src/gateway/lib/explainFacts');
 
-  const twoRouteFacts = () =>
+describe('risks on the recommended route', () => {
+  const alone = (extra) => buildComparisonFacts([route('a', extra), route('b')], 'a').chosen;
+
+  test('names a long unlit stretch, rounded to 10 m', () => {
+    const chosen = alone({ worstStretch: { lengthM: 324, cause: 'lighting' } });
+    expect(chosen.risks).toContain('a 320 m stretch with no street lighting');
+  });
+
+  test('a long stretch with another cause is named as higher risk, not as unlit', () => {
+    const chosen = alone({ worstStretch: { lengthM: 200, cause: 'crime' } });
+    expect(chosen.risks).toContain('a 200 m stretch of higher risk');
+  });
+
+  test('ignores short stretches', () => {
+    const chosen = alone({ worstStretch: { lengthM: 80, cause: 'lighting' } });
+    expect(chosen.risks.some((r) => r.includes('stretch'))).toBe(false);
+  });
+
+  test('says it is already dark when you set off', () => {
+    expect(alone({ darknessAtStart: 0.9, darknessAtArrival: 0.9 }).risks).toContain('it is already dark when you set off');
+  });
+
+  test('says it gets dark during the walk when only the arrival is dark', () => {
+    const chosen = alone({ darknessAtStart: 0.1, darknessAtArrival: 0.8 });
+    expect(chosen.risks).toContain('it gets dark during the walk');
+  });
+
+  test('mentions dead ends, missing crime data and estimated lighting', () => {
+    const chosen = alone({ deadEnds: 2, crimeDataUnavailable: true, lightingQuality: 'estimated' });
+    expect(chosen.risks).toEqual(expect.arrayContaining([
+      'the route includes a dead end',
+      'crime data is missing for this area, so the score may be too high',
+      'street lighting on this route is estimated, not confirmed',
+    ]));
+  });
+
+  test('no risks when the route has no risk data', () => {
+    expect(alone({}).risks).toEqual([]);
+  });
+});
+
+describe('strengths of the recommended route', () => {
+  test('lists a factor only when it is ahead of every alternative by the gap', () => {
+    const chosen = route('a', { breakdown: { ...route('x').breakdown, roadType: 90, traffic: 80 } });
+    const b = route('b', { breakdown: { ...route('x').breakdown, roadType: 60, traffic: 50 } });
+    const c = route('c', { breakdown: { ...route('x').breakdown, roadType: 70, traffic: 78 } });
+
+    const { strengths } = buildComparisonFacts([chosen, b, c], 'a').chosen;
+
+    expect(strengths).toEqual(['stronger main roads and paved paths']);
+  });
+
+  test('is empty when there is only one route', () => {
+    expect(buildComparisonFacts([route('a')], 'a').chosen.strengths).toEqual([]);
+  });
+});
+
+describe('buildExplainMessages', () => {
+  const twoRoutes = () =>
     buildComparisonFacts(
       [
-        route('a', { distanceMeters: 1500, durationSeconds: 900, score: 80, breakdown: { ...route('x').breakdown, lighting: 80 } }),
-        route('b', { distanceMeters: 1000, durationSeconds: 600, score: 60, breakdown: { ...route('x').breakdown, lighting: 50 } }),
+        route('a', { durationSeconds: 1020, score: 63, breakdown: { ...route('x').breakdown, roadType: 90 }, worstStretch: { lengthM: 320, cause: 'lighting' } }),
+        route('b', { durationSeconds: 900, score: 58, breakdown: { ...route('x').breakdown, roadType: 60, cctv: 80 } }),
       ],
       'a',
     );
 
-  test('returns a system message and a user message in that order', () => {
-    const [system, user] = buildExplainMessages(twoRouteFacts());
-
+  test('system message asks for plain reasons, a caution, and no comparison with other routes', () => {
+    const [system] = buildExplainMessages(twoRoutes());
     expect(system.role).toBe('system');
-    expect(user.role).toBe('user');
-  });
-
-  test('system message tells the model that higher safety factor values mean safer', () => {
-    const [system] = buildExplainMessages(twoRouteFacts());
-
-    expect(system.content).toMatch(/higher .*safer/i);
-  });
-
-  test('system message forbids invented figures and raw factor keys and fixes the closing note', () => {
-    const [system] = buildExplainMessages(twoRouteFacts());
-
-    expect(system.content).toMatch(/only .*facts/i);
-    expect(system.content).toMatch(/do not .*raw/i);
-    expect(system.content).toContain('Note: scores are estimates based on open data and may not reflect real-time conditions.');
-  });
-
-  test('system message requires the time and distance trade-off and a plain-English answer under 100 words', () => {
-    const [system] = buildExplainMessages(twoRouteFacts());
-
-    expect(system.content).toMatch(/longer|shorter/i);
+    expect(system.content).toMatch(/simple|plain/i);
+    expect(system.content).toMatch(/do not compare/i);
+    expect(system.content).toMatch(/be careful/i);
     expect(system.content).toMatch(/under 100 words/i);
+    expect(system.content).toContain('Note: scores are estimates based on open data and may not reflect real-time conditions. Always stay aware of your surroundings.');
   });
 
-  test('system message says routes with a small score gap are similar', () => {
-    const [system] = buildExplainMessages(twoRouteFacts());
-
-    expect(system.content).toMatch(/similar/i);
+  test('system message only lets the model mention darkness, lighting or crime when they are listed', () => {
+    const [system] = buildExplainMessages(twoRoutes());
+    expect(system.content).toMatch(/only talk about darkness, lighting or crime when they are listed/i);
   });
 
-  test('user message gives the recommended route, the alternative label and the time gap in plain words', () => {
-    const [, user] = buildExplainMessages(twoRouteFacts());
-
-    expect(user.content).toContain('Recommended route');
-    expect(user.content).toContain('Route 2');
-    expect(user.content).toMatch(/5 min longer/);
+  test('user message gives reasons, risks and the walk time, but never names the other routes', () => {
+    const [, user] = buildExplainMessages(twoRoutes());
+    expect(user.role).toBe('user');
+    expect(user.content).toContain('stronger main roads and paved paths');
+    expect(user.content).toContain('a 320 m stretch with no street lighting');
+    expect(user.content).toMatch(/about 17 min/);
+    expect(user.content).not.toMatch(/Route 2|Route 1|longer|shorter|alternative/i);
   });
 
-  test('user message names advantages in plain English and never uses raw factor keys', () => {
-    const [, user] = buildExplainMessages(twoRouteFacts());
-
-    expect(user.content).toContain('street lighting');
-    expect(user.content).not.toMatch(/lighting=|roadType|openPlaces/);
-  });
-
-  test('user message describes a factor where the alternative is safer without saying it is worse', () => {
-    const facts = buildComparisonFacts(
-      [
-        route('a', { breakdown: { ...route('x').breakdown, traffic: 20 } }),
-        route('b', { breakdown: { ...route('x').breakdown, traffic: 70 } }),
-      ],
-      'a',
-    );
-    const [, user] = buildExplainMessages(facts);
-
-    expect(user.content).toContain('This route is safer on: foot traffic');
-    expect(user.content).not.toMatch(/worse/);
-  });
-
-  test('user message says when only one route was found', () => {
-    const facts = buildComparisonFacts([route('a')], 'a');
-    const [, user] = buildExplainMessages(facts);
-
-    expect(user.content).toMatch(/only one route/i);
-  });
-});
-
-describe('buildExplainMessages wording edge cases', () => {
-  const { buildExplainMessages } = require('../../../src/gateway/lib/explainFacts');
-
-  test('says factor details are unavailable when a route has no breakdown instead of claiming no advantage', () => {
-    const facts = buildComparisonFacts(
-      [route('a', { breakdown: undefined }), route('b', { breakdown: undefined })],
-      'a',
-    );
-    const [, user] = buildExplainMessages(facts);
-
-    expect(user.content).toContain('Factor details are not available for this comparison.');
-    expect(user.content).not.toMatch(/no clear safety advantage/);
-  });
-
-  test('says "the same distance and time" instead of printing 0 m and 0 min', () => {
+  test('user message says when no specific risks were found', () => {
     const facts = buildComparisonFacts([route('a'), route('b')], 'a');
     const [, user] = buildExplainMessages(facts);
+    expect(user.content).toContain('No specific risks were found on this route.');
+  });
 
-    expect(user.content).toContain('the same distance and time');
-    expect(user.content).not.toMatch(/0 m /);
+  test('user message says when the routes are only slightly apart on safety', () => {
+    const facts = buildComparisonFacts(
+      [route('a', { score: 63 }), route('b', { score: 61 })],
+      'a',
+    );
+    const [, user] = buildExplainMessages(facts);
+    expect(user.content).toContain('only slightly safer');
   });
 });
-

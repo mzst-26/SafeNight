@@ -98,6 +98,22 @@ const sanitizeRoute = (r) => {
       roadTypes: Object.keys(roadTypes).length > 0 ? roadTypes : null,
     };
   }
+  // Risk context. Only typed, bounded values are kept; text never reaches the prompt raw.
+  if (r.worstStretch && typeof r.worstStretch === 'object') {
+    const cause = r.worstStretch.cause;
+    out.worstStretch = {
+      lengthM: num(r.worstStretch.lengthM, 0, 1e5),
+      cause: cause === 'lighting' ? 'lighting' : 'other',
+    };
+  }
+  const unitInterval = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : undefined);
+  const darkStart = unitInterval(r.darknessAtStart);
+  const darkArrival = unitInterval(r.darknessAtArrival);
+  if (darkStart !== undefined) out.darknessAtStart = darkStart;
+  if (darkArrival !== undefined) out.darknessAtArrival = darkArrival;
+  if (['verified', 'mixed', 'estimated'].includes(r.lightingQuality)) out.lightingQuality = r.lightingQuality;
+  if (typeof r.deadEnds === 'number') out.deadEnds = Math.round(num(r.deadEnds, 0, 1e4));
+  out.crimeDataUnavailable = r.crimeDataUnavailable === true;
   return out;
 };
 

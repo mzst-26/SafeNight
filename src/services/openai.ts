@@ -47,6 +47,14 @@ export interface CompactRouteInfo {
   breakdown?: SafetyBreakdownCompact;
   totals?: RouteTotals;
   roadData?: RouteRoadData;
+  /** Longest run of higher-risk street on the route, and what causes it. */
+  worstStretch?: { lengthM: number; cause: string | null } | null;
+  /** 0-1 darkness when the walk starts and when it ends. */
+  darknessAtStart?: number;
+  darknessAtArrival?: number;
+  lightingQuality?: 'verified' | 'mixed' | 'estimated';
+  deadEnds?: number;
+  crimeDataUnavailable?: boolean;
 }
 
 export interface AIExplanationInput {

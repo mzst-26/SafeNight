@@ -25,15 +25,15 @@ function scoresWith(values: number[]) {
 
 let latest: UseAIExplanationState;
 
-function Harness(props: { routes: DirectionsRoute[]; scores: any; best: string }) {
-  latest = useAIExplanation({} as any, props.routes, props.scores, props.best, undefined);
+function Harness(props: { routes: DirectionsRoute[]; scores: any; best: string; safeRoutes?: any[] }) {
+  latest = useAIExplanation({} as any, props.routes, props.scores, props.best, props.safeRoutes as any);
   return null;
 }
 
-function mount(routes: DirectionsRoute[], scores: any, best = 'safe-route-0'): ReactTestRenderer {
+function mount(routes: DirectionsRoute[], scores: any, best = 'safe-route-0', safeRoutes?: any[]): ReactTestRenderer {
   let renderer!: ReactTestRenderer;
   act(() => {
-    renderer = create(<Harness routes={routes} scores={scores} best={best} />);
+    renderer = create(<Harness routes={routes} scores={scores} best={best} safeRoutes={safeRoutes} />);
   });
   return renderer;
 }
@@ -86,5 +86,32 @@ describe('useAIExplanation cache is per route, not per route id', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(latest.explanation).toBe('After the time change.');
+  });
+
+  test('sends the risk context for each route: unlit stretch, darkness, dead ends and missing crime data', async () => {
+    fetchMock.mockResolvedValueOnce('Risk context sent.');
+    const safeRoutes = [
+      {
+        id: 'safe-route-0',
+        safety: {
+          worstStretch: { start: { lat: 0, lng: 0 }, end: { lat: 0, lng: 0 }, lengthM: 320, cause: 'lighting' },
+          timeline: { leaveAtIso: '', arriveAtIso: '', darknessAtStart: 0.9, darknessAtArrival: 0.9, label: 'dark' },
+          dataQuality: { lighting: 'estimated', crime: 'unavailable' },
+        },
+        routeStats: { deadEnds: 2 },
+      },
+    ];
+
+    await askAndSettle(mount(routesWith([5000, 5100]), scoresWith([70, 60]), 'safe-route-0', safeRoutes));
+
+    const sent = fetchMock.mock.calls[0][0] as any;
+    expect(sent.routes[0]).toMatchObject({
+      worstStretch: { lengthM: 320, cause: 'lighting' },
+      darknessAtStart: 0.9,
+      darknessAtArrival: 0.9,
+      lightingQuality: 'estimated',
+      deadEnds: 2,
+      crimeDataUnavailable: true,
+    });
   });
 });

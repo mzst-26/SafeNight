@@ -104,6 +104,14 @@ export const useAIExplanation = (
           sidewalkPct: stats?.sidewalkPct ?? 0,
           roadTypes: safety?.roadTypes,
         },
+        worstStretch: safety?.worstStretch
+          ? { lengthM: safety.worstStretch.lengthM, cause: safety.worstStretch.cause }
+          : null,
+        darknessAtStart: safety?.timeline?.darknessAtStart,
+        darknessAtArrival: safety?.timeline?.darknessAtArrival,
+        lightingQuality: safety?.dataQuality?.lighting,
+        deadEnds: stats?.deadEnds,
+        crimeDataUnavailable: safety?.dataQuality?.crime === 'unavailable',
       };
     });
 
