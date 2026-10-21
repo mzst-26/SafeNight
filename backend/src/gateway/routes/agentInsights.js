@@ -27,7 +27,13 @@ const AGENT_BUDGET_MS = 60_000;
 
 /** Milliseconds left for a model call, or 0 when the budget is spent. */
 const remainingBudgetMs = (deadline, now = Date.now()) => Math.max(0, deadline - now);
-const MAX_ROUTES = 3;
+const MAX_ROUTES = 6;
+const MAX_ROUNDS = 5;
+const MAX_SESSION_NUMBER = 999999;
+const MAX_RESULTS = 20;
+const MAX_RESULT_TYPE_CHARS = 64;
+const MAX_SNAPSHOT_CHARS = 400000;
+const SNAPSHOT_RE = /^data:image\/(jpeg|png);base64,/;
 const ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 // ─── Per-IP limit: each request can cost up to 4 paid model calls ───────────────
@@ -60,6 +66,22 @@ const isPoint = (value) =>
   value.lng <= 180;
 /** Route start and end are optional, but when sent they must be valid points (contract H4). */
 const optionalPointOk = (value) => value === undefined || value === null || isPoint(value);
+const isInteger = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+/** The picture the walker's map shows, as a jpeg or png data URL. Its content is never echoed or logged. */
+const snapshotOk = (value) =>
+  typeof value === 'string' && value.length <= MAX_SNAPSHOT_CHARS && SNAPSHOT_RE.test(value);
+/** Results of the previous round: up to 20 of {type, ok}. Missing means none. Returns the cleaned list, or null. */
+const cleanResults = (value) => {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_RESULTS) return null;
+  const cleaned = [];
+  for (const item of value) {
+    if (!isObject(item) || typeof item.ok !== 'boolean') return null;
+    if (typeof item.type !== 'string' || item.type.length < 1 || item.type.length > MAX_RESULT_TYPE_CHARS) return null;
+    cleaned.push({ type: item.type, ok: item.ok });
+  }
+  return cleaned;
+};
 
 /**
  * Validates the body and returns the sanitised parts, or { error } when it is not acceptable.
@@ -67,8 +89,19 @@ const optionalPointOk = (value) => value === undefined || value === null || isPo
  */
 const parseRequest = (body) => {
   if (!isObject(body)) return { error: 'Missing required fields: routes, bestRouteId' };
-  const { routes: rawRoutes, bestRouteId, candidatePoints, answer, trip } = body;
+  const { sessionNumber, round, results: rawResults, snapshot, routes: rawRoutes, bestRouteId, candidatePoints, answer, trip } = body;
 
+  if (!isInteger(sessionNumber, 1, MAX_SESSION_NUMBER)) {
+    return { error: `sessionNumber must be an integer from 1 to ${MAX_SESSION_NUMBER}` };
+  }
+  if (!isInteger(round, 1, MAX_ROUNDS)) return { error: `round must be an integer from 1 to ${MAX_ROUNDS}` };
+  const results = cleanResults(rawResults);
+  if (results === null) {
+    return { error: `results must be an array of up to ${MAX_RESULTS} items, each {type: string, ok: boolean}` };
+  }
+  if (snapshot !== undefined && snapshot !== null && !snapshotOk(snapshot)) {
+    return { error: `snapshot must be a jpeg or png data URL of at most ${MAX_SNAPSHOT_CHARS} characters` };
+  }
   if (!Array.isArray(rawRoutes) || rawRoutes.length < 1 || rawRoutes.length > MAX_ROUTES) {
     return { error: `routes must be an array of 1 to ${MAX_ROUTES} routes` };
   }
@@ -92,6 +125,9 @@ const parseRequest = (body) => {
   }
 
   return {
+    round,
+    results,
+    snapshot: snapshot || null,
     routes,
     rawRoutes,
     bestRouteId,
@@ -169,12 +205,12 @@ const buildFacts = ({ routes, analysis, decision, candidates, answer }) => ({
  * Body: { bestRouteId, routes (max 3), candidatePoints?, trip?, answer? }
  * Returns: { analysis, decision, message, actions, question? }
  */
-router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, async (req, res) => {
+router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, async (req, res) => {
   const started = Date.now();
   const parsed = parseRequest(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
 
-  const { routes, rawRoutes, bestRouteId, candidatePoints, answer } = parsed;
+  const { round, results, snapshot, routes, rawRoutes, bestRouteId, candidatePoints, answer } = parsed;
   const analysis = analyseRoutes(routes);
   const boundsReason = routeBoundsReason(rawRoutes);
   if (boundsReason) analysis.boundsReason = boundsReason;
@@ -183,6 +219,8 @@ router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, a
   const routeIds = routes.map((r) => r.routeId);
   const candidateIds = candidates.map((c) => c.id);
 
+  // Expansion is switched on by B1 (corridor gate). Off until then.
+  const expansionAllowed = false;
   let agent = NO_AGENT_OUTPUT;
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (process.env.NODE_ENV !== 'production') {
@@ -194,7 +232,12 @@ router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, a
     const model = process.env.OPENROUTER_AGENT_MODEL || DEFAULT_AGENT_MODEL;
     try {
       agent = await runAgent({
-        facts: buildFacts({ routes, analysis, decision, candidates, answer }),
+        facts: {
+          ...buildFacts({ routes, analysis, decision, candidates, answer }),
+          snapshot,
+          expansionAllowed,
+          routeIds,
+        },
         tools: buildToolDefinitions({ routeIds, candidateIds }),
         callModel: callOpenRouter({ apiKey, model, deadline: started + AGENT_BUDGET_MS }),
         validateActions: (raw) => validateActions(raw, { routeIds, candidateIds }),
@@ -205,11 +248,18 @@ router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, a
     }
   }
 
+  // The model's pick counts only when it names one of this request's routes; otherwise the app's suggestion stands.
+  const modelPick = routeIds.includes(agent.recommendedRouteId) ? agent.recommendedRouteId : null;
   const response = {
+    status: agent.status === 'continue' && round < MAX_ROUNDS ? 'continue' : 'done',
+    round,
+    maxRounds: MAX_ROUNDS,
     analysis,
     decision,
+    recommendedRouteId: modelPick || decision.routeId,
     message: agent.message || fixedMessage(decision),
     actions: agent.actions,
+    expansionAllowed,
   };
   if (agent.question) response.question = agent.question;
   res.json(response);

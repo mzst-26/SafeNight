@@ -43,6 +43,8 @@ const finishReply = (message) => toolReply([['finish', { message }]]);
  */
 function body(overrides = {}) {
   return {
+    sessionNumber: 1,
+    round: 1,
     bestRouteId: 'r1',
     routes: [
       {
@@ -144,11 +146,11 @@ describe('POST /api/agent-insights', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('rejects a body over 450 kb before it reaches the model', async () => {
+  test('rejects a body over 1 mb before it reaches the model', async () => {
     global.fetch = jest.fn(async () => finishReply('x'));
     const app = loadApp();
     const huge = body({
-      candidatePoints: [{ id: 'p1', label: 'x'.repeat(460 * 1024), lat: 51.5, lng: -0.1, kind: 'route_start' }],
+      candidatePoints: [{ id: 'p1', label: 'x'.repeat(1100 * 1024), lat: 51.5, lng: -0.1, kind: 'route_start' }],
     });
 
     const res = await request(app).post('/api/agent-insights').send(huge);
