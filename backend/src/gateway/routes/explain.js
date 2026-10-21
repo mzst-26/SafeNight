@@ -4,12 +4,18 @@
  * Backend endpoint for AI route explanation.
  * Receives AGGREGATED route data (no per-segment data) and calls OpenAI.
  * Caches explanations for 1 hour to minimise API costs.
- * Limits to top 3 routes and uses a compact prompt (~500-800 tokens).
+ * Limits to top 3 routes. The comparison is computed in lib/explainFacts.js; the model only phrases it.
  */
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { buildComparisonFacts, buildExplainMessages } = require('../lib/explainFacts');
 const router = express.Router();
+
+// Bump when the prompt or the facts change so cached explanations are not served stale.
+const PROMPT_VERSION = 'v2';
+// Cheapest model we can verify; override with OPENAI_EXPLAIN_MODEL once pricing is checked.
+const EXPLAIN_MODEL = process.env.OPENAI_EXPLAIN_MODEL || 'gpt-4o-mini';
 
 // ─── Per-IP limit for the paid LLM call ──────────────────────────────────────
 // Keyed by IP only: this route is unauthenticated, so a Bearer token here is
@@ -114,16 +120,12 @@ const evictExpired = () => {
 
 /** Build a stable cache key from route data */
 const buildCacheKey = (routes, bestRouteId) => {
+  // Order is kept on purpose: "Route N" labels follow the input order.
   const routePart = routes
-    .map((r) => `${r.routeId}:${r.distanceMeters}:${r.score}`)
-    .sort()
+    .map((r) => `${r.routeId}:${r.distanceMeters}:${r.durationSeconds}:${r.score}:${JSON.stringify(r.breakdown ?? null)}`)
     .join('|');
-  return `${routePart}__best=${bestRouteId}`;
+  return `${routePart}__best=${bestRouteId}__${PROMPT_VERSION}`;
 };
-
-const fmtDist = (m) =>
-  m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`;
-const fmtTime = (s) => `${Math.max(1, Math.round(s / 60))}min`;
 
 /**
  * POST /api/explain-route
@@ -166,6 +168,9 @@ router.post('/explain-route', explainLimiter, async (req, res) => {
     if (routes.length === 0 || routes.some((r) => r === null)) {
       return res.status(400).json({ error: 'Invalid routes' });
     }
+    if (!routes.some((r) => r.routeId === bestRouteId)) {
+      return res.status(400).json({ error: 'bestRouteId must match one of the routes' });
+    }
 
     // ── Check cache ──
     evictExpired();
@@ -183,51 +188,11 @@ router.post('/explain-route', explainLimiter, async (req, res) => {
       return res.json({ explanation, cached: false });
     }
 
-    // ── Build compact prompt (~500-800 tokens) ──
-    const routeBlocks = routes
-      .map((r, i) => {
-        const isBest = r.routeId === bestRouteId;
-        const tag = isBest ? ' [SAFEST]' : '';
-        const lines = [`Route ${i + 1}${tag}: ${fmtDist(r.distanceMeters)}, ${fmtTime(r.durationSeconds)}, safety ${r.score}/100`];
-
-        // Safety factor scores
-        if (r.breakdown) {
-          lines.push(`  Scores: road=${r.breakdown.roadType} light=${r.breakdown.lighting} crime=${r.breakdown.crime} cctv=${r.breakdown.cctv} places=${r.breakdown.openPlaces} traffic=${r.breakdown.traffic}`);
-        }
-
-        // Totals
-        if (r.totals) {
-          const t = r.totals;
-          lines.push(`  Totals: ${t.crimes} crimes, ${t.lights} lights, ${t.cctv} CCTV, ${t.places} open places, ${t.busStops} bus stops, ${t.deadEnds} dead ends`);
-        }
-
-        // Road data
-        if (r.roadData) {
-          const rd = r.roadData;
-          const types = rd.roadTypes
-            ? Object.entries(rd.roadTypes)
-                .map(([k, v]) => `${k}:${v}%`)
-                .join(' ')
-            : '';
-          lines.push(`  Roads: ${rd.mainRoadPct}% main, ${rd.pavedPct}% paved, ${rd.sidewalkPct}% sidewalk${types ? ` | ${types}` : ''}`);
-        }
-
-        return lines.join('\n');
-      })
-      .join('\n');
-
-    const prompt = `You are a pedestrian safety analyst. ${routes.length} routes have been scored. The safety score (0-100) is a weighted composite of police-reported crime density, street lighting coverage, CCTV presence, road classification, nearby open premises, and estimated foot traffic.
-
-${routeBlocks}
-
-Write 2-3 concise sentences in clear, plain English with a professional tone:
-(1) Explain why the safest route scores highest, referencing specific data differences (e.g. "X fewer recorded crimes", "Y% more lighting coverage").
-(2) Briefly note the key trade-off for each alternative.
-Keep it under 100 words. No bullet points, no generic safety tips.
-End with: "Note: scores are estimates based on open data and may not reflect real-time conditions. Always stay aware of your surroundings."`;
+    // ── Build the comparison facts and the chat messages (facts are computed, the model only phrases them) ──
+    const messages = buildExplainMessages(buildComparisonFacts(routes, bestRouteId));
 
     const startedOpenAIAt = Date.now();
-    console.log(`[OpenAI] 🌐 API call → gpt-4o-mini (prompt ~${prompt.length} chars)`);
+    console.log(`[OpenAI] 🌐 API call → ${EXPLAIN_MODEL} (${PROMPT_VERSION}, ${messages.length} messages)`);
 
     const requestPromise = (async () => {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -237,10 +202,10 @@ End with: "Note: scores are estimates based on open data and may not reflect rea
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
+          model: EXPLAIN_MODEL,
+          messages,
           max_tokens: 200,
-          temperature: 0.3,
+          temperature: 0.2,
         }),
       });
 
