@@ -135,4 +135,21 @@ describe('buildToolDefinitions', () => {
 
     expect(panTo.function.parameters.properties.candidateId.enum).toEqual(['p1', 'p2']);
   });
+
+  // Contract: a walker message may only mention crime or incidents that the facts mention.
+  test('a finish message that invents a crime fact is not used', async () => {
+    const callModel = jest.fn(async () =>
+      reply(toolCall('finish', { message: 'Route 1 is safer. There have been recent muggings here, so take care.' })),
+    );
+    const result = await run(callModel);
+    expect(result.message).toBeNull();
+  });
+
+  test('the system prompt limits talk about darkness, lighting and crime to listed facts', () => {
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+    return run(callModel).then(() => {
+      const system = callModel.mock.calls[0][0].messages[0].content;
+      expect(system).toMatch(/Only talk about darkness, lighting or crime when they are listed/);
+    });
+  });
 });

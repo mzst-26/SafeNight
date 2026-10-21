@@ -148,8 +148,8 @@ describe('POST /api/explain-route prompt', () => {
     await request(loadApp()).post('/api/explain-route').send(payload);
 
     const user = JSON.parse(global.fetch.mock.calls[0][1].body).messages[1].content;
-    expect(user).toContain('a 320 m stretch with no street lighting');
-    expect(user).toContain('it is already dark when you set off');
+    expect(user).toContain('a 320 m stretch with poor or unconfirmed street lighting');
+    expect(user).toContain('it is getting dark as you set off');
   });
 
   test('never passes an unexpected worst-stretch cause to the model', async () => {

@@ -96,7 +96,7 @@ describe('risks on the recommended route', () => {
 
   test('names a long unlit stretch, rounded to 10 m', () => {
     const chosen = alone({ worstStretch: { lengthM: 324, cause: 'lighting' } });
-    expect(chosen.risks).toContain('a 320 m stretch with no street lighting');
+    expect(chosen.risks).toContain('a 320 m stretch with poor or unconfirmed street lighting');
   });
 
   test('a long stretch with another cause is named as higher risk, not as unlit', () => {
@@ -110,7 +110,7 @@ describe('risks on the recommended route', () => {
   });
 
   test('says it is already dark when you set off', () => {
-    expect(alone({ darknessAtStart: 0.9, darknessAtArrival: 0.9 }).risks).toContain('it is already dark when you set off');
+    expect(alone({ darknessAtStart: 0.9, darknessAtArrival: 0.9 }).risks).toContain('it is getting dark as you set off');
   });
 
   test('says it gets dark during the walk when only the arrival is dark', () => {
@@ -177,7 +177,7 @@ describe('buildExplainMessages', () => {
     const [, user] = buildExplainMessages(twoRoutes());
     expect(user.role).toBe('user');
     expect(user.content).toContain('stronger main roads and paved paths');
-    expect(user.content).toContain('a 320 m stretch with no street lighting');
+    expect(user.content).toContain('a 320 m stretch with poor or unconfirmed street lighting');
     expect(user.content).toMatch(/about 17 min/);
     expect(user.content).not.toMatch(/Route 2|Route 1|longer|shorter|alternative/i);
   });

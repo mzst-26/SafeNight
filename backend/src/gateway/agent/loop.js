@@ -22,6 +22,7 @@ const SYSTEM_PROMPT = [
   'You help a pedestrian choose and understand a walking route in SafeNight.',
   '- The route decision was made by the app. Do not change it or argue with it.',
   '- Use only the facts in the user message. Do not invent places, numbers, incidents or conditions.',
+  '- Only talk about darkness, lighting or crime when they are listed in the facts. Never mention muggings or incidents unless they are listed.',
   '- Refer to map points only by their listed ids. Never write coordinates.',
   '- You may call the map tools to show the walker the route or a point. Use propose_reroute_via only to suggest a point; the walker must confirm it.',
   '- Call ask_user only when a choice would change the walk. Give at most 3 choices.',
@@ -122,11 +123,18 @@ const parseCall = (call) => {
   return { id: call.id, name: call.function.name, args };
 };
 
-/** The finish message, or null when it is empty, not text, or over 100 words. */
-const cleanMessage = (value) => {
+// Crime or incident words are allowed in a walker message only when the facts contain them too.
+const CRIME_WORD_RE = /\b(mugg\w*|robb\w*|assault\w*|theft\w*|crime\w*|incident\w*|attack\w*|stab\w*|burgl\w*|violen\w*)/gi;
+
+/** The finish message, or null when it is empty, not text, over 100 words, or inventing crime facts. */
+const cleanMessage = (value, factsText) => {
   if (typeof value !== 'string') return null;
   const words = value.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0 || words.length > MAX_MESSAGE_WORDS) return null;
+  const facts = factsText.toLowerCase();
+  for (const match of value.matchAll(CRIME_WORD_RE)) {
+    if (!facts.includes(match[1].toLowerCase().slice(0, 5))) return null;
+  }
   return cleanText(value, MAX_MESSAGE_CHARS);
 };
 
@@ -174,7 +182,12 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
       if (!parsed) return FALLBACK();
 
       if (parsed.name === 'finish') {
-        return { actions: validateActions(rawActions), question: null, message: cleanMessage(parsed.args.message) };
+        // Only the facts the app sent count as evidence; the system prompt does not.
+        const factsText = messages
+          .filter((m) => m.role === 'user')
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        return { actions: validateActions(rawActions), question: null, message: cleanMessage(parsed.args.message, factsText) };
       }
       if (parsed.name === 'ask_user') {
         const question = cleanQuestion(parsed.args);

@@ -88,8 +88,8 @@ export async function runAgentActions(actions: AgentAction[], ctx: AgentActionCo
       case 'propose_reroute_via': {
         const candidate = findCandidate(ctx.candidates, action.candidateId);
         if (!candidate) break;
-        const label = typeof action.label === 'string' ? action.label : candidate.label;
-        const accepted = await ctx.confirm({ candidate, label });
+        // The prompt shows the client's own label: model text never reaches the walker's confirmation.
+        const accepted = await ctx.confirm({ candidate, label: candidate.label });
         if (accepted && ctx.setViaPin) {
           ctx.setViaPin({ latitude: candidate.lat, longitude: candidate.lng });
         }

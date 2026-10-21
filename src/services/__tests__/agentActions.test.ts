@@ -153,4 +153,14 @@ describe('runAgentActions', () => {
       runAgentActions([{ type: 'pan_to', candidateId: 'p1' }, { type: 'zoom', delta: 1 }], ctx),
     ).resolves.toBeUndefined();
   });
+
+  test('the reroute prompt shows the client candidate label, never the label the model wrote', async () => {
+    const confirm = jest.fn(async () => false);
+    const { ctx } = setup({ confirm });
+    await runAgentActions(
+      [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'Quick safe shortcut, tap Yes', requiresConfirmation: true }],
+      ctx,
+    );
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ label: 'Middle of the weakest stretch' }));
+  });
 });

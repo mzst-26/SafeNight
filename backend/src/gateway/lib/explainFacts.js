@@ -65,17 +65,18 @@ const buildRiskItems = (route) => {
   const items = [];
   const stretch = route.worstStretch;
   if (stretch && stretch.lengthM >= LONG_STRETCH_M) {
+    // Only an unlit stretch is a risk for the switch rule (contract G2); other causes are cautions.
     items.push({
       id: 'long_stretch',
-      severity: 'risk',
+      severity: stretch.cause === 'lighting' ? 'risk' : 'caution',
       text:
         stretch.cause === 'lighting'
-          ? `a ${roundToTen(stretch.lengthM)} m stretch with no street lighting`
+          ? `a ${roundToTen(stretch.lengthM)} m stretch with poor or unconfirmed street lighting`
           : `a ${roundToTen(stretch.lengthM)} m stretch of higher risk`,
     });
   }
   if (route.darknessAtStart >= DARK_FRACTION) {
-    items.push({ id: 'dark_at_start', severity: 'risk', text: 'it is already dark when you set off' });
+    items.push({ id: 'dark_at_start', severity: 'risk', text: 'it is getting dark as you set off' });
   } else if (route.darknessAtArrival >= DARK_FRACTION) {
     items.push({ id: 'dark_at_arrival', severity: 'risk', text: 'it gets dark during the walk' });
   }

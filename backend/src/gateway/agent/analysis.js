@@ -52,10 +52,10 @@ const decide = (routes, bestRouteId) => {
     return { kind: 'keep', routeId: best.routeId, reasons: [`${bestLabel} has no risks.`] };
   }
 
-  const risksSentence = `${bestLabel} has risks: ${bestRisks.map((f) => f.text).join('; ')}.`;
+  const risksSentence = `Be careful: ${bestLabel} has risks: ${bestRisks.map((f) => f.text).join('; ')}.`;
   const keep = (...reasons) => ({ kind: 'keep', routeId: best.routeId, reasons: [risksSentence, ...reasons] });
 
-  if (routes.length === 1) return keep('There is no other route to compare.');
+  if (routes.length === 1) return keep('This is the only route found.');
 
   const riskFree = routes
     .map((_, i) => i)
@@ -73,12 +73,12 @@ const decide = (routes, bestRouteId) => {
       routeId: alt.routeId,
       reasons: [
         risksSentence,
-        `${altLabel} has no risks and scores ${alt.score}, within ${SWITCH_MAX_SCORE_GAP} points of ${best.score}.`,
+        `${altLabel} has no risks and scores ${alt.score} out of 100, close to ${best.score} out of 100.`,
       ],
     };
   }
   return keep(
-    `${altLabel} has no risks but scores ${alt.score}, more than ${SWITCH_MAX_SCORE_GAP} points below ${best.score}.`,
+    `${altLabel} has no risks but scores ${alt.score} out of 100, well below ${best.score} out of 100.`,
   );
 };
 

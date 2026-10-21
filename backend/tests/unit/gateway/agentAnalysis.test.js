@@ -113,6 +113,25 @@ describe('decide', () => {
   test('reasons are fixed sentences that name the risk from the findings', () => {
     const result = decide([withRisk('a', 80), route('b', { score: 76 })], 'a');
 
-    expect(result.reasons.join(' ')).toMatch(/200 m stretch with no street lighting/);
+    expect(result.reasons.join(' ')).toMatch(/200 m stretch with poor or unconfirmed street lighting/);
+  });
+
+  // Contract G2 counts only a long UNLIT stretch as a risk for the switch rule.
+  test('a long stretch with a non-lighting cause does not, on its own, trigger a switch', () => {
+    const recommended = route('r1', { score: 95, worstStretch: { lengthM: 200, cause: 'traffic' } });
+    const other = route('r2', { score: 92 });
+    expect(decide([recommended, other], 'r1').kind).toBe('keep');
+  });
+
+  test('keep-with-risk reasons start with a plain warning, and a single route says so plainly', () => {
+    const keepRisk = decide([route('r1', { score: 80, darknessAtStart: 0.9 }), route('r2', { score: 80, darknessAtStart: 0.9 })], 'r1');
+    expect(keepRisk.reasons[0]).toMatch(/^Be careful: Route 1 has risks/);
+    const single = decide([route('r1', { score: 80, darknessAtStart: 0.9 })], 'r1');
+    expect(single.reasons.join(' ')).toContain('This is the only route found.');
+  });
+
+  test('scores in the walker reasons say out of 100', () => {
+    const result = decide([route('r1', { score: 80, darknessAtStart: 0.9 }), route('r2', { score: 84 })], 'r1');
+    expect(result.reasons.join(' ')).toContain('out of 100');
   });
 });
