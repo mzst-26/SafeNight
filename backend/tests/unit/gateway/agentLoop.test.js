@@ -153,3 +153,28 @@ describe('buildToolDefinitions', () => {
     });
   });
 });
+
+// Debugging: a discarded model answer must say why, outside production.
+describe('debug warning for a discarded model answer', () => {
+  let warn;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  test('a text-only reply is reported', async () => {
+    const callModel = jest.fn(async () => ({ role: 'assistant', content: 'Route 1 is safer.' }));
+    await run(callModel);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('reply had no tool call'));
+  });
+
+  test('a failed model call reports its status, not the key', async () => {
+    const callModel = jest.fn(async () => {
+      throw new Error('status 429');
+    });
+    await run(callModel);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('status 429'));
+  });
+});

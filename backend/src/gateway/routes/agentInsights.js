@@ -126,7 +126,7 @@ const callOpenRouter = ({ apiKey, model }) => async ({ messages, tools }) => {
     });
     if (!response.ok) {
       // The provider message is not logged or returned: it can contain key fragments.
-      throw new Error(`agent model call failed with status ${response.status}`);
+      throw new Error(`status ${response.status}`);
     }
     const data = await response.json();
     return data?.choices?.[0]?.message ?? null;
@@ -178,6 +178,9 @@ router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, a
 
   let agent = NO_AGENT_OUTPUT;
   const apiKey = process.env.OPENROUTER_API_KEY;
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[Agent Insights] request: ${routes.length} routes, ${candidates.length} candidates, key ${apiKey ? 'set' : 'MISSING'}`);
+  }
   if (!apiKey) {
     console.error('[Agent Insights] OPENROUTER_API_KEY is not configured; returning the deterministic result');
   } else {

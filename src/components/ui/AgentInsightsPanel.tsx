@@ -95,8 +95,10 @@ export function AgentInsightsPanel({
           routes: context.routes,
           controller: getMapController(),
         });
-      } catch {
+      } catch (error) {
         if (seq !== seqRef.current) return;
+        // Debugging: show the real cause in the dev console (kind and status only, never the body).
+        if (__DEV__) console.warn('[AgentInsights] request failed', error);
         // A failed follow-up must not leave reroute options from an earlier answer on screen.
         setOptions([]);
         setPhase('error');

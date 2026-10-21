@@ -151,7 +151,15 @@ const cleanQuestion = (args) => {
   return { id: args.questionId, text, choices };
 };
 
-const FALLBACK = () => ({ actions: [], question: null, message: null });
+// Debugging aid: say why the model's answer was not used. Outside production only; never logs the key
+// or any provider text.
+const debugWarn = (reason) => {
+  if (process.env.NODE_ENV !== 'production') console.warn(`[Agent] model answer not used: ${reason}`);
+};
+const FALLBACK = (reason) => {
+  debugWarn(reason);
+  return { actions: [], question: null, message: null };
+};
 
 /**
  * @param {object} params
@@ -169,17 +177,17 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
     let reply;
     try {
       reply = await callModel({ messages, tools });
-    } catch {
-      return FALLBACK();
+    } catch (error) {
+      return FALLBACK(`model call failed (${error && error.message ? error.message : 'unknown error'})`);
     }
 
     const toolCalls = reply && Array.isArray(reply.tool_calls) ? reply.tool_calls : [];
-    if (toolCalls.length === 0) return FALLBACK();
+    if (toolCalls.length === 0) return FALLBACK('reply had no tool call');
 
     const toolResults = [];
     for (const call of toolCalls) {
       const parsed = parseCall(call);
-      if (!parsed) return FALLBACK();
+      if (!parsed) return FALLBACK('tool call was malformed');
 
       if (parsed.name === 'finish') {
         // Only the facts the app sent count as evidence; the system prompt does not.
@@ -187,14 +195,16 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
           .filter((m) => m.role === 'user')
           .map((m) => (typeof m.content === 'string' ? m.content : ''))
           .join('\n');
-        return { actions: validateActions(rawActions), question: null, message: cleanMessage(parsed.args.message, factsText) };
+        const message = cleanMessage(parsed.args.message, factsText);
+        if (message === null) debugWarn('finish message was empty, too long, or mentioned facts not in the input');
+        return { actions: validateActions(rawActions), question: null, message };
       }
       if (parsed.name === 'ask_user') {
         const question = cleanQuestion(parsed.args);
-        if (!question) return FALLBACK();
+        if (!question) return FALLBACK('ask_user was malformed');
         return { actions: validateActions(rawActions), question, message: null };
       }
-      if (!ACTION_TOOLS.includes(parsed.name)) return FALLBACK();
+      if (!ACTION_TOOLS.includes(parsed.name)) return FALLBACK(`unknown tool ${parsed.name}`);
 
       rawActions.push({ ...parsed.args, type: parsed.name });
       toolResults.push({ role: 'tool', tool_call_id: parsed.id, content: JSON.stringify({ ok: true }) });
@@ -204,7 +214,7 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
   }
 
   // The model used every call without a finish.
-  return FALLBACK();
+  return FALLBACK('no finish within the call limit');
 };
 
 module.exports = {
