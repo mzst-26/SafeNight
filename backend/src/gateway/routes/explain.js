@@ -16,6 +16,8 @@ const router = express.Router();
 const PROMPT_VERSION = 'v2';
 // Cheapest model we can verify; override with OPENAI_EXPLAIN_MODEL once pricing is checked.
 const EXPLAIN_MODEL = process.env.OPENAI_EXPLAIN_MODEL || 'gpt-4o-mini';
+// OpenAI-compatible base URL (no trailing path). Set to a GitHub Models / Azure endpoint to use those.
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 
 // ─── Per-IP limit for the paid LLM call ──────────────────────────────────────
 // Keyed by IP only: this route is unauthenticated, so a Bearer token here is
@@ -149,6 +151,14 @@ router.post('/explain-route', explainLimiter, async (req, res) => {
         .json({ error: 'Route explanation is unavailable' });
     }
 
+    // The key is sent as a bearer token, so never send it over plain HTTP.
+    if (!/^https:\/\//.test(OPENAI_BASE_URL)) {
+      console.error('[Explain Route] OPENAI_BASE_URL must be an https:// URL');
+      return res
+        .status(500)
+        .json({ error: 'Route explanation is unavailable' });
+    }
+
     const { routes: rawRoutes, bestRouteId: rawBestRouteId } = req.body || {};
 
     // Validate input
@@ -195,7 +205,7 @@ router.post('/explain-route', explainLimiter, async (req, res) => {
     console.log(`[OpenAI] 🌐 API call → ${EXPLAIN_MODEL} (${PROMPT_VERSION}, ${messages.length} messages)`);
 
     const requestPromise = (async () => {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

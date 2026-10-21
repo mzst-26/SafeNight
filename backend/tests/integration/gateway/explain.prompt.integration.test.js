@@ -28,10 +28,12 @@ describe('POST /api/explain-route prompt', () => {
   const originalFetch = global.fetch;
   const originalKey = process.env.OPENAI_API_KEY;
   const originalModel = process.env.OPENAI_EXPLAIN_MODEL;
+  const originalBaseUrl = process.env.OPENAI_BASE_URL;
 
   beforeEach(() => {
     process.env.OPENAI_API_KEY = 'test-key-not-real';
     delete process.env.OPENAI_EXPLAIN_MODEL;
+    delete process.env.OPENAI_BASE_URL;
     global.fetch = jest.fn(async () => ({
       ok: true,
       status: 200,
@@ -44,6 +46,8 @@ describe('POST /api/explain-route prompt', () => {
     process.env.OPENAI_API_KEY = originalKey;
     if (originalModel === undefined) delete process.env.OPENAI_EXPLAIN_MODEL;
     else process.env.OPENAI_EXPLAIN_MODEL = originalModel;
+    if (originalBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = originalBaseUrl;
   });
 
   test('sends a system rule and the chosen-vs-alternative facts to the model', async () => {
@@ -99,5 +103,34 @@ describe('POST /api/explain-route prompt', () => {
     expect(res.status).toBe(400);
     expect(global.fetch).not.toHaveBeenCalled();
   });
-});
 
+  test('calls the OpenAI endpoint by default', async () => {
+    await request(loadApp()).post('/api/explain-route').send(body('url1'));
+
+    expect(global.fetch.mock.calls[0][0]).toBe('https://api.openai.com/v1/chat/completions');
+  });
+
+  test('calls OPENAI_BASE_URL with the bearer key when it is set', async () => {
+    process.env.OPENAI_BASE_URL = 'https://models.inference.ai.azure.com';
+    const res = await request(loadApp()).post('/api/explain-route').send(body('url2'));
+
+    expect(res.status).toBe(200);
+    expect(global.fetch.mock.calls[0][0]).toBe('https://models.inference.ai.azure.com/chat/completions');
+    expect(global.fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer test-key-not-real');
+  });
+
+  test('strips a trailing slash from OPENAI_BASE_URL', async () => {
+    process.env.OPENAI_BASE_URL = 'https://models.inference.ai.azure.com/';
+    await request(loadApp()).post('/api/explain-route').send(body('url3'));
+
+    expect(global.fetch.mock.calls[0][0]).toBe('https://models.inference.ai.azure.com/chat/completions');
+  });
+
+  test('refuses to send the key to a non-https OPENAI_BASE_URL', async () => {
+    process.env.OPENAI_BASE_URL = 'http://models.inference.ai.azure.com';
+    const res = await request(loadApp()).post('/api/explain-route').send(body('url4'));
+
+    expect(res.status).toBe(500);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
