@@ -8,6 +8,23 @@ describe('RouteMap.web buildLeafletHtml', () => {
     expect(html).toMatch(/\.leaflet-control-zoom\s*\{\s*display:\s*none/i);
   });
 
+  it('places the legend in the top-right corner when asked', () => {
+    const html = buildLeafletHtml(true, 'topright');
+    expect(html).toContain("L.control({position:'topright'})");
+  });
+
+  it('ignores an unexpected legend position instead of putting it into the page script', () => {
+    const html = buildLeafletHtml(false, 'x\');alert(1);//' as 'topright');
+    expect(html).toContain("L.control({position:'bottomleft'})");
+    expect(html).not.toContain('alert(1)');
+  });
+
+  it('places the legend bottom-left by default and exposes setLegendBottom', () => {
+    const html = buildLeafletHtml(false);
+    expect(html).toContain("L.control({position:'bottomleft'})");
+    expect(html).toContain('window.setLegendBottom');
+  });
+
   it('includes basic map container', () => {
     const html = buildLeafletHtml(false);
     expect(html).toContain('<div id="map"></div>');

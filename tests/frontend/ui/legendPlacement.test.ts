@@ -1,5 +1,5 @@
 import { RL_LEGEND_ICON_SVG } from '@/src/components/maps/inline/legend';
-import { legendBottomPx, LEGEND_LOWER_PX } from '@/src/components/maps/legendPlacement';
+import { legendBottomPx, legendPositionFor, LEGEND_LOWER_PX } from '@/src/components/maps/legendPlacement';
 
 describe('route guide icon', () => {
   it('is a question mark in a circle, not the shield', () => {
@@ -10,7 +10,7 @@ describe('route guide icon', () => {
 });
 
 describe('legendBottomPx', () => {
-  const base = { isWeb: false, navActive: false, sheetVisible: true, windowHeight: 2000, sheetTopY: 1910 };
+  const base = { isDesktopWeb: false, navActive: false, sheetVisible: true, windowHeight: 2000, sheetTopY: 1910 };
 
   it('sits a bit lower than the old position above the sheet', () => {
     // Old lift: windowHeight - sheetTopY + 8 = 98. Now 40px lower: 58.
@@ -29,7 +29,22 @@ describe('legendBottomPx', () => {
     expect(legendBottomPx({ ...base, navActive: true })).toBe(190);
   });
 
-  it('keeps the web value', () => {
-    expect(legendBottomPx({ ...base, isWeb: true })).toBe(38);
+  it('desktop web keeps the floor (its legend sits in the top-right corner)', () => {
+    expect(legendBottomPx({ ...base, isDesktopWeb: true })).toBe(38);
+  });
+
+  it('phone web lifts above its sheet the same way Android does', () => {
+    // windowHeight 800, sheetTopY 440: 800 - 440 + 8 - 40 = 328
+    expect(legendBottomPx({ ...base, windowHeight: 800, sheetTopY: 440 })).toBe(328);
+  });
+});
+
+describe('legendPositionFor', () => {
+  it('uses the top-right corner on desktop web', () => {
+    expect(legendPositionFor({ isDesktopWeb: true })).toBe('topright');
+  });
+
+  it('uses the bottom-left corner on phone web and native', () => {
+    expect(legendPositionFor({ isDesktopWeb: false })).toBe('bottomleft');
   });
 });

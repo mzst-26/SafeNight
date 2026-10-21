@@ -34,7 +34,13 @@ import {
 } from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
 
-export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
+export const buildLeafletHtml = (
+  showZoomControls: boolean,
+  requestedLegendPosition: "topright" | "bottomleft" = "bottomleft",
+) => {
+  // Only these two values are ever written into the page script; anything else falls back.
+  const legendPosition = requestedLegendPosition === "topright" ? "topright" : "bottomleft";
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8"/>
@@ -764,7 +770,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
       routePointsLayer = L.layerGroup().addTo(map);
 
       // The legend (inline/legend.ts) starts collapsed on narrow iframes; a user toggle is remembered after that.
-      legendControl = L.control({position:'bottomleft'});
+      legendControl = L.control({position:'${legendPosition}'});
       legendControl.onAdd = function(){
         var el=document.createElement('div');
         el.className='leaflet-control rl-legend';
@@ -1114,6 +1120,13 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
     window.updateMap = updateMap;
     window.setMapType = function(_type){};
     window.setPipMode = function(pip){ isPipMode=!!pip; };
+    /* Phone web lifts the legend above the sheet like Android (left 12px, bottom px). Desktop (top-right) keeps Leaflet's margins. */
+    window.setLegendBottom = function(px){
+      if(!legendEl) return;
+      var bottomLeft = ${JSON.stringify(legendPosition === "bottomleft")};
+      legendEl.style.marginBottom = bottomLeft ? px+'px' : '';
+      legendEl.style.marginLeft = bottomLeft ? '12px' : '';
+    };
     window.recenterNavigation = function(){
       userInteracted=false;
       setFollowMode(true);
@@ -1143,6 +1156,7 @@ export const buildLeafletHtml = (showZoomControls: boolean) => `<!DOCTYPE html>
   <\/script>
 </body>
 </html>`;
+};
 
 export const RouteMap = ({
   origin,
@@ -1164,6 +1178,8 @@ export const RouteMap = ({
   candidateFitBottomPadding,
   candidateFitSidePadding,
   showZoomControls = true,
+  legendPosition = "bottomleft",
+  legendBottomPx = 38,
   isNavigating = false,
   navigationLocation,
   navigationHeading,
@@ -1230,6 +1246,7 @@ export const RouteMap = ({
   };
 
   const propsRef = useRef({
+    legendBottomPx,
     origin,
     destination,
     routes,
@@ -1258,6 +1275,7 @@ export const RouteMap = ({
     outOfRangeCueSignal,
   });
   propsRef.current = {
+    legendBottomPx,
     origin,
     destination,
     routes,
@@ -1289,6 +1307,12 @@ export const RouteMap = ({
   const pushUpdate = useCallback(() => {
     if (!readyRef.current || !iframeRef.current?.contentWindow) return;
     const p = propsRef.current;
+    try {
+      const win = iframeRef.current.contentWindow as any;
+      if (win.setLegendBottom) win.setLegendBottom(Math.max(0, Math.round(p.legendBottomPx)));
+    } catch {
+      /* cross-origin */
+    }
     const toLL = (c: { latitude: number; longitude: number }) => ({
       lat: c.latitude,
       lng: c.longitude,
@@ -1512,6 +1536,7 @@ export const RouteMap = ({
     fitTopPadding,
     fitBottomPadding,
     fitSidePadding,
+    legendBottomPx,
     pushUpdate,
   ]);
 
@@ -1571,7 +1596,10 @@ export const RouteMap = ({
     }
   }, [vizProgressPct, vizProgressMessage]);
 
-  const mapHtml = useMemo(() => buildLeafletHtml(showZoomControls), [showZoomControls]);
+  const mapHtml = useMemo(
+    () => buildLeafletHtml(showZoomControls, legendPosition),
+    [showZoomControls, legendPosition],
+  );
 
   return (
     <View style={styles.container}>

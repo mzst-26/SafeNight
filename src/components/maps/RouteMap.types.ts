@@ -56,6 +56,8 @@ export type RouteMapProps = {
   fitBottomPadding?: number;
   /** Distance (px) from the bottom of the map to the route safety legend. Lift it above sheets and bars. */
   legendBottomPx?: number;
+  /** Corner for the route safety legend on web: top-right on desktop, bottom-left on phone web and native. */
+  legendPosition?: "topright" | "bottomleft";
   /** Extra left/right padding (px) used when fitting bounds so points are not clipped by UI rails. */
   fitSidePadding?: number;
   /** Extra top padding used only when candidate search/filter autofocus triggers a refit. */

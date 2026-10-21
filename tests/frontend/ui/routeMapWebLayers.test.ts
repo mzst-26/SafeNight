@@ -81,10 +81,11 @@ type HarnessOptions = {
   project?: ((lat: number, lng: number, zoom: number) => { x: number; y: number }) | null;
   parentOrigin?: string | 'throw';
   innerWidth?: number;
+  legendPosition?: 'topright' | 'bottomleft';
 };
 
 function loadRouteMap(opts: HarnessOptions = {}) {
-  const match = buildLeafletHtml(false).match(SCRIPT_RE);
+  const match = buildLeafletHtml(false, opts.legendPosition).match(SCRIPT_RE);
   if (!match) throw new Error('inline map script not found in buildLeafletHtml output');
 
   const state = { zoom: opts.zoom ?? 16 };
@@ -178,6 +179,7 @@ return {
   updateMap: updateMap,
   legendControl: typeof legendControl !== 'undefined' ? legendControl : null,
   getLegend: function () { return typeof legendEl !== 'undefined' ? legendEl : null; },
+  setLegendBottom: window.setLegendBottom,
   groups: {
     routes: layerRoutes,
     markers: layerMarkers,
@@ -1317,6 +1319,22 @@ describe('RouteMap.web legend placement and notes', () => {
     head.listeners.click[0]({ stopPropagation: () => undefined });
     expect(legend.className).toContain('rl-legend-collapsed');
     expect(legend.className).toContain('rl-legend-has-notes');
+  });
+
+  it('phone legend takes the Android bottom offset and the 12px left inset', () => {
+    const h = loadRouteMap();
+    h.setLegendBottom(328);
+    const legend = h.getLegend();
+    expect(legend.style.marginBottom).toBe('328px');
+    expect(legend.style.marginLeft).toBe('12px');
+  });
+
+  it('desktop legend (top-right) ignores the bottom offset and keeps Leaflet margins', () => {
+    const h = loadRouteMap({ legendPosition: 'topright' });
+    h.setLegendBottom(328);
+    const legend = h.getLegend();
+    expect(legend.style.marginBottom).toBe('');
+    expect(legend.style.marginLeft).toBe('');
   });
 
   it('lifts the legend so its bottom margin clears the attribution box by at least 4px', () => {
