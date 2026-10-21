@@ -57,27 +57,50 @@ const buildStrengths = (chosenBreakdown, altBreakdowns) => {
 
 const roundToTen = (metres) => Math.round(metres / 10) * 10;
 
-/** Plain-English risks on the recommended route itself, whichever route the user picks instead. */
-const buildRisks = (route) => {
-  const risks = [];
+/**
+ * Risk findings on one route, with the thresholds above. Each item has a stable id, a severity
+ * ('risk' or 'caution') and the plain-English text. Shared by the explain prompt and the agent analysis.
+ */
+const buildRiskItems = (route) => {
+  const items = [];
   const stretch = route.worstStretch;
   if (stretch && stretch.lengthM >= LONG_STRETCH_M) {
-    risks.push(
-      stretch.cause === 'lighting'
-        ? `a ${roundToTen(stretch.lengthM)} m stretch with no street lighting`
-        : `a ${roundToTen(stretch.lengthM)} m stretch of higher risk`,
-    );
+    items.push({
+      id: 'long_stretch',
+      severity: 'risk',
+      text:
+        stretch.cause === 'lighting'
+          ? `a ${roundToTen(stretch.lengthM)} m stretch with no street lighting`
+          : `a ${roundToTen(stretch.lengthM)} m stretch of higher risk`,
+    });
   }
   if (route.darknessAtStart >= DARK_FRACTION) {
-    risks.push('it is already dark when you set off');
+    items.push({ id: 'dark_at_start', severity: 'risk', text: 'it is already dark when you set off' });
   } else if (route.darknessAtArrival >= DARK_FRACTION) {
-    risks.push('it gets dark during the walk');
+    items.push({ id: 'dark_at_arrival', severity: 'risk', text: 'it gets dark during the walk' });
   }
-  if (route.deadEnds > 0) risks.push('the route includes a dead end');
-  if (route.crimeDataUnavailable) risks.push('crime data is missing for this area, so the score may be too high');
-  if (route.lightingQuality === 'estimated') risks.push('street lighting on this route is estimated, not confirmed');
-  return risks;
+  if (route.deadEnds > 0) {
+    items.push({ id: 'dead_end', severity: 'risk', text: 'the route includes a dead end' });
+  }
+  if (route.crimeDataUnavailable) {
+    items.push({
+      id: 'crime_unavailable',
+      severity: 'risk',
+      text: 'crime data is missing for this area, so the score may be too high',
+    });
+  }
+  if (route.lightingQuality === 'estimated') {
+    items.push({
+      id: 'lighting_estimated',
+      severity: 'caution',
+      text: 'street lighting on this route is estimated, not confirmed',
+    });
+  }
+  return items;
 };
+
+/** Plain-English risks on the recommended route itself, whichever route the user picks instead. */
+const buildRisks = (route) => buildRiskItems(route).map((item) => item.text);
 
 /**
  * @param {Array<object>} routes sanitised routes, safest first
@@ -174,4 +197,12 @@ const buildExplainMessages = (facts) => {
   ];
 };
 
-module.exports = { buildComparisonFacts, buildExplainMessages, FACTOR_KEYS, MIN_FACTOR_GAP };
+module.exports = {
+  buildComparisonFacts,
+  buildExplainMessages,
+  buildRiskItems,
+  buildRisks,
+  buildStrengths,
+  FACTOR_KEYS,
+  MIN_FACTOR_GAP,
+};

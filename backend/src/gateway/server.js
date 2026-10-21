@@ -31,6 +31,7 @@ const directionsRouter = require('./routes/directions');
 const staticmapRouter = require('./routes/staticmap');
 const nearbyRouter = require('./routes/nearby');
 const explainRouter = require('./routes/explain');
+const agentInsightsRouter = require('./routes/agentInsights');
 const integrityVerifyRouter = require('./routes/integrityVerify');
 
 const app = express();
@@ -50,6 +51,9 @@ app.use('/api/', createRateLimiter({ windowMs: 15 * 60 * 1000, max: 100 }));
 
 // ─── Explain route (before the 50 KB default parser: it parses its own larger body) ───
 app.use('/api', explainRouter);
+
+// ─── AI Insights agent (also parses its own 450 KB body, before the 50 KB default) ───
+app.use('/api', agentInsightsRouter);
 
 // ─── Body parser ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '50kb' }));

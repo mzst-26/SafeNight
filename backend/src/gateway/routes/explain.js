@@ -304,3 +304,4 @@ router.post('/explain-route', express.json({ limit: '450kb' }), explainLimiter, 
 
 module.exports = router;
 module.exports.MAX_CACHE_ENTRIES = MAX_CACHE_ENTRIES;
+module.exports.sanitizeRoute = sanitizeRoute;
