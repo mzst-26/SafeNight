@@ -18,6 +18,8 @@ const body: AgentInsightsRequest = {
       durationSeconds: 700,
       score: 62,
       worstStretch: null,
+      start: null,
+      end: null,
     },
   ],
   trip: {},
@@ -191,5 +193,86 @@ describe('buildAgentContext', () => {
     expect(context.body.bestRouteId).toBe('b');
     expect(context.body.trip.leaveAtIso).toBe('2026-10-21T22:00:00.000Z');
     expect(context.routes.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('buildAgentContext start and end per route', () => {
+  const path = [
+    { latitude: 51.5, longitude: -0.1 },
+    { latitude: 51.505, longitude: -0.105 },
+    { latitude: 51.51, longitude: -0.112 },
+  ];
+  const route = (id: string, points: typeof path, isSafest = false) => ({
+    id,
+    distanceMeters: 900,
+    durationSeconds: 700,
+    encodedPolyline: '',
+    path: points,
+    routeIndex: 0,
+    isSafest,
+    safety: {
+      score: 60,
+      label: 'Fair',
+      color: '#000',
+      breakdown: {},
+      roadTypes: {},
+      mainRoadRatio: 40,
+      timeline: { leaveAtIso: '2026-10-21T22:00:00.000Z' },
+    },
+    safetySegments: [],
+  });
+
+  test('each route sends start and end as {lat, lng} from its own first and last path point', () => {
+    const safeRoutes = [
+      route('a', path, true),
+      route('b', [
+        { latitude: 51.6, longitude: -0.2 },
+        { latitude: 51.65, longitude: -0.25 },
+      ]),
+    ];
+    const context = buildAgentContext({
+      routes: safeRoutes as unknown as DirectionsRoute[],
+      safeRoutes: safeRoutes as never,
+      scores: {},
+      bestRouteId: 'a',
+    });
+
+    expect(context.body.routes.map((r) => r.routeId)).toEqual(['a', 'b']);
+    expect(context.body.routes[0].start).toEqual({ lat: 51.5, lng: -0.1 });
+    expect(context.body.routes[0].end).toEqual({ lat: 51.51, lng: -0.112 });
+    expect(context.body.routes[1].start).toEqual({ lat: 51.6, lng: -0.2 });
+    expect(context.body.routes[1].end).toEqual({ lat: 51.65, lng: -0.25 });
+  });
+
+  test('sends start and end for each of the top three routes, and only those', () => {
+    const safeRoutes = ['a', 'b', 'c', 'd'].map((id) => route(id, path, id === 'a'));
+    const context = buildAgentContext({
+      routes: safeRoutes as unknown as DirectionsRoute[],
+      safeRoutes: safeRoutes as never,
+      scores: {},
+      bestRouteId: 'a',
+    });
+    expect(context.body.routes).toHaveLength(3);
+    context.body.routes.forEach((r) => {
+      expect(r.start).toEqual({ lat: 51.5, lng: -0.1 });
+      expect(r.end).toEqual({ lat: 51.51, lng: -0.112 });
+    });
+  });
+
+  test('start and end carry only lat and lng, and the body has no email or user identifier', () => {
+    const safeRoutes = [route('a', path, true)];
+    const context = buildAgentContext({
+      routes: safeRoutes as unknown as DirectionsRoute[],
+      safeRoutes: safeRoutes as never,
+      scores: {},
+      bestRouteId: 'a',
+    });
+    const sent = context.body.routes[0];
+    expect(Object.keys(sent.start as object).sort()).toEqual(['lat', 'lng']);
+    expect(Object.keys(sent.end as object).sort()).toEqual(['lat', 'lng']);
+
+    // Route entries carry the route id the contract already has, and no other identifier.
+    expect(Object.keys(sent)).not.toContain('id');
+    expect(JSON.stringify(context.body)).not.toMatch(/email|userId|"uid"|"token"/i);
   });
 });

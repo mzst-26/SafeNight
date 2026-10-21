@@ -114,6 +114,8 @@ function loadRouteMap(opts: HarnessOptions = {}) {
     flyTo: () => undefined,
     panTo: () => undefined,
     fitBounds: () => undefined,
+    /** Layers added straight to the map (the agent highlight), in the order they were added. */
+    layers: [] as FakeLayer[],
     removeLayer: () => undefined,
   };
   if (opts.project === null) delete fakeMap.latLngToContainerPoint;
@@ -226,6 +228,8 @@ return {
       state.zoom = z;
     },
     tileOptions,
+    mapLayers: fakeMap.layers as FakeLayer[],
+    agentHighlight: (routeId: string): boolean => Boolean(win.agentHighlight(routeId)),
     fireMapEvent: (ev: string) => (mapHandlers[ev] ?? []).forEach((fn) => fn()),
     fireZoomEnd: () => (mapHandlers.zoomend ?? []).forEach((fn) => fn()),
     /** Pending timers created with the overlay relayout debounce delay. */
@@ -1368,5 +1372,56 @@ describe('RouteMap.web parity constants', () => {
     expect(h.tileOptions[0].attribution).toBe(OSM_ATTRIBUTION);
     expect(OSM_ATTRIBUTION).toBe('© OpenStreetMap contributors');
     expect(NATIVE_MAP_ATTRIBUTION.endsWith(OSM_ATTRIBUTION)).toBe(true);
+  });
+});
+
+describe('RouteMap.web agent highlight (show_findings)', () => {
+  // West-bound line along lat 51.5. The worst stretch runs from -0.115 to -0.125, across vertex -0.12.
+  const path = [0, 1, 2, 3, 4].map((i) => ({ lat: 51.5, lng: -0.1 - i * 0.01 }));
+  const stretch = {
+    start: { lat: 51.5, lng: -0.115 },
+    end: { lat: 51.5, lng: -0.125 },
+    lengthM: 200,
+    cause: 'lighting',
+  };
+  const roundPairs = (latlngs: unknown) =>
+    (latlngs as Array<[number, number]>).map(([lat, lng]) => [Number(lat.toFixed(6)), Number(lng.toFixed(6))]);
+
+  test('draws only the worst stretch of the route with its callout, and returns true', () => {
+    const h = loadRouteMap();
+    h.updateMap(basePayload({ routes: [{ id: 'r1', selected: false, path, worstStretch: stretch }] }));
+
+    expect(h.agentHighlight('r1')).toBe(true);
+
+    const lines = h.mapLayers.filter((l: FakeLayer) => l.type === 'polyline');
+    expect(lines).toHaveLength(1);
+    expect(roundPairs(lines[0].latlngs)).toEqual([
+      [51.5, -0.115],
+      [51.5, -0.12],
+      [51.5, -0.125],
+    ]);
+
+    const callouts = h.mapLayers.filter(
+      (l: FakeLayer) => l.type === 'marker' && l.options.icon?.className === 'rl-callout-icon',
+    );
+    expect(callouts).toHaveLength(1);
+    expect(iconHtml(callouts[0])).toContain('Unlit stretch · 200 m');
+    const [lat, lng] = callouts[0].latlngs as number[];
+    expect(lat).toBeCloseTo(51.5, 6);
+    expect(lng).toBeCloseTo(-0.12, 6);
+  });
+
+  test('returns false and draws nothing when the route has no worst stretch', () => {
+    const h = loadRouteMap();
+    h.updateMap(basePayload({ routes: [{ id: 'r1', selected: false, path, worstStretch: null }] }));
+    expect(h.agentHighlight('r1')).toBe(false);
+    expect(h.mapLayers).toHaveLength(0);
+  });
+
+  test('returns false for a route id the map does not have', () => {
+    const h = loadRouteMap();
+    h.updateMap(basePayload({ routes: [{ id: 'r1', selected: false, path, worstStretch: stretch }] }));
+    expect(h.agentHighlight('nope')).toBe(false);
+    expect(h.mapLayers).toHaveLength(0);
   });
 });

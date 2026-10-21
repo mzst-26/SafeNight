@@ -13,6 +13,7 @@ import { FORMAT_JS } from "@/src/components/maps/inline/format";
 import { LEGEND_JS } from "@/src/components/maps/inline/legend";
 import { ROUTE_OVERLAY_CSS } from "@/src/components/maps/inline/overlayCss";
 import { SCREEN_CLUSTER_JS } from "@/src/components/maps/inline/screenCluster";
+import { STRETCH_HIGHLIGHT_JS, worstStretchForMap } from "@/src/components/maps/inline/stretchHighlight";
 import {
   OSM_ATTRIBUTION,
   RL_ATTRIBUTION_HEIGHT_PX,
@@ -115,6 +116,7 @@ export const buildLeafletHtml = (
     ${BADGES_JS}
     ${LEGEND_JS}
     ${SCREEN_CLUSTER_JS}
+    ${STRETCH_HIGHLIGHT_JS}
     var map = null;
     var ready = false;
     var lastData = null;
@@ -1143,15 +1145,21 @@ export const buildLeafletHtml = (
       map.fitBounds([[Number(b.south), Number(b.west)], [Number(b.north), Number(b.east)]], { padding: [48, 48], maxZoom: 17, animate: true });
       return true;
     };
+    /* show_findings: only the worst stretch of the route is drawn (its part of the line), with its callout. */
     window.agentHighlight = function(routeId){
       if(!map || !lastData || !lastData.routes) return false;
       var route = null;
       for(var i = 0; i < lastData.routes.length; i++){
         if(lastData.routes[i].id === routeId){ route = lastData.routes[i]; break; }
       }
-      if(!route || !route.path || route.path.length < 2) return false;
-      var line = L.polyline(route.path.map(function(p){ return [p.lat, p.lng]; }), { color: '#f59e0b', weight: 12, opacity: 0.9, dashArray: '6 10', interactive: false }).addTo(map);
-      setTimeout(function(){ try { map.removeLayer(line); } catch(e){} }, 3000);
+      if(!route || !route.worstStretch) return false;
+      var seg = rlStretchPath(route.path, route.worstStretch.start, route.worstStretch.end);
+      if(seg.length < 2) return false;
+      var line = L.polyline(seg.map(function(p){ return [p.lat, p.lng]; }), { color: '#f59e0b', weight: 12, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map);
+      var mid = rlPathHalfway(seg);
+      var icon = L.divIcon({ className: 'rl-callout-icon', html: rlIconHtml(rlBuildCallout(rlStretchCalloutText(route.worstStretch))), iconSize: [0, 0], iconAnchor: [0, 0] });
+      var callout = L.marker([mid.lat, mid.lng], { icon: icon, interactive: false, keyboard: false, zIndexOffset: 1000 }).addTo(map);
+      setTimeout(function(){ try { map.removeLayer(line); map.removeLayer(callout); } catch(e){} }, 3000);
       return true;
     };
 
@@ -1413,6 +1421,7 @@ export const RouteMap = ({
       id: r.id,
       selected: r.id === p.selectedRouteId,
       path: r.path.map(toLL),
+      worstStretch: worstStretchForMap(r),
     }));
     const segments = p.routeSegments.map((seg) => ({
       color: seg.color,

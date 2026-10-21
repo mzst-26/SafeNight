@@ -23,8 +23,17 @@ export interface AgentWorstStretch {
   cause: string | null;
 }
 
+export interface AgentLatLng {
+  lat: number;
+  lng: number;
+}
+
 export interface AgentRouteInfo extends Omit<CompactRouteInfo, 'worstStretch'> {
   worstStretch?: AgentWorstStretch | null;
+  /** First point of the route's own geometry, or null when the route has no points. */
+  start: AgentLatLng | null;
+  /** Last point of the route's own geometry, or null when the route has no points. */
+  end: AgentLatLng | null;
 }
 
 export type CandidateKind = 'stretch_midpoint' | 'route_start' | 'route_end';
@@ -158,12 +167,18 @@ export function buildAgentContext(input: BuildAgentContextInput): AgentContext {
   const fullStretch = (routeId: string) =>
     input.safeRoutes.find((sr) => sr.id === routeId)?.safety?.worstStretch ?? null;
 
+  const toAgentPoint = (p: LatLng | undefined): AgentLatLng | null =>
+    p ? { lat: p.latitude, lng: p.longitude } : null;
+
   // Compact data as the explanation sends it, with the worst stretch's ends so the model can name them.
   const compact = buildCompactRoutes(top, input.scores, input.safeRoutes);
   const routes: AgentRouteInfo[] = compact.map((route) => {
     const stretch = fullStretch(route.routeId);
+    const geometry = top.find((r) => r.id === route.routeId)?.path;
     return {
       ...route,
+      start: toAgentPoint(geometry?.[0]),
+      end: toAgentPoint(geometry?.[geometry.length - 1]),
       worstStretch: stretch
         ? {
             start: { lat: stretch.start.lat, lng: stretch.start.lng },

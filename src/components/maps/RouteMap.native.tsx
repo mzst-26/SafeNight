@@ -15,6 +15,7 @@ import { FORMAT_JS } from "@/src/components/maps/inline/format";
 import { LEGEND_JS } from "@/src/components/maps/inline/legend";
 import { ROUTE_OVERLAY_CSS } from "@/src/components/maps/inline/overlayCss";
 import { SCREEN_CLUSTER_JS } from "@/src/components/maps/inline/screenCluster";
+import { STRETCH_HIGHLIGHT_JS, worstStretchForMap } from "@/src/components/maps/inline/stretchHighlight";
 import {
   MAPTILER_STREETS_RASTER_STYLE,
   NATIVE_MAP_ATTRIBUTION,
@@ -300,6 +301,7 @@ export const buildMapHtml = (
     ${BADGES_JS}
     ${LEGEND_JS}
     ${SCREEN_CLUSTER_JS}
+    ${STRETCH_HIGHLIGHT_JS}
     /* ── State ─────────────────────────────────────────────── */
     var currentMarkers = [];
     var navMarkerObj = null;
@@ -857,6 +859,9 @@ export const buildMapHtml = (
       map.addSource('rl-dashed', { type:'geojson', data:emptyFC });
       map.addSource('rl-points', { type:'geojson', data:emptyFC });
 
+      /* AI Insights show_findings: the worst stretch of one route (only the part between its ends) */
+      map.addSource('agent-highlight', { type:'geojson', data:emptyFC });
+
       /* Visualisation sources */
       map.addSource('viz-bbox', { type:'geojson', data:emptyFC });
       map.addSource('viz-corridor', { type:'geojson', data:emptyFC });
@@ -905,6 +910,9 @@ export const buildMapHtml = (
       map.addLayer({ id:'route-remaining-line', type:'line', source:'route-remaining',
         layout:{'line-cap':'round','line-join':'round'},
         paint:{'line-color':'#4285F4','line-opacity':0.85,'line-width':6} });
+      map.addLayer({ id:'agent-highlight-line', type:'line', source:'agent-highlight',
+        layout:{'line-cap':'round','line-join':'round'},
+        paint:{'line-color':'#f59e0b','line-opacity':0.9,'line-width':10} });
       // Street names along the solid route lines: small, no background box. The font is the
       // basemap's own label font, so the glyphs exist in the style.
       var rlNameFont = ['Noto Sans Regular'];
@@ -1167,8 +1175,32 @@ export const buildMapHtml = (
       map.fitBounds([[Number(b.west), Number(b.south)], [Number(b.east), Number(b.north)]], { padding: 48, maxZoom: 17, duration: 400 });
       return true;
     };
-    /* No route highlight exists on native yet, so this does nothing and reports false. */
-    window.agentHighlight = function(routeId){ return false; };
+    /* show_findings: only the worst stretch of the route is drawn (its part of the line), with its callout.
+       Returns true when the stretch is drawn; false when the route has no stretch or the page is not ready. */
+    var agentHighlightMarker = null;
+    var agentHighlightTimer = null;
+    function clearAgentHighlight(){
+      var src = map.getSource('agent-highlight');
+      if(src) src.setData(emptyFC);
+      if(agentHighlightMarker){ agentHighlightMarker.remove(); agentHighlightMarker = null; }
+    }
+    window.agentHighlight = function(routeId){
+      if(!map || !lastData || !lastData.routes || !map.getSource('agent-highlight')) return false;
+      var route = null;
+      for(var i = 0; i < lastData.routes.length; i++){
+        if(lastData.routes[i].id === routeId){ route = lastData.routes[i]; break; }
+      }
+      if(!route || !route.worstStretch) return false;
+      var seg = rlStretchPath(route.path, route.worstStretch.start, route.worstStretch.end);
+      if(seg.length < 2) return false;
+      var mid = rlPathHalfway(seg);
+      clearTimeout(agentHighlightTimer);
+      clearAgentHighlight();
+      map.getSource('agent-highlight').setData({type:'FeatureCollection',features:[{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:seg.map(function(p){ return [p.lng,p.lat]; })}}]});
+      agentHighlightMarker = createViewportMarker({element:rlBuildCallout(rlStretchCalloutText(route.worstStretch)),anchor:'bottom',offset:[0,-RL_CALLOUT_OFFSET_PX]}).setLngLat([mid.lng,mid.lat]).addTo(map);
+      agentHighlightTimer = setTimeout(clearAgentHighlight, 3000);
+      return true;
+    };
 
     window.recenterNavigation = function(){
       userInteracted = false;
@@ -1919,8 +1951,15 @@ export const RouteMap = ({
             east: Number(bounds.east),
           })})`,
         ),
-      // Native has no route highlight yet, so nothing is drawn.
-      highlight: () => false,
+      // The WebView runs the highlight asynchronously, so this answers from the route data the map was given:
+      // true when the route has a worst stretch and a line to draw it on (the page draws it the same way).
+      highlight: (routeId) => {
+        if (!readyRef.current || !webViewRef.current) return false;
+        const route = propsRef.current.routes.find((r) => r.id === routeId);
+        if (!route || !worstStretchForMap(route) || route.path.length < 2) return false;
+        run(`window.agentHighlight(${JSON.stringify(routeId)})`);
+        return true;
+      },
     });
     return () => setMapController(null);
   }, []);
@@ -2030,6 +2069,7 @@ export const RouteMap = ({
       id: r.id,
       selected: r.id === p.selectedRouteId,
       path: r.path.map(toLL),
+      worstStretch: worstStretchForMap(r),
     }));
 
     const segments = p.routeSegments.map((seg) => ({

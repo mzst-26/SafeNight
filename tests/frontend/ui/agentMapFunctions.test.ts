@@ -36,6 +36,11 @@ describe('web map (Leaflet iframe) agent functions', () => {
   test('fit bounds uses map.fitBounds', () => {
     expect(html).toMatch(/window\.agentFitBounds = function[\s\S]*?map\.fitBounds\(/);
   });
+
+  test('highlight draws only the worst stretch (rlStretchPath) with its callout, not the whole route', () => {
+    expect(html).toMatch(/window\.agentHighlight = function\(routeId\)\{[\s\S]*?rlStretchPath\([\s\S]*?rlStretchCalloutText\(/);
+    expect(html).not.toMatch(/window\.agentHighlight = function[\s\S]*?route\.path\.map\(/);
+  });
 });
 
 describe('native map (MapLibre WebView) agent functions', () => {
@@ -55,7 +60,14 @@ describe('native map (MapLibre WebView) agent functions', () => {
     expect(html).toMatch(/window\.agentFitBounds = function[\s\S]*?map\.fitBounds\(/);
   });
 
-  test('highlight is a no-op that returns false, since native has no route highlight yet', () => {
-    expect(html).toMatch(/window\.agentHighlight = function\(routeId\)\{\s*return false;\s*\}/);
+  test('highlight draws only the worst stretch on a MapLibre highlight layer and returns true', () => {
+    expect(html).toContain("id:'agent-highlight-line'");
+    expect(html).toContain("source:'agent-highlight'");
+    expect(html).toMatch(/window\.agentHighlight = function\(routeId\)\{[\s\S]*?rlStretchPath\([\s\S]*?return true;\s*\}/);
+    expect(html).not.toMatch(/window\.agentHighlight = function\(routeId\)\{\s*return false;/);
+  });
+
+  test('the highlight source is added with the other route sources', () => {
+    expect(html).toMatch(/addSource\('agent-highlight'/);
   });
 });
