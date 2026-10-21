@@ -69,7 +69,7 @@ const AGENT_MAP = 'agent';
 
 /** Development-only step log for the agent run. Counts, ids, timings and statuses only: never coordinates, pictures or the walker's text. */
 const agentDebug = (step: string, fields: Record<string, unknown> = {}) => {
-  if (__DEV__) console.log(`[AgentInsights] ${step}`, fields);
+  if (__DEV__) console.log(`[AgentInsights] ${step} ${JSON.stringify(fields)}`);
 };
 const DEFAULT_STATUS = 'Checking the map';
 const DONE_STATUS = 'Done';

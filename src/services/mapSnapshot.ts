@@ -39,7 +39,7 @@ export const waitForMapSnapshot = async (name = 'main', timeoutMs = DEFAULT_TIME
   }
   const mounted = providers.has(name);
   const picture = await captureMapSnapshot(name);
-  if (__DEV__) console.log('[MapSnapshot] wait', { map: name, mounted, captured: Boolean(picture), ms: Date.now() - started });
+  if (__DEV__) console.log(`[MapSnapshot] wait ${JSON.stringify({ map: name, mounted, captured: Boolean(picture), ms: Date.now() - started })}`);
   return picture;
 };
 
