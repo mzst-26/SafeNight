@@ -37,7 +37,7 @@ export interface AgentRouteInfo extends Omit<CompactRouteInfo, 'worstStretch'> {
   end: AgentLatLng | null;
 }
 
-export type CandidateKind = 'stretch_midpoint' | 'route_start' | 'route_end';
+export type CandidateKind = 'stretch_midpoint' | 'route_start' | 'route_end' | 'ring';
 
 export interface CandidatePoint {
   id: string;
