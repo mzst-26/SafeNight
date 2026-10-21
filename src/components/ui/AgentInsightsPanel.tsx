@@ -8,8 +8,9 @@
  * The bubble's status line says what the agent is doing. The walker's main map is never touched.
  *
  * The walker chooses from options: "Keep my route" (always), "Use this route" (when the recommended
- * route differs from the best one), one "Reroute via [point]" per point the agent proposed, and any
- * question choices. Tapping "Reroute via" is the walker's consent: it sets the via pin, which makes
+ * route differs from the best one and is in the walker's list), one "Reroute via [point]" per point the
+ * agent proposed, "Reroute via [ring label]" when the recommended route is an expanded one (its ring point
+ * stands in for "Use this route"), and any question choices. Tapping "Reroute via" is the walker's consent: it sets the via pin, which makes
  * the app search again, and the panel closes with a short "Recalculating" line.
  */
 import { Ionicons } from '@expo/vector-icons';
@@ -38,6 +39,7 @@ import {
   type AgentInsightsRequest,
   type AgentInsightsResponse,
   type AgentRouteGeometry,
+  type CandidatePoint,
 } from '@/src/services/agentClient';
 import {
   rerouteOptions,
@@ -65,6 +67,26 @@ const AGENT_MAP = 'agent';
 const DEFAULT_STATUS = 'Checking the map';
 const DONE_STATUS = 'Done';
 const FAILED_STATUS = 'Could not check the map';
+
+/**
+ * The reroute options for a finished run. When the recommended route is an expanded route, its ring
+ * point is offered first, so the walker can reroute to it (it is not in the walker's route list).
+ */
+const withExpandedReroute = (
+  offered: RerouteOption[],
+  response: AgentInsightsResponse,
+  rings: Record<string, CandidatePoint>,
+): RerouteOption[] => {
+  const recommended = response.recommendedRouteId ?? response.decision.routeId;
+  const ring = recommended.startsWith(EXPANDED_ROUTE_PREFIX) ? rings[recommended] : undefined;
+  if (!ring) return offered;
+  const first: RerouteOption = {
+    candidateId: ring.id,
+    label: ring.label,
+    point: { latitude: ring.lat, longitude: ring.lng },
+  };
+  return [first, ...offered.filter((option) => option.candidateId !== ring.id)];
+};
 
 /** The bubble's status line for a round: the first route the round looks at, else the default. */
 const statusForActions = (actions: AgentAction[], routes: AgentRouteGeometry[]): string => {
@@ -128,10 +150,17 @@ export function AgentInsightsPanel({
       // This run's expansion routes, with their scores. A new run starts with none.
       let expanded: SafeRoute[] = [];
       let expandedScores: Record<string, RouteScore> = {};
+      // The ring point each expanded route was searched through, for its reroute option.
+      let expandedRings: Record<string, CandidatePoint> = {};
       setExpandedMapRoutes([]);
-      const onExpanded = (found: { routes: SafeRoute[]; scores: Record<string, RouteScore> }) => {
+      const onExpanded = (found: {
+        routes: SafeRoute[];
+        scores: Record<string, RouteScore>;
+        ringByRoute: Record<string, CandidatePoint>;
+      }) => {
         expanded = [...expanded, ...found.routes];
         expandedScores = { ...expandedScores, ...found.scores };
+        expandedRings = { ...expandedRings, ...found.ringByRoute };
         setExpandedMapRoutes(expanded);
       };
       try {
@@ -188,7 +217,7 @@ export function AgentInsightsPanel({
         }
 
         setResponse(result);
-        setOptions(rerouteOptions(result.actions, context.candidates));
+        setOptions(withExpandedReroute(rerouteOptions(result.actions, context.candidates), result, expandedRings));
         setStatus(DONE_STATUS);
         setPhase('ready');
       } catch (error) {

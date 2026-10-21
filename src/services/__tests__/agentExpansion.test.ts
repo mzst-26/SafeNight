@@ -228,3 +228,22 @@ describe('scoreExpandedRoutes', () => {
     });
   });
 });
+
+describe('runExpansionSearch keeps the ring point of each new route', () => {
+  test('ringByRoute maps each new route id to the ring point it was searched through', async () => {
+    const fetchRoute: ExpansionRouteFetch = jest.fn(async () => fakeRoute('raw', 'x'));
+    const outcome = await runExpansionSearch({
+      candidateIds: ['r1', 'r3'],
+      candidates: ringCandidates,
+      origin,
+      destination,
+      existingCount: 3,
+      fetchRoute,
+      scoreRoutes: scoreAll,
+    });
+    expect(outcome.ringByRoute).toEqual({
+      'expanded-route-4': ringCandidates[0],
+      'expanded-route-5': ringCandidates[2],
+    });
+  });
+});

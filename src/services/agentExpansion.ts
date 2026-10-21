@@ -76,6 +76,8 @@ export interface ExpansionOutcome {
   /** New routes, ids `expanded-route-N` where N is the route's number on the map (4, 5, 6). */
   routes: SafeRoute[];
   scores: Record<string, RouteScore>;
+  /** The ring point each new route was searched through, keyed by route id. */
+  ringByRoute: Record<string, CandidatePoint>;
   /** One result per requested id, in order: ok false when that point gave no route. */
   results: AgentActionResult[];
 }
@@ -118,14 +120,18 @@ export async function runExpansionSearch(request: ExpansionRequest): Promise<Exp
   );
 
   const routes: SafeRoute[] = [];
-  const results: AgentActionResult[] = fetched.map((route) => {
-    if (!route) return { type: 'expand_search', ok: false };
-    routes.push({ ...route, id: `${EXPANDED_ROUTE_PREFIX}${request.existingCount + routes.length + 1}` });
+  const ringByRoute: Record<string, CandidatePoint> = {};
+  const results: AgentActionResult[] = fetched.map((route, index) => {
+    const point = jobs[index];
+    if (!route || !point) return { type: 'expand_search', ok: false };
+    const id = `${EXPANDED_ROUTE_PREFIX}${request.existingCount + routes.length + 1}`;
+    routes.push({ ...route, id });
+    ringByRoute[id] = point;
     return { type: 'expand_search', ok: true };
   });
 
   const scores = routes.length > 0 ? request.scoreRoutes(routes) : {};
-  return { routes, scores, results };
+  return { routes, scores, ringByRoute, results };
 }
 
 /**

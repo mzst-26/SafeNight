@@ -484,4 +484,35 @@ describe('AgentInsightsPanel expand_search (E1)', () => {
     // The map bubble is given the new route as well.
     expect(mockBubbleRoutes[mockBubbleRoutes.length - 1]).toHaveLength(1);
   });
+
+
+  test('a recommended expanded route gives a Reroute option through its ring point, not Use this route', async () => {
+    const ringPoints = expansionRingPoints({ latitude: 51.51, longitude: -0.12 });
+    const east = ringPoints[2];
+    const ringContext: AgentContext = {
+      ...mapContext,
+      candidates: [...mapContext.candidates, ...ringPoints],
+    };
+    fetchMock.mockResolvedValue(foundRoute());
+    mockedCapture.mockResolvedValue(SNAP_1);
+    mockedPost.mockResolvedValueOnce(
+      response({
+        status: 'done',
+        actions: [{ type: 'expand_search', candidateIds: ['r3'] }],
+        decision: { kind: 'switch', routeId: 'expanded-route-1', reasons: ['The east route is shorter.'] },
+        recommendedRouteId: 'expanded-route-1',
+      }),
+    );
+
+    const { renderer, onSetViaPin, onClose } = await renderPanel({ context: ringContext });
+
+    expect(button(renderer, 'Use this route')).toHaveLength(0);
+    expect(button(renderer, 'Reroute via East area')).toHaveLength(1);
+    expect(button(renderer, 'Keep my route')).toHaveLength(1);
+
+    await press(renderer, 'Reroute via East area');
+    expect(onSetViaPin).toHaveBeenCalledTimes(1);
+    expect(onSetViaPin).toHaveBeenCalledWith({ latitude: east.lat, longitude: east.lng });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
