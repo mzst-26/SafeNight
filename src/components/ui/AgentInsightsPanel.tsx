@@ -66,6 +66,11 @@ const RECALC_LINE_MS = 4000;
 /** How long a round waits for the agent's map to appear before it asks without a picture. */
 const AGENT_MAP_WAIT_MS = 8000;
 const AGENT_MAP = 'agent';
+
+/** Development-only step log for the agent run. Counts, ids, timings and statuses only: never coordinates, pictures or the walker's text. */
+const agentDebug = (step: string, fields: Record<string, unknown> = {}) => {
+  if (__DEV__) console.log(`[AgentInsights] ${step}`, fields);
+};
 const DEFAULT_STATUS = 'Checking the map';
 const DONE_STATUS = 'Done';
 const FAILED_STATUS = 'Could not check the map';
@@ -166,7 +171,15 @@ export function AgentInsightsPanel({
         setExpandedMapRoutes(expanded);
       };
       try {
+        agentDebug('run start', {
+          routes: context.body.routes.length,
+          bestRouteId: context.body.bestRouteId,
+          agentMapMounted: Boolean(getMapController(AGENT_MAP)),
+          hasMapPlacement: Boolean(context.map),
+        });
+        const waitStarted = Date.now();
         let snapshot = await waitForMapSnapshot(AGENT_MAP, AGENT_MAP_WAIT_MS);
+        agentDebug('picture', { round: 1, captured: Boolean(snapshot), chars: snapshot?.length ?? 0, ms: Date.now() - waitStarted });
         let results: AgentActionResult[] = [];
         let round = 1;
         let result: AgentInsightsResponse;
@@ -189,8 +202,23 @@ export function AgentInsightsPanel({
             results,
             ...(snapshot ? { snapshot } : {}),
           };
+          agentDebug('round request', {
+            round,
+            routes: request.routes.length,
+            results: results.length,
+            picture: Boolean(snapshot),
+          });
+          const requestStarted = Date.now();
           result = await postAgentInsights(request);
           if (seq !== seqRef.current) return;
+          agentDebug('round reply', {
+            round,
+            ms: Date.now() - requestStarted,
+            status: result.status,
+            actions: result.actions.map((a) => a.type),
+            messageChars: result.message?.length ?? 0,
+            recommendedRouteId: result.recommendedRouteId,
+          });
 
           setStatus(statusForActions(result.actions, routeGeometry));
           const origin = context.map?.origin ?? null;
@@ -212,12 +240,16 @@ export function AgentInsightsPanel({
                 : undefined,
           });
           if (seq !== seqRef.current) return;
+          agentDebug('round actions', { round, results: results.map((r) => `${r.type}:${r.ok ? 'ok' : 'failed'}`) });
 
           if (result.status !== 'continue' || round >= AGENT_MAX_ROUNDS) break;
           round += 1;
+          const pictureStarted = Date.now();
           snapshot = await waitForMapSnapshot(AGENT_MAP, AGENT_MAP_WAIT_MS);
+          agentDebug('picture', { round, captured: Boolean(snapshot), chars: snapshot?.length ?? 0, ms: Date.now() - pictureStarted });
         }
 
+        agentDebug('run end', { status: result.status, rounds: round, message: result.message ? 'from the agent or the fixed text' : 'none' });
         setResponse(result);
         setOptions(withExpandedReroute(rerouteOptions(result.actions, context.candidates), result, expandedRings));
         setStatus(DONE_STATUS);

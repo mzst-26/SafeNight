@@ -11,6 +11,7 @@
  */
 
 const { cleanText } = require('./actions');
+const { agentLog } = require('./agentLog');
 
 // Model calls per round. The client runs the actions and posts the next round (contract v3).
 const MAX_MODEL_CALLS = 2;
@@ -256,6 +257,11 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
     }
 
     const toolCalls = reply && Array.isArray(reply.tool_calls) ? reply.tool_calls : [];
+    agentLog('turn', {
+      turn: turn + 1,
+      toolCalls: toolCalls.map((c) => (c && c.function ? c.function.name : '?')),
+      contentChars: reply && typeof reply.content === 'string' ? reply.content.length : 0,
+    });
     if (toolCalls.length === 0) {
       // A text reply after an action is not a failure: keep the actions and let the client ask for the next round.
       if (rawActions.length > 0) break;
@@ -276,6 +282,7 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
           .join('\n');
         const message = cleanMessage(parsed.args.message, factsText);
         // An unusable message is asked again while calls are left: the model sometimes sends a stray token.
+        agentLog('finish', { turn: turn + 1, accepted: message !== null, words: parsed.args && typeof parsed.args.message === 'string' ? parsed.args.message.trim().split(/\s+/).length : 0 });
         if (message === null && turn + 1 < maxCalls) {
           debugWarn('finish message was empty, too long, or mentioned facts not in the input; asking again');
           retry = true;

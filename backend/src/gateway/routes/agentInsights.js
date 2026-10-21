@@ -15,6 +15,7 @@ const { sanitizeRoute } = require('./explain');
 const { analyseRoutes, decide, routeLabel } = require('../agent/analysis');
 const { validateActions, validateCandidates, routeBoundsReason } = require('../agent/actions');
 const { runAgent, buildToolDefinitions } = require('../agent/loop');
+const { agentLog } = require('../agent/agentLog');
 const { expansionAllowed: corridorExpansionAllowed } = require('../agent/corridor');
 
 const router = express.Router();
@@ -205,6 +206,7 @@ const fixedMessage = (decision) => {
 const callOneModel = async ({ apiKey, model, messages, tools, toolChoice, budget }) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budget);
+  const callStarted = Date.now();
   try {
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
@@ -226,10 +228,27 @@ const callOneModel = async ({ apiKey, model, messages, tools, toolChoice, budget
     });
     if (!response.ok) {
       // The provider message is not logged or returned: it can contain key fragments.
+      agentLog('model_call', { model, ms: Date.now() - callStarted, http: response.status, ok: false });
       throw new Error(`status ${response.status}`);
     }
     const data = await response.json();
-    return data?.choices?.[0]?.message ?? null;
+    // A 200 can still carry a provider error in its body; log it by name, never its text.
+    const providerError = data && data.error ? 'provider error in body' : null;
+    const message = data?.choices?.[0]?.message ?? null;
+    agentLog('model_call', {
+      model,
+      ms: Date.now() - callStarted,
+      http: response.status,
+      ok: Boolean(message),
+      providerError,
+      toolCalls: message && Array.isArray(message.tool_calls) ? message.tool_calls.length : 0,
+    });
+    return message;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      agentLog('model_call', { model, ms: Date.now() - callStarted, ok: false, aborted: true });
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -250,6 +269,7 @@ const callOpenRouter = ({ apiKey, models, deadline }) => async ({ messages, tool
       return await callOneModel({ apiKey, model, messages, tools, toolChoice, budget });
     } catch (error) {
       lastError = error;
+      agentLog('model_next', { failed: model, reason: error.message });
     }
   }
   throw lastError;
@@ -286,7 +306,10 @@ const buildFacts = ({ routes, analysis, decision, candidates, answer }) => ({
 router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, async (req, res) => {
   const started = Date.now();
   const parsed = parseRequest(req.body);
-  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  if (parsed.error) {
+    agentLog('rejected', { reason: parsed.error });
+    return res.status(400).json({ error: parsed.error });
+  }
 
   const { round, results, snapshot, routes, paths, tone, rawRoutes, bestRouteId, candidatePoints, answer } = parsed;
   const analysis = analyseRoutes(routes);
@@ -297,6 +320,15 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
   const routeIds = routes.map((r) => r.routeId);
   const candidateIds = candidates.map((c) => c.id);
 
+  agentLog('request', {
+    round,
+    routes: routes.length,
+    candidates: candidates.length,
+    results: results.length,
+    snapshot: snapshot ? snapshot.slice(0, snapshot.indexOf(',')) : 'none',
+    snapshotChars: snapshot ? snapshot.length : 0,
+    tone: tone || 'none',
+  });
   // Expansion (contract v3, B1 gate): the app decides, from the recommended route's corridor, the trip tone and darkness.
   const routesWithPaths = routes.map((r, i) => ({ ...r, path: paths[i] }));
   const recommended = routesWithPaths.find((r) => r.routeId === decision.routeId);
@@ -318,6 +350,7 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
     console.error('[Agent Insights] OPENROUTER_API_KEY is not configured; returning the deterministic result');
   } else if (snapshot !== null) {
     const models = chooseAgentModels({ snapshot });
+    agentLog('models', { round, models });
     try {
       agent = await runAgent({
         facts: {
@@ -335,6 +368,7 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
       });
     } catch (error) {
       console.error(`[Agent Insights] agent failed after ${Date.now() - started}ms:`, error.message);
+      agentLog('failed', { round, ms: Date.now() - started, error: error.message });
       agent = NO_AGENT_OUTPUT;
     }
   }
@@ -353,6 +387,14 @@ router.post('/agent-insights', express.json({ limit: '1mb' }), agentLimiter, asy
     expansionAllowed,
   };
   if (agent.question) response.question = agent.question;
+  agentLog('response', {
+    round,
+    status: response.status,
+    actions: (response.actions || []).map((a) => a.type),
+    messageFrom: agent.message ? 'model' : response.status === 'done' ? 'fixed' : 'none',
+    question: Boolean(response.question),
+    ms: Date.now() - started,
+  });
   res.json(response);
 });
 

@@ -32,11 +32,15 @@ const MAP_WAIT_STEP_MS = 100;
  * that mounts a moment after the request (the agent's bubble, for example) is then still captured.
  */
 export const waitForMapSnapshot = async (name = 'main', timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string | null> => {
-  const deadline = Date.now() + timeoutMs;
+  const started = Date.now();
+  const deadline = started + timeoutMs;
   while (!providers.has(name) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, MAP_WAIT_STEP_MS));
   }
-  return captureMapSnapshot(name);
+  const mounted = providers.has(name);
+  const picture = await captureMapSnapshot(name);
+  if (__DEV__) console.log('[MapSnapshot] wait', { map: name, mounted, captured: Boolean(picture), ms: Date.now() - started });
+  return picture;
 };
 
 /** A picture of the named mounted map, or null when there is none, it fails, or it takes too long. */
