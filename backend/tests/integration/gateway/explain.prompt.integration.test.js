@@ -1,6 +1,9 @@
 const express = require('express');
 const request = require('supertest');
 
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const DEFAULT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+
 function loadApp() {
   let router;
   jest.isolateModules(() => {
@@ -26,14 +29,12 @@ const body = (tag) => ({
 
 describe('POST /api/explain-route prompt', () => {
   const originalFetch = global.fetch;
-  const originalKey = process.env.OPENAI_API_KEY;
-  const originalModel = process.env.OPENAI_EXPLAIN_MODEL;
-  const originalBaseUrl = process.env.OPENAI_BASE_URL;
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  const originalModel = process.env.OPENROUTER_EXPLAIN_MODEL;
 
   beforeEach(() => {
-    process.env.OPENAI_API_KEY = 'test-key-not-real';
-    delete process.env.OPENAI_EXPLAIN_MODEL;
-    delete process.env.OPENAI_BASE_URL;
+    process.env.OPENROUTER_API_KEY = 'test-key-not-real';
+    delete process.env.OPENROUTER_EXPLAIN_MODEL;
     global.fetch = jest.fn(async () => ({
       ok: true,
       status: 200,
@@ -43,11 +44,10 @@ describe('POST /api/explain-route prompt', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
-    process.env.OPENAI_API_KEY = originalKey;
-    if (originalModel === undefined) delete process.env.OPENAI_EXPLAIN_MODEL;
-    else process.env.OPENAI_EXPLAIN_MODEL = originalModel;
-    if (originalBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
-    else process.env.OPENAI_BASE_URL = originalBaseUrl;
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+    if (originalModel === undefined) delete process.env.OPENROUTER_EXPLAIN_MODEL;
+    else process.env.OPENROUTER_EXPLAIN_MODEL = originalModel;
   });
 
   test('sends a system rule and the chosen-vs-alternative facts to the model', async () => {
@@ -63,13 +63,28 @@ describe('POST /api/explain-route prompt', () => {
     expect(sent.temperature).toBe(0.2);
   });
 
-  test('defaults to gpt-4o-mini and honours OPENAI_EXPLAIN_MODEL', async () => {
-    await request(loadApp()).post('/api/explain-route').send(body('model1'));
-    expect(JSON.parse(global.fetch.mock.calls[0][1].body).model).toBe('gpt-4o-mini');
+  test('calls OpenRouter with the key as a bearer token', async () => {
+    await request(loadApp()).post('/api/explain-route').send(body('url1'));
 
-    process.env.OPENAI_EXPLAIN_MODEL = 'gpt-4.1-nano';
+    const [url, init] = global.fetch.mock.calls[0];
+    expect(url).toBe(OPENROUTER_URL);
+    expect(init.headers.Authorization).toBe('Bearer test-key-not-real');
+  });
+
+  test('turns reasoning off so the free model answers within the token budget', async () => {
+    await request(loadApp()).post('/api/explain-route').send(body('reason1'));
+
+    const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sent.reasoning).toEqual({ enabled: false });
+  });
+
+  test('defaults to the OpenRouter free Nemotron model and honours OPENROUTER_EXPLAIN_MODEL', async () => {
+    await request(loadApp()).post('/api/explain-route').send(body('model1'));
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).model).toBe(DEFAULT_MODEL);
+
+    process.env.OPENROUTER_EXPLAIN_MODEL = 'openai/gpt-4o-mini';
     await request(loadApp()).post('/api/explain-route').send(body('model2'));
-    expect(JSON.parse(global.fetch.mock.calls[1][1].body).model).toBe('gpt-4.1-nano');
+    expect(JSON.parse(global.fetch.mock.calls[1][1].body).model).toBe('openai/gpt-4o-mini');
   });
 
   test('does not reuse a cached explanation when a route duration differs', async () => {
@@ -104,31 +119,9 @@ describe('POST /api/explain-route prompt', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('calls the OpenAI endpoint by default', async () => {
-    await request(loadApp()).post('/api/explain-route').send(body('url1'));
-
-    expect(global.fetch.mock.calls[0][0]).toBe('https://api.openai.com/v1/chat/completions');
-  });
-
-  test('calls OPENAI_BASE_URL with the bearer key when it is set', async () => {
-    process.env.OPENAI_BASE_URL = 'https://models.inference.ai.azure.com';
-    const res = await request(loadApp()).post('/api/explain-route').send(body('url2'));
-
-    expect(res.status).toBe(200);
-    expect(global.fetch.mock.calls[0][0]).toBe('https://models.inference.ai.azure.com/chat/completions');
-    expect(global.fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer test-key-not-real');
-  });
-
-  test('strips a trailing slash from OPENAI_BASE_URL', async () => {
-    process.env.OPENAI_BASE_URL = 'https://models.inference.ai.azure.com/';
-    await request(loadApp()).post('/api/explain-route').send(body('url3'));
-
-    expect(global.fetch.mock.calls[0][0]).toBe('https://models.inference.ai.azure.com/chat/completions');
-  });
-
-  test('refuses to send the key to a non-https OPENAI_BASE_URL', async () => {
-    process.env.OPENAI_BASE_URL = 'http://models.inference.ai.azure.com';
-    const res = await request(loadApp()).post('/api/explain-route').send(body('url4'));
+  test('returns a generic error when OPENROUTER_API_KEY is missing', async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    const res = await request(loadApp()).post('/api/explain-route').send(body('nokey1'));
 
     expect(res.status).toBe(500);
     expect(global.fetch).not.toHaveBeenCalled();

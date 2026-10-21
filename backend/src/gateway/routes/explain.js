@@ -14,10 +14,9 @@ const router = express.Router();
 
 // Bump when the prompt or the facts change so cached explanations are not served stale.
 const PROMPT_VERSION = 'v2';
-// Cheapest model we can verify; override with OPENAI_EXPLAIN_MODEL once pricing is checked.
-const EXPLAIN_MODEL = process.env.OPENAI_EXPLAIN_MODEL || 'gpt-4o-mini';
-// OpenAI-compatible base URL (no trailing path). Set to a GitHub Models / Azure endpoint to use those.
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+// OpenRouter free model. Override with OPENROUTER_EXPLAIN_MODEL.
+const EXPLAIN_MODEL = process.env.OPENROUTER_EXPLAIN_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b:free';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 // ─── Per-IP limit for the paid LLM call ──────────────────────────────────────
 // Keyed by IP only: this route is unauthenticated, so a Bearer token here is
@@ -143,17 +142,9 @@ const buildCacheKey = (routes, bestRouteId) => {
 router.post('/explain-route', explainLimiter, async (req, res) => {
   const requestStartedAt = Date.now();
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      console.error('[Explain Route] OPENAI_API_KEY is not configured');
-      return res
-        .status(500)
-        .json({ error: 'Route explanation is unavailable' });
-    }
-
-    // The key is sent as a bearer token, so never send it over plain HTTP.
-    if (!/^https:\/\//.test(OPENAI_BASE_URL)) {
-      console.error('[Explain Route] OPENAI_BASE_URL must be an https:// URL');
+      console.error('[Explain Route] OPENROUTER_API_KEY is not configured');
       return res
         .status(500)
         .json({ error: 'Route explanation is unavailable' });
@@ -205,17 +196,20 @@ router.post('/explain-route', explainLimiter, async (req, res) => {
     console.log(`[OpenAI] 🌐 API call → ${EXPLAIN_MODEL} (${PROMPT_VERSION}, ${messages.length} messages)`);
 
     const requestPromise = (async () => {
-      const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+      const response = await fetch(OPENROUTER_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
+          'X-Title': 'SafeNight',
         },
         body: JSON.stringify({
           model: EXPLAIN_MODEL,
           messages,
           max_tokens: 200,
           temperature: 0.2,
+          // Reasoning models spend the token budget thinking; the explanation is short, so turn it off.
+          reasoning: { enabled: false },
         }),
       });
 

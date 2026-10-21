@@ -32,16 +32,16 @@ function body(overrides = {}) {
 
 describe('POST /api/explain-route security', () => {
   const originalFetch = global.fetch;
-  const originalKey = process.env.OPENAI_API_KEY;
+  const originalKey = process.env.OPENROUTER_API_KEY;
 
   beforeEach(() => {
-    process.env.OPENAI_API_KEY = 'test-key-not-real';
+    process.env.OPENROUTER_API_KEY = 'test-key-not-real';
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
-    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = originalKey;
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
   });
 
   test('does not echo upstream provider error messages (may contain key fragments)', async () => {
