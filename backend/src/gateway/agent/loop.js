@@ -265,6 +265,11 @@ const runAgent = async ({ facts, tools, callModel, validateActions, maxCalls = M
     if (toolCalls.length === 0) {
       // A text reply after an action is not a failure: keep the actions and let the client ask for the next round.
       if (rawActions.length > 0) break;
+      // A text reply before any action: ask again while calls are left (the model sometimes answers in text first).
+      if (turn + 1 < maxCalls) {
+        debugWarn('reply had no tool call; asking again');
+        continue;
+      }
       return FALLBACK('reply had no tool call');
     }
 

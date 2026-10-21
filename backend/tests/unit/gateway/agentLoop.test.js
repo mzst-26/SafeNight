@@ -238,6 +238,22 @@ describe('runAgent', () => {
     expect(offeredChoice[0]).toEqual({ type: 'function', function: { name: 'finish' } });
   });
 
+  test('a text reply before any action is asked again while calls are left, then the tool call is used', async () => {
+    let turn = 0;
+    const callModel = jest.fn(async () => {
+      turn += 1;
+      return turn === 1
+        ? { role: 'assistant', content: 'Let me look at the map first.' }
+        : reply(toolCall('zoom', { delta: -1 }));
+    });
+
+    const result = await run(callModel);
+
+    expect(callModel).toHaveBeenCalledTimes(2);
+    expect(result.actions).toEqual([{ type: 'zoom', delta: -1 }]);
+    expect(result.status).toBe('continue');
+  });
+
   test('a text reply after an action keeps the action and asks for the next round', async () => {
     let turn = 0;
     const callModel = jest.fn(async () => {
