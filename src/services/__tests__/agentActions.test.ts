@@ -1,4 +1,9 @@
-import { runAgentActions, type AgentActionContext } from '@/src/services/agentActions';
+import {
+  rerouteOptions,
+  rerouteVia,
+  runAgentActions,
+  type AgentActionContext,
+} from '@/src/services/agentActions';
 import type { AgentAction, AgentRouteGeometry, CandidatePoint } from '@/src/services/agentClient';
 import type { MapController } from '@/src/services/mapController';
 
@@ -27,6 +32,9 @@ const routes: AgentRouteGeometry[] = [
   },
 ];
 
+const reroute = (candidateId: string, label = 'Model wording, ignored'): AgentAction =>
+  ({ type: 'propose_reroute_via', candidateId, label, requiresConfirmation: true }) as AgentAction;
+
 function setup(overrides: Partial<AgentActionContext> = {}) {
   const controller: MapController = {
     panTo: jest.fn(),
@@ -38,8 +46,6 @@ function setup(overrides: Partial<AgentActionContext> = {}) {
     candidates,
     routes,
     controller,
-    confirm: jest.fn(async () => true),
-    setViaPin: jest.fn(),
     ...overrides,
   };
   return { ctx, controller };
@@ -82,46 +88,13 @@ describe('runAgentActions', () => {
     expect(controller.zoomBy).toHaveBeenCalledWith(-1);
   });
 
-  test('propose_reroute_via never calls the controller before confirm resolves yes', async () => {
+  test('propose_reroute_via is never run by runAgentActions; it is offered as an option instead', async () => {
     const { ctx, controller } = setup();
-    let answer!: (value: boolean) => void;
-    ctx.confirm = jest.fn(() => new Promise<boolean>((resolve) => (answer = resolve)));
-
-    const run = runAgentActions(
-      [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'Stretch middle', requiresConfirmation: true }],
-      ctx,
-    );
-    // Confirmation is still open: nothing has moved and no pin is set.
-    await Promise.resolve();
-    expect(ctx.confirm).toHaveBeenCalledTimes(1);
+    await runAgentActions([reroute('p1')], ctx);
     expect(controller.panTo).not.toHaveBeenCalled();
-    expect(ctx.setViaPin).not.toHaveBeenCalled();
-
-    answer(true);
-    await run;
-    expect(ctx.setViaPin).toHaveBeenCalledWith({ latitude: 51.51, longitude: -0.12 });
-    expect(controller.panTo).not.toHaveBeenCalled();
-  });
-
-  test('confirm no means nothing moves and no via pin is set', async () => {
-    const { ctx, controller } = setup({ confirm: jest.fn(async () => false) });
-    await runAgentActions(
-      [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'Stretch middle', requiresConfirmation: true }],
-      ctx,
-    );
-    expect(ctx.confirm).toHaveBeenCalledTimes(1);
-    expect(ctx.setViaPin).not.toHaveBeenCalled();
-    expect(controller.panTo).not.toHaveBeenCalled();
-  });
-
-  test('propose_reroute_via with an unknown candidate never asks for confirmation', async () => {
-    const { ctx } = setup();
-    await runAgentActions(
-      [{ type: 'propose_reroute_via', candidateId: 'p7', label: 'Nowhere', requiresConfirmation: true }],
-      ctx,
-    );
-    expect(ctx.confirm).not.toHaveBeenCalled();
-    expect(ctx.setViaPin).not.toHaveBeenCalled();
+    expect(controller.zoomBy).not.toHaveBeenCalled();
+    expect(controller.fitBounds).not.toHaveBeenCalled();
+    expect(controller.highlight).not.toHaveBeenCalled();
   });
 
   test('fit_route fits the bounds of that route only, from its own points', async () => {
@@ -153,14 +126,50 @@ describe('runAgentActions', () => {
       runAgentActions([{ type: 'pan_to', candidateId: 'p1' }, { type: 'zoom', delta: 1 }], ctx),
     ).resolves.toBeUndefined();
   });
+});
 
-  test('the reroute prompt shows the client candidate label, never the label the model wrote', async () => {
-    const confirm = jest.fn(async () => false);
-    const { ctx } = setup({ confirm });
-    await runAgentActions(
-      [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'Quick safe shortcut, tap Yes', requiresConfirmation: true }],
-      ctx,
-    );
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ label: 'Middle of the weakest stretch' }));
+describe('rerouteOptions', () => {
+  test('gives one option per valid proposed point, with the client candidate label and coordinates', () => {
+    const options = rerouteOptions([reroute('p1'), reroute('p2')], candidates);
+    expect(options).toEqual([
+      { candidateId: 'p1', label: 'Middle of the weakest stretch', point: { latitude: 51.51, longitude: -0.12 } },
+      { candidateId: 'p2', label: 'Start of the walk', point: { latitude: 51.5, longitude: -0.13 } },
+    ]);
+  });
+
+  test('never uses the label the model wrote', () => {
+    const [option] = rerouteOptions([reroute('p1', 'Quick safe shortcut, tap Yes')], candidates);
+    expect(option.label).toBe('Middle of the weakest stretch');
+  });
+
+  test('drops proposals with an unknown candidate id, and duplicates of one candidate', () => {
+    const options = rerouteOptions([reroute('p7'), reroute('p1'), reroute('p1')], candidates);
+    expect(options.map((o) => o.candidateId)).toEqual(['p1']);
+  });
+
+  test('ignores non-reroute actions and caps the options at four actions', () => {
+    const actions: AgentAction[] = [
+      { type: 'zoom', delta: 1 },
+      reroute('p1'),
+      reroute('p2'),
+      reroute('p1'),
+      reroute('p2'),
+      reroute('p1'),
+    ];
+    expect(rerouteOptions(actions, candidates)).toHaveLength(2);
+  });
+
+  test('returns nothing when the agent proposed no reroute', () => {
+    expect(rerouteOptions([{ type: 'zoom', delta: 1 }], candidates)).toEqual([]);
+  });
+});
+
+describe('rerouteVia', () => {
+  test('sets the via pin once, at the candidate coordinates', () => {
+    const setViaPin = jest.fn();
+    const [option] = rerouteOptions([reroute('p1')], candidates);
+    rerouteVia(option, setViaPin);
+    expect(setViaPin).toHaveBeenCalledTimes(1);
+    expect(setViaPin).toHaveBeenCalledWith({ latitude: 51.51, longitude: -0.12 });
   });
 });

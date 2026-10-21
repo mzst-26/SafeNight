@@ -2,9 +2,11 @@
  * AgentInsightsPanel — the AI Insights / Rethink sheet opened from the desktop bar above the
  * recommended route.
  *
- * It asks the agent endpoint once when it opens. The agent's actions (pan, zoom, fit, highlight)
- * run on the map. A reroute proposal waits for a yes. A switch changes the selected route only
- * when the walker taps "Use this route". "Keep my route" is always there.
+ * It asks the agent endpoint once when it opens. The agent's map actions (pan, zoom, fit, highlight)
+ * run on the map. The walker chooses from options: "Keep my route" (always), "Use this route" (a
+ * switch only), one "Reroute via [point]" per point the agent proposed, and any question choices.
+ * Tapping "Reroute via" is the walker's consent: it sets the via pin, which makes the app search
+ * again, and the panel closes with a short "Recalculating" line.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -24,23 +26,22 @@ import {
   postAgentInsights,
   type AgentContext,
   type AgentInsightsResponse,
-  type CandidatePoint,
 } from '@/src/services/agentClient';
-import { runAgentActions } from '@/src/services/agentActions';
+import {
+  rerouteOptions,
+  rerouteVia,
+  runAgentActions,
+  type RerouteOption,
+} from '@/src/services/agentActions';
 import { getMapController } from '@/src/services/mapController';
 import type { LatLng } from '@/src/types/geo';
 
 const ACCENT = '#6d28d9';
 const INK = '#101828';
 const MUTED = '#475467';
+const RECALC_LINE_MS = 4000;
 
 type Phase = 'idle' | 'loading' | 'ready' | 'error';
-
-interface PendingConfirm {
-  candidate: CandidatePoint;
-  label: string;
-  resolve: (accepted: boolean) => void;
-}
 
 export interface AgentInsightsPanelProps {
   visible: boolean;
@@ -49,7 +50,7 @@ export interface AgentInsightsPanelProps {
   context: AgentContext | null;
   /** Selects the route the agent switched to. Called only when the walker taps "Use this route". */
   onUseRoute: (routeId: string) => void;
-  /** Sets the via pin for a confirmed reroute. The app then searches again. */
+  /** Sets the via pin for a reroute the walker chose. The app then searches again. */
   onSetViaPin: (point: LatLng) => void;
 }
 
@@ -64,29 +65,13 @@ export function AgentInsightsPanel({
 }: AgentInsightsPanelProps) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [response, setResponse] = useState<AgentInsightsResponse | null>(null);
+  const [options, setOptions] = useState<RerouteOption[]>([]);
   const [errorText, setErrorText] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingConfirm | null>(null);
+  // Kept apart from the sheet state so it outlives the sheet closing.
+  const [recalcLabel, setRecalcLabel] = useState<string | null>(null);
 
   // Every new request bumps this; an answer to an older request is then ignored.
   const seqRef = useRef(0);
-  const pendingRef = useRef<PendingConfirm | null>(null);
-
-  const confirm = useCallback(
-    ({ candidate, label }: { candidate: CandidatePoint; label: string }) =>
-      new Promise<boolean>((resolve) => {
-        const next: PendingConfirm = { candidate, label, resolve };
-        pendingRef.current = next;
-        setPending(next);
-      }),
-    [],
-  );
-
-  const settlePending = useCallback((accepted: boolean) => {
-    const current = pendingRef.current;
-    pendingRef.current = null;
-    setPending(null);
-    current?.resolve(accepted);
-  }, []);
 
   const ask = useCallback(
     async (answer?: { questionId: string; choiceId: string }) => {
@@ -103,13 +88,12 @@ export function AgentInsightsPanel({
         const result = await postAgentInsights(body);
         if (seq !== seqRef.current) return;
         setResponse(result);
+        setOptions(rerouteOptions(result.actions, context.candidates));
         setPhase('ready');
         await runAgentActions(result.actions, {
           candidates: context.candidates,
           routes: context.routes,
           controller: getMapController(),
-          confirm,
-          setViaPin: onSetViaPin,
         });
       } catch {
         if (seq !== seqRef.current) return;
@@ -117,7 +101,7 @@ export function AgentInsightsPanel({
         setErrorText(FAILURE_TEXT);
       }
     },
-    [context, confirm, onSetViaPin],
+    [context],
   );
 
   // The latest ask, so opening the panel does not re-run when the context object changes.
@@ -129,141 +113,151 @@ export function AgentInsightsPanel({
       void askRef.current();
       return undefined;
     }
-    // Closed: drop any answer still on its way, and resolve an open confirmation as no.
+    // Closed: drop any answer still on its way and clear the sheet.
     seqRef.current++;
-    settlePending(false);
     setResponse(null);
+    setOptions([]);
     setErrorText(null);
     setPhase('idle');
     return undefined;
-  }, [visible, settlePending]);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!recalcLabel) return undefined;
+    const timer = setTimeout(() => setRecalcLabel(null), RECALC_LINE_MS);
+    return () => clearTimeout(timer);
+  }, [recalcLabel]);
+
+  const chooseReroute = useCallback(
+    (option: RerouteOption) => {
+      // One path for every reroute: the via pin is set, the app searches again.
+      rerouteVia(option, onSetViaPin);
+      setRecalcLabel(option.label);
+      onClose();
+    },
+    [onSetViaPin, onClose],
+  );
 
   const switching = phase === 'ready' && response?.decision.kind === 'switch';
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <View style={styles.titleRow}>
-              <Ionicons name="sparkles" size={20} color={ACCENT} />
-              <Text style={styles.title}>AI Insights</Text>
+    <>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <View style={styles.overlay}>
+          <View style={styles.card}>
+            <View style={styles.header}>
+              <View style={styles.titleRow}>
+                <Ionicons name="sparkles" size={20} color={ACCENT} />
+                <Text style={styles.title}>AI Insights</Text>
+              </View>
+              <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close AI Insights">
+                <Ionicons name="close" size={22} color="#667085" />
+              </Pressable>
             </View>
-            <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close AI Insights">
-              <Ionicons name="close" size={22} color="#667085" />
-            </Pressable>
-          </View>
 
-          <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-            {phase === 'loading' && (
-              <View style={styles.loading}>
-                <ActivityIndicator size="small" color={ACCENT} />
-                <Text style={styles.loadingText}>Checking your route</Text>
-              </View>
-            )}
+            <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+              {phase === 'loading' && (
+                <View style={styles.loading}>
+                  <ActivityIndicator size="small" color={ACCENT} />
+                  <Text style={styles.loadingText}>Checking your route</Text>
+                </View>
+              )}
 
-            {phase === 'error' && errorText && (
-              <View style={styles.errorWrap}>
-                <Text style={styles.errorText}>{errorText}</Text>
-                <Pressable
-                  style={styles.secondaryButton}
-                  onPress={() => void ask()}
-                  accessibilityRole="button"
-                  accessibilityLabel="Try again"
-                >
-                  <Text style={styles.secondaryText}>Try again</Text>
-                </Pressable>
-              </View>
-            )}
+              {phase === 'error' && errorText && (
+                <View style={styles.errorWrap}>
+                  <Text style={styles.errorText}>{errorText}</Text>
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => void ask()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Try again"
+                  >
+                    <Text style={styles.secondaryText}>Try again</Text>
+                  </Pressable>
+                </View>
+              )}
 
-            {phase === 'ready' && response && (
-              <View>
-                <Text style={styles.message}>{response.message}</Text>
+              {phase === 'ready' && response && (
+                <View>
+                  <Text style={styles.message}>{response.message}</Text>
 
-                {response.decision.reasons.length > 0 && (
-                  <View style={styles.reasons}>
-                    {response.decision.reasons.map((reason, index) => (
-                      <View key={`${index}-${reason}`} style={styles.reasonRow}>
-                        <Text style={styles.bullet}>•</Text>
-                        <Text style={styles.reasonText}>{reason}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {response.question && (
-                  <View style={styles.question}>
-                    <Text style={styles.questionText}>{response.question.text}</Text>
-                    <View style={styles.choices}>
-                      {response.question.choices.map((choice) => (
-                        <Pressable
-                          key={choice.id}
-                          style={styles.choice}
-                          onPress={() => void ask({ questionId: response.question!.id, choiceId: choice.id })}
-                          accessibilityRole="button"
-                          accessibilityLabel={choice.label}
-                        >
-                          <Text style={styles.choiceText}>{choice.label}</Text>
-                        </Pressable>
+                  {response.decision.reasons.length > 0 && (
+                    <View style={styles.reasons}>
+                      {response.decision.reasons.map((reason, index) => (
+                        <View key={`${index}-${reason}`} style={styles.reasonRow}>
+                          <Text style={styles.bullet}>•</Text>
+                          <Text style={styles.reasonText}>{reason}</Text>
+                        </View>
                       ))}
                     </View>
-                  </View>
-                )}
+                  )}
 
-                {pending && (
-                  <View style={styles.confirm}>
-                    <Text style={styles.confirmTitle}>Reroute via this point?</Text>
-                    <Text style={styles.confirmLabel}>{pending.label}</Text>
-                    <View style={styles.confirmRow}>
-                      <Pressable
-                        style={styles.secondaryButton}
-                        onPress={() => settlePending(false)}
-                        accessibilityRole="button"
-                        accessibilityLabel="No"
-                      >
-                        <Text style={styles.secondaryText}>No</Text>
-                      </Pressable>
-                      <Pressable
-                        style={styles.primaryButton}
-                        onPress={() => settlePending(true)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Yes"
-                      >
-                        <Text style={styles.primaryText}>Yes</Text>
-                      </Pressable>
+                  {response.question && (
+                    <View style={styles.question}>
+                      <Text style={styles.questionText}>{response.question.text}</Text>
+                      <View style={styles.choices}>
+                        {response.question.choices.map((choice) => (
+                          <Pressable
+                            key={choice.id}
+                            style={styles.choice}
+                            onPress={() => void ask({ questionId: response.question!.id, choiceId: choice.id })}
+                            accessibilityRole="button"
+                            accessibilityLabel={choice.label}
+                          >
+                            <Text style={styles.choiceText}>{choice.label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
                     </View>
-                  </View>
-                )}
-              </View>
-            )}
-          </ScrollView>
+                  )}
+                </View>
+              )}
+            </ScrollView>
 
-          <View style={styles.footer}>
-            {switching && response && (
+            <View style={styles.footer}>
+              {switching && response && (
+                <Pressable
+                  style={styles.primaryButton}
+                  onPress={() => {
+                    onUseRoute(response.decision.routeId);
+                    onClose();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Use this route"
+                >
+                  <Text style={styles.primaryText}>Use this route</Text>
+                </Pressable>
+              )}
+              {options.map((option) => (
+                <Pressable
+                  key={option.candidateId}
+                  style={styles.secondaryButton}
+                  onPress={() => chooseReroute(option)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Reroute via ${option.label}`}
+                >
+                  <Text style={styles.secondaryText}>{`Reroute via ${option.label}`}</Text>
+                </Pressable>
+              ))}
               <Pressable
-                style={styles.primaryButton}
-                onPress={() => {
-                  onUseRoute(response.decision.routeId);
-                  onClose();
-                }}
+                style={styles.secondaryButton}
+                onPress={onClose}
                 accessibilityRole="button"
-                accessibilityLabel="Use this route"
+                accessibilityLabel="Keep my route"
               >
-                <Text style={styles.primaryText}>Use this route</Text>
+                <Text style={styles.secondaryText}>Keep my route</Text>
               </Pressable>
-            )}
-            <Pressable
-              style={styles.secondaryButton}
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Keep my route"
-            >
-              <Text style={styles.secondaryText}>Keep my route</Text>
-            </Pressable>
+            </View>
           </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      {recalcLabel && (
+        <View style={styles.recalc} accessibilityLiveRegion="polite" pointerEvents="none">
+          <Text style={styles.recalcText}>{`Recalculating your route via ${recalcLabel}`}</Text>
+        </View>
+      )}
+    </>
   );
 }
 
@@ -316,18 +310,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   choiceText: { fontSize: 15, color: INK, fontWeight: '500' },
-  confirm: {
-    marginTop: 16,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#ddd6fe',
-    backgroundColor: '#f5f3ff',
-    gap: 6,
-  },
-  confirmTitle: { fontSize: 15, fontWeight: '700', color: INK },
-  confirmLabel: { fontSize: 13, color: MUTED },
-  confirmRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
   footer: { marginTop: 16, gap: 10 },
   primaryButton: {
     minHeight: 44,
@@ -351,4 +333,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   secondaryText: { color: INK, fontSize: 15, fontWeight: '600' },
+  recalc: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 32,
+    borderRadius: 12,
+    backgroundColor: INK,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  recalcText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
 });

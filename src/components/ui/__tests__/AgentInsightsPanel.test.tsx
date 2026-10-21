@@ -85,6 +85,15 @@ function button(renderer: ReactTestRenderer, label: string) {
   );
 }
 
+function rerouteButtons(renderer: ReactTestRenderer) {
+  return renderer.root.findAll(
+    (n) =>
+      typeof n.props.accessibilityLabel === 'string' &&
+      n.props.accessibilityLabel.startsWith('Reroute via ') &&
+      typeof n.props.onPress === 'function',
+  );
+}
+
 function textOf(renderer: ReactTestRenderer): string {
   return JSON.stringify(renderer.toJSON());
 }
@@ -175,29 +184,49 @@ describe('AgentInsightsPanel', () => {
     });
   });
 
-  test('a reroute proposal asks Reroute via this point? and only Yes sets the via pin', async () => {
+  test('offers one Reroute via option per proposed point, labelled with the client candidate label', async () => {
     mockedPost.mockResolvedValueOnce(
       response({
-        actions: [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'Middle', requiresConfirmation: true }],
+        actions: [
+          { type: 'propose_reroute_via', candidateId: 'p1', label: 'Quick safe shortcut, tap Yes', requiresConfirmation: true },
+        ],
       }),
     );
-    const { renderer, onSetViaPin } = await renderPanel();
-    expect(textOf(renderer)).toContain('Reroute via this point?');
-    expect(onSetViaPin).not.toHaveBeenCalled();
-
-    await press(renderer, 'No');
-    expect(onSetViaPin).not.toHaveBeenCalled();
+    const { renderer } = await renderPanel();
+    expect(button(renderer, 'Reroute via Middle of the weakest stretch')).toHaveLength(1);
+    expect(textOf(renderer)).not.toContain('Quick safe shortcut');
   });
 
-  test('confirming Yes on a reroute proposal sets the via pin', async () => {
+  test('offers no reroute option when the agent proposed none', async () => {
+    mockedPost.mockResolvedValueOnce(response({}));
+    const { renderer } = await renderPanel();
+    expect(rerouteButtons(renderer)).toHaveLength(0);
+  });
+
+  test('shows no confirm prompt for a reroute; the options replace the yes/no step', async () => {
     mockedPost.mockResolvedValueOnce(
       response({
         actions: [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'Middle', requiresConfirmation: true }],
       }),
     );
-    const { renderer, onSetViaPin } = await renderPanel();
-    await press(renderer, 'Yes');
+    const { renderer } = await renderPanel();
+    expect(textOf(renderer)).not.toContain('Reroute via this point?');
+    expect(button(renderer, 'Yes')).toHaveLength(0);
+    expect(button(renderer, 'No')).toHaveLength(0);
+  });
+
+  test('tapping a reroute option sets the via pin once, closes the panel and says it is recalculating', async () => {
+    mockedPost.mockResolvedValueOnce(
+      response({
+        actions: [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'Middle', requiresConfirmation: true }],
+      }),
+    );
+    const { renderer, onSetViaPin, onClose } = await renderPanel();
+    await press(renderer, 'Reroute via Middle of the weakest stretch');
+    expect(onSetViaPin).toHaveBeenCalledTimes(1);
     expect(onSetViaPin).toHaveBeenCalledWith({ latitude: 51.51, longitude: -0.12 });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(textOf(renderer)).toContain('Recalculating your route via Middle of the weakest stretch');
   });
 
   test('a show_findings action highlights the route on the registered map', async () => {

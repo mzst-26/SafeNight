@@ -1,9 +1,10 @@
 /**
- * agentActions — runs the validated actions from the AI Insights agent (contract G3, G5).
+ * agentActions — runs the validated actions from the AI Insights agent (contract G3, G5, H6).
  *
- * Pure apart from the calls it makes to the controller, confirm and setViaPin it is given.
- * Only candidate ids and route ids are accepted; unknown ids and unknown types are skipped.
- * propose_reroute_via never touches the map or the via pin without a yes from the walker.
+ * runAgentActions runs the map actions (pan, zoom, fit, highlight) and never a reroute.
+ * A reroute is offered to the walker as an option (rerouteOptions) and runs only when the walker
+ * taps it (rerouteVia). Only candidate ids and route ids are accepted; unknown ids and unknown
+ * types are skipped. Labels come from the client's candidate list, never from the model.
  */
 import type { AgentAction, AgentRouteGeometry, CandidatePoint } from '@/src/services/agentClient';
 import type { MapController } from '@/src/services/mapController';
@@ -19,10 +20,13 @@ export interface AgentActionContext {
   candidates: CandidatePoint[];
   routes: AgentRouteGeometry[];
   controller: MapController | null;
-  /** Asks the walker. Resolves true only on an explicit yes. */
-  confirm: (request: { candidate: CandidatePoint; label: string }) => Promise<boolean>;
-  /** Sets the via pin, which makes the app search again. Called only after a yes. */
-  setViaPin?: (point: LatLng) => void;
+}
+
+/** A reroute the walker can choose. The label is the client's candidate label. */
+export interface RerouteOption {
+  candidateId: string;
+  label: string;
+  point: LatLng;
 }
 
 const findCandidate = (candidates: CandidatePoint[], id: unknown) =>
@@ -45,6 +49,29 @@ const boundsOf = (route: AgentRouteGeometry) => {
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
+
+/** The reroute options the agent proposed, using the client's labels and coordinates. */
+export function rerouteOptions(actions: AgentAction[], candidates: CandidatePoint[]): RerouteOption[] {
+  const seen = new Set<string>();
+  const options: RerouteOption[] = [];
+  for (const action of actions.slice(0, MAX_ACTIONS)) {
+    if (!action || typeof action !== 'object' || action.type !== 'propose_reroute_via') continue;
+    const candidate = findCandidate(candidates, action.candidateId);
+    if (!candidate || seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    options.push({
+      candidateId: candidate.id,
+      label: candidate.label,
+      point: { latitude: candidate.lat, longitude: candidate.lng },
+    });
+  }
+  return options;
+}
+
+/** The one reroute path: sets the via pin, which makes the app search again. */
+export function rerouteVia(option: RerouteOption, setViaPin: (point: LatLng) => void): void {
+  setViaPin(option.point);
+}
 
 export async function runAgentActions(actions: AgentAction[], ctx: AgentActionContext): Promise<void> {
   const { controller } = ctx;
@@ -85,19 +112,9 @@ export async function runAgentActions(actions: AgentAction[], ctx: AgentActionCo
         break;
       }
 
-      case 'propose_reroute_via': {
-        const candidate = findCandidate(ctx.candidates, action.candidateId);
-        if (!candidate) break;
-        // The prompt shows the client's own label: model text never reaches the walker's confirmation.
-        const accepted = await ctx.confirm({ candidate, label: candidate.label });
-        if (accepted && ctx.setViaPin) {
-          ctx.setViaPin({ latitude: candidate.lat, longitude: candidate.lng });
-        }
-        break;
-      }
-
       default:
-        // Unknown action type: dropped, not an error.
+        // propose_reroute_via is offered as an option (rerouteOptions), never run here.
+        // Unknown action types are dropped, not an error.
         break;
     }
   }
