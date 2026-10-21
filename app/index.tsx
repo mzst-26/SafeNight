@@ -36,6 +36,7 @@ import { HomeIntro } from "@/src/components/seo/HomeIntro";
 import { AndroidOverlayHost } from "@/src/components/android/AndroidOverlayHost";
 import RouteMap from "@/src/components/maps/RouteMap";
 import { AIExplanationModal } from "@/src/components/modals/AIExplanationModal";
+import { AIExplainButton } from "@/src/components/ui/AIExplainButton";
 import { BackgroundLocationModal } from "@/src/components/modals/BackgroundLocationModal";
 import { DownloadAppModal } from "@/src/components/modals/DownloadAppModal";
 import { FamilyPackModal } from "@/src/components/modals/FamilyPackModal";
@@ -67,7 +68,10 @@ import { BuddyButton } from "@/src/components/ui/BuddyButton";
 import { JailLoadingAnimation } from "@/src/components/ui/JailLoadingAnimation";
 import { MapControlRail } from "@/src/components/ui/MapControlRail";
 import { sheetMaxHeight } from "@/src/components/sheets/sheetLimits";
-import { legendBottomPx as legendBottomPxFor } from "@/src/components/maps/legendPlacement";
+import {
+  legendBottomPx as legendBottomPxFor,
+  legendPositionFor,
+} from "@/src/components/maps/legendPlacement";
 import { MapGlassButton } from "@/src/components/ui/MapGlassButton";
 import { MapToast, type ToastConfig } from "@/src/components/ui/MapToast";
 import { ProfileMenu } from "@/src/components/ui/ProfileMenu";
@@ -1800,18 +1804,20 @@ export default function HomeScreen() {
     return () => subscription.remove();
   }, [h.isNavActive, hasRouteRequestState, h.nav, h.clearRouteResults]);
 
-  // Route safety legend: sits just above the bottom sheet, or above the navigation bar while navigating.
+  // Route safety legend: desktop web puts it top-right (clear of the sidebar); elsewhere it sits
+  // just above the bottom sheet, or above the navigation bar while navigating (as on Android).
   const legendBottomPx = useMemo(
     () =>
       legendBottomPxFor({
-        isWeb,
+        isDesktopWeb,
         navActive: h.isNavActive,
         sheetVisible,
         windowHeight,
-        sheetTopY: nativeSheetTopY,
+        sheetTopY: currentSheetTopY,
       }),
-    [isWeb, h.isNavActive, sheetVisible, windowHeight, nativeSheetTopY],
+    [isDesktopWeb, h.isNavActive, sheetVisible, windowHeight, currentSheetTopY],
   );
+  const legendPosition = legendPositionFor({ isDesktopWeb });
 
   const mapFitBottomPadding = useMemo(() => {
     if (!showDestinationCandidateSheet) return 40;
@@ -2052,6 +2058,7 @@ export default function HomeScreen() {
         fitTopPadding={mapFitTopPadding}
         fitBottomPadding={mapFitBottomPadding}
         legendBottomPx={legendBottomPx}
+        legendPosition={legendPosition}
         fitSidePadding={mapFitSidePadding}
         candidateFitTopPadding={candidateMapFitTopPadding}
         candidateFitBottomPadding={candidateMapFitBottomPadding}
@@ -3077,18 +3084,12 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              <Pressable
-                style={styles.aiButton}
+              <AIExplainButton
                 onPress={() => {
                   h.setShowAIModal(true);
                   if (h.ai.status === "idle") h.ai.ask();
                 }}
-                accessibilityRole="button"
-                accessibilityLabel="Why we recommend this route"
-              >
-                <Ionicons name="sparkles" size={16} color="#ffffff" />
-                <Text style={styles.aiText}>Why we recommend this route</Text>
-              </Pressable>
+              />
             </Animated.View>
           )}
 
@@ -3463,24 +3464,6 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: "center",
     zIndex: 13,
-  },
-  aiButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 24,
-    backgroundColor: "#7c3aed",
-    ...(Platform.OS === "web"
-      ? { boxShadow: "0 4px 14px rgba(124, 58, 237, 0.4)" }
-      : {}),
-    elevation: 14,
-  },
-  aiText: {
-    color: "#ffffff",
-    fontSize: 13,
-    fontWeight: "700",
   },
   viaRow: {
     flexDirection: "column",
