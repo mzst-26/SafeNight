@@ -8,6 +8,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { BADGES_JS } from "@/src/components/maps/inline/badges";
+import { setMapSnapshotProvider } from "@/src/services/mapSnapshot";
 import { CORE_JS } from "@/src/components/maps/inline/core";
 import { FORMAT_JS } from "@/src/components/maps/inline/format";
 import { LEGEND_JS } from "@/src/components/maps/inline/legend";
@@ -774,6 +775,26 @@ export const buildMapHtml = (
     var mapStyles = { roadmap: ${JSON.stringify(ROADMAP_STYLE)} };
     var roadmapRasterFallbackStyle = ${JSON.stringify(MAPTILER_STREETS_RASTER_STYLE)};
     var usedRasterFallback = false;
+
+    /* ── Snapshot for the AI explanation: the map canvas, scaled to 480px wide, as a JPEG data URL ── */
+    window.rlSnapshot = function(){
+      function done(url){ sendMsg('snapshot', { dataUrl: url }); }
+      try {
+        if (!map || !map.loaded()) { done(null); return; }
+        map.once('render', function(){
+          try {
+            var src = map.getCanvas();
+            var scale = Math.min(1, 480 / src.width);
+            var out = document.createElement('canvas');
+            out.width = Math.round(src.width * scale);
+            out.height = Math.round(src.height * scale);
+            out.getContext('2d').drawImage(src, 0, 0, out.width, out.height);
+            done(out.toDataURL('image/jpeg', 0.7));
+          } catch(e) { done(null); }
+        });
+        map.triggerRepaint();
+      } catch(e) { done(null); }
+    };
 
     /* ── Init MapLibre ─────────────────────────────────────── */
     var map = new maplibregl.Map({
@@ -1838,6 +1859,23 @@ export const RouteMap = ({
   showZoomControls = true,
 }: RouteMapProps) => {
   const webViewRef = useRef<WebView>(null);
+  const snapshotResolveRef = useRef<((url: string | null) => void) | null>(null);
+
+  // The explanation asks the map for a picture of the route while this map is mounted.
+  useEffect(() => {
+    setMapSnapshotProvider(
+      () =>
+        new Promise<string | null>((resolve) => {
+          if (!readyRef.current || !webViewRef.current) {
+            resolve(null);
+            return;
+          }
+          snapshotResolveRef.current = resolve;
+          webViewRef.current.injectJavaScript("window.rlSnapshot && window.rlSnapshot(); true;");
+        }),
+    );
+    return () => setMapSnapshotProvider(null);
+  }, []);
   const readyRef = useRef(false);
   const prevGeoKeyRef = useRef("");
   const prevPanKeyRef = useRef(-1);
@@ -2190,6 +2228,12 @@ export const RouteMap = ({
             // Flush update now that the map is ready
             pushUpdate();
             break;
+          case "snapshot": {
+            const resolve = snapshotResolveRef.current;
+            snapshotResolveRef.current = null;
+            resolve?.(typeof msg.dataUrl === "string" ? msg.dataUrl : null);
+            break;
+          }
           case "press":
             cbs.onMapPress?.({ latitude: msg.lat, longitude: msg.lng });
             break;

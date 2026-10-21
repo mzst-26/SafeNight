@@ -62,6 +62,8 @@ export interface AIExplanationInput {
   routes: CompactRouteInfo[];
   /** Which route id is the recommended safest one */
   bestRouteId: string;
+  /** Optional picture of the route map (JPEG or PNG data URL). Omitted when the map cannot provide one. */
+  mapImage?: string;
 }
 
 /**

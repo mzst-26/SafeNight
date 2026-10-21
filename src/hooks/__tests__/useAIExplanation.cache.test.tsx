@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { useAIExplanation, type UseAIExplanationState } from '@/src/hooks/useAIExplanation';
 import { fetchAIExplanation } from '@/src/services/openai';
+import { setMapSnapshotProvider } from '@/src/services/mapSnapshot';
 import type { DirectionsRoute } from '@/src/types/geo';
 
 jest.mock('@/src/services/openai', () => ({ fetchAIExplanation: jest.fn() }));
@@ -113,5 +114,40 @@ describe('useAIExplanation cache is per route, not per route id', () => {
       deadEnds: 2,
       crimeDataUnavailable: true,
     });
+  });
+
+  test('sends the map picture with the question when the map can provide one', async () => {
+    const JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==';
+    setMapSnapshotProvider(async () => JPEG);
+    fetchMock.mockResolvedValueOnce('With a picture.');
+
+    await askAndSettle(mount(routesWith([6000, 6100]), scoresWith([70, 50])));
+
+    expect((fetchMock.mock.calls[0][0] as any).mapImage).toBe(JPEG);
+    setMapSnapshotProvider(null);
+  });
+
+  test('asks without a picture when the map has none', async () => {
+    setMapSnapshotProvider(async () => null);
+    fetchMock.mockResolvedValueOnce('Without a picture.');
+
+    await askAndSettle(mount(routesWith([6200, 6300]), scoresWith([70, 50])));
+
+    expect((fetchMock.mock.calls[0][0] as any).mapImage).toBeUndefined();
+    setMapSnapshotProvider(null);
+  });
+
+  test('a cached explanation is shown without taking a new picture', async () => {
+    const provider = jest.fn(async () => 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==');
+    setMapSnapshotProvider(provider);
+    fetchMock.mockResolvedValueOnce('Once only.');
+
+    const renderer = mount(routesWith([6400, 6500]), scoresWith([70, 50]));
+    await askAndSettle(renderer);
+    await askAndSettle(renderer);
+
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(latest.explanation).toBe('Once only.');
+    setMapSnapshotProvider(null);
   });
 });

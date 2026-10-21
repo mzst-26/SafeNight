@@ -33,6 +33,7 @@ import {
   RL_UNSELECTED_WIDTH,
 } from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
+import { setMapSnapshotProvider } from "@/src/services/mapSnapshot";
 
 export const buildLeafletHtml = (
   showZoomControls: boolean,
@@ -752,6 +753,8 @@ export const buildLeafletHtml = (
         markerZoomAnimation:true,
       }).setView([51.5074,-0.1278], 13);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        // OpenStreetMap sends Access-Control-Allow-Origin: *, so CORS lets the map be drawn for the AI explanation.
+        crossOrigin: 'anonymous',
         maxZoom: 19,
         maxNativeZoom: 19,
         detectRetina: true,
@@ -1204,6 +1207,23 @@ export const RouteMap = ({
   onUserInteraction,
 }: RouteMapProps) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // The explanation asks the map for a picture of the route while this map is mounted.
+  useEffect(() => {
+    setMapSnapshotProvider(async () => {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc?.body) return null;
+      const { default: html2canvas } = await import("html2canvas");
+      const source = await html2canvas(doc.body, { useCORS: true, logging: false, scale: 1 });
+      const scale = Math.min(1, 480 / source.width);
+      const out = document.createElement("canvas");
+      out.width = Math.round(source.width * scale);
+      out.height = Math.round(source.height * scale);
+      out.getContext("2d")?.drawImage(source, 0, 0, out.width, out.height);
+      return out.toDataURL("image/jpeg", 0.7);
+    });
+    return () => setMapSnapshotProvider(null);
+  }, []);
   const readyRef = useRef(false);
   const [hasError, setHasError] = useState(false);
   const prevGeoKeyRef = useRef("");

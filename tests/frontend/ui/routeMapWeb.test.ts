@@ -25,6 +25,11 @@ describe('RouteMap.web buildLeafletHtml', () => {
     expect(html).toContain('window.setLegendBottom');
   });
 
+  it('asks for CORS on the OpenStreetMap tiles so the map picture for the AI explanation can be drawn', () => {
+    const html = buildLeafletHtml(false);
+    expect(html).toMatch(/L\.tileLayer\('https:\/\/\{s\}\.tile\.openstreetmap\.org[^']*',\s*\{[^}]*crossOrigin:\s*'anonymous'/);
+  });
+
   it('includes basic map container', () => {
     const html = buildLeafletHtml(false);
     expect(html).toContain('<div id="map"></div>');

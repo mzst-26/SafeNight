@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
+import { captureMapSnapshot } from '@/src/services/mapSnapshot';
 import { fetchAIExplanation, type CompactRouteInfo } from '@/src/services/openai';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { SafetyMapResult } from '@/src/services/safetyMapData';
@@ -130,6 +131,9 @@ export const useAIExplanation = (
     setError(null);
     setExplanation(null);
 
+    // Only a fresh question takes a picture of the map; a cached answer above never does.
+    const mapImage = await captureMapSnapshot();
+
     const startedAt = Date.now();
     const existingInFlight = inFlightExplanationRequests.get(cacheKey);
     const rawPromise =
@@ -137,6 +141,7 @@ export const useAIExplanation = (
       fetchAIExplanation({
         routes: compactRoutes,
         bestRouteId,
+        mapImage: mapImage ?? undefined,
       });
 
     if (!existingInFlight) {
