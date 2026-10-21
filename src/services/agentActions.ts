@@ -6,7 +6,12 @@
  * taps it (rerouteVia). Only candidate ids and route ids are accepted; unknown ids and unknown
  * types are skipped. Labels come from the client's candidate list, never from the model.
  */
-import type { AgentAction, AgentRouteGeometry, CandidatePoint } from '@/src/services/agentClient';
+import type {
+  AgentAction,
+  AgentActionResult,
+  AgentRouteGeometry,
+  CandidatePoint,
+} from '@/src/services/agentClient';
 import type { MapController } from '@/src/services/mapController';
 import type { LatLng } from '@/src/types/geo';
 
@@ -73,12 +78,22 @@ export function rerouteVia(option: RerouteOption, setViaPin: (point: LatLng) => 
   setViaPin(option.point);
 }
 
-export async function runAgentActions(actions: AgentAction[], ctx: AgentActionContext): Promise<void> {
+/**
+ * Runs the map actions on the given map and returns one result per action (ok: it ran on the map).
+ * The results go back to the agent in the next round. propose_reroute_via is offered, not run, so it
+ * counts as ok; unknown types and unknown ids count as not ok.
+ */
+export async function runAgentActions(
+  actions: AgentAction[],
+  ctx: AgentActionContext,
+): Promise<AgentActionResult[]> {
   const { controller } = ctx;
+  const results: AgentActionResult[] = [];
 
   for (const action of actions.slice(0, MAX_ACTIONS)) {
     if (!action || typeof action !== 'object') continue;
 
+    let ok = false;
     switch (action.type) {
       case 'pan_to': {
         const candidate = findCandidate(ctx.candidates, action.candidateId);
@@ -88,6 +103,7 @@ export async function runAgentActions(actions: AgentAction[], ctx: AgentActionCo
             ? action.zoom
             : undefined;
         controller.panTo(candidate.lat, candidate.lng, zoom);
+        ok = true;
         break;
       }
 
@@ -95,6 +111,7 @@ export async function runAgentActions(actions: AgentAction[], ctx: AgentActionCo
         if (!controller || !isFiniteNumber(action.delta)) break;
         if (Math.abs(action.delta) > MAX_ZOOM_DELTA) break;
         controller.zoomBy(action.delta);
+        ok = true;
         break;
       }
 
@@ -102,20 +119,28 @@ export async function runAgentActions(actions: AgentAction[], ctx: AgentActionCo
         const route = findRoute(ctx.routes, action.routeId);
         if (!route || !controller || route.path.length === 0) break;
         controller.fitBounds(boundsOf(route));
+        ok = true;
         break;
       }
 
       case 'show_findings': {
         const route = findRoute(ctx.routes, action.routeId);
         if (!route || !controller) break;
-        controller.highlight(route.id);
+        ok = controller.highlight(route.id);
         break;
       }
 
+      case 'propose_reroute_via':
+        // Offered to the walker as an option (rerouteOptions), never run here.
+        ok = true;
+        break;
+
       default:
-        // propose_reroute_via is offered as an option (rerouteOptions), never run here.
         // Unknown action types are dropped, not an error.
         break;
     }
+    results.push({ type: action.type, ok });
   }
+
+  return results;
 }

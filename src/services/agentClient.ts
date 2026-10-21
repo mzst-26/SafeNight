@@ -14,6 +14,13 @@ import type { DirectionsRoute, LatLng } from '@/src/types/geo';
 // Longer than the server budget (60 s), so the server's answer, or its simple one, always arrives first.
 const AGENT_TIMEOUT_MS = 70_000;
 const MAX_CANDIDATES = 12;
+/** The agent loop stops after this round even if the agent still says 'continue'. */
+export const AGENT_MAX_ROUNDS = 5;
+
+export interface AgentLatLng {
+  lat: number;
+  lng: number;
+}
 
 // ── G1 request and response types ───────────────────────────────────────────
 
@@ -24,17 +31,10 @@ export interface AgentWorstStretch {
   cause: string | null;
 }
 
-export interface AgentLatLng {
-  lat: number;
-  lng: number;
-}
-
 export interface AgentRouteInfo extends Omit<CompactRouteInfo, 'worstStretch'> {
   worstStretch?: AgentWorstStretch | null;
-  /** First point of the route's own geometry, or null when the route has no points. */
-  start: AgentLatLng | null;
-  /** Last point of the route's own geometry, or null when the route has no points. */
-  end: AgentLatLng | null;
+  /** The route's own points, for the server's corridor check only. Never sent to the model or logged. */
+  path: AgentLatLng[];
 }
 
 export type CandidateKind = 'stretch_midpoint' | 'route_start' | 'route_end' | 'ring';
@@ -47,12 +47,29 @@ export interface CandidatePoint {
   kind: CandidateKind;
 }
 
-export interface AgentInsightsRequest {
+/** What one search sends, without the round fields. Built by buildAgentContext. */
+export interface AgentRouteBody {
   bestRouteId: string;
   routes: AgentRouteInfo[];
   trip: { leaveAtIso?: string };
   candidatePoints: CandidatePoint[];
   answer?: { questionId: string; choiceId: string };
+}
+
+/** The result of one action of the previous round, as the server asks for it. */
+export interface AgentActionResult {
+  type: string;
+  ok: boolean;
+}
+
+/** One POST to /api/agent-insights: a round of the loop, with the body of the search. */
+export interface AgentInsightsRequest extends AgentRouteBody {
+  /** Random per app session, in memory only. Never a user id. */
+  sessionNumber: number;
+  round: number;
+  results: AgentActionResult[];
+  /** Picture of the agent map. Omitted when the map could not be captured. */
+  snapshot?: string;
 }
 
 export type AgentAction =
@@ -69,6 +86,12 @@ export interface AgentQuestion {
 }
 
 export interface AgentInsightsResponse {
+  /** 'continue' asks for another round (with the results of this one); 'done' ends the loop. */
+  status?: 'continue' | 'done';
+  round?: number;
+  maxRounds?: number;
+  recommendedRouteId?: string;
+  expansionAllowed?: boolean;
   analysis: {
     routes: Array<{
       routeId: string;
@@ -144,15 +167,35 @@ export function buildCandidatePoints(routes: AgentRouteGeometry[]): CandidatePoi
   return points;
 }
 
+// ── Session number (in memory, one per app session) ─────────────────────────
+
+let sessionNumber: number | null = null;
+
+/** A random integer 1..999999, the same for the whole app session. It is never a user id. */
+export function getAgentSessionNumber(): number {
+  if (sessionNumber === null) sessionNumber = Math.floor(Math.random() * 999_999) + 1;
+  return sessionNumber;
+}
+
 // ── Request context (what the panel needs for one search) ───────────────────
 
+/** Where the agent's own map starts: the best route, with the routes it checks. */
+export interface AgentMapPlacement {
+  origin: LatLng | null;
+  destination: LatLng | null;
+  routes: DirectionsRoute[];
+  selectedRouteId: string | null;
+}
+
 export interface AgentContext {
-  /** The G1 body, without an answer. */
-  body: AgentInsightsRequest;
+  /** The request body of one search, without the round fields and without an answer. */
+  body: AgentRouteBody;
   /** Candidate points the body refers to, for resolving ids. */
   candidates: CandidatePoint[];
-  /** Route geometry for fit_route and show_findings. */
+  /** Route geometry for fit_route and show_findings. Stays on the client. */
   routes: AgentRouteGeometry[];
+  /** What the agent's map bubble shows. Absent when there is no route to show. */
+  map?: AgentMapPlacement;
 }
 
 export interface BuildAgentContextInput {
@@ -168,18 +211,15 @@ export function buildAgentContext(input: BuildAgentContextInput): AgentContext {
   const fullStretch = (routeId: string) =>
     input.safeRoutes.find((sr) => sr.id === routeId)?.safety?.worstStretch ?? null;
 
-  const toAgentPoint = (p: LatLng | undefined): AgentLatLng | null =>
-    p ? { lat: p.latitude, lng: p.longitude } : null;
-
   // Compact data as the explanation sends it, with the worst stretch's ends so the model can name them.
+  // Route path points go to the server for the corridor check only. The model gets candidate ids, never coordinates.
   const compact = buildCompactRoutes(top, input.scores, input.safeRoutes);
   const routes: AgentRouteInfo[] = compact.map((route) => {
     const stretch = fullStretch(route.routeId);
-    const geometry = top.find((r) => r.id === route.routeId)?.path;
+    const geometry = top.find((r) => r.id === route.routeId)?.path ?? [];
     return {
       ...route,
-      start: toAgentPoint(geometry?.[0]),
-      end: toAgentPoint(geometry?.[geometry.length - 1]),
+      path: geometry.map((p) => ({ lat: p.latitude, lng: p.longitude })),
       worstStretch: stretch
         ? {
             start: { lat: stretch.start.lat, lng: stretch.start.lng },
@@ -199,14 +239,26 @@ export function buildAgentContext(input: BuildAgentContextInput): AgentContext {
   const candidates = buildCandidatePoints(geometry);
 
   const leaveAtIso = input.safeRoutes.find((r) => r.isSafest)?.safety?.timeline?.leaveAtIso;
-  const body: AgentInsightsRequest = {
-    bestRouteId: input.bestRouteId ?? top[0]?.id ?? '',
+  const bestRouteId = input.bestRouteId ?? top[0]?.id ?? '';
+  const body: AgentRouteBody = {
+    bestRouteId,
     routes,
     trip: leaveAtIso ? { leaveAtIso } : {},
     candidatePoints: candidates,
   };
 
-  return { body, candidates, routes: geometry };
+  const bestPath = top[0]?.path;
+  const map: AgentMapPlacement | undefined =
+    top.length > 0
+      ? {
+          origin: bestPath?.[0] ?? null,
+          destination: bestPath?.[bestPath.length - 1] ?? null,
+          routes: top,
+          selectedRouteId: bestRouteId || null,
+        }
+      : undefined;
+
+  return { body, candidates, routes: geometry, map };
 }
 
 // ── Network ─────────────────────────────────────────────────────────────────

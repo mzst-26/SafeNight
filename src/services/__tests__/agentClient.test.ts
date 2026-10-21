@@ -2,6 +2,7 @@ import {
   AgentInsightsError,
   buildAgentContext,
   buildCandidatePoints,
+  getAgentSessionNumber,
   postAgentInsights,
   type AgentInsightsRequest,
 } from '@/src/services/agentClient';
@@ -10,6 +11,9 @@ import type { DirectionsRoute } from '@/src/types/geo';
 jest.mock('@/src/config/env', () => ({ env: { apiBaseUrl: 'https://gateway.test' } }));
 
 const body: AgentInsightsRequest = {
+  sessionNumber: 4242,
+  round: 1,
+  results: [],
   bestRouteId: 'safe-route-0',
   routes: [
     {
@@ -18,8 +22,7 @@ const body: AgentInsightsRequest = {
       durationSeconds: 700,
       score: 62,
       worstStretch: null,
-      start: null,
-      end: null,
+      path: [],
     },
   ],
   trip: {},
@@ -100,7 +103,9 @@ describe('postAgentInsights', () => {
     await postAgentInsights(body);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const sent = JSON.parse(String(init.body)) as Record<string, unknown>;
-    expect(Object.keys(sent).sort()).toEqual(['bestRouteId', 'candidatePoints', 'routes', 'trip'].sort());
+    expect(Object.keys(sent).sort()).toEqual(
+      ['bestRouteId', 'candidatePoints', 'results', 'round', 'routes', 'sessionNumber', 'trip'].sort(),
+    );
     expect(String(init.body)).not.toMatch(/email|userId|"uid"|"token"/i);
   });
 });
@@ -196,83 +201,77 @@ describe('buildAgentContext', () => {
   });
 });
 
-describe('buildAgentContext start and end per route', () => {
+describe('buildAgentContext privacy (contract v3)', () => {
   const path = [
     { latitude: 51.5, longitude: -0.1 },
-    { latitude: 51.505, longitude: -0.105 },
     { latitude: 51.51, longitude: -0.112 },
   ];
-  const route = (id: string, points: typeof path, isSafest = false) => ({
-    id,
-    distanceMeters: 900,
-    durationSeconds: 700,
-    encodedPolyline: '',
-    path: points,
-    routeIndex: 0,
-    isSafest,
-    safety: {
-      score: 60,
-      label: 'Fair',
-      color: '#000',
-      breakdown: {},
-      roadTypes: {},
-      mainRoadRatio: 40,
-      timeline: { leaveAtIso: '2026-10-21T22:00:00.000Z' },
+  const safeRoutes = [
+    {
+      id: 'a',
+      distanceMeters: 900,
+      durationSeconds: 700,
+      encodedPolyline: '',
+      path,
+      routeIndex: 0,
+      isSafest: true,
+      safety: {
+        score: 60,
+        label: 'Fair',
+        color: '#000',
+        breakdown: {},
+        roadTypes: {},
+        mainRoadRatio: 40,
+        timeline: { leaveAtIso: '2026-10-21T22:00:00.000Z' },
+      },
+      safetySegments: [],
     },
-    safetySegments: [],
-  });
+  ];
 
-  test('each route sends start and end as {lat, lng} from its own first and last path point', () => {
-    const safeRoutes = [
-      route('a', path, true),
-      route('b', [
-        { latitude: 51.6, longitude: -0.2 },
-        { latitude: 51.65, longitude: -0.25 },
-      ]),
-    ];
+  test('route entries carry no start or end; path points are sent for the corridor check only', () => {
     const context = buildAgentContext({
       routes: safeRoutes as unknown as DirectionsRoute[],
       safeRoutes: safeRoutes as never,
       scores: {},
       bestRouteId: 'a',
     });
-
-    expect(context.body.routes.map((r) => r.routeId)).toEqual(['a', 'b']);
-    expect(context.body.routes[0].start).toEqual({ lat: 51.5, lng: -0.1 });
-    expect(context.body.routes[0].end).toEqual({ lat: 51.51, lng: -0.112 });
-    expect(context.body.routes[1].start).toEqual({ lat: 51.6, lng: -0.2 });
-    expect(context.body.routes[1].end).toEqual({ lat: 51.65, lng: -0.25 });
+    const sent = context.body.routes[0] as unknown as Record<string, unknown>;
+    expect(sent).not.toHaveProperty('start');
+    expect(sent).not.toHaveProperty('end');
+    expect(sent.path).toEqual(expect.any(Array));
+    expect(JSON.stringify(context.body)).not.toMatch(/"start"|"end"/);
   });
 
-  test('sends start and end for each of the top three routes, and only those', () => {
-    const safeRoutes = ['a', 'b', 'c', 'd'].map((id) => route(id, path, id === 'a'));
+  test('the client keeps the route geometry for the map, outside the request body', () => {
     const context = buildAgentContext({
       routes: safeRoutes as unknown as DirectionsRoute[],
       safeRoutes: safeRoutes as never,
       scores: {},
       bestRouteId: 'a',
     });
-    expect(context.body.routes).toHaveLength(3);
-    context.body.routes.forEach((r) => {
-      expect(r.start).toEqual({ lat: 51.5, lng: -0.1 });
-      expect(r.end).toEqual({ lat: 51.51, lng: -0.112 });
-    });
+    expect(context.routes[0].path).toEqual([
+      { latitude: 51.5, longitude: -0.1 },
+      { latitude: 51.51, longitude: -0.112 },
+    ]);
   });
 
-  test('start and end carry only lat and lng, and the body has no email or user identifier', () => {
-    const safeRoutes = [route('a', path, true)];
+  test('the body has no email or user identifier', () => {
     const context = buildAgentContext({
       routes: safeRoutes as unknown as DirectionsRoute[],
       safeRoutes: safeRoutes as never,
       scores: {},
       bestRouteId: 'a',
     });
-    const sent = context.body.routes[0];
-    expect(Object.keys(sent.start as object).sort()).toEqual(['lat', 'lng']);
-    expect(Object.keys(sent.end as object).sort()).toEqual(['lat', 'lng']);
-
-    // Route entries carry the route id the contract already has, and no other identifier.
-    expect(Object.keys(sent)).not.toContain('id');
     expect(JSON.stringify(context.body)).not.toMatch(/email|userId|"uid"|"token"/i);
+  });
+});
+
+describe('getAgentSessionNumber', () => {
+  test('is an integer from 1 to 999999 and is the same for every call in the session', () => {
+    const first = getAgentSessionNumber();
+    expect(Number.isInteger(first)).toBe(true);
+    expect(first).toBeGreaterThanOrEqual(1);
+    expect(first).toBeLessThanOrEqual(999999);
+    expect(getAgentSessionNumber()).toBe(first);
   });
 });

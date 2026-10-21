@@ -2,11 +2,15 @@
  * AgentInsightsPanel — the AI Insights / Rethink sheet opened from the desktop bar above the
  * recommended route.
  *
- * It asks the agent endpoint once when it opens. The agent's map actions (pan, zoom, fit, highlight)
- * run on the map. The walker chooses from options: "Keep my route" (always), "Use this route" (a
- * switch only), one "Reroute via [point]" per point the agent proposed, and any question choices.
- * Tapping "Reroute via" is the walker's consent: it sets the via pin, which makes the app search
- * again, and the panel closes with a short "Recalculating" line.
+ * When it opens it runs the agent in rounds (contract v3): post a round, run the returned actions on
+ * the agent's own map (AgentMapBubble, instance 'agent'), capture that map, and post the next round
+ * with the results and the picture, while the agent says 'continue' and round 5 is not reached.
+ * The bubble's status line says what the agent is doing. The walker's main map is never touched.
+ *
+ * The walker chooses from options: "Keep my route" (always), "Use this route" (when the recommended
+ * route differs from the best one), one "Reroute via [point]" per point the agent proposed, and any
+ * question choices. Tapping "Reroute via" is the walker's consent: it sets the via pin, which makes
+ * the app search again, and the panel closes with a short "Recalculating" line.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,11 +25,18 @@ import {
   View,
 } from 'react-native';
 
+import { AgentMapBubble } from '@/src/components/ui/AgentMapBubble';
 import { glassScrim, glassSurface } from '@/src/components/ui/glass';
 import {
+  AGENT_MAX_ROUNDS,
+  getAgentSessionNumber,
   postAgentInsights,
+  type AgentActionResult,
+  type AgentAction,
   type AgentContext,
+  type AgentInsightsRequest,
   type AgentInsightsResponse,
+  type AgentRouteGeometry,
 } from '@/src/services/agentClient';
 import {
   rerouteOptions,
@@ -34,12 +45,28 @@ import {
   type RerouteOption,
 } from '@/src/services/agentActions';
 import { getMapController } from '@/src/services/mapController';
+import { captureMapSnapshot } from '@/src/services/mapSnapshot';
 import type { LatLng } from '@/src/types/geo';
 
 const ACCENT = '#6d28d9';
 const INK = '#101828';
 const MUTED = '#475467';
 const RECALC_LINE_MS = 4000;
+const AGENT_MAP = 'agent';
+const DEFAULT_STATUS = 'Checking the map';
+const DONE_STATUS = 'Done';
+const FAILED_STATUS = 'Could not check the map';
+
+/** The bubble's status line for a round: the first route the round looks at, else the default. */
+const statusForActions = (actions: AgentAction[], routes: AgentRouteGeometry[]): string => {
+  for (const action of actions) {
+    if (!action || typeof action !== 'object') continue;
+    if (action.type !== 'fit_route' && action.type !== 'show_findings') continue;
+    const index = routes.findIndex((route) => route.id === action.routeId);
+    if (index >= 0) return `Looking at Route ${index + 1}`;
+  }
+  return DEFAULT_STATUS;
+};
 
 type Phase = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -67,12 +94,14 @@ export function AgentInsightsPanel({
   const [response, setResponse] = useState<AgentInsightsResponse | null>(null);
   const [options, setOptions] = useState<RerouteOption[]>([]);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [status, setStatus] = useState(DEFAULT_STATUS);
   // Kept apart from the sheet state so it outlives the sheet closing.
   const [recalcLabel, setRecalcLabel] = useState<string | null>(null);
 
-  // Every new request bumps this; an answer to an older request is then ignored.
+  // Every new run bumps this; a run that is no longer the latest stops and changes nothing.
   const seqRef = useRef(0);
 
+  /** One run of the agent: rounds until the agent is done or round AGENT_MAX_ROUNDS. */
   const ask = useCallback(
     async (answer?: { questionId: string; choiceId: string }) => {
       if (!context) {
@@ -83,24 +112,51 @@ export function AgentInsightsPanel({
       const seq = ++seqRef.current;
       setPhase('loading');
       setErrorText(null);
+      setOptions([]);
+      setStatus(DEFAULT_STATUS);
       try {
-        const body = answer ? { ...context.body, answer } : context.body;
-        const result = await postAgentInsights(body);
-        if (seq !== seqRef.current) return;
+        let snapshot = await captureMapSnapshot(AGENT_MAP);
+        let results: AgentActionResult[] = [];
+        let round = 1;
+        let result: AgentInsightsResponse;
+        for (;;) {
+          setStatus(DEFAULT_STATUS);
+          const request: AgentInsightsRequest = {
+            ...context.body,
+            ...(answer && round === 1 ? { answer } : {}),
+            sessionNumber: getAgentSessionNumber(),
+            round,
+            results,
+            ...(snapshot ? { snapshot } : {}),
+          };
+          result = await postAgentInsights(request);
+          if (seq !== seqRef.current) return;
+
+          setStatus(statusForActions(result.actions, context.routes));
+          results = await runAgentActions(result.actions, {
+            candidates: context.candidates,
+            routes: context.routes,
+            controller: getMapController(AGENT_MAP),
+          });
+          if (seq !== seqRef.current) return;
+
+          if (result.status !== 'continue' || round >= AGENT_MAX_ROUNDS) break;
+          round += 1;
+          snapshot = await captureMapSnapshot(AGENT_MAP);
+        }
+
         setResponse(result);
         setOptions(rerouteOptions(result.actions, context.candidates));
+        setStatus(DONE_STATUS);
         setPhase('ready');
-        await runAgentActions(result.actions, {
-          candidates: context.candidates,
-          routes: context.routes,
-          controller: getMapController(),
-        });
       } catch (error) {
         if (seq !== seqRef.current) return;
         // Debugging: show the real cause in the dev console (kind and status only, never the body).
         if (__DEV__) console.warn('[AgentInsights] request failed', error);
-        // A failed follow-up must not leave reroute options from an earlier answer on screen.
+        // A failed round must not leave the summary or reroute options of an earlier round on screen.
+        setResponse(null);
         setOptions([]);
+        setStatus(FAILED_STATUS);
         setPhase('error');
         setErrorText(FAILURE_TEXT);
       }
@@ -117,11 +173,12 @@ export function AgentInsightsPanel({
       void askRef.current();
       return undefined;
     }
-    // Closed: drop any answer still on its way and clear the sheet.
+    // Closed: drop any run still on its way and clear the sheet.
     seqRef.current++;
     setResponse(null);
     setOptions([]);
     setErrorText(null);
+    setStatus(DEFAULT_STATUS);
     setPhase('idle');
     return undefined;
   }, [visible]);
@@ -142,7 +199,9 @@ export function AgentInsightsPanel({
     [onSetViaPin, onClose],
   );
 
-  const switching = phase === 'ready' && response?.decision.kind === 'switch';
+  // The route the agent recommends; "Use this route" is offered only when it is not the best route.
+  const recommendedId = response ? (response.recommendedRouteId ?? response.decision.routeId) : null;
+  const switching = phase === 'ready' && recommendedId !== null && recommendedId !== context?.body.bestRouteId;
 
   return (
     <>
@@ -158,6 +217,18 @@ export function AgentInsightsPanel({
                 <Ionicons name="close" size={22} color="#667085" />
               </Pressable>
             </View>
+
+            {context?.map && (
+              <View style={styles.bubbleWrap}>
+                <AgentMapBubble
+                  origin={context.map.origin}
+                  destination={context.map.destination}
+                  routes={context.map.routes}
+                  selectedRouteId={context.map.selectedRouteId}
+                  status={status}
+                />
+              </View>
+            )}
 
             <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
               {phase === 'loading' && (
@@ -219,11 +290,11 @@ export function AgentInsightsPanel({
             </ScrollView>
 
             <View style={styles.footer}>
-              {switching && response && (
+              {switching && recommendedId && (
                 <Pressable
                   style={styles.primaryButton}
                   onPress={() => {
-                    onUseRoute(response.decision.routeId);
+                    onUseRoute(recommendedId);
                     onClose();
                   }}
                   accessibilityRole="button"
@@ -291,6 +362,7 @@ const styles = StyleSheet.create({
   },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 18, fontWeight: '700', color: INK },
+  bubbleWrap: { alignItems: 'center', marginBottom: 12 },
   body: { flexGrow: 0 },
   loading: { alignItems: 'center', gap: 12, paddingVertical: 28 },
   loadingText: { fontSize: 14, color: ACCENT, fontWeight: '500' },

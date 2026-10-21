@@ -3,15 +3,31 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { AgentInsightsPanel } from '@/src/components/ui/AgentInsightsPanel';
 import { postAgentInsights, type AgentContext, type AgentInsightsResponse } from '@/src/services/agentClient';
+import { captureMapSnapshot } from '@/src/services/mapSnapshot';
 import { setMapController, type MapController } from '@/src/services/mapController';
+import type { DirectionsRoute } from '@/src/types/geo';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('@/src/services/agentClient', () => {
   const actual = jest.requireActual('@/src/services/agentClient');
   return { ...actual, postAgentInsights: jest.fn() };
 });
+jest.mock('@/src/services/mapSnapshot', () => ({ captureMapSnapshot: jest.fn() }));
+
+// The bubble is checked through the status line it is given; its map (RouteMap) is not under test here.
+const mockStatusLog: string[] = [];
+jest.mock('@/src/components/ui/AgentMapBubble', () => ({
+  AgentMapBubble: (props: { status?: string }) => {
+    mockStatusLog.push(props.status ?? '');
+    return null;
+  },
+}));
 
 const mockedPost = postAgentInsights as jest.MockedFunction<typeof postAgentInsights>;
+const mockedCapture = captureMapSnapshot as jest.MockedFunction<typeof captureMapSnapshot>;
+
+const SNAP_1 = 'data:image/jpeg;base64,AAAA';
+const SNAP_2 = 'data:image/jpeg;base64,BBBB';
 
 const context: AgentContext = {
   body: {
@@ -30,7 +46,25 @@ const context: AgentContext = {
       ],
       worstStretch: null,
     },
+    {
+      id: 'safe-route-1',
+      path: [
+        { latitude: 51.4, longitude: -0.2 },
+        { latitude: 51.41, longitude: -0.19 },
+      ],
+      worstStretch: null,
+    },
   ],
+};
+
+const mapContext: AgentContext = {
+  ...context,
+  map: {
+    origin: { latitude: 51.5, longitude: -0.13 },
+    destination: { latitude: 51.52, longitude: -0.1 },
+    routes: [] as DirectionsRoute[],
+    selectedRouteId: 'safe-route-0',
+  },
 };
 
 const response = (overrides: Partial<AgentInsightsResponse>): AgentInsightsResponse => ({
@@ -43,6 +77,12 @@ const response = (overrides: Partial<AgentInsightsResponse>): AgentInsightsRespo
 
 const mounted: ReactTestRenderer[] = [];
 
+beforeEach(() => {
+  mockedCapture.mockReset();
+  mockedCapture.mockResolvedValue(null);
+  mockStatusLog.length = 0;
+});
+
 afterEach(() => {
   while (mounted.length) {
     const renderer = mounted.pop();
@@ -52,6 +92,7 @@ afterEach(() => {
   }
   mockedPost.mockReset();
   setMapController(null);
+  setMapController(null, 'agent');
 });
 
 async function renderPanel(props: Partial<React.ComponentProps<typeof AgentInsightsPanel>> = {}) {
@@ -71,7 +112,7 @@ async function renderPanel(props: Partial<React.ComponentProps<typeof AgentInsig
       />,
     );
   });
-  // Let the request on open settle inside act, so its state updates are not left dangling.
+  // Let the rounds on open settle inside act, so their state updates are not left dangling.
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -143,6 +184,15 @@ describe('AgentInsightsPanel', () => {
     expect(button(sw.renderer, 'Use this route')).toHaveLength(1);
   });
 
+  test('Use this route follows the recommended route when it differs from the best route', async () => {
+    mockedPost.mockResolvedValue(
+      response({ recommendedRouteId: 'safe-route-1', decision: { kind: 'keep', routeId: 'safe-route-0', reasons: [] } }),
+    );
+    const { renderer, onUseRoute } = await renderPanel();
+    await press(renderer, 'Use this route');
+    expect(onUseRoute).toHaveBeenCalledWith('safe-route-1');
+  });
+
   test('tapping Use this route selects the switch route', async () => {
     mockedPost.mockResolvedValue(
       response({ decision: { kind: 'switch', routeId: 'safe-route-1', reasons: ['x'] } }),
@@ -178,10 +228,9 @@ describe('AgentInsightsPanel', () => {
 
     mockedPost.mockResolvedValueOnce(response({}));
     await press(renderer, 'Yes, shorter');
-    expect(mockedPost).toHaveBeenLastCalledWith({
-      ...context.body,
-      answer: { questionId: 'q1', choiceId: 'yes' },
-    });
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      expect.objectContaining({ answer: { questionId: 'q1', choiceId: 'yes' }, round: 1 }),
+    );
   });
 
   test('offers one Reroute via option per proposed point, labelled with the client candidate label', async () => {
@@ -246,18 +295,144 @@ describe('AgentInsightsPanel', () => {
     expect(textOf(renderer)).toContain('Recalculating your route via Middle of the weakest stretch');
   });
 
-  test('a show_findings action highlights the route on the registered map', async () => {
-    const controller: MapController = {
+  test('a show_findings action highlights the route on the agent map, not the walker map', async () => {
+    const agent: MapController = {
       panTo: jest.fn(),
       zoomBy: jest.fn(),
       fitBounds: jest.fn(),
       highlight: jest.fn(() => true),
     };
-    setMapController(controller);
+    const main: MapController = {
+      panTo: jest.fn(),
+      zoomBy: jest.fn(),
+      fitBounds: jest.fn(),
+      highlight: jest.fn(() => true),
+    };
+    setMapController(agent, 'agent');
+    setMapController(main);
     mockedPost.mockResolvedValueOnce(
       response({ actions: [{ type: 'show_findings', routeId: 'safe-route-0' }] }),
     );
     await renderPanel();
-    expect(controller.highlight).toHaveBeenCalledWith('safe-route-0');
+    expect(agent.highlight).toHaveBeenCalledWith('safe-route-0');
+    expect(main.highlight).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentInsightsPanel round loop (contract v3)', () => {
+  test('round 1 carries a session number, round 1, no results and the agent map snapshot', async () => {
+    mockedCapture.mockResolvedValue(SNAP_1);
+    mockedPost.mockResolvedValueOnce(response({ status: 'done' }));
+    await renderPanel();
+
+    expect(mockedCapture).toHaveBeenCalledWith('agent');
+    expect(mockedPost).toHaveBeenCalledTimes(1);
+    expect(mockedPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        round: 1,
+        results: [],
+        snapshot: SNAP_1,
+        sessionNumber: expect.any(Number),
+      }),
+    );
+  });
+
+  test('a continue status runs the actions on the agent map, then posts round 2 with their results and a new snapshot', async () => {
+    const agent: MapController = {
+      panTo: jest.fn(),
+      zoomBy: jest.fn(),
+      fitBounds: jest.fn(),
+      highlight: jest.fn(() => true),
+    };
+    const main: MapController = {
+      panTo: jest.fn(),
+      zoomBy: jest.fn(),
+      fitBounds: jest.fn(),
+      highlight: jest.fn(() => true),
+    };
+    setMapController(agent, 'agent');
+    setMapController(main);
+    mockedCapture.mockResolvedValueOnce(SNAP_1).mockResolvedValueOnce(SNAP_2);
+    mockedPost
+      .mockResolvedValueOnce(
+        response({ status: 'continue', actions: [{ type: 'pan_to', candidateId: 'p1' }] }),
+      )
+      .mockResolvedValueOnce(response({ status: 'done' }));
+    await renderPanel();
+
+    expect(agent.panTo).toHaveBeenCalledWith(51.51, -0.12, undefined);
+    expect(main.panTo).not.toHaveBeenCalled();
+    expect(mockedCapture).toHaveBeenNthCalledWith(2, 'agent');
+    expect(mockedPost).toHaveBeenCalledTimes(2);
+    const first = mockedPost.mock.calls[0][0];
+    const second = mockedPost.mock.calls[1][0];
+    expect(second).toEqual(
+      expect.objectContaining({
+        round: 2,
+        results: [{ type: 'pan_to', ok: true }],
+        snapshot: SNAP_2,
+      }),
+    );
+    expect(second.sessionNumber).toBe(first.sessionNumber);
+  });
+
+  test('a done status ends the rounds after one request', async () => {
+    mockedPost.mockResolvedValue(response({ status: 'done' }));
+    await renderPanel();
+    expect(mockedPost).toHaveBeenCalledTimes(1);
+  });
+
+  test('stops at round 5 even when the agent still says continue', async () => {
+    mockedPost.mockResolvedValue(response({ status: 'continue' }));
+    const { renderer } = await renderPanel();
+    expect(mockedPost).toHaveBeenCalledTimes(5);
+    expect(mockedPost.mock.calls[4][0]).toEqual(expect.objectContaining({ round: 5 }));
+    expect(button(renderer, 'Keep my route')).toHaveLength(1);
+  });
+
+  test('the bubble status line says what the agent is doing: Checking the map, Looking at Route 2, then Done', async () => {
+    // Hold the capture after round 1 so the state between the two rounds can be read.
+    let releaseCapture: (value: string) => void = () => undefined;
+    mockedCapture
+      .mockResolvedValueOnce(SNAP_1)
+      .mockImplementationOnce(
+        () =>
+          new Promise<string | null>((resolve) => {
+            releaseCapture = (value) => resolve(value);
+          }),
+      );
+    mockedPost
+      .mockResolvedValueOnce(
+        response({ status: 'continue', actions: [{ type: 'fit_route', routeId: 'safe-route-1' }] }),
+      )
+      .mockResolvedValueOnce(response({ status: 'done' }));
+
+    await renderPanel({ context: mapContext });
+    expect(mockStatusLog[mockStatusLog.length - 1]).toBe('Looking at Route 2');
+
+    await act(async () => {
+      releaseCapture(SNAP_2);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mockStatusLog).toContain('Checking the map');
+    expect(mockStatusLog[mockStatusLog.length - 1]).toBe('Done');
+  });
+
+  test('a failed round shows the failure text and no reroute options', async () => {
+    mockedPost
+      .mockResolvedValueOnce(
+        response({
+          status: 'continue',
+          actions: [{ type: 'propose_reroute_via', candidateId: 'p1', label: 'x', requiresConfirmation: true }],
+        }),
+      )
+      .mockRejectedValueOnce(new Error('offline'));
+    const { renderer } = await renderPanel();
+
+    expect(textOf(renderer)).toContain('Could not reach AI Insights right now. Your route is unchanged.');
+    expect(rerouteButtons(renderer)).toHaveLength(0);
+    expect(button(renderer, 'Use this route')).toHaveLength(0);
   });
 });

@@ -56,7 +56,7 @@ describe('runAgentActions', () => {
     const { ctx, controller } = setup();
     await expect(
       runAgentActions([{ type: 'teleport', candidateId: 'p1' } as unknown as AgentAction], ctx),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([{ type: 'teleport', ok: false }]);
     expect(controller.panTo).not.toHaveBeenCalled();
     expect(controller.zoomBy).not.toHaveBeenCalled();
     expect(controller.fitBounds).not.toHaveBeenCalled();
@@ -124,7 +124,10 @@ describe('runAgentActions', () => {
     const { ctx } = setup({ controller: null });
     await expect(
       runAgentActions([{ type: 'pan_to', candidateId: 'p1' }, { type: 'zoom', delta: 1 }], ctx),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([
+      { type: 'pan_to', ok: false },
+      { type: 'zoom', ok: false },
+    ]);
   });
 });
 
@@ -171,5 +174,38 @@ describe('rerouteVia', () => {
     rerouteVia(option, setViaPin);
     expect(setViaPin).toHaveBeenCalledTimes(1);
     expect(setViaPin).toHaveBeenCalledWith({ latitude: 51.51, longitude: -0.12 });
+  });
+});
+
+describe('runAgentActions results (contract v3 round results)', () => {
+  const controllerMock = (): MapController => ({
+    panTo: jest.fn(),
+    zoomBy: jest.fn(),
+    fitBounds: jest.fn(),
+    highlight: jest.fn(() => true),
+  });
+
+  test('reports ok true for an action that ran and ok false for one that could not', async () => {
+    const controller = controllerMock();
+    const results = await runAgentActions(
+      [
+        { type: 'pan_to', candidateId: 'p1' },
+        { type: 'pan_to', candidateId: 'p404' },
+        { type: 'show_findings', routeId: 'safe-route-0' },
+        { type: 'fit_route', routeId: 'no-such-route' },
+      ],
+      { candidates, routes, controller },
+    );
+    expect(results).toEqual([
+      { type: 'pan_to', ok: true },
+      { type: 'pan_to', ok: false },
+      { type: 'show_findings', ok: true },
+      { type: 'fit_route', ok: false },
+    ]);
+  });
+
+  test('reports ok false for every action when no map is registered', async () => {
+    const results = await runAgentActions([{ type: 'zoom', delta: 1 }], { candidates, routes, controller: null });
+    expect(results).toEqual([{ type: 'zoom', ok: false }]);
   });
 });
