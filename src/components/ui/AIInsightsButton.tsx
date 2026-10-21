@@ -11,7 +11,8 @@ import { shouldBounce, type InsightsTone } from '@/src/utils/insightsTone';
 const BAR_HEIGHT = 30;
 
 const TONE_COLOUR: Record<InsightsTone, string> = {
-  day: '#7c3aed',
+  morning: '#7c3aed',
+  afternoon: '#6d28d9',
   evening: '#4338ca',
   late: '#dc2626',
 };

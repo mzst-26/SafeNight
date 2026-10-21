@@ -3,16 +3,18 @@ import { insightsToneFor, shouldBounce } from '@/src/utils/insightsTone';
 // 1 December is on GMT (UTC+0), so London time equals UTC in these fixtures.
 const at = (hhmm: string) => `2026-12-01T${hhmm}:00.000Z`;
 
-describe('insightsToneFor (London time)', () => {
+describe('insightsToneFor (London time, four windows)', () => {
   test.each([
-    ['06:00', 'day'],
-    ['12:00', 'day'],
-    ['17:59', 'day'],
+    ['05:00', 'morning'],
+    ['11:59', 'morning'],
+    ['12:00', 'afternoon'],
+    ['17:59', 'afternoon'],
     ['18:00', 'evening'],
-    ['23:59', 'evening'],
+    ['21:59', 'evening'],
+    ['22:00', 'late'],
+    ['23:59', 'late'],
     ['00:00', 'late'],
     ['04:59', 'late'],
-    ['05:00', 'day'],
   ])('%s is %s', (time, tone) => {
     expect(insightsToneFor(at(time))).toBe(tone);
   });
@@ -24,9 +26,10 @@ describe('insightsToneFor (London time)', () => {
 });
 
 describe('shouldBounce', () => {
-  test('bounces only in the late-night tone', () => {
+  test('bounces only in the late-night window', () => {
     expect(shouldBounce('late')).toBe(true);
     expect(shouldBounce('evening')).toBe(false);
-    expect(shouldBounce('day')).toBe(false);
+    expect(shouldBounce('afternoon')).toBe(false);
+    expect(shouldBounce('morning')).toBe(false);
   });
 });

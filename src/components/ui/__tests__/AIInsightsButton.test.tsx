@@ -15,7 +15,7 @@ afterEach(() => {
   while (mounted.length) mounted.pop()?.unmount();
 });
 
-function render(tone: 'day' | 'evening' | 'late', onPress = () => {}): ReactTestRenderer {
+function render(tone: 'morning' | 'afternoon' | 'evening' | 'late', onPress = () => {}): ReactTestRenderer {
   let renderer!: ReactTestRenderer;
   act(() => {
     renderer = create(<AIInsightsButton tone={tone} onPress={onPress} />);
@@ -35,7 +35,7 @@ function pressable(renderer: ReactTestRenderer) {
 describe('AIInsightsButton', () => {
   test('shows the label and calls onPress when tapped', () => {
     const onPress = jest.fn();
-    const renderer = render('day', onPress);
+    const renderer = render('morning', onPress);
     const labels = renderer.root.findAllByType(Text).map((t) => t.props.children);
     expect(labels).toContain(LABEL);
 
@@ -46,7 +46,8 @@ describe('AIInsightsButton', () => {
   });
 
   test.each([
-    ['day', '#7c3aed'],
+    ['morning', '#7c3aed'],
+    ['afternoon', '#6d28d9'],
     ['evening', '#4338ca'],
     ['late', '#dc2626'],
   ])('%s tone uses %s', (tone, colour) => {
@@ -55,7 +56,7 @@ describe('AIInsightsButton', () => {
   });
 
   test('is an ultrathin full-width bar', () => {
-    const style = StyleSheet.flatten(pressable(render('day')).props.style);
+    const style = StyleSheet.flatten(pressable(render('morning')).props.style);
     expect(style.height).toBeLessThanOrEqual(30);
     expect(style.alignSelf).toBe('stretch');
   });
