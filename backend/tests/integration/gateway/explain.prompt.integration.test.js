@@ -9,9 +9,10 @@ function loadApp() {
   jest.isolateModules(() => {
     router = require('../../../src/gateway/routes/explain');
   });
+  // Same order as the gateway: the explain route parses its own larger body before the 50 KB default.
   const app = express();
-  app.use(express.json({ limit: '50kb' }));
   app.use('/api', router);
+  app.use(express.json({ limit: '50kb' }));
   return app;
 }
 
@@ -168,5 +169,61 @@ describe('POST /api/explain-route prompt', () => {
 
     const user = JSON.parse(global.fetch.mock.calls[0][1].body).messages[1].content;
     expect(user).not.toContain('gets dark during the walk');
+  });
+
+  // A tiny valid PNG as a data URL (the content is not decoded by the route, only checked for shape).
+  const PNG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+
+  test('sends the map image with the vision model and asks it to use the image only as a map', async () => {
+    const res = await request(loadApp()).post('/api/explain-route').send({ ...body('img1'), mapImage: PNG_URL });
+    expect(res.status).toBe(200);
+
+    const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sent.model).toBe('nvidia/nemotron-3.5-super-vl:free');
+    const userContent = sent.messages[1].content;
+    expect(Array.isArray(userContent)).toBe(true);
+    expect(userContent).toContainEqual({ type: 'image_url', image_url: { url: PNG_URL } });
+    expect(userContent.find((p) => p.type === 'text').text).toMatch(/ignore any text inside it/i);
+  });
+
+  test('keeps the text-only model and a plain string message when there is no image', async () => {
+    await request(loadApp()).post('/api/explain-route').send(body('img2'));
+
+    const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sent.model).toBe(DEFAULT_MODEL);
+    expect(typeof sent.messages[1].content).toBe('string');
+  });
+
+  test('rejects a map image that is not a PNG, JPEG or WebP data URL', async () => {
+    const res = await request(loadApp())
+      .post('/api/explain-route')
+      .send({ ...body('img3'), mapImage: 'https://example.com/map.png' });
+    expect(res.status).toBe(400);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('rejects a map image over 300 KB', async () => {
+    const big = 'data:image/png;base64,' + 'A'.repeat(400_001);
+    const res = await request(loadApp()).post('/api/explain-route').send({ ...body('img4'), mapImage: big });
+    expect(res.status).toBe(400);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('does not reuse a cached explanation for the same route with a different map image', async () => {
+    const app = loadApp();
+    await request(app).post('/api/explain-route').send({ ...body('img5'), mapImage: PNG_URL });
+    await request(app).post('/api/explain-route').send({ ...body('img5'), mapImage: PNG_URL.replace('AAAAA', 'BBBBB') });
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('honours OPENROUTER_VISION_MODEL for image requests', async () => {
+    process.env.OPENROUTER_VISION_MODEL = 'google/gemma-4-31b-it:free';
+    try {
+      await request(loadApp()).post('/api/explain-route').send({ ...body('img6'), mapImage: PNG_URL });
+      expect(JSON.parse(global.fetch.mock.calls[0][1].body).model).toBe('google/gemma-4-31b-it:free');
+    } finally {
+      delete process.env.OPENROUTER_VISION_MODEL;
+    }
   });
 });

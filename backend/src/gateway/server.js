@@ -48,6 +48,9 @@ app.use(createCorsMiddleware());
 // ─── Rate limiting — 100 req / 15 min per IP ────────────────────────────────
 app.use('/api/', createRateLimiter({ windowMs: 15 * 60 * 1000, max: 100 }));
 
+// ─── Explain route (before the 50 KB default parser: it parses its own larger body) ───
+app.use('/api', explainRouter);
+
 // ─── Body parser ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '50kb' }));
 
@@ -55,7 +58,6 @@ app.use(express.json({ limit: '50kb' }));
 app.use('/api/directions', directionsRouter);
 app.use('/api/staticmap', staticmapRouter);
 app.use('/api/nearby', nearbyRouter);
-app.use('/api', explainRouter);
 app.use('/api/integrity', integrityVerifyRouter);
 
 // ─── Health check ────────────────────────────────────────────────────────────────────
