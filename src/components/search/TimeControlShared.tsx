@@ -380,7 +380,8 @@ export const styles = StyleSheet.create({
   chipActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   chipText: { ...type.label, color: colors.textSecondary },
   chipTextActive: { color: ACCENT },
-  noteText: { ...type.caption, color: colors.textSecondary },
+  // 13px is the minimum text size (see 8ddb6ac); the caption token is 12px.
+  noteText: { ...type.caption, fontSize: 13, color: colors.textSecondary },
   panel: {
     marginTop: spacing.xs,
     gap: spacing.xs,
