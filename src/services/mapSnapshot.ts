@@ -24,6 +24,21 @@ export const setMapSnapshotProvider = (next: SnapshotProvider | null, name = 'ma
 export const isUsableSnapshot = (value: unknown): value is string =>
   typeof value === 'string' && value.length <= MAX_SNAPSHOT_CHARS && SNAPSHOT_RE.test(value);
 
+/** How often waitForMapSnapshot checks for its map to mount. */
+const MAP_WAIT_STEP_MS = 100;
+
+/**
+ * Like captureMapSnapshot, but first waits up to timeoutMs for the named map to mount and register. A map
+ * that mounts a moment after the request (the agent's bubble, for example) is then still captured.
+ */
+export const waitForMapSnapshot = async (name = 'main', timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string | null> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!providers.has(name) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, MAP_WAIT_STEP_MS));
+  }
+  return captureMapSnapshot(name);
+};
+
 /** A picture of the named mounted map, or null when there is none, it fails, or it takes too long. */
 export const captureMapSnapshot = async (name = 'main', timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string | null> => {
   const current = providers.get(name);

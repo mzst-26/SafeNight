@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { AgentInsightsPanel } from '@/src/components/ui/AgentInsightsPanel';
 import { postAgentInsights, type AgentContext, type AgentInsightsResponse } from '@/src/services/agentClient';
-import { captureMapSnapshot } from '@/src/services/mapSnapshot';
+import { waitForMapSnapshot } from '@/src/services/mapSnapshot';
 import { expansionRingPoints, fetchRouteThroughPoint } from '@/src/services/agentExpansion';
 import { setMapController, type MapController } from '@/src/services/mapController';
 import type { SafeRoute } from '@/src/services/safeRoutes';
@@ -14,7 +14,7 @@ jest.mock('@/src/services/agentClient', () => {
   const actual = jest.requireActual('@/src/services/agentClient');
   return { ...actual, postAgentInsights: jest.fn() };
 });
-jest.mock('@/src/services/mapSnapshot', () => ({ captureMapSnapshot: jest.fn() }));
+jest.mock('@/src/services/mapSnapshot', () => ({ waitForMapSnapshot: jest.fn() }));
 jest.mock('@/src/services/agentExpansion', () => {
   const actual = jest.requireActual('@/src/services/agentExpansion');
   return { ...actual, fetchRouteThroughPoint: jest.fn() };
@@ -32,7 +32,7 @@ jest.mock('@/src/components/ui/AgentMapBubble', () => ({
 }));
 
 const mockedPost = postAgentInsights as jest.MockedFunction<typeof postAgentInsights>;
-const mockedCapture = captureMapSnapshot as jest.MockedFunction<typeof captureMapSnapshot>;
+const mockedCapture = waitForMapSnapshot as jest.MockedFunction<typeof waitForMapSnapshot>;
 
 const SNAP_1 = 'data:image/jpeg;base64,AAAA';
 const SNAP_2 = 'data:image/jpeg;base64,BBBB';
@@ -333,7 +333,7 @@ describe('AgentInsightsPanel round loop (contract v3)', () => {
     mockedPost.mockResolvedValueOnce(response({ status: 'done' }));
     await renderPanel();
 
-    expect(mockedCapture).toHaveBeenCalledWith('agent');
+    expect(mockedCapture).toHaveBeenCalledWith('agent', expect.any(Number));
     expect(mockedPost).toHaveBeenCalledTimes(1);
     expect(mockedPost).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -370,7 +370,7 @@ describe('AgentInsightsPanel round loop (contract v3)', () => {
 
     expect(agent.panTo).toHaveBeenCalledWith(51.51, -0.12, undefined);
     expect(main.panTo).not.toHaveBeenCalled();
-    expect(mockedCapture).toHaveBeenNthCalledWith(2, 'agent');
+    expect(mockedCapture).toHaveBeenNthCalledWith(2, 'agent', expect.any(Number));
     expect(mockedPost).toHaveBeenCalledTimes(2);
     const first = mockedPost.mock.calls[0][0];
     const second = mockedPost.mock.calls[1][0];

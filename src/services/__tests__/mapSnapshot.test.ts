@@ -74,3 +74,21 @@ describe('named snapshot providers', () => {
     setMapSnapshotProvider(null);
   });
 });
+
+describe('waitForMapSnapshot', () => {
+  const PICTURE = 'data:image/jpeg;base64,AAAA';
+  afterEach(() => setMapSnapshotProvider(null, 'agent'));
+
+  test('waits for a map that mounts a moment later, then captures it', async () => {
+    const { waitForMapSnapshot } = jest.requireActual('@/src/services/mapSnapshot');
+    setTimeout(() => setMapSnapshotProvider(async () => PICTURE, 'agent'), 50);
+
+    await expect(waitForMapSnapshot('agent', 2000)).resolves.toBe(PICTURE);
+  });
+
+  test('gives up with null when no map registers in time', async () => {
+    const { waitForMapSnapshot } = jest.requireActual('@/src/services/mapSnapshot');
+
+    await expect(waitForMapSnapshot('agent', 150)).resolves.toBeNull();
+  });
+});

@@ -54,7 +54,7 @@ import {
   scoreExpandedRoutes,
 } from '@/src/services/agentExpansion';
 import { getMapController } from '@/src/services/mapController';
-import { captureMapSnapshot } from '@/src/services/mapSnapshot';
+import { waitForMapSnapshot } from '@/src/services/mapSnapshot';
 import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { LatLng } from '@/src/types/geo';
@@ -63,6 +63,8 @@ const ACCENT = '#6d28d9';
 const INK = '#101828';
 const MUTED = '#475467';
 const RECALC_LINE_MS = 4000;
+/** How long a round waits for the agent's map to appear before it asks without a picture. */
+const AGENT_MAP_WAIT_MS = 8000;
 const AGENT_MAP = 'agent';
 const DEFAULT_STATUS = 'Checking the map';
 const DONE_STATUS = 'Done';
@@ -164,7 +166,7 @@ export function AgentInsightsPanel({
         setExpandedMapRoutes(expanded);
       };
       try {
-        let snapshot = await captureMapSnapshot(AGENT_MAP);
+        let snapshot = await waitForMapSnapshot(AGENT_MAP, AGENT_MAP_WAIT_MS);
         let results: AgentActionResult[] = [];
         let round = 1;
         let result: AgentInsightsResponse;
@@ -213,7 +215,7 @@ export function AgentInsightsPanel({
 
           if (result.status !== 'continue' || round >= AGENT_MAX_ROUNDS) break;
           round += 1;
-          snapshot = await captureMapSnapshot(AGENT_MAP);
+          snapshot = await waitForMapSnapshot(AGENT_MAP, AGENT_MAP_WAIT_MS);
         }
 
         setResponse(result);
