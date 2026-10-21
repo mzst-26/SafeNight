@@ -23,7 +23,8 @@ const walksTooLong = (alt, best) => alt.durationSeconds - best.durationSeconds >
 /** Contract H2: more than 20% extra distance. Written as 5 * alt > 6 * best (alt > 1.2 * best) to avoid float error. */
 const distanceTooLong = (alt, best) => alt.distanceMeters * 5 > best.distanceMeters * 6;
 /** Contract H3: a route whose street lighting is only estimated is never a switch target. */
-const lightingConfirmed = (route) => route.lightingQuality !== 'estimated';
+// Fails closed: only verified or mixed lighting counts as confirmed; estimated or missing does not.
+const lightingConfirmed = (route) => ['verified', 'mixed'].includes(route.lightingQuality);
 
 /** The highest-scoring index in the list; ties keep the earlier one (the list is in input order). */
 const highestScoring = (routes, indices) =>

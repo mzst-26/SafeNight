@@ -197,6 +197,23 @@ describe('AgentInsightsPanel', () => {
     expect(textOf(renderer)).not.toContain('Quick safe shortcut');
   });
 
+  test('a failed follow-up clears the reroute options from the earlier answer', async () => {
+    mockedPost.mockResolvedValueOnce(
+      response({
+        question: { id: 'q1', text: 'Shorter?', choices: [{ id: 'yes', label: 'Yes' }] },
+        actions: [
+          { type: 'propose_reroute_via', candidateId: 'p1', label: 'x', requiresConfirmation: true },
+        ],
+      }),
+    );
+    const { renderer } = await renderPanel();
+    expect(button(renderer, 'Reroute via Middle of the weakest stretch')).toHaveLength(1);
+
+    mockedPost.mockRejectedValueOnce(new Error('offline'));
+    await press(renderer, 'Yes');
+    expect(rerouteButtons(renderer)).toHaveLength(0);
+  });
+
   test('offers no reroute option when the agent proposed none', async () => {
     mockedPost.mockResolvedValueOnce(response({}));
     const { renderer } = await renderPanel();

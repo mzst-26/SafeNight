@@ -97,6 +97,8 @@ export function AgentInsightsPanel({
         });
       } catch {
         if (seq !== seqRef.current) return;
+        // A failed follow-up must not leave reroute options from an earlier answer on screen.
+        setOptions([]);
         setPhase('error');
         setErrorText(FAILURE_TEXT);
       }

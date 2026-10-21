@@ -59,7 +59,7 @@ function body(overrides = {}) {
           end: { lat: 51.51, lng: -0.09 },
         },
       },
-      { routeId: 'r2', distanceMeters: 1400, durationSeconds: 1100, score: 76 },
+      { routeId: 'r2', distanceMeters: 1400, durationSeconds: 1100, score: 76, lightingQuality: 'verified' },
     ],
     candidatePoints: [{ id: 'p1', label: 'Midpoint', lat: 51.505, lng: -0.095, kind: 'stretch_midpoint' }],
     ...overrides,

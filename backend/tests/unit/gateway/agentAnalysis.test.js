@@ -8,6 +8,7 @@ const route = (routeId, overrides = {}) => ({
   durationSeconds: 600,
   score: 80,
   breakdown: { ...EVEN },
+  lightingQuality: 'verified',
   ...overrides,
 });
 
@@ -199,5 +200,12 @@ describe('decide', () => {
     );
 
     expect(result).toEqual(expect.objectContaining({ kind: 'switch', routeId: 'c' }));
+  });
+
+  // Review finding: missing lighting data must fail closed, not count as confirmed.
+  test('a route with no lighting data is never a switch target', () => {
+    const recommended = route('r1', { score: 80, darknessAtStart: 0.9 });
+    const other = route('r2', { score: 82, lightingQuality: undefined });
+    expect(decide([recommended, other], 'r1').kind).toBe('keep');
   });
 });
