@@ -13,7 +13,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { sanitizeRoute } = require('./explain');
 const { analyseRoutes, decide, routeLabel } = require('../agent/analysis');
-const { validateActions, validateCandidates, routeBoundsReason, cleanText } = require('../agent/actions');
+const { validateActions, validateCandidates, routeBoundsReason } = require('../agent/actions');
 const { runAgent, buildToolDefinitions } = require('../agent/loop');
 const { expansionAllowed: corridorExpansionAllowed } = require('../agent/corridor');
 
@@ -231,7 +231,8 @@ const buildFacts = ({ routes, analysis, decision, candidates, answer }) => ({
     label: routeLabel(routes.findIndex((r) => r.routeId === decision.routeId)),
     reasons: decision.reasons,
   },
-  candidates: candidates.map((c) => ({ ...c, label: cleanText(c.label) })),
+  // Only the id and kind go into the facts: no label (it can hold an address), no coordinates.
+  candidates: candidates.map((c) => ({ id: c.id, kind: c.kind })),
   answer: answer ? { questionId: answer.questionId, choiceId: answer.choiceId } : null,
 });
 

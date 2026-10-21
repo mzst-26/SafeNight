@@ -124,7 +124,7 @@ const lineForRoute = (route) => {
 // The picture must be a JPEG or PNG data URL. Anything else is left out, so the model is text only.
 const SNAPSHOT_RE = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/;
 
-/** Chat messages from the facts the app computed. Labels from the client go through cleanText. */
+/** Chat messages from the facts the app computed. Only ids, kinds, route figures and fixed reasons go in; client point labels never do. */
 const buildAgentMessages = (facts) => {
   const lines = [];
   const decision = facts.decision || {};
@@ -133,9 +133,10 @@ const buildAgentMessages = (facts) => {
   lines.push('Routes:');
   for (const route of facts.routes || []) lines.push(lineForRoute(route));
   const candidates = facts.candidates || [];
+  // Points go by id and kind only. Client labels can hold addresses or place names, so they never reach the model.
   if (candidates.length > 0) {
     lines.push('Map points you may refer to by id:');
-    for (const c of candidates) lines.push(`- ${c.id}: ${cleanText(c.label)} (${c.kind})`);
+    for (const c of candidates) lines.push(`- ${c.id} (${c.kind})`);
   }
   if (facts.answer) lines.push(`The walker answered question ${facts.answer.questionId} with choice ${facts.answer.choiceId}.`);
   const text = lines.join('\n');
