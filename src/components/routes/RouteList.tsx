@@ -23,6 +23,8 @@ interface RouteListProps {
   updatingLabel?: string | null;
   /** Hide the safety score, chips and details on every card (during navigation). Default false. */
   hideSafety?: boolean;
+  /** Desktop web: opens the route explanation from a circle on the recommended card. */
+  onExplainRoute?: () => void;
 }
 
 export function RouteList({
@@ -34,6 +36,7 @@ export function RouteList({
   routeComparison,
   updatingLabel,
   hideSafety = false,
+  onExplainRoute,
 }: RouteListProps) {
   const hiddenCount = Math.max(0, routes.length - MAX_VISIBLE_ROUTES);
   const recommendedId = routes.find((r) => r.isSafest)?.id;
@@ -71,6 +74,7 @@ export function RouteList({
               comparison={routeComparison?.find((c) => c.routeId === route.id) ?? null}
               recommendedComparison={recommendedComparison}
               hideSafety={hideSafety}
+              onExplain={route.isSafest && onExplainRoute ? onExplainRoute : undefined}
             />
           ))}
           {hiddenCount > 0 ? (

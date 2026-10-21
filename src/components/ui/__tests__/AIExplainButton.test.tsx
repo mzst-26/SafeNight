@@ -53,3 +53,22 @@ describe('AIExplainButton', () => {
     expect(style.height).toBeLessThanOrEqual(40);
   });
 });
+
+describe('AIExplainButton circle variant', () => {
+  test('is a 28px glass circle with no visible text, still labelled for screen readers', () => {
+    let renderer!: ReactTestRenderer;
+    act(() => {
+      renderer = create(<AIExplainButton variant="circle" onPress={() => {}} />);
+    });
+    const texts = renderer.root.findAllByType(Text);
+    expect(texts).toHaveLength(0);
+
+    const node = findPressable(renderer);
+    const style = StyleSheet.flatten(node.props.style);
+    expect(style.width).toBe(28);
+    expect(style.height).toBe(28);
+    expect(style.borderRadius).toBe(14);
+    expect(style.backgroundColor).toBe(glassSurface.backgroundColor);
+  });
+});
+

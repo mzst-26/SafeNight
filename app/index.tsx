@@ -37,6 +37,7 @@ import { AndroidOverlayHost } from "@/src/components/android/AndroidOverlayHost"
 import RouteMap from "@/src/components/maps/RouteMap";
 import { AIExplanationModal } from "@/src/components/modals/AIExplanationModal";
 import { AIExplainButton } from "@/src/components/ui/AIExplainButton";
+import { aiExplainPlacement } from "@/src/components/ui/aiExplainPlacement";
 import { BackgroundLocationModal } from "@/src/components/modals/BackgroundLocationModal";
 import { DownloadAppModal } from "@/src/components/modals/DownloadAppModal";
 import { FamilyPackModal } from "@/src/components/modals/FamilyPackModal";
@@ -1818,6 +1819,19 @@ export default function HomeScreen() {
     [isDesktopWeb, h.isNavActive, sheetVisible, windowHeight, currentSheetTopY],
   );
   const legendPosition = legendPositionFor({ isDesktopWeb });
+  // Native and phone web: floating chip above the sheet. Desktop web: circle on the recommended card.
+  const aiPlacement = aiExplainPlacement({
+    isWeb,
+    isPhoneWeb,
+    isLoggedIn: auth.isLoggedIn,
+    isNavActive: h.isNavActive,
+    hasRoutes: h.routes.length > 0,
+    hasSafety: Boolean(h.safetyResult),
+  });
+  const openAIExplanation = () => {
+    h.setShowAIModal(true);
+    if (h.ai.status === "idle") h.ai.ask();
+  };
 
   const mapFitBottomPadding = useMemo(() => {
     if (!showDestinationCandidateSheet) return 40;
@@ -2302,6 +2316,7 @@ export default function HomeScreen() {
                 onSelectRoute={h.setSelectedRouteId}
                 routeComparison={h.routeComparison}
                 inSidebar
+                onExplainRoute={aiPlacement === "card" ? openAIExplanation : undefined}
               />
 
               {showSafety && h.safetyResult && h.selectedSafeRoute && (
@@ -3068,28 +3083,21 @@ export default function HomeScreen() {
           </DraggableSheet>
         )}
 
-        {/* ── AI floating button (logged in only) ── */}
-        {h.safetyResult &&
-          !h.isNavActive &&
-          h.routes.length > 0 &&
-          auth.isLoggedIn &&
-          !isWeb && (
+        {/* ── AI floating button (native and phone web, logged in only) ── */}
+        {aiPlacement === "floating" && (
             <Animated.View
               pointerEvents="box-none"
               style={[
                 styles.aiWrap,
                 !h.isNavActive && styles.floatingAbove,
                 {
-                  bottom: Animated.add(h.sheetHeight, 12),
+                  bottom: isPhoneWeb
+                    ? (sheetVisible ? phoneWebSheetHeight : 0) + 12
+                    : Animated.add(h.sheetHeight, 12),
                 },
               ]}
             >
-              <AIExplainButton
-                onPress={() => {
-                  h.setShowAIModal(true);
-                  if (h.ai.status === "idle") h.ai.ask();
-                }}
-              />
+              <AIExplainButton onPress={openAIExplanation} />
             </Animated.View>
           )}
 

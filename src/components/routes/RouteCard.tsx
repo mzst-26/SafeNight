@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { riskToColor } from "@/src/components/maps/routeLayers";
+import { AIExplainButton } from "@/src/components/ui/AIExplainButton";
 import { isV2SafeRoute, type RouteSafety, type SafeRoute } from "@/src/services/safeRoutes";
 import { colors, radius, spacing, type } from "@/src/theme";
 import { formatDistance, formatDuration } from "@/src/utils/format";
@@ -91,6 +92,8 @@ interface RouteCardProps {
   recommendedComparison?: RouteComparison | null;
   /** Hide every safety element (score, chip, label, details). Used during navigation. Default false. */
   hideSafety?: boolean;
+  /** Set on the recommended card only (desktop web): shows a small circle that opens the explanation. */
+  onExplain?: () => void;
 }
 
 const TIER_TEXT: Record<ConfidenceTier, string> = {
@@ -108,6 +111,7 @@ export function RouteCard({
   comparison,
   recommendedComparison,
   hideSafety = false,
+  onExplain,
 }: RouteCardProps) {
   const safety = route.safety;
   const isBest = route.isSafest && !hideSafety;
@@ -151,6 +155,11 @@ export function RouteCard({
         isBest && styles.cardBest,
       ]}
     >
+      {isBest && onExplain && (
+        <View style={styles.explainCorner} pointerEvents="box-none">
+          <AIExplainButton variant="circle" onPress={onExplain} />
+        </View>
+      )}
       {/* ── One row: name · duration · distance · safety chip ── */}
       <View style={styles.row}>
         <Text
@@ -222,6 +231,13 @@ export function RouteCard({
 }
 
 const styles = StyleSheet.create({
+  // Straddles the top-right corner, like a badge, so it stays off the name and safety row.
+  explainCorner: {
+    position: "absolute",
+    top: -10,
+    right: -6,
+    zIndex: 2,
+  },
   card: {
     marginBottom: spacing.md,
     minHeight: 56,

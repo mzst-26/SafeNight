@@ -11,9 +11,25 @@ const AI_EXPLAIN_BUTTON_HEIGHT = 40;
 
 interface AIExplainButtonProps {
   onPress: () => void;
+  /** chip: icon and label (map). circle: icon only, 28px, for a route card corner. */
+  variant?: 'chip' | 'circle';
 }
 
-export function AIExplainButton({ onPress }: AIExplainButtonProps) {
+const CIRCLE_SIZE = 28;
+
+export function AIExplainButton({ onPress, variant = 'chip' }: AIExplainButtonProps) {
+  if (variant === 'circle') {
+    return (
+      <Pressable
+        style={styles.circle}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel="Why we recommend this route"
+      >
+        <Ionicons name="sparkles" size={14} color="#7c3aed" />
+      </Pressable>
+    );
+  }
   return (
     <Pressable
       style={styles.button}
@@ -42,5 +58,14 @@ const styles = StyleSheet.create({
     color: '#101828',
     fontSize: 13,
     fontWeight: '600',
+  },
+  circle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: CIRCLE_SIZE,
+    height: CIRCLE_SIZE,
+    borderRadius: CIRCLE_SIZE / 2,
+    elevation: 6,
+    ...glassSurface,
   },
 });
