@@ -1,4 +1,4 @@
-const { validateActions, validateCandidates } = require('../../../src/gateway/agent/actions');
+const { validateActions, validateCandidates, routeBoundsReason } = require('../../../src/gateway/agent/actions');
 
 const ctx = { routeIds: ['r1', 'r2'], candidateIds: ['p1', 'p2'] };
 
@@ -146,5 +146,42 @@ describe('validateCandidates', () => {
 
   test('returns an empty list for input that is not an array', () => {
     expect(validateCandidates(undefined, routes)).toEqual([]);
+  });
+
+  // Contract H4: the route's own start and end points widen the box.
+  test('widens the box with the route start and end points', () => {
+    const withEnds = [{ ...routes[0], start: { lat: 51.55, lng: -0.1 }, end: { lat: 51.56, lng: -0.09 } }];
+
+    // 51.545 is outside the stretch box (up to 51.53) but inside the box once the start point is counted.
+    const out = validateCandidates([cand('p1', { lat: 51.545 })], withEnds);
+
+    expect(out).toHaveLength(1);
+  });
+
+  // Contract H4: a longitude span over 180 degrees (an antimeridian crossing) makes every candidate invalid.
+  test('makes every candidate invalid when a route longitude span exceeds 180 degrees', () => {
+    const crossing = [{ routeId: 'r1', start: { lat: 0, lng: 179.5 }, end: { lat: 0, lng: -179.5 } }];
+
+    expect(validateCandidates([cand('p1', { lat: 0, lng: 179.9 })], crossing)).toEqual([]);
+  });
+
+  test('keeps candidates when the longitude span is exactly 180 degrees', () => {
+    const halfWorld = [{ routeId: 'r1', start: { lat: 0, lng: -90 }, end: { lat: 0, lng: 90 } }];
+
+    expect(validateCandidates([cand('p1', { lat: 0, lng: 0 })], halfWorld)).toHaveLength(1);
+  });
+});
+
+describe('routeBoundsReason', () => {
+  test('reports bounds_invalid when the route points span more than 180 degrees of longitude', () => {
+    const crossing = [{ routeId: 'r1', start: { lat: 0, lng: 179.5 }, end: { lat: 0, lng: -179.5 } }];
+
+    expect(routeBoundsReason(crossing)).toBe('bounds_invalid');
+  });
+
+  test('reports nothing for an ordinary set of routes', () => {
+    const ordinary = [{ routeId: 'r1', start: { lat: 51.5, lng: -0.1 }, end: { lat: 51.52, lng: -0.08 } }];
+
+    expect(routeBoundsReason(ordinary)).toBeNull();
   });
 });

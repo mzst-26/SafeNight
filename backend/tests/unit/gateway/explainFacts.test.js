@@ -1,4 +1,5 @@
 const { buildComparisonFacts, buildExplainMessages } = require('../../../src/gateway/lib/explainFacts');
+const { timelineLabel } = require('../../../src/safety/routes/safeRoutesTime');
 
 const route = (routeId, overrides = {}) => ({
   routeId,
@@ -114,8 +115,26 @@ describe('risks on the recommended route', () => {
   });
 
   test('says it gets dark during the walk when only the arrival is dark', () => {
-    const chosen = alone({ darknessAtStart: 0.1, darknessAtArrival: 0.8 });
+    const chosen = alone({ darknessAtStart: 0.1, darknessAtArrival: 0.9 });
     expect(chosen.risks).toContain('it gets dark during the walk');
+  });
+
+  test('counts darkness from 0.85 as dark, the same point the timeline labels use', () => {
+    expect(alone({ darknessAtStart: 0.85, darknessAtArrival: 0 }).risks).toContain('it is getting dark as you set off');
+    expect(alone({ darknessAtStart: 0.1, darknessAtArrival: 0.85 }).risks).toContain('it gets dark during the walk');
+  });
+
+  test('does not count darkness just below 0.85 as dark', () => {
+    const chosen = alone({ darknessAtStart: 0.84, darknessAtArrival: 0.84 });
+    expect(chosen.risks.some((r) => r.includes('dark'))).toBe(false);
+  });
+
+  test('the shared darkness threshold matches the boundary the timeline labels use', () => {
+    // Pins DARK_FRACTION in explainFacts.js to DARK_FROM in safeRoutesTime.js, which is not exported.
+    expect(timelineLabel(0.85, 0)).toBe('dark_from_start');
+    expect(timelineLabel(0.84, 0)).not.toBe('dark_from_start');
+    expect(timelineLabel(0, 0.85)).toBe('dark_by_arrival');
+    expect(timelineLabel(0, 0.84)).not.toBe('dark_by_arrival');
   });
 
   test('mentions dead ends, missing crime data and estimated lighting', () => {

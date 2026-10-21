@@ -13,7 +13,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { sanitizeRoute } = require('./explain');
 const { analyseRoutes, decide, routeLabel } = require('../agent/analysis');
-const { validateActions, validateCandidates, cleanText } = require('../agent/actions');
+const { validateActions, validateCandidates, routeBoundsReason, cleanText } = require('../agent/actions');
 const { runAgent, buildToolDefinitions } = require('../agent/loop');
 
 const router = express.Router();
@@ -44,6 +44,17 @@ const agentLimiter = rateLimit({
 
 const isId = (value) => typeof value === 'string' && ID_RE.test(value);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+/** A finite {lat, lng} within the usual ranges. */
+const isPoint = (value) =>
+  isObject(value) &&
+  Number.isFinite(value.lat) &&
+  Number.isFinite(value.lng) &&
+  value.lat >= -90 &&
+  value.lat <= 90 &&
+  value.lng >= -180 &&
+  value.lng <= 180;
+/** Route start and end are optional, but when sent they must be valid points (contract H4). */
+const optionalPointOk = (value) => value === undefined || value === null || isPoint(value);
 
 /**
  * Validates the body and returns the sanitised parts, or { error } when it is not acceptable.
@@ -60,6 +71,8 @@ const parseRequest = (body) => {
 
   const routes = rawRoutes.map((r) => sanitizeRoute(r));
   if (routes.some((r) => r === null)) return { error: 'Invalid routes' };
+  if (rawRoutes.some((r) => !optionalPointOk(r.start))) return { error: 'Invalid route start' };
+  if (rawRoutes.some((r) => !optionalPointOk(r.end))) return { error: 'Invalid route end' };
   if (!routes.some((r) => r.routeId === bestRouteId)) {
     return { error: 'bestRouteId must match one of the routes' };
   }
@@ -156,6 +169,8 @@ router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, a
 
   const { routes, rawRoutes, bestRouteId, candidatePoints, answer } = parsed;
   const analysis = analyseRoutes(routes);
+  const boundsReason = routeBoundsReason(rawRoutes);
+  if (boundsReason) analysis.boundsReason = boundsReason;
   const decision = decide(routes, bestRouteId);
   const candidates = validateCandidates(candidatePoints, rawRoutes);
   const routeIds = routes.map((r) => r.routeId);

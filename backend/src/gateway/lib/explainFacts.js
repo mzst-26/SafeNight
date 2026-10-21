@@ -10,8 +10,12 @@ const FACTOR_KEYS = ['roadType', 'lighting', 'crime', 'cctv', 'openPlaces', 'tra
 const MIN_FACTOR_GAP = 5;
 /** A stretch shorter than this is not worth warning about. */
 const LONG_STRETCH_M = 150;
-/** Darkness fraction (0-1) from which a moment counts as dark. */
-const DARK_FRACTION = 0.5;
+/**
+ * Darkness fraction (0-1) from which a moment counts as dark: dark at the start, or dark by arrival.
+ * Must equal DARK_FROM in safety/routes/safeRoutesTime.js, the value the timeline labels use.
+ * That file does not export it, so tests/unit/gateway/explainFacts.test.js pins the two together.
+ */
+const DARK_FRACTION = 0.85;
 /** Overall score gap (points) below which the routes count as only slightly apart. */
 const CLOSE_SCORE_POINTS = 3;
 

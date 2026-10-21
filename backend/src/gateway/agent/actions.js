@@ -24,17 +24,22 @@ const cleanText = (value, max = MAX_LABEL_LENGTH) => {
 const isCoordinate = (lat, lng) =>
   Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
+/** A box spanning more than this many degrees of longitude is an antimeridian crossing: no candidate is valid. */
+const LNG_SPAN_LIMIT_DEG = 180;
+const BOUNDS_INVALID = 'bounds_invalid';
+
 /**
- * Bounding box of every start and end point the routes carry (worstStretch), or null when none does.
+ * Bounding box of the start and end point of each route, and of the worst-stretch endpoints, or null when
+ * the routes carry none. Candidate points are not included: they are checked against this box.
  * @param {Array<object>} routes raw routes from the request body
  */
 const routeBounds = (routes) => {
   if (!Array.isArray(routes)) return null;
   const box = { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity };
   for (const route of routes) {
-    const stretch = route && route.worstStretch;
-    if (!stretch) continue;
-    for (const point of [stretch.start, stretch.end]) {
+    if (!route || typeof route !== 'object') continue;
+    const stretch = route.worstStretch || {};
+    for (const point of [route.start, route.end, stretch.start, stretch.end]) {
       if (!point || !isCoordinate(point.lat, point.lng)) continue;
       box.minLat = Math.min(box.minLat, point.lat);
       box.maxLat = Math.max(box.maxLat, point.lat);
@@ -45,6 +50,12 @@ const routeBounds = (routes) => {
   return box.minLat === Infinity ? null : box;
 };
 
+/** Reason string for the response analysis when the route points cross the antimeridian, else null. */
+const routeBoundsReason = (routes) => {
+  const box = routeBounds(routes);
+  return box && box.maxLng - box.minLng > LNG_SPAN_LIMIT_DEG ? BOUNDS_INVALID : null;
+};
+
 /**
  * @param {Array<object>} list candidate points from the client: {id, label, lat, lng, kind}
  * @param {Array<object>} routes raw routes from the request body (their bounding box is the limit)
@@ -53,7 +64,7 @@ const routeBounds = (routes) => {
 const validateCandidates = (list, routes) => {
   if (!Array.isArray(list)) return [];
   const box = routeBounds(routes);
-  if (!box) return [];
+  if (!box || box.maxLng - box.minLng > LNG_SPAN_LIMIT_DEG) return [];
 
   const seen = new Set();
   const out = [];
@@ -133,6 +144,7 @@ module.exports = {
   validateActions,
   validateCandidates,
   routeBounds,
+  routeBoundsReason,
   cleanText,
   MAX_ACTIONS,
   MAX_CANDIDATES,

@@ -37,7 +37,10 @@ const toolReply = (calls) => ({
 
 const finishReply = (message) => toolReply([['finish', { message }]]);
 
-/** Route 1 has a 200 m unlit stretch; route 2 has none and scores within 5 points, so the decision is switch to r2. */
+/**
+ * Route 1 has a 200 m unlit stretch; route 2 has none, scores within 5 points and is within the switch cap
+ * (+200 s walking, +17% distance), so the decision is switch to r2.
+ */
 function body(overrides = {}) {
   return {
     bestRouteId: 'r1',
@@ -47,6 +50,8 @@ function body(overrides = {}) {
         distanceMeters: 1200,
         durationSeconds: 900,
         score: 78,
+        start: { lat: 51.5, lng: -0.1 },
+        end: { lat: 51.51, lng: -0.09 },
         worstStretch: {
           lengthM: 200,
           cause: 'lighting',
@@ -54,7 +59,7 @@ function body(overrides = {}) {
           end: { lat: 51.51, lng: -0.09 },
         },
       },
-      { routeId: 'r2', distanceMeters: 1500, durationSeconds: 1100, score: 76 },
+      { routeId: 'r2', distanceMeters: 1400, durationSeconds: 1100, score: 76 },
     ],
     candidatePoints: [{ id: 'p1', label: 'Midpoint', lat: 51.505, lng: -0.095, kind: 'stretch_midpoint' }],
     ...overrides,
@@ -175,6 +180,66 @@ describe('POST /api/agent-insights', () => {
     expect(res.status).toBe(200);
     expect(res.body.actions).toEqual([]);
     expect(res.body.analysis.routes).toHaveLength(2);
+  });
+
+  test('keeps the route and says the alternative is much longer when it fails the switch cap', async () => {
+    global.fetch = jest.fn(async () => finishReply('Stay aware of your surroundings.'));
+    const app = loadApp();
+    const longer = body();
+    longer.routes[1].distanceMeters = 1500;
+
+    const res = await request(app).post('/api/agent-insights').send(longer);
+
+    expect(res.status).toBe(200);
+    expect(res.body.decision).toEqual(expect.objectContaining({ kind: 'keep', routeId: 'r1' }));
+    expect(res.body.decision.reasons.join(' ')).toMatch(/much longer/);
+  });
+
+  test('returns 400 when a route start or end is not a finite coordinate', async () => {
+    global.fetch = jest.fn(async () => finishReply('x'));
+    const app = loadApp();
+    const badStart = body();
+    badStart.routes[0].start = { lat: 'north', lng: -0.1 };
+    const badEnd = body();
+    badEnd.routes[0].end = { lat: 51.5, lng: 200 };
+
+    const resStart = await request(app).post('/api/agent-insights').send(badStart);
+    const resEnd = await request(app).post('/api/agent-insights').send(badEnd);
+
+    expect(resStart.status).toBe(400);
+    expect(resEnd.status).toBe(400);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('accepts route start and end points and reports no bounds problem', async () => {
+    global.fetch = jest.fn(async () => finishReply('Stay aware of your surroundings.'));
+    const app = loadApp();
+
+    const res = await request(app).post('/api/agent-insights').send(body());
+
+    expect(res.status).toBe(200);
+    expect(res.body.analysis.boundsReason).toBeUndefined();
+  });
+
+  test('reports bounds_invalid and runs no candidate when a route crosses the antimeridian', async () => {
+    global.fetch = jest.fn(async () =>
+      toolReply([
+        ['pan_to', { candidateId: 'p1' }],
+        ['finish', { message: 'Stay aware of your surroundings.' }],
+      ]),
+    );
+    const app = loadApp();
+    const crossing = body({
+      candidatePoints: [{ id: 'p1', label: 'Midpoint', lat: 0, lng: 179.95, kind: 'stretch_midpoint' }],
+    });
+    crossing.routes[0].start = { lat: 0, lng: 179.9 };
+    crossing.routes[0].end = { lat: 0, lng: -179.9 };
+
+    const res = await request(app).post('/api/agent-insights').send(crossing);
+
+    expect(res.status).toBe(200);
+    expect(res.body.analysis.boundsReason).toBe('bounds_invalid');
+    expect(res.body.actions).toEqual([]);
   });
 
   test('the model can only choose candidate ids: coordinates it sends are ignored', async () => {

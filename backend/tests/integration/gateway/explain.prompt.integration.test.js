@@ -162,6 +162,17 @@ describe('POST /api/explain-route prompt', () => {
     expect(user).toContain('a 300 m stretch of higher risk');
   });
 
+  test('does not tell the model it gets dark for darkness below the shared 0.85 threshold', async () => {
+    const payload = body('risk4');
+    payload.routes[0].darknessAtStart = 0.8;
+    payload.routes[0].darknessAtArrival = 0.8;
+    await request(loadApp()).post('/api/explain-route').send(payload);
+
+    const user = JSON.parse(global.fetch.mock.calls[0][1].body).messages[1].content;
+    expect(user).not.toContain('getting dark as you set off');
+    expect(user).not.toContain('gets dark during the walk');
+  });
+
   test('ignores a dark-at-arrival value that is not a number', async () => {
     const payload = body('risk3');
     payload.routes[0].darknessAtArrival = 'very dark';

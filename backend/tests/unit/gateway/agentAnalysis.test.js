@@ -40,6 +40,14 @@ describe('analyseRoutes', () => {
     expect(riskIds(result.routes[0].findings)).toEqual(['dark_at_arrival']);
   });
 
+  test('treats darkness from 0.85 as the risk threshold, and 0.84 as no risk', () => {
+    const atThreshold = analyseRoutes([route('a', { darknessAtStart: 0.85 })]);
+    const below = analyseRoutes([route('a', { darknessAtStart: 0.84, darknessAtArrival: 0.84 })]);
+
+    expect(riskIds(atThreshold.routes[0].findings)).toEqual(['dark_at_start']);
+    expect(riskIds(below.routes[0].findings)).toEqual([]);
+  });
+
   test('estimated street lighting is a caution, not a risk', () => {
     const result = analyseRoutes([route('a', { lightingQuality: 'estimated' })]);
     const findings = result.routes[0].findings;
@@ -133,5 +141,63 @@ describe('decide', () => {
   test('scores in the walker reasons say out of 100', () => {
     const result = decide([route('r1', { score: 80, darknessAtStart: 0.9 }), route('r2', { score: 84 })], 'r1');
     expect(result.reasons.join(' ')).toContain('out of 100');
+  });
+
+  // Contract H2: a switch target adds at most 300 s of walking and at most 20% more distance.
+  describe('switch cap on extra walking time and distance', () => {
+    // The recommended route is 1000 m and 600 s, with a 200 m unlit stretch.
+    const recommended = () => withRisk('a', 80);
+
+    test('allows a target exactly 300 s longer to walk', () => {
+      const result = decide([recommended(), route('b', { score: 76, durationSeconds: 900 })], 'a');
+
+      expect(result).toEqual(expect.objectContaining({ kind: 'switch', routeId: 'b' }));
+    });
+
+    test('refuses a target 301 s longer to walk, and says it is much longer', () => {
+      const result = decide([recommended(), route('b', { score: 76, durationSeconds: 901 })], 'a');
+
+      expect(result).toEqual(expect.objectContaining({ kind: 'keep', routeId: 'a' }));
+      expect(result.reasons.join(' ')).toMatch(/Route 2 has no risks but is much longer/);
+    });
+
+    test('allows a target exactly 20% longer in distance', () => {
+      const result = decide([recommended(), route('b', { score: 76, distanceMeters: 1200 })], 'a');
+
+      expect(result).toEqual(expect.objectContaining({ kind: 'switch', routeId: 'b' }));
+    });
+
+    test('refuses a target more than 20% longer in distance, and says it is much longer', () => {
+      const result = decide([recommended(), route('b', { score: 76, distanceMeters: 1201 })], 'a');
+
+      expect(result).toEqual(expect.objectContaining({ kind: 'keep', routeId: 'a' }));
+      expect(result.reasons.join(' ')).toMatch(/much longer/);
+    });
+
+    test('a safer route that fails the cap is passed over for one that passes it', () => {
+      const result = decide(
+        [recommended(), route('b', { score: 85, distanceMeters: 2000 }), route('c', { score: 77 })],
+        'a',
+      );
+
+      expect(result).toEqual(expect.objectContaining({ kind: 'switch', routeId: 'c' }));
+    });
+  });
+
+  // Contract H3: a route whose street lighting is only estimated is never a switch target.
+  test('a route with estimated lighting is never a switch target', () => {
+    const result = decide([withRisk('a', 80), route('b', { score: 80, lightingQuality: 'estimated' })], 'a');
+
+    expect(result).toEqual(expect.objectContaining({ kind: 'keep', routeId: 'a' }));
+    expect(result.reasons.join(' ')).toMatch(/estimated/);
+  });
+
+  test('skips an estimated-lighting route and switches to the next eligible route', () => {
+    const result = decide(
+      [withRisk('a', 80), route('b', { score: 81, lightingQuality: 'estimated' }), route('c', { score: 77 })],
+      'a',
+    );
+
+    expect(result).toEqual(expect.objectContaining({ kind: 'switch', routeId: 'c' }));
   });
 });
