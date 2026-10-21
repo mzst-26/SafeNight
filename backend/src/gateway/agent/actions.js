@@ -92,10 +92,20 @@ const validateCandidates = (list, routes) => {
 
 const inZoomRange = (zoom) => Number.isFinite(zoom) && zoom >= 10 && zoom <= 19;
 
+const MAX_EXPAND_IDS = 3;
+
 /** Returns the clean action, or null when it is not allowed. Only whitelisted fields are copied. */
-const toAction = (raw, routeSet, candidateSet) => {
+const toAction = (raw, routeSet, candidateSet, ringSet) => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   switch (raw.type) {
+    case 'recommend_route':
+      return routeSet.has(raw.routeId) ? { type: 'recommend_route', routeId: raw.routeId } : null;
+    case 'expand_search': {
+      // Ring ids come only from the app's ring; anything else is dropped. Duplicates are removed.
+      if (!Array.isArray(raw.candidateIds)) return null;
+      const ids = [...new Set(raw.candidateIds.filter((id) => ringSet.has(id)))].slice(0, MAX_EXPAND_IDS);
+      return ids.length > 0 ? { type: 'expand_search', candidateIds: ids } : null;
+    }
     case 'pan_to': {
       if (!candidateSet.has(raw.candidateId)) return null;
       const action = { type: 'pan_to', candidateId: raw.candidateId };
@@ -124,17 +134,18 @@ const toAction = (raw, routeSet, candidateSet) => {
 
 /**
  * @param {Array<object>} rawActions the model's actions
- * @param {{routeIds: string[], candidateIds: string[]}} ids the ids the model may use
+ * @param {{routeIds?: string[], candidateIds?: string[], ringIds?: string[]}} ids the ids the model may use
  * @returns {Array<object>} at most 4 valid actions, in order; everything else is dropped
  */
-const validateActions = (rawActions, { routeIds = [], candidateIds = [] } = {}) => {
+const validateActions = (rawActions, { routeIds = [], candidateIds = [], ringIds = [] } = {}) => {
   if (!Array.isArray(rawActions)) return [];
   const routeSet = new Set(routeIds);
   const candidateSet = new Set(candidateIds);
+  const ringSet = new Set(ringIds);
   const out = [];
   for (const raw of rawActions) {
     if (out.length >= MAX_ACTIONS) break;
-    const action = toAction(raw, routeSet, candidateSet);
+    const action = toAction(raw, routeSet, candidateSet, ringSet);
     if (action) out.push(action);
   }
   return out;

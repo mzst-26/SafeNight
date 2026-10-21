@@ -15,43 +15,100 @@ const reply = (...calls) => ({ role: 'assistant', content: null, tool_calls: cal
 const facts = { routes: [], decision: { kind: 'keep', label: 'Route 1' }, candidates: [] };
 const validateActions = (raw) => validateRawActions(raw, { routeIds: ['r1'], candidateIds: ['p1'] });
 const run = (callModel) => runAgent({ facts, tools: [], callModel, validateActions });
-const FALLBACK = { actions: [], question: null, message: null };
+const FALLBACK = { actions: [], question: null, message: null, status: 'done' };
+const SNAPSHOT = 'data:image/jpeg;base64,AAAA';
 
 describe('runAgent', () => {
-  test('stops after 4 model calls even when the model keeps calling tools', async () => {
+  test('stops after 2 model calls per round and asks for another round when there are actions', async () => {
     const callModel = jest.fn(async () => reply(toolCall('zoom', { delta: 1 })));
 
     const result = await run(callModel);
 
-    expect(callModel).toHaveBeenCalledTimes(4);
-    expect(result).toEqual(FALLBACK);
+    expect(callModel).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({
+      actions: [
+        { type: 'zoom', delta: 1 },
+        { type: 'zoom', delta: 1 },
+      ],
+      question: null,
+      message: null,
+      status: 'continue',
+    });
   });
 
-  test('falls back when the tool call arguments are not valid JSON', async () => {
-    const callModel = jest.fn(async () => reply(toolCall('pan_to', '{"candidateId": ')));
+  test('a round that ends with no finish and no valid actions is the fallback', async () => {
+    const callModel = jest.fn(async () => reply(toolCall('zoom', { delta: 9 })));
+
+    expect(await run(callModel)).toEqual(FALLBACK);
+  });
+
+  test('a finish call returns status done', async () => {
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+
+    expect((await run(callModel)).status).toBe('done');
+  });
+
+  test('a round with a recommend_route action and then a finish is done and keeps the action', async () => {
+    let turn = 0;
+    const callModel = jest.fn(async () => {
+      turn += 1;
+      return turn === 1
+        ? reply(toolCall('recommend_route', { routeId: 'r1' }))
+        : reply(toolCall('finish', { message: 'Done.' }));
+    });
+
+    const result = await runAgent({ facts, tools: [], callModel, validateActions: (raw) => validateRawActions(raw, { routeIds: ['r1'], candidateIds: [] }) });
+
+    expect(result.actions).toEqual([{ type: 'recommend_route', routeId: 'r1' }]);
+    expect(result.status).toBe('done');
+  });
+
+  test('a round that uses its 2 calls on actions returns status continue with those actions', async () => {
+    let turn = 0;
+    const callModel = jest.fn(async () => {
+      turn += 1;
+      return turn === 1
+        ? reply(toolCall('fit_route', { routeId: 'r1' }))
+        : reply(toolCall('show_findings', { routeId: 'r1' }));
+    });
 
     const result = await run(callModel);
 
-    expect(callModel).toHaveBeenCalledTimes(1);
-    expect(result).toEqual(FALLBACK);
+    expect(result.status).toBe('continue');
+    expect(result.actions).toEqual([
+      { type: 'fit_route', routeId: 'r1' },
+      { type: 'show_findings', routeId: 'r1' },
+    ]);
   });
 
-  test('a finish call sets the message', async () => {
+  test('a snapshot is sent as an image part next to the text', async () => {
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+
+    await runAgent({ facts: { ...facts, snapshot: SNAPSHOT }, tools: [], callModel, validateActions });
+
+    const user = callModel.mock.calls[0][0].messages[1];
+    expect(user.content).toEqual(
+      expect.arrayContaining([
+        { type: 'image_url', image_url: { url: SNAPSHOT } },
+        { type: 'text', text: expect.any(String) },
+      ]),
+    );
+  });
+
+  test('without a snapshot the user message is text only', async () => {
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: 'Done.' })));
+
+    await run(callModel);
+
+    expect(typeof callModel.mock.calls[0][0].messages[1].content).toBe('string');
+  });
+
+  test('a crime word in the finish message is still checked against the text facts when a snapshot is present', async () => {
     const callModel = jest.fn(async () =>
-      reply(toolCall('finish', { message: 'Stay on the main road. Stay aware of your surroundings.' })),
+      reply(toolCall('finish', { message: 'Route 1 is safer. There have been recent muggings here.' })),
     );
 
-    const result = await run(callModel);
-
-    expect(result.message).toBe('Stay on the main road. Stay aware of your surroundings.');
-    expect(callModel).toHaveBeenCalledTimes(1);
-  });
-
-  test('a finish message over 100 words is not used', async () => {
-    const longMessage = Array.from({ length: 101 }, () => 'word').join(' ');
-    const callModel = jest.fn(async () => reply(toolCall('finish', { message: longMessage })));
-
-    const result = await run(callModel);
+    const result = await runAgent({ facts: { ...facts, snapshot: SNAPSHOT }, tools: [], callModel, validateActions });
 
     expect(result.message).toBeNull();
   });
@@ -69,6 +126,17 @@ describe('runAgent', () => {
     const result = await run(callModel);
 
     expect(result.actions).toEqual([{ type: 'pan_to', candidateId: 'p1' }]);
+    expect(result.message).toBe('Done.');
+  });
+
+  test('a pan_to with a non-string candidate id is dropped, not fatal', async () => {
+    const callModel = jest.fn(async () =>
+      reply(toolCall('pan_to', { candidateId: 7 }), toolCall('finish', { message: 'Done.' })),
+    );
+
+    const result = await run(callModel);
+
+    expect(result.actions).toEqual([]);
     expect(result.message).toBe('Done.');
   });
 
@@ -118,14 +186,34 @@ describe('runAgent', () => {
 
     await expect(run(callModel)).resolves.toEqual(FALLBACK);
   });
+
+  test('a finish message over 100 words is not used', async () => {
+    const longMessage = Array.from({ length: 101 }, () => 'word').join(' ');
+    const callModel = jest.fn(async () => reply(toolCall('finish', { message: longMessage })));
+
+    const result = await run(callModel);
+
+    expect(result.message).toBeNull();
+  });
+
+  test('a finish call sets the message', async () => {
+    const callModel = jest.fn(async () =>
+      reply(toolCall('finish', { message: 'Stay on the main road. Stay aware of your surroundings.' })),
+    );
+
+    const result = await run(callModel);
+
+    expect(result.message).toBe('Stay on the main road. Stay aware of your surroundings.');
+    expect(callModel).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('buildToolDefinitions', () => {
-  test('offers the five map actions plus ask_user and finish', () => {
+  test('offers the map actions, recommend_route, ask_user and finish', () => {
     const names = buildToolDefinitions({ routeIds: ['r1'], candidateIds: ['p1'] }).map((t) => t.function.name);
 
     expect(names.sort()).toEqual(
-      ['ask_user', 'finish', 'fit_route', 'pan_to', 'propose_reroute_via', 'show_findings', 'zoom'].sort(),
+      ['ask_user', 'finish', 'fit_route', 'pan_to', 'propose_reroute_via', 'recommend_route', 'show_findings', 'zoom'].sort(),
     );
   });
 
@@ -134,6 +222,46 @@ describe('buildToolDefinitions', () => {
     const panTo = tools.find((t) => t.function.name === 'pan_to');
 
     expect(panTo.function.parameters.properties.candidateId.enum).toEqual(['p1', 'p2']);
+  });
+
+  test('expand_search is not offered when expansion is not allowed', () => {
+    const names = buildToolDefinitions({
+      routeIds: ['r1'],
+      candidateIds: ['p1'],
+      ringIds: ['r1'],
+      expansionAllowed: false,
+    }).map((t) => t.function.name);
+
+    expect(names).not.toContain('expand_search');
+  });
+
+  test('expand_search is absent when expansionAllowed is left out', () => {
+    const names = buildToolDefinitions({ routeIds: ['r1'], candidateIds: ['p1'], ringIds: ['r1'] }).map((t) => t.function.name);
+
+    expect(names).not.toContain('expand_search');
+  });
+
+  test('expand_search takes 1 to 3 ring ids when expansion is allowed', () => {
+    const tools = buildToolDefinitions({
+      routeIds: ['r1'],
+      candidateIds: ['p1'],
+      ringIds: ['r1', 'r2'],
+      expansionAllowed: true,
+    });
+    const expand = tools.find((t) => t.function.name === 'expand_search');
+    const schema = expand.function.parameters.properties.candidateIds;
+
+    expect(schema.type).toBe('array');
+    expect(schema.items.enum).toEqual(['r1', 'r2']);
+    expect(schema.minItems).toBe(1);
+    expect(schema.maxItems).toBe(3);
+  });
+
+  test('recommend_route is offered with the route ids as an enum', () => {
+    const tools = buildToolDefinitions({ routeIds: ['r1', 'r2'], candidateIds: [], ringIds: [], expansionAllowed: false });
+    const recommend = tools.find((t) => t.function.name === 'recommend_route');
+
+    expect(recommend.function.parameters.properties.routeId.enum).toEqual(['r1', 'r2']);
   });
 
   // Contract: a walker message may only mention crime or incidents that the facts mention.
@@ -151,6 +279,30 @@ describe('buildToolDefinitions', () => {
       const system = callModel.mock.calls[0][0].messages[0].content;
       expect(system).toMatch(/Only talk about darkness, lighting or crime when they are listed/);
     });
+  });
+});
+
+describe('validation of the new actions', () => {
+  const validate = (raw) =>
+    validateRawActions(raw, { routeIds: ['r1', 'r2'], candidateIds: ['p1'], ringIds: ['r1', 'r2', 'r3', 'r4'] });
+
+  test('recommend_route keeps only known route ids', () => {
+    expect(
+      validate([
+        { type: 'recommend_route', routeId: 'r2' },
+        { type: 'recommend_route', routeId: 'r9' },
+      ]),
+    ).toEqual([{ type: 'recommend_route', routeId: 'r2' }]);
+  });
+
+  test('expand_search keeps known ring ids, at most 3, and drops the rest', () => {
+    expect(validate([{ type: 'expand_search', candidateIds: ['r1', 'r9', 'r3', 'r4'] }])).toEqual([
+      { type: 'expand_search', candidateIds: ['r1', 'r3', 'r4'] },
+    ]);
+  });
+
+  test('expand_search without ring ids passed to the validator is dropped', () => {
+    expect(validateRawActions([{ type: 'expand_search', candidateIds: ['r1'] }], { routeIds: ['r1'], candidateIds: [] })).toEqual([]);
   });
 });
 
