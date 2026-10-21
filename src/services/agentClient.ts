@@ -6,9 +6,10 @@
  */
 import { env } from '@/src/config/env';
 import { buildCompactRoutes } from '@/src/services/compactRoutes';
+import { expansionRingPoints } from '@/src/services/agentExpansion';
 import type { CompactRouteInfo } from '@/src/services/openai';
 import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
-import type { SafeRoute } from '@/src/services/safeRoutes';
+import type { SafeRoute, WorstStretch } from '@/src/services/safeRoutes';
 import type { DirectionsRoute, LatLng } from '@/src/types/geo';
 
 // Longer than the server budget (60 s), so the server's answer, or its simple one, always arrives first.
@@ -77,6 +78,7 @@ export type AgentAction =
   | { type: 'zoom'; delta: number }
   | { type: 'fit_route'; routeId: string }
   | { type: 'show_findings'; routeId: string }
+  | { type: 'expand_search'; candidateIds: string[] }
   | { type: 'propose_reroute_via'; candidateId: string; label: string; requiresConfirmation: true };
 
 export interface AgentQuestion {
@@ -203,20 +205,25 @@ export interface BuildAgentContextInput {
   safeRoutes: SafeRoute[];
   scores: Record<string, RouteScore>;
   bestRouteId: string | null;
+  /** The route the ring is centred on. Defaults to the best route. */
+  recommendedRouteId?: string | null;
 }
 
-/** Builds the request body and the candidate list from the same top routes, so their ids agree. */
-export function buildAgentContext(input: BuildAgentContextInput): AgentContext {
-  const top = input.routes.slice(0, 3);
+/**
+ * The compact route entries the agent reads, for the given routes. Path points are kept for the
+ * server's corridor check only; they are never sent to the model.
+ */
+export function buildAgentRouteInfos(
+  routes: DirectionsRoute[],
+  scores: Record<string, RouteScore>,
+  safeRoutes: SafeRoute[],
+): AgentRouteInfo[] {
   const fullStretch = (routeId: string) =>
-    input.safeRoutes.find((sr) => sr.id === routeId)?.safety?.worstStretch ?? null;
-
-  // Compact data as the explanation sends it, with the worst stretch's ends so the model can name them.
-  // Route path points go to the server for the corridor check only. The model gets candidate ids, never coordinates.
-  const compact = buildCompactRoutes(top, input.scores, input.safeRoutes);
-  const routes: AgentRouteInfo[] = compact.map((route) => {
+    safeRoutes.find((sr) => sr.id === routeId)?.safety?.worstStretch ?? null;
+  const compact = buildCompactRoutes(routes, scores, safeRoutes);
+  return compact.map((route) => {
     const stretch = fullStretch(route.routeId);
-    const geometry = top.find((r) => r.id === route.routeId)?.path ?? [];
+    const geometry = routes.find((r) => r.id === route.routeId)?.path ?? [];
     return {
       ...route,
       path: geometry.map((p) => ({ lat: p.latitude, lng: p.longitude })),
@@ -230,16 +237,47 @@ export function buildAgentContext(input: BuildAgentContextInput): AgentContext {
         : null,
     };
   });
+}
+
+/** Where the expansion ring is centred: the worst stretch's midpoint, else the route's middle point. */
+function ringCentreFor(route: DirectionsRoute | undefined, stretch: WorstStretch | null): LatLng | null {
+  if (stretch) {
+    return {
+      latitude: (stretch.start.lat + stretch.end.lat) / 2,
+      longitude: (stretch.start.lng + stretch.end.lng) / 2,
+    };
+  }
+  const path = route?.path ?? [];
+  if (path.length === 0) return null;
+  return path[Math.floor(path.length / 2)];
+}
+
+/** Builds the request body and the candidate list from the same top routes, so their ids agree. */
+export function buildAgentContext(input: BuildAgentContextInput): AgentContext {
+  const top = input.routes.slice(0, 3);
+  const fullStretch = (routeId: string) =>
+    input.safeRoutes.find((sr) => sr.id === routeId)?.safety?.worstStretch ?? null;
+
+  // Compact data as the explanation sends it, with the worst stretch's ends so the model can name them.
+  // Route path points go to the server for the corridor check only. The model gets candidate ids, never coordinates.
+  const routes = buildAgentRouteInfos(top, input.scores, input.safeRoutes);
 
   const geometry: AgentRouteGeometry[] = top.map((route) => ({
     id: route.id,
     path: route.path,
     worstStretch: fullStretch(route.id),
   }));
-  const candidates = buildCandidatePoints(geometry);
+  const bestRouteId = input.bestRouteId ?? top[0]?.id ?? '';
+  const ringRouteId = input.recommendedRouteId ?? bestRouteId;
+  const ringRoute = top.find((r) => r.id === ringRouteId);
+  const centre = ringRoute ? ringCentreFor(ringRoute, fullStretch(ringRoute.id)) : null;
+  // Ring points (kind 'ring', ids r1..r8) are offered here; the server offers expand_search only when its gate allows it.
+  const candidates = [
+    ...buildCandidatePoints(geometry),
+    ...(centre ? expansionRingPoints(centre) : []),
+  ];
 
   const leaveAtIso = input.safeRoutes.find((r) => r.isSafest)?.safety?.timeline?.leaveAtIso;
-  const bestRouteId = input.bestRouteId ?? top[0]?.id ?? '';
   const body: AgentRouteBody = {
     bestRouteId,
     routes,

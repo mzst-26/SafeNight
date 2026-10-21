@@ -4,7 +4,9 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { AgentInsightsPanel } from '@/src/components/ui/AgentInsightsPanel';
 import { postAgentInsights, type AgentContext, type AgentInsightsResponse } from '@/src/services/agentClient';
 import { captureMapSnapshot } from '@/src/services/mapSnapshot';
+import { expansionRingPoints, fetchRouteThroughPoint } from '@/src/services/agentExpansion';
 import { setMapController, type MapController } from '@/src/services/mapController';
+import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { DirectionsRoute } from '@/src/types/geo';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
@@ -13,12 +15,18 @@ jest.mock('@/src/services/agentClient', () => {
   return { ...actual, postAgentInsights: jest.fn() };
 });
 jest.mock('@/src/services/mapSnapshot', () => ({ captureMapSnapshot: jest.fn() }));
+jest.mock('@/src/services/agentExpansion', () => {
+  const actual = jest.requireActual('@/src/services/agentExpansion');
+  return { ...actual, fetchRouteThroughPoint: jest.fn() };
+});
 
 // The bubble is checked through the status line it is given; its map (RouteMap) is not under test here.
 const mockStatusLog: string[] = [];
+const mockBubbleRoutes: unknown[][] = [];
 jest.mock('@/src/components/ui/AgentMapBubble', () => ({
-  AgentMapBubble: (props: { status?: string }) => {
+  AgentMapBubble: (props: { status?: string; routes?: unknown[] }) => {
     mockStatusLog.push(props.status ?? '');
+    mockBubbleRoutes.push(props.routes ?? []);
     return null;
   },
 }));
@@ -434,5 +442,46 @@ describe('AgentInsightsPanel round loop (contract v3)', () => {
     expect(textOf(renderer)).toContain('Could not reach AI Insights right now. Your route is unchanged.');
     expect(rerouteButtons(renderer)).toHaveLength(0);
     expect(button(renderer, 'Use this route')).toHaveLength(0);
+  });
+});
+
+describe('AgentInsightsPanel expand_search (E1)', () => {
+  const fetchMock = fetchRouteThroughPoint as jest.MockedFunction<typeof fetchRouteThroughPoint>;
+
+  // A route the agent's search found through a ring point: safety fields the client scorer reads.
+  const foundRoute = (): SafeRoute =>
+    ({
+      id: 'raw',
+      distanceMeters: 1100,
+      durationSeconds: 900,
+      encodedPolyline: '',
+      path: [
+        { latitude: 51.5, longitude: -0.13 },
+        { latitude: 51.53, longitude: -0.09 },
+      ],
+      safety: { score: 74, label: 'Safe', color: '#0a0', mainRoadRatio: 40, worstStretch: null },
+    }) as unknown as SafeRoute;
+
+  test('an expand_search round adds the new routes to the next round body and to the agent map', async () => {
+    const ringContext: AgentContext = {
+      ...mapContext,
+      candidates: [...mapContext.candidates, ...expansionRingPoints({ latitude: 51.51, longitude: -0.12 })],
+    };
+    fetchMock.mockResolvedValue(foundRoute());
+    mockedCapture.mockResolvedValue(SNAP_1);
+    mockedPost
+      .mockResolvedValueOnce(response({ status: 'continue', actions: [{ type: 'expand_search', candidateIds: ['r1'] }] }))
+      .mockResolvedValueOnce(response({ status: 'done' }));
+
+    await renderPanel({ context: ringContext });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockedPost).toHaveBeenCalledTimes(2);
+    const second = mockedPost.mock.calls[1][0];
+    expect(second.results).toEqual([{ type: 'expand_search', ok: true }]);
+    expect(second.routes.map((r) => r.routeId)).toEqual(['expanded-route-1']);
+    expect(second.routes[0].routeId.startsWith('expanded-route-')).toBe(true);
+    // The map bubble is given the new route as well.
+    expect(mockBubbleRoutes[mockBubbleRoutes.length - 1]).toHaveLength(1);
   });
 });

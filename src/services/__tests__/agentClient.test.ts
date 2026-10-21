@@ -6,6 +6,7 @@ import {
   postAgentInsights,
   type AgentInsightsRequest,
 } from '@/src/services/agentClient';
+import { expansionRingPoints } from '@/src/services/agentExpansion';
 import type { DirectionsRoute } from '@/src/types/geo';
 
 jest.mock('@/src/config/env', () => ({ env: { apiBaseUrl: 'https://gateway.test' } }));
@@ -198,6 +199,84 @@ describe('buildAgentContext', () => {
     expect(context.body.bestRouteId).toBe('b');
     expect(context.body.trip.leaveAtIso).toBe('2026-10-21T22:00:00.000Z');
     expect(context.routes.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('buildAgentContext ring points (E1)', () => {
+  const pathA: DirectionsRoute = {
+    id: 'a',
+    distanceMeters: 900,
+    durationSeconds: 700,
+    encodedPolyline: '',
+    path: [
+      { latitude: 51.5, longitude: -0.13 },
+      { latitude: 51.505, longitude: -0.125 },
+      { latitude: 51.51, longitude: -0.12 },
+    ],
+  };
+  const pathB: DirectionsRoute = { ...pathA, id: 'b' };
+  const safe = (route: DirectionsRoute, worst: unknown) => ({
+    ...route,
+    routeIndex: 0,
+    isSafest: false,
+    safety: {
+      score: 70,
+      label: 'Safe',
+      color: '#000',
+      breakdown: {},
+      roadTypes: {},
+      mainRoadRatio: 50,
+      worstStretch: worst,
+    },
+    safetySegments: [],
+  });
+
+  test('adds the 8 ring points around the midpoint of the recommended route worst stretch', () => {
+    const stretch = {
+      start: { lat: 51.5, lng: -0.13 },
+      end: { lat: 51.51, lng: -0.12 },
+      lengthM: 500,
+      cause: null,
+    };
+    const routes = [pathA, pathB];
+    const safeRoutes = [safe(pathA, null), safe(pathB, stretch)];
+    const context = buildAgentContext({
+      routes,
+      safeRoutes: safeRoutes as never,
+      scores: {},
+      bestRouteId: 'a',
+      recommendedRouteId: 'b',
+    });
+    const midpoint = { latitude: (51.5 + 51.51) / 2, longitude: (-0.13 + -0.12) / 2 };
+    const ring = context.body.candidatePoints.filter((p) => p.kind === 'ring');
+    expect(ring.map((p) => p.id)).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8']);
+    expect(ring).toEqual(expansionRingPoints(midpoint));
+    // The ring points are also in the candidate list the actions resolve ids against.
+    expect(context.candidates.filter((p) => p.kind === 'ring')).toHaveLength(8);
+  });
+
+  test('centres the ring on the middle point of the route when it has no worst stretch', () => {
+    const safeRoutes = [safe(pathA, null)];
+    const context = buildAgentContext({
+      routes: [pathA],
+      safeRoutes: safeRoutes as never,
+      scores: {},
+      bestRouteId: 'a',
+    });
+    const middle = pathA.path[Math.floor(pathA.path.length / 2)];
+    const centre = { latitude: middle.latitude, longitude: middle.longitude };
+    expect(context.body.candidatePoints.filter((p) => p.kind === 'ring')).toEqual(expansionRingPoints(centre));
+  });
+
+  test('sends no ring points when the recommended route has no points to centre on', () => {
+    const empty = { ...pathA, path: [] };
+    const context = buildAgentContext({
+      routes: [empty],
+      safeRoutes: [safe(empty, null)] as never,
+      scores: {},
+      bestRouteId: 'a',
+    });
+    expect(context.body.candidatePoints.filter((p) => p.kind === 'ring')).toEqual([]);
   });
 });
 

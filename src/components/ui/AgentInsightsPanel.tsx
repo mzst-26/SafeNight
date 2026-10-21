@@ -29,6 +29,7 @@ import { AgentMapBubble } from '@/src/components/ui/AgentMapBubble';
 import { glassScrim, glassSurface } from '@/src/components/ui/glass';
 import {
   AGENT_MAX_ROUNDS,
+  buildAgentRouteInfos,
   getAgentSessionNumber,
   postAgentInsights,
   type AgentActionResult,
@@ -44,8 +45,16 @@ import {
   runAgentActions,
   type RerouteOption,
 } from '@/src/services/agentActions';
+import {
+  EXPANDED_ROUTE_PREFIX,
+  EXPANSION_MAX_ROUTES,
+  fetchRouteThroughPoint,
+  scoreExpandedRoutes,
+} from '@/src/services/agentExpansion';
 import { getMapController } from '@/src/services/mapController';
 import { captureMapSnapshot } from '@/src/services/mapSnapshot';
+import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
+import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { LatLng } from '@/src/types/geo';
 
 const ACCENT = '#6d28d9';
@@ -97,6 +106,8 @@ export function AgentInsightsPanel({
   const [status, setStatus] = useState(DEFAULT_STATUS);
   // Kept apart from the sheet state so it outlives the sheet closing.
   const [recalcLabel, setRecalcLabel] = useState<string | null>(null);
+  // Routes the agent's expand_search found this run; drawn on the agent map after the walker's routes.
+  const [expandedMapRoutes, setExpandedMapRoutes] = useState<SafeRoute[]>([]);
 
   // Every new run bumps this; a run that is no longer the latest stops and changes nothing.
   const seqRef = useRef(0);
@@ -114,6 +125,15 @@ export function AgentInsightsPanel({
       setErrorText(null);
       setOptions([]);
       setStatus(DEFAULT_STATUS);
+      // This run's expansion routes, with their scores. A new run starts with none.
+      let expanded: SafeRoute[] = [];
+      let expandedScores: Record<string, RouteScore> = {};
+      setExpandedMapRoutes([]);
+      const onExpanded = (found: { routes: SafeRoute[]; scores: Record<string, RouteScore> }) => {
+        expanded = [...expanded, ...found.routes];
+        expandedScores = { ...expandedScores, ...found.scores };
+        setExpandedMapRoutes(expanded);
+      };
       try {
         let snapshot = await captureMapSnapshot(AGENT_MAP);
         let results: AgentActionResult[] = [];
@@ -121,8 +141,17 @@ export function AgentInsightsPanel({
         let result: AgentInsightsResponse;
         for (;;) {
           setStatus(DEFAULT_STATUS);
+          // The walker's routes plus the ones this run added, never more than the map's total.
+          const extraInfos = buildAgentRouteInfos(expanded, expandedScores, expanded);
+          const extraGeometry: AgentRouteGeometry[] = expanded.map((route) => ({
+            id: route.id,
+            path: route.path,
+            worstStretch: route.safety?.worstStretch ?? null,
+          }));
+          const routeGeometry = [...context.routes, ...extraGeometry];
           const request: AgentInsightsRequest = {
             ...context.body,
+            routes: [...context.body.routes, ...extraInfos].slice(0, EXPANSION_MAX_ROUTES),
             ...(answer && round === 1 ? { answer } : {}),
             sessionNumber: getAgentSessionNumber(),
             round,
@@ -132,11 +161,24 @@ export function AgentInsightsPanel({
           result = await postAgentInsights(request);
           if (seq !== seqRef.current) return;
 
-          setStatus(statusForActions(result.actions, context.routes));
+          setStatus(statusForActions(result.actions, routeGeometry));
+          const origin = context.map?.origin ?? null;
+          const destination = context.map?.destination ?? null;
           results = await runAgentActions(result.actions, {
             candidates: context.candidates,
-            routes: context.routes,
+            routes: routeGeometry,
             controller: getMapController(AGENT_MAP),
+            expansion:
+              origin && destination
+                ? {
+                    origin,
+                    destination,
+                    existingCount: context.body.routes.length + expanded.length,
+                    fetchRoute: fetchRouteThroughPoint,
+                    scoreRoutes: scoreExpandedRoutes,
+                    onRoutes: onExpanded,
+                  }
+                : undefined,
           });
           if (seq !== seqRef.current) return;
 
@@ -201,7 +243,13 @@ export function AgentInsightsPanel({
 
   // The route the agent recommends; "Use this route" is offered only when it is not the best route.
   const recommendedId = response ? (response.recommendedRouteId ?? response.decision.routeId) : null;
-  const switching = phase === 'ready' && recommendedId !== null && recommendedId !== context?.body.bestRouteId;
+  // A route the agent found through a ring point is not in the walker's list, so it cannot be used directly.
+  const recommendedIsExpanded = recommendedId?.startsWith(EXPANDED_ROUTE_PREFIX) ?? false;
+  const switching =
+    phase === 'ready' &&
+    recommendedId !== null &&
+    recommendedId !== context?.body.bestRouteId &&
+    !recommendedIsExpanded;
 
   return (
     <>
@@ -223,7 +271,7 @@ export function AgentInsightsPanel({
                 <AgentMapBubble
                   origin={context.map.origin}
                   destination={context.map.destination}
-                  routes={context.map.routes}
+                  routes={[...context.map.routes, ...expandedMapRoutes]}
                   selectedRouteId={context.map.selectedRouteId}
                   status={status}
                 />

@@ -12,6 +12,12 @@ import type {
   AgentRouteGeometry,
   CandidatePoint,
 } from '@/src/services/agentClient';
+import {
+  runExpansionSearch,
+  type ExpansionOutcome,
+  type ExpansionRouteFetch,
+  type ExpansionScorer,
+} from '@/src/services/agentExpansion';
 import type { MapController } from '@/src/services/mapController';
 import type { LatLng } from '@/src/types/geo';
 
@@ -21,10 +27,23 @@ const MIN_ZOOM = 10;
 const MAX_ZOOM = 19;
 const MAX_ZOOM_DELTA = 2;
 
+/** What expand_search needs: the search itself, and where its new routes go. Absent on a map that cannot expand. */
+export interface AgentExpansionContext {
+  origin: LatLng;
+  destination: LatLng;
+  /** Routes on the agent's map before this round. New routes fill up to the map's total of 6. */
+  existingCount: number;
+  fetchRoute: ExpansionRouteFetch;
+  scoreRoutes: ExpansionScorer;
+  /** Called once per expand_search that ran, with the routes it found (possibly none). */
+  onRoutes: (outcome: ExpansionOutcome) => void;
+}
+
 export interface AgentActionContext {
   candidates: CandidatePoint[];
   routes: AgentRouteGeometry[];
   controller: MapController | null;
+  expansion?: AgentExpansionContext;
 }
 
 /** A reroute the walker can choose. The label is the client's candidate label. */
@@ -89,6 +108,8 @@ export async function runAgentActions(
 ): Promise<AgentActionResult[]> {
   const { controller } = ctx;
   const results: AgentActionResult[] = [];
+  // New routes this call has added, so a second expand_search in the same round counts them.
+  let addedRoutes = 0;
 
   for (const action of actions.slice(0, MAX_ACTIONS)) {
     if (!action || typeof action !== 'object') continue;
@@ -128,6 +149,28 @@ export async function runAgentActions(
         if (!route || !controller) break;
         ok = controller.highlight(route.id);
         break;
+      }
+
+      case 'expand_search': {
+        const expansion = ctx.expansion;
+        const ids = Array.isArray(action.candidateIds)
+          ? action.candidateIds.filter((id): id is string => typeof id === 'string')
+          : [];
+        if (!expansion || ids.length === 0) break;
+        const outcome = await runExpansionSearch({
+          candidateIds: ids,
+          candidates: ctx.candidates,
+          origin: expansion.origin,
+          destination: expansion.destination,
+          existingCount: expansion.existingCount + addedRoutes,
+          fetchRoute: expansion.fetchRoute,
+          scoreRoutes: expansion.scoreRoutes,
+        });
+        addedRoutes += outcome.routes.length;
+        expansion.onRoutes(outcome);
+        // One result per requested point, so a failed point is reported as ok false.
+        results.push(...outcome.results);
+        continue;
       }
 
       case 'propose_reroute_via':

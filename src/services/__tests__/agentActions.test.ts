@@ -6,6 +6,8 @@ import {
 } from '@/src/services/agentActions';
 import type { AgentAction, AgentRouteGeometry, CandidatePoint } from '@/src/services/agentClient';
 import type { MapController } from '@/src/services/mapController';
+import { expansionRingPoints, type ExpansionRouteFetch } from '@/src/services/agentExpansion';
+import type { SafeRoute } from '@/src/services/safeRoutes';
 
 const candidates: CandidatePoint[] = [
   { id: 'p1', label: 'Middle of the weakest stretch', lat: 51.51, lng: -0.12, kind: 'stretch_midpoint' },
@@ -207,5 +209,61 @@ describe('runAgentActions results (contract v3 round results)', () => {
   test('reports ok false for every action when no map is registered', async () => {
     const results = await runAgentActions([{ type: 'zoom', delta: 1 }], { candidates, routes, controller: null });
     expect(results).toEqual([{ type: 'zoom', ok: false }]);
+  });
+});
+
+describe('runAgentActions expand_search (E1)', () => {
+  const ring = expansionRingPoints({ latitude: 51.51, longitude: -0.12 });
+  const ringCandidates: CandidatePoint[] = [...candidates, ...ring];
+  const origin = { latitude: 51.5, longitude: -0.13 };
+  const destination = { latitude: 51.52, longitude: -0.1 };
+  const fakeRoute = { id: 'raw', distanceMeters: 1000, durationSeconds: 800, encodedPolyline: '', path: [] } as unknown as SafeRoute;
+  const scoreRoutes = (rs: SafeRoute[]) =>
+    Object.fromEntries(rs.map((r) => [r.id, { routeId: r.id, score: 70 } as never]));
+
+  test('without an expansion context the action is not run and reports ok false', async () => {
+    const results = await runAgentActions(
+      [{ type: 'expand_search', candidateIds: ['r1'] }],
+      { candidates: ringCandidates, routes, controller: null },
+    );
+    expect(results).toEqual([{ type: 'expand_search', ok: false }]);
+  });
+
+  test('runs the ring searches, reports one result per point, and hands the new routes over', async () => {
+    const fetchRoute: ExpansionRouteFetch = jest.fn(async (_o, _d, via) =>
+      via.latitude === ring[4].lat ? null : fakeRoute,
+    );
+    const onRoutes = jest.fn();
+    const results = await runAgentActions(
+      [{ type: 'expand_search', candidateIds: ['r1', 'r5'] }],
+      {
+        candidates: ringCandidates,
+        routes,
+        controller: null,
+        expansion: { origin, destination, existingCount: 3, fetchRoute, scoreRoutes, onRoutes },
+      },
+    );
+    expect(results).toEqual([
+      { type: 'expand_search', ok: true },
+      { type: 'expand_search', ok: false },
+    ]);
+    expect(fetchRoute).toHaveBeenCalledTimes(2);
+    expect(onRoutes).toHaveBeenCalledTimes(1);
+    expect(onRoutes.mock.calls[0][0].routes.map((r: SafeRoute) => r.id)).toEqual(['expanded-route-4']);
+  });
+
+  test('a point that is not a ring point of the search gives ok false and is not fetched', async () => {
+    const fetchRoute = jest.fn(async () => fakeRoute);
+    const results = await runAgentActions(
+      [{ type: 'expand_search', candidateIds: ['p1'] }],
+      {
+        candidates: ringCandidates,
+        routes,
+        controller: null,
+        expansion: { origin, destination, existingCount: 3, fetchRoute, scoreRoutes, onRoutes: jest.fn() },
+      },
+    );
+    expect(fetchRoute).not.toHaveBeenCalled();
+    expect(results).toEqual([{ type: 'expand_search', ok: false }]);
   });
 });
