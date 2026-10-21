@@ -951,6 +951,7 @@ export function useHomeScreen() {
 
     // Via / direction-bias
     viaPinLocation,
+    setViaPinLocation,
     clearViaPin,
 
     // Safety
@@ -979,6 +980,8 @@ export function useHomeScreen() {
 
     // AI
     ai,
+    routeScores,
+    bestRouteId,
     showAIModal,
     setShowAIModal,
 

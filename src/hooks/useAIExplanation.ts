@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
+import { buildCompactRoutes } from '@/src/services/compactRoutes';
 import { captureMapSnapshot } from '@/src/services/mapSnapshot';
 import { fetchAIExplanation, type CompactRouteInfo } from '@/src/services/openai';
 import type { SafeRoute } from '@/src/services/safeRoutes';
@@ -67,54 +68,7 @@ export const useAIExplanation = (
     }
 
     // ── Build compact per-route data: aggregated totals only, top 3 ──
-    const compactRoutes: CompactRouteInfo[] = routes.slice(0, 3).map((r) => {
-      const safeRoute = safeRoutes?.find((sr) => sr.id === r.id);
-      const score = scores[r.id];
-      const pois = safeRoute?.routePOIs;
-      const stats = safeRoute?.routeStats;
-      const safety = safeRoute?.safety;
-
-      return {
-        routeId: r.id,
-        distanceMeters: r.distanceMeters,
-        durationSeconds: r.durationSeconds,
-        score: score?.score ?? 0,
-        breakdown: safety?.breakdown
-          ? {
-              roadType: safety.breakdown.roadType,
-              lighting: safety.breakdown.lighting,
-              crime: safety.breakdown.crime,
-              cctv: safety.breakdown.cctv,
-              openPlaces: safety.breakdown.openPlaces,
-              traffic: safety.breakdown.traffic,
-            }
-          : undefined,
-        totals: pois
-          ? {
-              crimes: pois.crimes?.length ?? 0,
-              lights: pois.lights?.length ?? 0,
-              cctv: pois.cctv?.length ?? 0,
-              places: pois.places?.length ?? 0,
-              busStops: pois.transit?.length ?? 0,
-              deadEnds: pois.deadEnds?.length ?? 0,
-            }
-          : undefined,
-        roadData: {
-          mainRoadPct: safety?.mainRoadRatio ?? 0,
-          pavedPct: 100 - (stats?.unpavedPct ?? 0),
-          sidewalkPct: stats?.sidewalkPct ?? 0,
-          roadTypes: safety?.roadTypes,
-        },
-        worstStretch: safety?.worstStretch
-          ? { lengthM: safety.worstStretch.lengthM, cause: safety.worstStretch.cause }
-          : null,
-        darknessAtStart: safety?.timeline?.darknessAtStart,
-        darknessAtArrival: safety?.timeline?.darknessAtArrival,
-        lightingQuality: safety?.dataQuality?.lighting,
-        deadEnds: stats?.deadEnds,
-        crimeDataUnavailable: safety?.dataQuality?.crime === 'unavailable',
-      };
-    });
+    const compactRoutes: CompactRouteInfo[] = buildCompactRoutes(routes, scores, safeRoutes);
 
     // ── Check client-side cache first (keyed by the data sent, so only this exact route hits) ──
     const cacheKey = buildCacheKey(compactRoutes, bestRouteId);

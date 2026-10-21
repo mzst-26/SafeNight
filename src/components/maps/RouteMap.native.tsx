@@ -8,6 +8,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { BADGES_JS } from "@/src/components/maps/inline/badges";
+import { setMapController } from "@/src/services/mapController";
 import { setMapSnapshotProvider } from "@/src/services/mapSnapshot";
 import { CORE_JS } from "@/src/components/maps/inline/core";
 import { FORMAT_JS } from "@/src/components/maps/inline/format";
@@ -1147,6 +1148,28 @@ export const buildMapHtml = (
       scheduleSelectedCandidateCardVisibility();
     });
 
+    /* ── AI Insights agent: the app calls these with injectJavaScript (mapController). ── */
+    window.agentPanTo = function(lat, lng, zoom){
+      if(!isFinite(lat) || !isFinite(lng)) return false;
+      var opts = { center: [Number(lng), Number(lat)], duration: 400 };
+      if(isFinite(zoom) && zoom) opts.zoom = Math.max(10, Math.min(19, Number(zoom)));
+      map.easeTo(opts);
+      return true;
+    };
+    window.agentZoomBy = function(delta){
+      if(!isFinite(delta)) return false;
+      var d = Math.max(-2, Math.min(2, Number(delta)));
+      map.zoomTo(Math.max(10, Math.min(19, map.getZoom() + d)), { duration: 300 });
+      return true;
+    };
+    window.agentFitBounds = function(b){
+      if(!b || !isFinite(b.south) || !isFinite(b.west) || !isFinite(b.north) || !isFinite(b.east)) return false;
+      map.fitBounds([[Number(b.west), Number(b.south)], [Number(b.east), Number(b.north)]], { padding: 48, maxZoom: 17, duration: 400 });
+      return true;
+    };
+    /* No route highlight exists on native yet, so this does nothing and reports false. */
+    window.agentHighlight = function(routeId){ return false; };
+
     window.recenterNavigation = function(){
       userInteracted = false;
       setFollowMode(true);
@@ -1875,6 +1898,31 @@ export const RouteMap = ({
         }),
     );
     return () => setMapSnapshotProvider(null);
+  }, []);
+
+  // The AI Insights agent moves this map by running the functions the MapLibre page defines.
+  useEffect(() => {
+    const run = (call: string) => {
+      if (!readyRef.current || !webViewRef.current) return;
+      webViewRef.current.injectJavaScript(`try{${call}}catch(e){}true;`);
+    };
+    setMapController({
+      panTo: (lat, lng, zoom) =>
+        run(`window.agentPanTo(${Number(lat)},${Number(lng)},${zoom == null ? "null" : Number(zoom)})`),
+      zoomBy: (delta) => run(`window.agentZoomBy(${Number(delta)})`),
+      fitBounds: (bounds) =>
+        run(
+          `window.agentFitBounds(${JSON.stringify({
+            south: Number(bounds.south),
+            west: Number(bounds.west),
+            north: Number(bounds.north),
+            east: Number(bounds.east),
+          })})`,
+        ),
+      // Native has no route highlight yet, so nothing is drawn.
+      highlight: () => false,
+    });
+    return () => setMapController(null);
   }, []);
   const readyRef = useRef(false);
   const prevGeoKeyRef = useRef("");

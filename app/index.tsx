@@ -36,7 +36,9 @@ import { HomeIntro } from "@/src/components/seo/HomeIntro";
 import { AndroidOverlayHost } from "@/src/components/android/AndroidOverlayHost";
 import RouteMap from "@/src/components/maps/RouteMap";
 import { AIExplanationModal } from "@/src/components/modals/AIExplanationModal";
+import { AgentInsightsPanel } from "@/src/components/ui/AgentInsightsPanel";
 import { AIExplainButton } from "@/src/components/ui/AIExplainButton";
+import { buildAgentContext } from "@/src/services/agentClient";
 import { aiExplainPlacement } from "@/src/components/ui/aiExplainPlacement";
 import { BackgroundLocationModal } from "@/src/components/modals/BackgroundLocationModal";
 import { DownloadAppModal } from "@/src/components/modals/DownloadAppModal";
@@ -1834,6 +1836,20 @@ export default function HomeScreen() {
     // so an explanation from an earlier search is never shown for the current route.
     h.ai.ask();
   };
+  // Desktop bar above the recommended route: opens AI Insights / Rethink (agent panel).
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const agentContext = useMemo(
+    () =>
+      h.safeRoutes.length > 0
+        ? buildAgentContext({
+            routes: h.routes,
+            safeRoutes: h.safeRoutes,
+            scores: h.routeScores,
+            bestRouteId: h.bestRouteId,
+          })
+        : null,
+    [h.routes, h.safeRoutes, h.routeScores, h.bestRouteId],
+  );
 
   const mapFitBottomPadding = useMemo(() => {
     if (!showDestinationCandidateSheet) return 40;
@@ -2318,7 +2334,7 @@ export default function HomeScreen() {
                 onSelectRoute={h.setSelectedRouteId}
                 routeComparison={h.routeComparison}
                 inSidebar
-                onExplainRoute={aiPlacement === "card" ? openAIExplanation : undefined}
+                onExplainRoute={aiPlacement === "card" ? () => setShowAgentPanel(true) : undefined}
               />
 
               {showSafety && h.safetyResult && h.selectedSafeRoute && (
@@ -3193,6 +3209,14 @@ export default function HomeScreen() {
         }
 
         {/* ── Modals / Overlays ── */}
+        <AgentInsightsPanel
+          visible={showAgentPanel}
+          onClose={() => setShowAgentPanel(false)}
+          context={agentContext}
+          onUseRoute={h.setSelectedRouteId}
+          onSetViaPin={h.setViaPinLocation}
+        />
+
         <AIExplanationModal
           visible={h.showAIModal}
           ai={h.ai}

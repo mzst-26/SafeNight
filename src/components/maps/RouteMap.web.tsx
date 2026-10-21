@@ -33,6 +33,7 @@ import {
   RL_UNSELECTED_WIDTH,
 } from "@/src/components/maps/mapConstants";
 import type { RouteMapProps } from "@/src/components/maps/RouteMap.types";
+import { setMapController } from "@/src/services/mapController";
 import { setMapSnapshotProvider } from "@/src/services/mapSnapshot";
 
 export const buildLeafletHtml = (
@@ -1120,6 +1121,40 @@ export const buildLeafletHtml = (
       schedulePinLabelLayout();
     }
 
+    /* ── AI Insights agent: the app calls these through the iframe window (mapController). ── */
+    function agentClampZoom(z){ return Math.max(10, Math.min(19, z)); }
+    window.agentPanTo = function(lat, lng, zoom){
+      if(!map || !isFinite(lat) || !isFinite(lng)) return false;
+      markUserCameraOverride();
+      var z = (isFinite(zoom) && zoom) ? agentClampZoom(Number(zoom)) : map.getZoom();
+      map.setView([Number(lat), Number(lng)], z, { animate: true });
+      return true;
+    };
+    window.agentZoomBy = function(delta){
+      if(!map || !isFinite(delta)) return false;
+      var d = Math.max(-2, Math.min(2, Number(delta)));
+      markUserCameraOverride();
+      map.setZoom(agentClampZoom(map.getZoom() + d));
+      return true;
+    };
+    window.agentFitBounds = function(b){
+      if(!map || !b || !isFinite(b.south) || !isFinite(b.west) || !isFinite(b.north) || !isFinite(b.east)) return false;
+      markUserCameraOverride();
+      map.fitBounds([[Number(b.south), Number(b.west)], [Number(b.north), Number(b.east)]], { padding: [48, 48], maxZoom: 17, animate: true });
+      return true;
+    };
+    window.agentHighlight = function(routeId){
+      if(!map || !lastData || !lastData.routes) return false;
+      var route = null;
+      for(var i = 0; i < lastData.routes.length; i++){
+        if(lastData.routes[i].id === routeId){ route = lastData.routes[i]; break; }
+      }
+      if(!route || !route.path || route.path.length < 2) return false;
+      var line = L.polyline(route.path.map(function(p){ return [p.lat, p.lng]; }), { color: '#f59e0b', weight: 12, opacity: 0.9, dashArray: '6 10', interactive: false }).addTo(map);
+      setTimeout(function(){ try { map.removeLayer(line); } catch(e){} }, 3000);
+      return true;
+    };
+
     window.updateMap = updateMap;
     window.setMapType = function(_type){};
     window.setPipMode = function(pip){ isPipMode=!!pip; };
@@ -1223,6 +1258,42 @@ export const RouteMap = ({
       return out.toDataURL("image/jpeg", 0.7);
     });
     return () => setMapSnapshotProvider(null);
+  }, []);
+
+  // The AI Insights agent moves this map through the functions the Leaflet page defines.
+  useEffect(() => {
+    const frame = () => (iframeRef.current?.contentWindow ?? null) as any;
+    setMapController({
+      panTo: (lat, lng, zoom) => {
+        try {
+          frame()?.agentPanTo?.(lat, lng, zoom);
+        } catch {
+          /* page not loaded yet */
+        }
+      },
+      zoomBy: (delta) => {
+        try {
+          frame()?.agentZoomBy?.(delta);
+        } catch {
+          /* page not loaded yet */
+        }
+      },
+      fitBounds: (bounds) => {
+        try {
+          frame()?.agentFitBounds?.(bounds);
+        } catch {
+          /* page not loaded yet */
+        }
+      },
+      highlight: (routeId) => {
+        try {
+          return Boolean(frame()?.agentHighlight?.(routeId));
+        } catch {
+          return false;
+        }
+      },
+    });
+    return () => setMapController(null);
   }, []);
   const readyRef = useRef(false);
   const [hasError, setHasError] = useState(false);
