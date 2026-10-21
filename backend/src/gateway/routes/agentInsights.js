@@ -21,7 +21,12 @@ const router = express.Router();
 const DEFAULT_AGENT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 /** One model call is capped at this many milliseconds; the loop makes at most 4 calls. */
-const MODEL_CALL_TIMEOUT_MS = 10_000;
+// One budget for the whole agent request, shared by its model calls. After it runs out the walker
+// gets the deterministic response. The app waits longer than this (see agentClient.ts).
+const AGENT_BUDGET_MS = 60_000;
+
+/** Milliseconds left for a model call, or 0 when the budget is spent. */
+const remainingBudgetMs = (deadline, now = Date.now()) => Math.max(0, deadline - now);
 const MAX_ROUTES = 3;
 const ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 
@@ -101,10 +106,12 @@ const fixedMessage = (decision) => {
   return [...decision.reasons, ...switchLine, 'Stay aware of your surroundings.'].join(' ');
 };
 
-/** The model call, through OpenRouter, with reasoning off and a per-call timeout. */
-const callOpenRouter = ({ apiKey, model }) => async ({ messages, tools }) => {
+/** The model call, through OpenRouter, with reasoning off. It never runs past the request's deadline. */
+const callOpenRouter = ({ apiKey, model, deadline }) => async ({ messages, tools }) => {
+  const budget = remainingBudgetMs(deadline);
+  if (budget <= 0) throw new Error('agent time budget used up');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MODEL_CALL_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), budget);
   try {
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
@@ -189,7 +196,7 @@ router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, a
       agent = await runAgent({
         facts: buildFacts({ routes, analysis, decision, candidates, answer }),
         tools: buildToolDefinitions({ routeIds, candidateIds }),
-        callModel: callOpenRouter({ apiKey, model }),
+        callModel: callOpenRouter({ apiKey, model, deadline: started + AGENT_BUDGET_MS }),
         validateActions: (raw) => validateActions(raw, { routeIds, candidateIds }),
       });
     } catch (error) {
@@ -209,3 +216,5 @@ router.post('/agent-insights', express.json({ limit: '450kb' }), agentLimiter, a
 });
 
 module.exports = router;
+module.exports.remainingBudgetMs = remainingBudgetMs;
+module.exports.AGENT_BUDGET_MS = AGENT_BUDGET_MS;

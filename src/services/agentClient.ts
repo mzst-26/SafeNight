@@ -11,7 +11,8 @@ import type { RouteScore } from '@/src/hooks/useAllRoutesSafety';
 import type { SafeRoute } from '@/src/services/safeRoutes';
 import type { DirectionsRoute, LatLng } from '@/src/types/geo';
 
-const AGENT_TIMEOUT_MS = 45_000;
+// Longer than the server budget (60 s), so the server's answer, or its simple one, always arrives first.
+const AGENT_TIMEOUT_MS = 70_000;
 const MAX_CANDIDATES = 12;
 
 // ── G1 request and response types ───────────────────────────────────────────

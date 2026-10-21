@@ -178,3 +178,16 @@ describe('debug warning for a discarded model answer', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('status 429'));
   });
 });
+
+describe('agent time budget', () => {
+  const { remainingBudgetMs, AGENT_BUDGET_MS } = require('../../../src/gateway/routes/agentInsights');
+
+  test('the whole agent request has 60 seconds', () => {
+    expect(AGENT_BUDGET_MS).toBe(60_000);
+  });
+
+  test('a model call gets what is left of the budget, never less than zero', () => {
+    expect(remainingBudgetMs(10_000, 4_000)).toBe(6_000);
+    expect(remainingBudgetMs(10_000, 12_000)).toBe(0);
+  });
+});
