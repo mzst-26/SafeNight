@@ -25,7 +25,8 @@ export default function AboutPage() {
       <P>
         SafeNight uses public data to score streets. This includes UK Police street-level crime
         data for England and Wales, and OpenStreetMap data for roads, street lighting, CCTV,
-        transit and open businesses. Read{' '}
+        transit and open businesses. Scores also depend on when you walk, because darkness follows
+        the sun&apos;s position at that time and place. Read{' '}
         <Link href={'/how-it-works' as Href} style={styles.link}>
           how SafeNight scores walking routes
         </Link>{' '}

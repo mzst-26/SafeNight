@@ -14,11 +14,11 @@ export const SEO = {
 
   /** ≤160 chars — shown in Google snippet */
   description:
-    'Plan a safer walking route home. SafeNight scores streets on crime data, lighting, CCTV and foot traffic, with live location sharing. Free to start.',
+    'Plan a safer walking route home. SafeNight scores streets on lighting, crime, road type and nearby activity at the time you walk. Free to start.',
 
   /** 40–60 word definition of SafeNight, used for the entity and About page */
   entityDefinition:
-    'SafeNight is a walking app that helps pedestrians find safer routes at night. It scores each street segment on six factors: crime density, street lighting, CCTV coverage, road type, open businesses and foot traffic. It suggests alternative routes with turn-by-turn navigation, runs on Android and the web, and has a free tier.',
+    'SafeNight is a walking app that helps pedestrians find safer routes at night. It scores each street segment on five factors: street lighting, crime density, road type, nearby activity and isolation. Darkness depends on the time you walk, so scores change with it. It suggests alternative routes with turn-by-turn navigation, runs on Android and the web, and has a free tier.',
 
   /** Public contact address (as published in the delete-account page) */
   contactEmail: 'mzst.26.x@gmail.com',
@@ -53,7 +53,7 @@ export const PAGE_SEO: Record<
   '/': {
     title: 'SafeNight – Safe Walking Route App for Walking Home at Night',
     description:
-      'Plan a safer walking route home. SafeNight scores streets on crime data, lighting, CCTV and foot traffic, with live location sharing. Free to start.',
+      'Plan a safer walking route home. SafeNight scores streets on lighting, crime, road type and nearby activity at the time you walk. Free to start.',
   },
   '/privacy': {
     title: 'Privacy Policy — SafeNight',
@@ -78,7 +78,7 @@ export const PAGE_SEO: Record<
   '/how-it-works': {
     title: 'How SafeNight Scores Walking Routes for Safety',
     description:
-      'See how SafeNight rates walking routes at night using six factors: crime, street lighting, CCTV, road type, open businesses and foot traffic.',
+      'See how SafeNight rates walking routes using five factors: street lighting, crime, road type, nearby activity and isolation, scored for the time you walk.',
   },
   '/faq': {
     title: 'SafeNight FAQ – Safe Walking Route App Questions',

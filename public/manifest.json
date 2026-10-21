@@ -1,7 +1,7 @@
 {
   "name": "SafeNight – Safe Walking Route App",
   "short_name": "SafeNight",
-  "description": "Plan a safer walking route home. SafeNight scores streets on crime data, lighting, CCTV and foot traffic, with live location sharing. Free to start.",
+  "description": "Plan a safer walking route home. SafeNight scores streets on lighting, crime, road type and nearby activity at the time you walk. Free to start.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

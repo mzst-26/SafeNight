@@ -3,7 +3,7 @@
  *
  * The home screen is a map UI, so its static HTML has almost no text. This
  * block gives crawlers and AI answer engines one H1, the entity definition and
- * the six scoring factors. It is visually hidden (the standard accessible
+ * the five scoring factors. It is visually hidden (the standard accessible
  * clip pattern) so the map UI is unchanged for visitors and screen readers
  * still read it.
  */
@@ -39,7 +39,7 @@ export function HomeIntro() {
       </Text>
       <Text>{SEO.entityDefinition}</Text>
       <Text>Crime data covers England and Wales.</Text>
-      <Text>The six factors SafeNight scores each street segment on:</Text>
+      <Text>The five factors SafeNight scores each street segment on:</Text>
       <View role="list">
         {FACTOR_NAMES.map((factor) => (
           <Text key={factor} role="listitem">

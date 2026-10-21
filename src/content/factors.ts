@@ -1,13 +1,12 @@
 /**
- * The six factors SafeNight scores each street segment on.
- * Source: README.md, "6-factor safety scoring" row (Routing & Safety).
+ * The five factors SafeNight scores each street segment on.
+ * Source: backend/src/safety/scoring/config.js (BASE_WEIGHTS).
  * Used by the structured data featureList and the home page intro.
  */
 export const FACTOR_NAMES = [
-  'Crime density',
   'Street lighting',
-  'CCTV coverage',
+  'Crime density',
   'Road type',
-  'Open businesses',
-  'Foot traffic',
+  'Nearby activity',
+  'Isolation',
 ];

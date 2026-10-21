@@ -9,7 +9,7 @@ export const FAQ_ITEMS: { question: string; answer: string }[] = [
   {
     question: 'What is SafeNight?',
     answer:
-      'SafeNight is a walking app that helps pedestrians find safer routes at night. It builds a walking network from OpenStreetMap data, scores street segments on six factors, and suggests alternative routes with turn-by-turn navigation. It runs on Android and in the web browser.',
+      'SafeNight is a walking app that helps pedestrians find safer routes at night. It builds a walking network from OpenStreetMap data, scores street segments on five factors, and suggests alternative routes with turn-by-turn navigation. It runs on Android and in the web browser.',
   },
   {
     question: 'Is SafeNight free?',
@@ -24,12 +24,27 @@ export const FAQ_ITEMS: { question: string; answer: string }[] = [
   {
     question: 'How does SafeNight decide a route is safer?',
     answer:
-      'SafeNight scores each street segment on six factors: crime, street lighting, CCTV, road type, open businesses and foot traffic. The weights change between late night (0 to 5 am), evening (6 pm to midnight) and daytime. Each route is split into short segments, and their risk is combined into a route score, where a higher score means a safer route.',
+      'SafeNight scores each street segment on five factors: street lighting, crime density, road type, nearby activity (open places, CCTV and transit stops) and isolation. Darkness is worked out from the sun\'s position at the time you walk, not from a fixed night-time schedule. The segment scores are combined into a route score from 0 to 100, where a higher score means a safer route.',
+  },
+  {
+    question: 'Does the time I leave change my route?',
+    answer:
+      'Yes. You can choose Leave now, Leave at or Arrive by. For Arrive by, SafeNight works back from your arrival time to estimate when you start. The same street can score differently at 6 pm and 11 pm, and each route shows whether it is daylit, reaches dusk, gets dark before you arrive, or is dark from the start.',
   },
   {
     question: "Where does SafeNight's data come from?",
     answer:
-      'Crime data comes from the UK Police data portal, which covers England and Wales. Street lighting, road types, CCTV, open businesses and transit stops come from OpenStreetMap, read through the Overpass API. Walking directions use OSRM, place search uses Nominatim, and foot traffic is an estimate.',
+      'Crime data comes from the UK Police data portal, which covers England and Wales. Street lighting, road types, CCTV, open businesses and transit stops come from OpenStreetMap, read through the Overpass API. Walking directions use OSRM, place search uses Nominatim, and how busy an area is at a given time is estimated from nearby venues.',
+  },
+  {
+    question: 'Why does a route say crime data is unavailable?',
+    answer:
+      'Crime data is requested live from the UK Police data portal. If the portal cannot be reached or returns an error, SafeNight shows a "Crime data unavailable" notice. It does not treat the missing crime data as a clean record, and it uses a neutral estimate instead.',
+  },
+  {
+    question: 'Why is some street lighting marked as estimated?',
+    answer:
+      'Many streets have no lighting tags or lamp data in OpenStreetMap. SafeNight estimates lighting from the type of street and nearby roads. On the map, estimated stretches are drawn as dashed lines, so you can see which parts are known and which are estimated.',
   },
   {
     question: 'Does SafeNight work everywhere?',

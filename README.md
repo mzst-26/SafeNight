@@ -15,8 +15,8 @@ Built with **React Native (Expo SDK 54)**, **TypeScript**, and a **5-microservic
 | Feature                          | Description                                                                                                                                                                                       |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Graph-based safe routing**     | Builds a full OSM walking graph from Overpass data and runs A\* pathfinding with a safety-weighted cost function to find 3–5 optimally safe route alternatives.                                   |
-| **6-factor safety scoring**      | Every graph edge is scored on **crime density, street lighting, CCTV coverage, road type, open businesses, and foot traffic** — with time-adaptive weights that shift for late night vs. daytime. |
-| **Colour-coded segments**        | Routes are split into ~50 m chunks and rendered green / yellow / red on the map so risk hotspots are visible at a glance.                                                                         |
+| **5-factor safety scoring**      | Every graph edge is scored on **street lighting, crime density, road type, nearby activity, and isolation**. Darkness follows the sun's position at the walking time (leave-at / arrive-by aware). |
+| **Risk-coloured routes**         | The selected route is drawn on a six-step risk ramp, with dashed lines for estimated lighting and a callout for the weakest stretch.                                                    |
 | **Safety panel & profile chart** | Detailed breakdown of per-factor scores with a visual safety profile chart.                                                                                                                       |
 | **Dead-end detection**           | Nodes with degree ≤ 1 receive a safety penalty. Dead ends are flagged to users.                                                                                                                   |
 | **K-diverse routes**             | After finding the safest route, penalises used edges by +0.15 and re-runs A\*; filters duplicates by >85% edge overlap.                                                                           |
@@ -587,8 +587,8 @@ PlymHack2026New/
 The backend builds a **full OSM walking graph** from Overpass data, then runs a custom A\* search:
 
 1. **Graph construction** — indexes all OSM nodes, filters 14 walkable highway types, builds bidirectional adjacency lists
-2. **Edge scoring** — every edge is scored on 6 safety factors using pre-computed coverage maps
-3. **Cost function** — `cost = distance / safetyScore` — optimises for short AND safe
+2. **Edge scoring** — every edge is scored on 5 safety factors (see Safety Scoring Model)
+3. **Cost function** — distance divided by a safety term derived from edge risk — optimises for short AND safe
 4. **Heuristic** — Haversine distance (admissible, never overestimates)
 5. **K-diverse routes** — finds safest route, penalises used edges by +0.15, re-runs A\*; filters duplicates by >85% edge overlap
 6. **Dead-end detection** — nodes with degree ≤ 1 receive a safety penalty (harder to escape danger)
@@ -601,60 +601,58 @@ Grid-based spatial indices (~100 m cells) provide **O(1) proximity lookups** for
 
 Pre-computed `Float32Array` grids (~25 m cells) for:
 
-- **Lighting** — inverse-distance-squared falloff from each street lamp (60 m effective radius), with lamp quality multipliers (LED = 1.4×, mercury/gas = 0.7×)
+- **Lighting** — nearby lamps and lit tags are treated as evidence of lighting, with estimates where nothing is mapped
 - **Crime density** — severity-weighted with distance decay: $\text{impact} = \frac{\text{severity}}{1 + (d/30)^{1.5}}$
 
 ---
 
 ## 🧮 Safety Scoring Model
 
-### Per-Edge Scoring (Backend)
+Scoring runs on the backend (`backend/src/safety/`). The frontend displays the score, label, reason and worst stretch it receives.
 
-$$\text{safetyScore} = \sum_{i} w_i \times \text{factor}_i - \text{surfacePenalty}$$
+### Per-Edge Scoring
 
-**Time-adaptive weights** shift based on hour of day:
+Each walkable edge is scored on five factors. Each factor is a safety value between 0 and 1, or unavailable (`null`) when there is no data.
 
-| Factor       | Late Night (0–5 am) | Evening (6 pm–midnight) | Daytime |
-| ------------ | ------------------- | ----------------------- | ------- |
-| Road Type    | 0.22                | 0.23                    | 0.25    |
-| Lighting     | **0.28**            | 0.25                    | 0.15    |
-| Crime        | **0.25**            | 0.22                    | 0.20    |
-| CCTV         | 0.08                | 0.07                    | 0.05    |
-| Open Places  | 0.07                | 0.12                    | 0.15    |
-| Foot Traffic | 0.10                | 0.11                    | 0.20    |
+| Factor     | Base weight | Source                                   | Notes                                                               |
+| ---------- | ----------- | ---------------------------------------- | ------------------------------------------------------------------- |
+| Lighting   | 0.28        | OSM lighting tags, lamps, road context   | Estimated when unmapped; scaled by darkness at the walking time     |
+| Crime      | 0.25        | UK Police street-level crime API         | Severity-weighted; unavailable during an outage (not treated as clean) |
+| Road       | 0.15        | OSM road class                           | Main roads score safer than footpaths and alleys                    |
+| Activity   | 0.20        | Open places, CCTV, transit (OSM)         | Open status checked at the walking time, London time                |
+| Isolation  | 0.12        | OSM road graph                           | Dead ends and paths away from roads and buildings                   |
 
-### Crime Severity Weighting
+The combined edge risk is a weighted geometric blend, so one very poor factor is not averaged away by good ones. Edges with less evidence carry a small prudent load, so estimated streets never score above verified streets with the same estimate.
 
-Not all crimes are equal — violent crime/robbery = 1.0, shoplifting = 0.2.
-
-### Per-Segment Scoring (Frontend)
-
-Each route is split into ~50 m segments. Every segment is scored on a **0–1 risk scale**:
-
-$$\text{risk}_{\text{segment}} = w_{\text{crime}} \times \text{crimeRisk} + w_{\text{light}} \times \text{lightingRisk} + w_{\text{road}} \times \text{roadRisk} + w_{\text{activity}} \times \text{activityRisk}$$
-
-| Factor                | Weight | Source        | Description                                                |
-| --------------------- | ------ | ------------- | ---------------------------------------------------------- |
-| **Crime**             | 30 %   | UK Police API | Recent crime incidents within ~50 m, severity-weighted     |
-| **Lighting**          | 22 %   | Overpass API  | Street lamp density, lamp quality, `lit` tags, time-of-day |
-| **Road type**         | 15 %   | Overpass API  | Main roads score safer than footpaths/alleys               |
-| **Activity**          | 13 %   | Overpass API  | Open shops and cafés nearby (reduces risk)                 |
-| **Bus stops**         | 10 %   | Overpass API  | Transit proximity                                          |
-| **Road lit fraction** | 10 %   | Overpass API  | Fraction of road tagged as lit                             |
+Remoteness and the local presence index (how busy an area is at a given hour) act as modifiers on top of the blend, not as extra factors.
 
 ### Route Aggregation
 
-$$\text{risk}_{\text{route}} = \frac{\sum (\text{risk}_i \times \text{length}_i)}{\sum \text{length}_i}$$
+A route's risk combines its length-weighted mean risk with a cube-mean that gives more weight to the worst edges:
 
-$$\text{Safety Score} = (1 - \text{risk}_{\text{route}}) \times 100$$
+$$\text{routeRisk} = 0.6 \times \text{mean} + 0.4 \times \text{cubeMean}$$
+
+$$\text{Safety Score} = \text{round}\big(100 \times (1 - \text{routeRisk})\big)$$
+
+The score describes street quality, so it does not depend on route length. Length is used in ranking instead.
+
+A separate `worstStretch` reports the longest run of edges at high risk. It is shown on the map and in the reason text, and does not change the score.
+
+### Ranking
+
+Candidate routes are ranked by exposure, which combines route risk with the square root of length:
+
+$$\text{exposure} = \text{routeRisk} \times \sqrt{\text{lengthKm}}$$
+
+Routes longer than twice the shortest candidate are not recommended. The recommended route's reason compares it only with the runner-up, so the text never mixes routes.
+
+### Time
+
+The walking time is `leave_at` or `arrive_by` (ISO 8601 with offset), or now. Darkness is the solar elevation at the mid-walk instant, mapped smoothly from full daylight to full darkness. Each route returns a timeline with darkness at the start and at arrival.
 
 ### Colour Coding
 
-| Colour    | Risk Range | Label       |
-| --------- | ---------- | ----------- |
-| 🟢 Green  | < 0.3      | Safer       |
-| 🟡 Yellow | 0.3 – 0.6  | Caution     |
-| 🔴 Red    | > 0.6      | Higher risk |
+Routes and segments are drawn on a six-step ramp from teal (safer) to maroon (riskier). Dashed lines mark estimated lighting.
 
 ---
 
