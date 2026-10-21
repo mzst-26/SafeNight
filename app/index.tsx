@@ -1830,13 +1830,7 @@ export default function HomeScreen() {
     hasRoutes: h.routes.length > 0,
     hasSafety: Boolean(h.safetyResult),
   });
-  const openAIExplanation = () => {
-    h.setShowAIModal(true);
-    // ask() is cache-aware: it answers at once for this exact route and asks the model otherwise,
-    // so an explanation from an earlier search is never shown for the current route.
-    h.ai.ask();
-  };
-  // Desktop bar above the recommended route: opens AI Insights / Rethink (agent panel).
+  // AI Insights / Rethink (agent panel): opened by the phone and native chip and the desktop bar.
   const [showAgentPanel, setShowAgentPanel] = useState(false);
   const agentContext = useMemo(
     () =>
@@ -3115,7 +3109,7 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              <AIExplainButton onPress={openAIExplanation} />
+              <AIExplainButton onPress={() => setShowAgentPanel(true)} />
             </Animated.View>
           )}
 

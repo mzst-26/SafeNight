@@ -1,5 +1,5 @@
 /**
- * AIExplainButton — compact glass chip that opens the "why this route" explanation.
+ * AIExplainButton — compact glass chip that opens AI Insights / Rethink (the agent panel).
  * Uses the same glass surface as the map buttons so it sits quietly on the map.
  */
 import { Ionicons } from '@expo/vector-icons';
@@ -19,10 +19,10 @@ export function AIExplainButton({ onPress }: AIExplainButtonProps) {
       style={styles.button}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel="Why we recommend this route"
+      accessibilityLabel="AI Insights or rethink the route choice"
     >
       <Ionicons name="sparkles" size={16} color="#7c3aed" />
-      <Text style={styles.label}>Why this route</Text>
+      <Text style={styles.label}>AI Insights / Rethink</Text>
     </Pressable>
   );
 }

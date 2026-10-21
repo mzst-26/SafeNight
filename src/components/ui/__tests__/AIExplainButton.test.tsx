@@ -7,7 +7,7 @@ import { glassSurface } from '@/src/components/ui/glass';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 
-const LABEL = 'Why we recommend this route';
+const LABEL = 'AI Insights or rethink the route choice';
 
 function render(onPress: () => void): ReactTestRenderer {
   let renderer!: ReactTestRenderer;
@@ -26,11 +26,11 @@ function findPressable(renderer: ReactTestRenderer) {
 }
 
 describe('AIExplainButton', () => {
-  test('shows a short visible label instead of the long sentence', () => {
+  test('shows the AI Insights label that opens the agent panel', () => {
     const renderer = render(() => {});
     const labels = renderer.root.findAllByType(Text).map((t) => t.props.children);
 
-    expect(labels).toContain('Why this route');
+    expect(labels).toContain('AI Insights / Rethink');
     expect(labels).not.toContain(LABEL);
   });
 
